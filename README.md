@@ -13,7 +13,7 @@
 |------|------|
 | [docs/BLUEPRINT.md](docs/BLUEPRINT.md) | 技术蓝图：架构、新旧表映射、实测发现、全部已确认决策 |
 | [docs/LEGACY-FEATURE-MAP.md](docs/LEGACY-FEATURE-MAP.md) | 旧源码↔新模块对齐报告（M01–M15 模块编号、57 权限点清单、骨架插入点）——新功能落地前先查它 |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | 里程碑路线图（M1–M12）、依赖关系、全局测试基线与完成定义 |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | 里程碑路线图（M1–M13）、依赖关系、全局测试基线与完成定义 |
 | [docs/FRONTEND-DESIGN.md](docs/FRONTEND-DESIGN.md) | 前端与主题系统：三层设计令牌、主题包、shadcn/ui 模式、响应式 |
 | [docs/AUTHZ.md](docs/AUTHZ.md) | 权限模型：自研 RBAC/ABAC、5 表设计、旧数据翻译 |
 | [docs/milestones/](docs/milestones/) | 里程碑详单（范围/边界/测试/门禁） |
@@ -60,6 +60,9 @@ npm run verify              # 23 项对账验证（行数/MD5/转换完整性/�
 3. **正文双写**：`content_raw`（原始 UBB）+ `content_md`（Markdown），永远可回滚。
 4. **垃圾只标记不删除**：`is_spam=1` 默认隐藏、可审计可恢复；密码不迁移（邮件重置召回）。
 5. **先骨架后功能**：模块注册表（事件总线/UI 槽位/权限点/导航/令牌覆盖）在骨架期就位，功能逐模块插入。
+6. **数据层双模式**：schema 单一事实源在应用侧（Drizzle，`npm run db:bootstrap` 空库建表 + `db:seed` 演示种子），
+   项目可**零数据安装部署**（Web 安装向导 + CLI，见里程碑 M12）；
+   青翼 phpwind 导入（`migration/`）只是可选路径，运行不依赖旧库。
 
 ## 里程碑工作流
 

@@ -16,6 +16,9 @@
 8. **注册：邀请制起步、稳定后开放**（邀请码 + 邮箱验证 + 频控两套接口骨架都留）。
 9. **开发路线：先骨架后功能**——按 [LEGACY-FEATURE-MAP.md](LEGACY-FEATURE-MAP.md) 的 M01–M15 顺序，
    骨架期就落事件总线/UI 槽位/注册表边界，逐模块填充。
+10. **数据层双模式**：项目必须支持**零数据部署**（Web 安装向导 + CLI bootstrap，见里程碑 M12），
+    青翼 phpwind 迁移导入是可选路径而非前提。schema 单一事实源在应用侧（Drizzle 定义，M1 起），
+    `migration/` 降级为「青翼专项导入器」，其 schema-init 与应用共用同一 Drizzle 管线。
 
 ---
 
@@ -80,6 +83,8 @@
 ## 3. 新库 schema（qysub_next）
 
 设计原则：**保留旧主键**（uid/tid/pid/fid/aid）→ 历史 URL 可 301、附件路径天然可用；每表带 `raw JSON` 归档旧行，永不丢信息。
+schema 演进：P0 期的 `migration/schema/schema.sql` 为基线底稿；**M1 起以应用侧 Drizzle 定义为单一事实源**（决策 #10），
+零数据 bootstrap 与迁移导入共用同一建表管线。
 
 | 新表 | 来源 | 要点 |
 |------|------|------|

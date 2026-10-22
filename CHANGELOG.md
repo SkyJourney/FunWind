@@ -1,14 +1,24 @@
 # Changelog
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式；
-版本号采用语义化版本（SemVer）。里程碑交付在条目中标注（M1–M12，见 docs/ROADMAP.md）。
+版本号采用语义化版本（SemVer）。里程碑交付在条目中标注（M1–M13，见 docs/ROADMAP.md）。
 
 ## [Unreleased]
+
+### Added
+
+- **决策 #10 · 数据层双模式**：项目支持零数据部署——Web 安装向导 + CLI bootstrap（新里程碑 M12）；
+  schema 单一事实源移至应用侧 Drizzle（M1 落地），`migration/` 降级为青翼专项可选导入器。
+
+### Changed
+
+- 里程碑重排：新增 M12「安装向导与零数据部署」，原 M12「部署与社区重启」改为 M13；
+  ROADMAP/依赖图/相关里程碑引用已同步。
 
 ### 计划中
 
 - M1 工程骨架与基础设施（进行中）
-- M2–M12 里程碑（见 docs/ROADMAP.md）
+- M2–M13 里程碑（见 docs/ROADMAP.md）
 
 ## [0.1.0] - 2026-10-23 · 项目设计与数据迁移（P0）
 
