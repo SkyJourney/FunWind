@@ -1,0 +1,42 @@
+/* ============================================================
+ * 主题包：dark（暗色）
+ * 以 [data-theme="dark"] 覆盖语义层；换主题不换 DOM 结构。
+ * ============================================================ */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --background: var(--fw-gray-950);
+  --foreground: var(--fw-gray-100);
+
+  --card: var(--fw-gray-900);
+  --card-foreground: var(--fw-gray-100);
+  --popover: var(--fw-gray-900);
+  --popover-foreground: var(--fw-gray-100);
+
+  --primary: var(--fw-cyan-400);
+  --primary-foreground: var(--fw-gray-950);
+
+  --secondary: var(--fw-gray-800);
+  --secondary-foreground: var(--fw-gray-200);
+
+  --muted: var(--fw-gray-800);
+  --muted-foreground: var(--fw-gray-400);
+
+  --accent: var(--fw-cyan-950);
+  --accent-foreground: var(--fw-cyan-200);
+
+  --destructive: var(--fw-red-400);
+  --destructive-foreground: var(--fw-gray-950);
+
+  --success: var(--fw-green-500);
+  --warning: var(--fw-amber-400);
+  --info: var(--fw-blue-400);
+
+  --border: var(--fw-gray-800);
+  --input: var(--fw-gray-800);
+  --ring: var(--fw-cyan-400);
+
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.5);
+  --shadow-2: 0 4px 12px rgb(0 0 0 / 0.55);
+  --shadow-3: 0 12px 32px rgb(0 0 0 / 0.65);
+}

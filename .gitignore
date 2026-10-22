@@ -20,4 +20,5 @@ Thumbs.db
 .turbo/
 .eslintcache
 .vercel
+.zcode/
 drizzle/meta/_journal.json.bak

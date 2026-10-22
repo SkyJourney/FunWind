@@ -1,0 +1,89 @@
+/* ============================================================
+ * 原子令牌层（primitives）
+ * 只定义"存在什么"：色阶、字阶、间距、圆角、阴影、字体栈。
+ * 业务组件禁止直接引用本层——一律经由 semantic.css 的语义令牌。
+ * ============================================================ */
+:root {
+  /* 青翼品牌 · 青（cyan-teal 主色相） */
+  --fw-cyan-50: #ecfeff;
+  --fw-cyan-100: #cffafe;
+  --fw-cyan-200: #a5f3fc;
+  --fw-cyan-300: #67e8f9;
+  --fw-cyan-400: #22d3ee;
+  --fw-cyan-500: #06b6d4;
+  --fw-cyan-600: #0891b2;
+  --fw-cyan-700: #0e7490;
+  --fw-cyan-800: #155e75;
+  --fw-cyan-900: #164e63;
+  --fw-cyan-950: #083344;
+
+  /* 若叶绿（辅色，怀旧主题备用） */
+  --fw-teal-400: #2dd4bf;
+  --fw-teal-500: #14b8a6;
+  --fw-teal-600: #0d9488;
+
+  /* 中性灰（冷调） */
+  --fw-gray-50: #f8fafc;
+  --fw-gray-100: #f1f5f9;
+  --fw-gray-200: #e2e8f0;
+  --fw-gray-300: #cbd5e1;
+  --fw-gray-400: #94a3b8;
+  --fw-gray-500: #64748b;
+  --fw-gray-600: #475569;
+  --fw-gray-700: #334155;
+  --fw-gray-800: #1e293b;
+  --fw-gray-900: #0f172a;
+  --fw-gray-950: #020617;
+
+  /* 语义色板 */
+  --fw-green-500: #22c55e;
+  --fw-green-600: #16a34a;
+  --fw-amber-400: #fbbf24;
+  --fw-amber-500: #f59e0b;
+  --fw-red-400: #f87171;
+  --fw-red-500: #ef4444;
+  --fw-red-600: #dc2626;
+  --fw-blue-400: #60a5fa;
+  --fw-blue-500: #3b82f6;
+
+  /* 字阶（12–36px 六档 + 展示级） */
+  --fw-text-xs: 0.75rem;    /* 12 */
+  --fw-text-sm: 0.875rem;   /* 14 */
+  --fw-text-base: 1rem;     /* 16 */
+  --fw-text-lg: 1.125rem;   /* 18 */
+  --fw-text-xl: 1.5rem;     /* 24 */
+  --fw-text-2xl: 1.875rem;  /* 30 */
+  --fw-text-3xl: 2.25rem;   /* 36 */
+
+  /* 行高 */
+  --fw-leading-tight: 1.25;
+  --fw-leading-normal: 1.6;
+
+  /* 间距（4px 基数） */
+  --fw-space-1: 0.25rem;
+  --fw-space-2: 0.5rem;
+  --fw-space-3: 0.75rem;
+  --fw-space-4: 1rem;
+  --fw-space-6: 1.5rem;
+  --fw-space-8: 2rem;
+  --fw-space-12: 3rem;
+  --fw-space-16: 4rem;
+
+  /* 圆角 */
+  --fw-radius-sm: 0.25rem;
+  --fw-radius-md: 0.5rem;
+  --fw-radius-lg: 0.75rem;
+  --fw-radius-xl: 1rem;
+  --fw-radius-full: 9999px;
+
+  /* 阴影（浅色基准；暗色主题在 semantic 层加深） */
+  --fw-shadow-1: 0 1px 2px rgb(15 23 42 / 0.06), 0 1px 3px rgb(15 23 42 / 0.08);
+  --fw-shadow-2: 0 4px 12px rgb(15 23 42 / 0.10);
+  --fw-shadow-3: 0 12px 32px rgb(15 23 42 / 0.16);
+
+  /* 字体栈：中文/日文优先系统字体，离线友好 */
+  --fw-font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC",
+    "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans CJK SC", "Noto Sans CJK JP",
+    "Microsoft YaHei", "Microsoft JhengHei", sans-serif;
+  --fw-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}

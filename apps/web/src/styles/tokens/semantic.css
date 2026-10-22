@@ -1,0 +1,46 @@
+/* ============================================================
+ * 语义令牌层（semantic）—— 默认=浅色
+ * 组件唯一允许引用的层（shadcn 兼容命名）。
+ * 暗色覆盖见 themes/dark.css；主题包（如 复刻·青翼2010）只覆盖本层变量。
+ * ============================================================ */
+:root {
+  color-scheme: light;
+
+  --background: var(--fw-gray-50);
+  --foreground: var(--fw-gray-900);
+
+  --card: #ffffff;
+  --card-foreground: var(--fw-gray-900);
+  --popover: #ffffff;
+  --popover-foreground: var(--fw-gray-900);
+
+  /* 品牌：青 600，hover 青 700 */
+  --primary: var(--fw-cyan-600);
+  --primary-foreground: #ffffff;
+
+  --secondary: var(--fw-gray-100);
+  --secondary-foreground: var(--fw-gray-700);
+
+  --muted: var(--fw-gray-100);
+  --muted-foreground: var(--fw-gray-500);
+
+  --accent: var(--fw-cyan-50);
+  --accent-foreground: var(--fw-cyan-800);
+
+  --destructive: var(--fw-red-600);
+  --destructive-foreground: #ffffff;
+
+  --success: var(--fw-green-600);
+  --warning: var(--fw-amber-500);
+  --info: var(--fw-blue-500);
+
+  --border: var(--fw-gray-200);
+  --input: var(--fw-gray-200);
+  --ring: var(--fw-cyan-500);
+
+  --radius: var(--fw-radius-lg);
+
+  --shadow-1: var(--fw-shadow-1);
+  --shadow-2: var(--fw-shadow-2);
+  --shadow-3: var(--fw-shadow-3);
+}
