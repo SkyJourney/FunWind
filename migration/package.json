@@ -1,22 +1,21 @@
 {
-  "name": "qysub-migration",
+  "name": "@funwind/migration",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "phpwind 9 (GBK) → qysub_next (utf8mb4) 幂等迁移程序",
+  "description": "青翼 phpwind 9 (GBK) → qysub_next (utf8mb4) 专项导入器（可选路径；项目默认零数据部署）",
   "scripts": {
-    "schema": "tsx src/load-schema.ts",
     "migrate": "tsx src/run.ts",
-    "migrate:only": "tsx src/run.ts",
     "verify": "tsx src/verify.ts"
   },
   "dependencies": {
-    "dotenv": "^16.4.5",
-    "mysql2": "^3.11.5"
+    "@funwind/db": "workspace:*",
+    "dotenv": "^18.0.9",
+    "mysql2": "^3.24.6"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
-    "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.0"
   }
 }

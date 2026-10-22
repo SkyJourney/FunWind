@@ -1,4 +1,5 @@
 import mysql from 'mysql2/promise';
+import { createPool } from '@funwind/db';
 import { config } from './config.js';
 
 const DB_RE = /^\s*(select|show|describe|desc)\b/i;
@@ -20,13 +21,7 @@ export async function oldQuery<T = any>(sql: string, params: unknown[] = []): Pr
   return rows as T[];
 }
 
-const newPool = mysql.createPool({
-  ...config.newDb,
-  charset: 'utf8mb4',
-  connectionLimit: 8,
-  dateStrings: true,
-  multipleStatements: true, // 允许 schema.sql 整体执行
-});
+const newPool = createPool(config.newDb);
 
 export async function newQuery<T = any>(sql: string, params: unknown[] = []): Promise<T[]> {
   const [rows] = await newPool.query(sql, params as any[]);

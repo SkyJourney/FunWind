@@ -1,20 +1,18 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
-import { newQuery } from './db.js';
+import { bootstrapDb } from "@funwind/db";
+import { newQuery } from "./db.js";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const schemaFile = join(here, '../schema/schema.sql');
-const marker = 'SELECT 1 FROM migration_state LIMIT 1';
+const marker = "SELECT 1 FROM migration_state LIMIT 1";
 
-/** 首次运行时加载 schema；migration_state 存在则视为已初始化（幂等） */
+/**
+ * 首次运行时初始化 schema：与零数据部署共用同一 Drizzle 管线（决策 #10 单一事实源）。
+ * migration_state 存在则视为已初始化（幂等）；P0 期手写的 schema.sql 保留为历史底稿，不再执行。
+ */
 export async function loadSchemaOnce() {
   try {
     await newQuery(marker);
     return;
   } catch {
-    if (!existsSync(schemaFile)) throw new Error(`schema 文件缺失: ${schemaFile}`);
-    await newQuery(readFileSync(schemaFile, 'utf8'));
-    console.log('✔ qysub_next schema 已初始化');
+    await bootstrapDb();
+    console.log("✔ qysub_next schema 已初始化（共享 Drizzle 管线）");
   }
 }

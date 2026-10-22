@@ -1,0 +1,24 @@
+{
+  "name": "funwind",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FunWind · 青翼字幕组（QYSUB）新论坛",
+  "packageManager": "pnpm@12.15.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "pnpm --filter @funwind/web build",
+    "dev": "pnpm --filter @funwind/web dev",
+    "lint": "pnpm -r --if-present lint",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test",
+    "test:e2e": "pnpm --filter @funwind/web test:e2e",
+    "db:bootstrap": "pnpm --filter @funwind/db bootstrap",
+    "db:seed": "pnpm --filter @funwind/db seed",
+    "db:verify": "pnpm --filter @funwind/db verify",
+    "migrate": "pnpm --filter @funwind/migration migrate",
+    "verify:migration": "pnpm --filter @funwind/migration verify",
+    "verify:all": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+  }
+}
