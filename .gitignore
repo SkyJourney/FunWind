@@ -1,0 +1,23 @@
+# 依赖与构建产物
+node_modules/
+.next/
+out/
+coverage/
+playwright-report/
+test-results/
+
+# 环境与密钥（.env 含真实口令，禁止入库；示例见 .env.example）
+.env
+.env.local
+.env.*.local
+
+# 日志与系统文件
+*.log
+.DS_Store
+Thumbs.db
+
+# 工具缓存
+.turbo/
+.eslintcache
+.vercel
+drizzle/meta/_journal.json.bak

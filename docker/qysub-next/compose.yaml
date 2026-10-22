@@ -1,0 +1,26 @@
+# qysub-next · 新论坛 MySQL 8 LTS（与旧只读副本实例完全隔离）
+# 旧库：qingyisub-mysql @ 127.0.0.1:33620（mysql 5.7，GBK，只读红线）
+# 新库：qysub-next-mysql @ 127.0.0.1:33621（mysql 8.4 LTS，utf8mb4，InnoDB）
+name: qysub-next
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: qysub-next-mysql
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:33621:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=***REMOVED***
+      - MYSQL_DATABASE=qysub_next
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    volumes:
+      - /Volumes/Docker/data/qysub-next/mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p***REMOVED***"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
