@@ -160,6 +160,7 @@ schema 演进：P0 期的 `migration/schema/schema.sql` 为基线底稿；**M1 �
   `p_w_picpath/back.gif` 是旧站引用头里的「回到原帖」图标（包在 `job.php?action=topost;tid;pid` 链接中）→ `[↩ 原帖](/t/{tid}#p{pid})`；
   `http://www.qingyisub.com/p_w_upload/photo/Mon_xxxx/…` 的文件实际位于 `attachment/photo/Mon_xxxx/…` → 按磁盘存在性改写为 `/attachment/…`。
 - 表情 50 枚（`emotion_id` 120–169）静态化为 `apps/web/public/emoji/{emotion_id}.gif`（约 1.4MB，入库提交），渲染白名单随 S4 增加 `/emoji/` 前缀与 `<sup>`/`<sub>`。
+- 门控标签未闭合时**失败即封闭**（到容器末尾都归入隐藏内容，不进公开正文）；旧库 tid 2023 的未闭合 `[sell]` 有 22 条购买记录，证明旧站按付费帖处理。
 - 未闭合标签规则：`[attachment=N]`、`[li]`、媒体标签及未知标签未闭合时**不包裹**后文（v1 会吞掉其后全部正文）。
 
 ## 4.5 URL 结构（M3 冻结，301 依赖）

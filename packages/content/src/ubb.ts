@@ -416,10 +416,10 @@ function render(n: Node, st: State, env: Env): string {
   // 门控标签：顶层提升为门控；门控内并入；容器内丢弃；未闭合当作普通文本
   if (GATE_TAGS.has(tag)) {
     if (env.inGate) return renderChildren(n, st, env);
-    if (!n.closed) {
-      st.warnings.push({ code: "gate-unclosed", detail: tag });
-      return renderChildren(n, st, env);
-    }
+    // 失败即封闭：门控标签缺少闭合时，把它到所在容器末尾的内容都当作隐藏内容，
+    // 绝不把子节点渲染进公开输出。旧库实证（tid 2023：未闭合的 [sell] 有 22 条购买记录）说明
+    // 旧站确实把这类帖子当作付费帖处理。仍记录告警，供站长复核。
+    if (!n.closed) st.warnings.push({ code: "gate-unclosed", detail: tag });
     if (env.pos === "top") return renderGate(n, st);
     st.warnings.push({ code: "gate-nested-dropped", detail: `${tag} in ${env.container ?? "?"}` });
     return "\n\n🔒 （此处原有隐藏内容，已省略）\n\n";

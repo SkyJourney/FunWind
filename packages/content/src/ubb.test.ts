@@ -225,11 +225,20 @@ describe("门控转换", () => {
     expect(r.gates[0]?.hiddenMd).toBe("外内");
   });
 
-  it("未闭合的门控标签不吞内容：去壳公开并告警", () => {
-    const r = conv("[sell=5,]没有闭合");
-    expect(r.gates).toEqual([]);
-    expect(r.md).toBe("没有闭合");
-    expect(r.warnings[0]?.code).toBe("gate-unclosed");
+  it("未闭合的门控标签：失败即封闭——到末尾的内容都归入隐藏内容，公开正文不泄露", () => {
+    const r = conv("公开前文[sell=5,]没有闭合的付费内容\n以及后面的全部文字");
+    expect(r.gates).toHaveLength(1);
+    expect(r.gates[0]?.hiddenMd).toBe("没有闭合的付费内容\n以及后面的全部文字");
+    expect(r.md).toBe('公开前文\n\n:::gate{id="5001"}\n:::');
+    expect(r.md).not.toContain("付费内容");
+    expect(r.warnings.map((w) => w.code)).toEqual(["gate-unclosed"]);
+  });
+
+  it("未闭合的 [post] / [hide] 同样封闭；位于闭合容器内的未闭合门控仍按嵌套丢弃", () => {
+    expect(conv("[post]秘密").gates[0]?.conditions[0]).toEqual({ type: "reply" });
+    expect(conv("[post]秘密").md).not.toContain("秘密");
+    const nested = conv("[quote]引用[sell=5,]秘密[/quote]后");
+    expect(nested.md).not.toContain("秘密");
   });
 
   it("单帖门控超过上限直接抛错（由迁移显式处理，不静默丢）", () => {
@@ -346,7 +355,9 @@ describe("性质测试 · 泄露不变量", () => {
         tokens.push(token);
         const gate = pick(GATES);
         const gateTag = gate.split("=")[0]!;
-        let piece = `[${gate}]${token}[/${gateTag}]`;
+        // 约四分之一的门控故意不写闭合标签：失败即封闭，秘密同样不得进入公开正文
+        const closeTag = rand() < 0.25 ? "" : `[/${gateTag}]`;
+        let piece = `[${gate}]${token}${closeTag}`;
         const depth = Math.floor(rand() * 3);
         for (let d = 0; d < depth; d++) {
           const w = pick(WRAPPERS);

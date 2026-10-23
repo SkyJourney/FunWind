@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### Fixed（M5.5 · 安全审查整改）
+
+- **未闭合门控标签改为失败即封闭**：此前去壳后把内容公开，会泄露已售出的付费内容（旧库 tid 2023 未闭合的 `[sell]` 有 22 条购买记录）。
+  现在到容器末尾的内容都归入隐藏内容；性质测试加入「忘记闭合」变体；真实数据复验积分门控 309 → 318，文本保留率不变。
+- **迁移报告脱敏**：入库的 `docs/reports/` 只含 uid 与脱敏邮箱（`j***@126.com`）；完整邮箱清单写入已 gitignore 的 `migration/reports/`。
+  含完整邮箱的版本已从本地提交历史中改写掉（未推送过）。
+
 ### Added（M5.5 · S3-B / B0+B1 迁移 v2：身份、版块、限制、权限）
 
 - `forums.write_policy`（`inherit|members|restricted`）：旧站「只有团队组能发帖」的 6 个版块与 restricted 读版块是同一批；增量迁移 `0001_forum_write_policy`。
