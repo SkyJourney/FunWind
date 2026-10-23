@@ -1,225 +1,348 @@
-import { oldQuery, newQuery, closePools } from "./db.js";
-import { checkAttachmentFiles } from "./entities/extra.js";
-import { createHash } from "node:crypto";
+/**
+ * 迁移 v2 对账：旧库（只读） ⇄ 新库。
+ * 原则：期望值尽量用与迁移实现**不同的路径**独立推导（直接对旧库写 SQL），
+ * 避免「实现和检查共用同一段逻辑，错了也是一致的」。
+ * 输出：控制台 + docs/reports/migration-v2-verify.md（确定性，入库）。
+ */
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { PERMISSION_DEFINITIONS, ROLE_DEFINITIONS } from "@funwind/db";
+import { AS_OF, config } from "./config.js";
+import { closePools, newQuery, oldQuery } from "./db.js";
+import { Report } from "./lib/report.js";
+import { MEMBER_GIDS } from "./transform/legacy-groups.js";
 
 interface Check {
+  group: string;
   name: string;
   pass: boolean;
-  warn?: boolean;
   detail: string;
 }
-
 const checks: Check[] = [];
-function add(name: string, pass: boolean, detail: string, warn = false) {
-  checks.push({ name, pass, warn, detail });
+let group = "";
+const add = (name: string, pass: boolean, detail: string) =>
+  checks.push({ group, name, pass, detail });
+const num = async (sql: string, q: typeof oldQuery = oldQuery, params: unknown[] = []) =>
+  Number((await q<{ n: number }>(sql, params))[0]?.n ?? 0);
+const eq = (name: string, expected: number, actual: number, label = "") =>
+  add(name, expected === actual, `${label}期望 ${expected} / 实际 ${actual}`);
+
+const asOfUnix = Math.floor(new Date(`${AS_OF.replace(" ", "T")}+08:00`).getTime() / 1000);
+
+// ---------- 用户 ----------
+group = "用户";
+{
+  eq(
+    "行数 users",
+    await num("SELECT COUNT(*) n FROM nw_user"),
+    await num("SELECT COUNT(*) n FROM users", newQuery),
+  );
+  eq(
+    "行数 user_profiles",
+    await num("SELECT COUNT(*) n FROM nw_user"),
+    await num("SELECT COUNT(*) n FROM user_profiles", newQuery),
+  );
+  const [u] = await newQuery<{
+    n: number;
+    uk: number;
+    ek: number;
+    nopw: number;
+    nodate: number;
+  }>(
+    `SELECT COUNT(*) n, COUNT(DISTINCT username_key) uk, COUNT(email_key) ek,
+            COUNT(DISTINCT email_key) dek, SUM(password_hash IS NOT NULL) nopw,
+            SUM(created_at IS NULL) nodate FROM users`,
+  );
+  add("用户名归一化键唯一", Number(u!.uk) === Number(u!.n), `${u!.uk}/${u!.n}`);
+  const dek = await num("SELECT COUNT(DISTINCT email_key) n FROM users", newQuery);
+  add("邮箱归一化键唯一", dek === Number(u!.ek), `${dek}/${u!.ek}`);
+  add("密码哈希一律为空（红线）", Number(u!.nopw) === 0, `非空 ${u!.nopw}`);
+  add("注册时间无空值", Number(u!.nodate) === 0, `空 ${u!.nodate}`);
+
+  // 平假名/片假名账号都在（旧站 EUC-JP 实测红线：さくら≠サクラ）
+  const kana = await num(
+    "SELECT COUNT(*) n FROM users WHERE username IN ('さくら','サクラ')",
+    newQuery,
+  );
+  const kanaOld = await num("SELECT COUNT(*) n FROM nw_user WHERE username IN ('さくら','サクラ')");
+  eq("假名用户名不碰撞", kanaOld, kana);
+
+  // 头像：avatar_key 非空的文件必须真实存在；旧站有主图文件的用户都要带上
+  const withAvatar = await newQuery<{ id: number; avatar_key: string }>(
+    "SELECT user_id AS id, avatar_key FROM user_profiles WHERE avatar_key IS NOT NULL",
+  );
+  const missing = withAvatar.filter((r) => !existsSync(join(config.attachmentDir, r.avatar_key)));
+  add("头像文件均存在", missing.length === 0, `${withAvatar.length} 个，缺失 ${missing.length}`);
+
+  const spamNew = await num("SELECT COUNT(*) n FROM users WHERE state = 'spam'", newQuery);
+  const spamOld = await num(`SELECT COUNT(*) n FROM (
+      SELECT t.created_userid uid FROM nw_bbs_threads t
+      LEFT JOIN nw_bbs_threads_content c ON c.tid = t.tid
+      WHERE c.tid IS NULL AND NOT EXISTS (SELECT 1 FROM nw_bbs_posts p WHERE p.tid = t.tid)
+        AND EXISTS (SELECT 1 FROM nw_user u WHERE u.uid = t.created_userid)
+        AND NOT EXISTS (SELECT 1 FROM nw_bbs_posts p2 WHERE p2.created_userid = t.created_userid)
+        AND NOT EXISTS (SELECT 1 FROM nw_bbs_threads t2 JOIN nw_bbs_threads_content c2 ON c2.tid = t2.tid
+                        WHERE t2.created_userid = t.created_userid)
+      GROUP BY t.created_userid) x`);
+  eq("spam 用户数（独立 SQL 推导）", spamOld, spamNew);
 }
 
-const md5 = (s: string | null) =>
-  s === null ? "" : createHash("md5").update(s, "utf8").digest("hex");
+// ---------- 版块 ----------
+group = "版块";
+{
+  eq(
+    "行数 forums",
+    await num("SELECT COUNT(*) n FROM nw_bbs_forum"),
+    await num("SELECT COUNT(*) n FROM forums", newQuery),
+  );
 
-// ---------- 1. 行数对账 ----------
-const expected: [string, string, number | "same"][] = [
-  ["groups", `SELECT COUNT(*) n FROM nw_user_groups`, "same"],
-  ["forums", `SELECT COUNT(*) n FROM nw_bbs_forum`, "same"],
-  ["users", `SELECT COUNT(*) n FROM nw_user`, "same"],
-  ["threads", `SELECT COUNT(*) n FROM nw_bbs_threads`, "same"],
-  ["posts", `SELECT COUNT(*) n FROM nw_bbs_posts`, "same"],
-  ["attachments", `SELECT COUNT(*) n FROM nw_attachs_thread`, "same"],
-  ["emoticons", `SELECT COUNT(*) n FROM nw_common_emotion`, "same"],
-  ["topic_type", `SELECT COUNT(*) n FROM nw_bbs_topic_type`, "same"],
-  ["user_bans", `SELECT COUNT(*) n FROM nw_user_ban`, "same"],
-  ["medals", `SELECT COUNT(*) n FROM nw_medal_info`, "same"],
-  ["credit_logs", `SELECT COUNT(*) n FROM nw_credit_log`, "same"],
-  ["polls", `SELECT COUNT(*) n FROM nw_app_poll`, "same"],
-  ["poll_options", `SELECT COUNT(*) n FROM nw_app_poll_option`, "same"],
-  ["poll_voters", `SELECT COUNT(*) n FROM nw_app_poll_voter`, "dedup"],
-  ["private_messages", `SELECT COUNT(*) n FROM nw_windid_message`, "same"],
-];
-for (const [table, oldSql, rule] of expected) {
-  const oldN = Number((await oldQuery(oldSql))[0].n);
-  const newN = Number((await newQuery(`SELECT COUNT(*) n FROM \`${table}\``))[0].n);
-  if (rule === "dedup") {
-    // 新库复合主键去重（旧库存在同一人对同一选项的重复投票记录）
-    const dupN = Number(
-      (
-        await oldQuery(
-          `SELECT COALESCE(SUM(c - 1), 0) n FROM (
-         SELECT COUNT(*) c FROM nw_app_poll_voter GROUP BY poll_id, option_id, uid HAVING c > 1) d`,
-        )
-      )[0].n,
+  const bad = await newQuery<{ id: number }>(
+    `SELECT f.id FROM forums f LEFT JOIN forums p ON p.id = f.parent_id
+     WHERE (f.parent_id = 0 AND (f.path <> CONCAT('/', f.id, '/') OR f.depth <> 1))
+        OR (f.parent_id > 0 AND (p.id IS NULL OR f.path <> CONCAT(p.path, f.id, '/') OR f.depth <> p.depth + 1))`,
+  );
+  add(
+    "path / depth 与父链一致",
+    bad.length === 0,
+    bad.length ? `异常: ${bad.map((b) => b.id)}` : "全部一致",
+  );
+  const maxDepth = await num("SELECT MAX(depth) n FROM forums", newQuery);
+  add("层级深度", maxDepth >= 1, `最大 ${maxDepth} 层`);
+
+  // 读策略：独立用 FIND_IN_SET 推导期望的 public/members/restricted 数量
+  const memberAny = [...MEMBER_GIDS].map((g) => `FIND_IN_SET(${g}, allow_read)`).join(" OR ");
+  const expPublic = await num(
+    `SELECT COUNT(*) n FROM nw_bbs_forum WHERE allow_read <> '' AND FIND_IN_SET(2, allow_read)`,
+  );
+  const expMembers = await num(
+    `SELECT COUNT(*) n FROM nw_bbs_forum WHERE allow_read <> '' AND NOT FIND_IN_SET(2, allow_read) AND (${memberAny})`,
+  );
+  const expRestricted = await num(
+    `SELECT COUNT(*) n FROM nw_bbs_forum WHERE allow_read <> '' AND NOT FIND_IN_SET(2, allow_read) AND NOT (${memberAny})`,
+  );
+  for (const [policy, exp] of [
+    ["public", expPublic],
+    ["members", expMembers],
+    ["restricted", expRestricted],
+  ] as const) {
+    eq(
+      `read_policy=${policy}`,
+      exp,
+      await num("SELECT COUNT(*) n FROM forums WHERE read_policy = ?", newQuery, [policy]),
     );
-    add(
-      `count:${table}`,
-      newN === oldN - dupN,
-      `旧 ${oldN} → 新 ${newN}（去除 ${dupN} 条重复投票记录）`,
+  }
+
+  const restrictedNoGrant = await newQuery<{ id: number }>(
+    `SELECT f.id FROM forums f WHERE f.read_policy = 'restricted'
+       AND NOT EXISTS (SELECT 1 FROM role_grants g WHERE g.permission_key = 'forum.read' AND g.scope_id = f.id)`,
+  );
+  add(
+    "restricted 版块都有团队读授权",
+    restrictedNoGrant.length === 0,
+    restrictedNoGrant.length ? `缺: ${restrictedNoGrant.map((r) => r.id)}` : "全部具备",
+  );
+  const strayScope = await newQuery<{ scope_id: number }>(
+    `SELECT DISTINCT g.scope_id FROM role_grants g LEFT JOIN forums f ON f.id = g.scope_id
+     WHERE g.scope_id > 0 AND (f.id IS NULL OR (f.read_policy <> 'restricted' AND f.write_policy <> 'restricted'))`,
+  );
+  add(
+    "版块作用域授权只落在 restricted 版块",
+    strayScope.length === 0,
+    strayScope.length ? `异常: ${strayScope.map((r) => r.scope_id)}` : "无越界",
+  );
+
+  eq(
+    "is_listed=0 的版块数",
+    await num("SELECT COUNT(*) n FROM nw_bbs_forum WHERE isshow = 0"),
+    await num("SELECT COUNT(*) n FROM forums WHERE is_listed = 0", newQuery),
+  );
+  eq(
+    "forum_prefixes（仅被引用）",
+    await num(
+      "SELECT COUNT(DISTINCT t.id) n FROM nw_bbs_topic_type t JOIN nw_bbs_threads th ON th.topic_type = t.id",
+    ),
+    await num("SELECT COUNT(*) n FROM forum_prefixes", newQuery),
+  );
+}
+
+// ---------- 用户限制 ----------
+group = "用户限制";
+{
+  // 独立推导：生效的禁言用户 = 未过期的 typeid=1 封禁 ∪ 禁止发言组成员（主组/附加组且未过期），且用户存在
+  const expMute = await num(
+    `SELECT COUNT(*) n FROM (
+       SELECT b.uid FROM nw_user_ban b JOIN nw_user u ON u.uid = b.uid
+        WHERE b.typeid = 1 AND (b.end_time = 0 OR b.end_time > ?)
+       UNION
+       SELECT uid FROM nw_user WHERE groupid = 6
+       UNION
+       SELECT bl.uid FROM nw_user_belong bl JOIN nw_user u ON u.uid = bl.uid
+        WHERE bl.gid = 6 AND (bl.endtime = 0 OR bl.endtime > ?)
+     ) x`,
+    oldQuery,
+    [asOfUnix, asOfUnix],
+  );
+  eq(
+    "禁言用户数",
+    expMute,
+    await num(
+      "SELECT COUNT(DISTINCT user_id) n FROM user_restrictions WHERE kind = 'mute'",
+      newQuery,
+    ),
+  );
+  for (const [typeid, kind] of [
+    [2, "no_avatar"],
+    [4, "no_signature"],
+  ] as const) {
+    eq(
+      `${kind} 条数`,
+      await num(
+        `SELECT COUNT(*) n FROM nw_user_ban b JOIN nw_user u ON u.uid = b.uid
+          WHERE b.typeid = ? AND (b.end_time = 0 OR b.end_time > ?)`,
+        oldQuery,
+        [typeid, asOfUnix],
+      ),
+      await num("SELECT COUNT(*) n FROM user_restrictions WHERE kind = ?", newQuery, [kind]),
     );
-  } else {
-    add(`count:${table}`, oldN === newN, `旧 ${oldN} → 新 ${newN}`);
   }
+  const none = await num(
+    "SELECT COUNT(*) n FROM user_restrictions WHERE ends_at IS NOT NULL AND ends_at <= ?",
+    newQuery,
+    [AS_OF],
+  );
+  add("没有已过期的限制", none === 0, `过期 ${none}`);
+  const orphan = await num(
+    "SELECT COUNT(*) n FROM user_restrictions r LEFT JOIN users u ON u.id = r.user_id WHERE u.id IS NULL",
+    newQuery,
+  );
+  add("限制不指向不存在的用户", orphan === 0, `孤儿 ${orphan}`);
 }
 
-// ---------- 2. 内容保真：抽样 MD5 对比（编码无损证明） ----------
-const SAMPLE = 300;
-const sampleThreads = await oldQuery(
-  `SELECT tid, content FROM nw_bbs_threads_content WHERE content IS NOT NULL
-   ORDER BY RAND() LIMIT ?`,
-  [SAMPLE],
-);
-let mismatch = 0,
-  compared = 0;
-for (const r of sampleThreads) {
-  const newRow = (await newQuery(`SELECT content_raw FROM threads WHERE id = ?`, [r.tid]))[0];
-  if (!newRow) {
-    mismatch++;
-    continue;
-  }
-  compared++;
-  if (md5(r.content) !== md5(newRow.content_raw)) mismatch++;
-}
-add(
-  "fidelity:threads_content_md5",
-  mismatch === 0,
-  `抽样 ${compared}/${sampleThreads.length}，不一致 ${mismatch}`,
-);
+// ---------- 权限 ----------
+group = "权限";
+{
+  const dirtyRole = await num(
+    `SELECT COUNT(*) n FROM (SELECT role_key FROM role_grants UNION SELECT role_key FROM user_roles) x
+     WHERE role_key NOT IN (SELECT \`key\` FROM roles)`,
+    newQuery,
+  );
+  const dirtyPerm = await num(
+    "SELECT COUNT(*) n FROM role_grants WHERE permission_key NOT IN (SELECT `key` FROM permissions)",
+    newQuery,
+  );
+  add("无词汇表外的角色键（v1 的 a/x 脏键）", dirtyRole === 0, `脏角色键 ${dirtyRole}`);
+  add("无词汇表外的权限点（v1 的 p1/p2/y 脏键）", dirtyPerm === 0, `脏权限点 ${dirtyPerm}`);
 
-const samplePosts = await oldQuery(
-  `SELECT pid, content FROM nw_bbs_posts WHERE content IS NOT NULL ORDER BY RAND() LIMIT ?`,
-  [SAMPLE],
-);
-let pMismatch = 0,
-  pCompared = 0;
-for (const r of samplePosts) {
-  const newRow = (await newQuery(`SELECT content_raw FROM posts WHERE id = ?`, [r.pid]))[0];
-  if (!newRow) {
-    pMismatch++;
-    continue;
-  }
-  pCompared++;
-  if (md5(r.content) !== md5(newRow.content_raw)) pMismatch++;
-}
-add(
-  "fidelity:posts_md5",
-  pMismatch === 0,
-  `抽样 ${pCompared}/${samplePosts.length}，不一致 ${pMismatch}`,
-);
+  const dupGrant = await num(
+    `SELECT COUNT(*) n FROM (SELECT 1 FROM role_grants GROUP BY role_key, permission_key, scope_id HAVING COUNT(*) > 1) x`,
+    newQuery,
+  );
+  const dupRole = await num(
+    `SELECT COUNT(*) n FROM (SELECT 1 FROM user_roles GROUP BY user_id, role_key, scope_id HAVING COUNT(*) > 1) x`,
+    newQuery,
+  );
+  add(
+    "授权/角色绑定无重复行（v1 重复 5 倍）",
+    dupGrant === 0 && dupRole === 0,
+    `授权重复 ${dupGrant} / 绑定重复 ${dupRole}`,
+  );
 
-// ---------- 3. 转换完整性 ----------
-// 表情码：映射内（120–169）的必须全部转换；映射外的遗留码（pw8 时代，旧站也无法渲染）允许原样保留
-const mapped = new Set((await newQuery(`SELECT id FROM emoticons`)).map((r) => Number(r.id)));
-const emoRows = [
-  ...(await newQuery(`SELECT id, content_md FROM threads WHERE content_md LIKE '%[s:%'`)),
-  ...(await newQuery(`SELECT id, content_md FROM posts WHERE content_md LIKE '%[s:%'`)),
-];
-const unmappedCodes = new Map<string, number>();
-let mappedResidue = 0;
-for (const r of emoRows) {
-  for (const m of String(r.content_md).matchAll(/\[s:(\d+)\]/g)) {
-    const code = Number(m[1]);
-    if (mapped.has(code)) {
-      mappedResidue++;
-      break;
-    }
-    unmappedCodes.set(m[1], (unmappedCodes.get(m[1]) ?? 0) + 1);
-  }
-}
-add(
-  "convert:表情码",
-  mappedResidue === 0,
-  `映射内残留 ${mappedResidue}；映射外遗留码 ${unmappedCodes.size} 种 / ${emoRows.length} 行（旧站亦无法渲染，保留原文）`,
-);
+  const orphanRole = await num(
+    "SELECT COUNT(*) n FROM user_roles r LEFT JOIN users u ON u.id = r.user_id WHERE u.id IS NULL",
+    newQuery,
+  );
+  add("角色绑定不指向不存在的用户", orphanRole === 0, `孤儿 ${orphanRole}`);
 
-// UBB 标签：content_md 残留的标签必须在 content_raw 中原样存在（源帖笔误/截断的忠实保留）
-const UBB_RE = /\[(?:FONT|SIZE|COLOR|QUOTE|URL|ATTACHMENT|BACKCOLOR|ALIGN)=[^\]\n]{0,80}/gi;
-const ubbRows = [
-  ...(await newQuery(`SELECT id, content_md, content_raw FROM threads
-                     WHERE content_md REGEXP '\\\\[(FONT|SIZE|COLOR|QUOTE|URL|ATTACHMENT|BACKCOLOR|ALIGN)='`)),
-  ...(await newQuery(`SELECT id, content_md, content_raw FROM posts
-                     WHERE content_md REGEXP '\\\\[(FONT|SIZE|COLOR|QUOTE|URL|ATTACHMENT|BACKCOLOR|ALIGN)='`)),
-];
-let ubbOrphan = 0;
-const ubbExamples: string[] = [];
-for (const r of ubbRows) {
-  const residue = String(r.content_md).match(UBB_RE) ?? [];
-  const raw = String(r.content_raw ?? "");
-  for (const tag of residue) {
-    if (!raw.includes(tag)) {
-      ubbOrphan++;
-      ubbExamples.push(`#${r.id}: ${tag.slice(0, 40)}`);
-      break;
-    }
-  }
-}
-add(
-  "convert:UBB标签",
-  ubbOrphan === 0,
-  ubbOrphan === 0
-    ? `仅 ${ubbRows.length} 行保留源帖原始残缺标签（笔误/截断，raw 可证）`
-    : `转换器弄丢内容 ${ubbOrphan} 行: ${ubbExamples.join(" / ")}`,
-);
-
-// ---------- 4. 关键样本：日文标题与正文 ----------
-const jp = (
-  await newQuery(
-    `SELECT t.title, t.content_md FROM threads t WHERE t.title LIKE '%刀剣乱舞%' LIMIT 1`,
-  )
-)[0];
-add("sample:日文标题", !!jp, jp ? `「${jp.title}」` : "未找到「刀剣乱舞」主题");
-const jpBody = (await newQuery(`SELECT title, content_md FROM threads WHERE id = 6623`))[0];
-add(
-  "sample:tid6623 正文",
-  !!jpBody?.content_md && jpBody.content_md.includes("跨越了3000个夜晚"),
-  jpBody ? String(jpBody.content_md).slice(0, 40).replace(/\n/g, " ") : "无正文",
-);
-
-// ---------- 5. 垃圾标记 ----------
-const spamN = Number((await newQuery(`SELECT COUNT(*) n FROM threads WHERE is_spam = 1`))[0].n);
-const spamExpect = Number(
-  (
-    await oldQuery(
-      `SELECT COUNT(*) n FROM nw_bbs_threads t
-   LEFT JOIN nw_bbs_threads_content c ON c.tid = t.tid
-   WHERE c.tid IS NULL AND NOT EXISTS (SELECT 1 FROM nw_bbs_posts p WHERE p.tid = t.tid)`,
-    )
-  )[0].n,
-);
-add("spam:空壳标记", spamN === spamExpect, `标记 ${spamN} / 预期 ${spamExpect}`);
-
-const spamUsers = Number((await newQuery(`SELECT COUNT(*) n FROM users WHERE is_spam = 1`))[0].n);
-add("spam:用户标记", spamUsers > 0, `${spamUsers} 人标记 is_spam`);
-
-// ---------- 6. 附件磁盘对账（缺失为源盘已损失，属警告非迁移错误） ----------
-const attPaths = (await newQuery(`SELECT path FROM attachments`)).map((r) => String(r.path));
-const missing = checkAttachmentFiles(attPaths);
-add(
-  "attach:磁盘文件",
-  true,
-  `${attPaths.length} 个附件，磁盘缺失 ${missing}${missing > 0 ? "（源盘即缺失，非迁移损失）⚠" : ""}`,
-  missing > 0,
-);
-
-// ---------- 7. 楼层连续性 ----------
-const badFloor = Number(
-  (
-    await newQuery(
+  // 每个自定义/管理员角色的持有人数 = 旧库对应 gid 的未过期成员（主组 ∪ 附加组）去重
+  for (const role of ROLE_DEFINITIONS.filter((r) => r.key === "admin" || r.kind === "custom")) {
+    const gids = role.legacyGids.join(",");
+    const expected = await num(
       `SELECT COUNT(*) n FROM (
-     SELECT thread_id, COUNT(*) c, MAX(floor) mx FROM posts GROUP BY thread_id HAVING c <> mx) x`,
-    )
-  )[0].n,
-);
-add("posts:楼层连续", badFloor === 0, `楼层断层线程数 ${badFloor}`);
+         SELECT u.uid FROM nw_user u WHERE u.groupid IN (${gids})
+         UNION
+         SELECT b.uid FROM nw_user_belong b JOIN nw_user u ON u.uid = b.uid
+          WHERE b.gid IN (${gids}) AND (b.endtime = 0 OR b.endtime > ${asOfUnix})
+       ) x`,
+    );
+    eq(
+      `角色持有人 ${role.key}（旧 gid ${gids}）`,
+      expected,
+      await num("SELECT COUNT(DISTINCT user_id) n FROM user_roles WHERE role_key = ?", newQuery, [
+        role.key,
+      ]),
+    );
+  }
 
-// ---------- 汇总 ----------
-console.log("\n========== 验证报告 ==========");
+  // 提权护栏：非 admin 角色不得拥有全局的管理/版主类权限（v2 词汇表映射错误曾导致全体会员获得版主权）
+  const escalated = await newQuery<{ role_key: string; permission_key: string }>(
+    `SELECT role_key, permission_key FROM role_grants
+     WHERE scope_id = 0 AND role_key <> 'admin'
+       AND (permission_key IN ('forum.moderate', 'site.admin', 'user.viewIp', 'thread.replyLocked')
+            OR permission_key LIKE 'admin.%')`,
+  );
+  add(
+    "提权护栏：非 admin 无全局管理/版主权",
+    escalated.length === 0,
+    escalated.length
+      ? escalated.map((e) => `${e.role_key}:${e.permission_key}`).join("、")
+      : "无越权授权",
+  );
+
+  const admin = await num(
+    "SELECT COUNT(*) n FROM role_grants WHERE role_key = 'admin' AND permission_key = 'site.admin' AND scope_id = 0",
+    newQuery,
+  );
+  add("admin 拥有后台入口", admin === 1, `site.admin 授权 ${admin} 条`);
+  const memberWrite = await num(
+    "SELECT COUNT(*) n FROM role_grants WHERE role_key = 'member' AND permission_key = 'forum.write' AND scope_id = 0",
+    newQuery,
+  );
+  add("会员拥有全局发帖权", memberWrite === 1, `forum.write 授权 ${memberWrite} 条`);
+  const vocab = await num("SELECT COUNT(*) n FROM permissions", newQuery);
+  add(
+    "权限词汇表就位",
+    vocab >= PERMISSION_DEFINITIONS.length,
+    `${vocab}/${PERMISSION_DEFINITIONS.length}`,
+  );
+}
+
+// ---------- 站点设置 ----------
+group = "站点设置";
+{
+  const rows = await newQuery<{ value: unknown }>(
+    "SELECT value FROM site_settings WHERE `key` = 'points.name'",
+  );
+  const v =
+    typeof rows[0]?.value === "string" ? JSON.parse(rows[0].value as string) : rows[0]?.value;
+  add(
+    "积分显示名",
+    (v as { name?: string } | undefined)?.name === "青翼币",
+    JSON.stringify(v ?? null),
+  );
+}
+
+// ---------- 输出 ----------
+const report = new Report("迁移 v2 对账报告", [
+  `基准时间：${AS_OF}`,
+  "期望值由与迁移实现不同的路径（直接对旧库写 SQL）独立推导。内容确定性，入库留档。",
+]);
+const groups = [...new Set(checks.map((c) => c.group))];
+for (const g of groups) {
+  const s = report.section(g);
+  s.table(
+    ["检查", "结果", "详情"],
+    checks.filter((c) => c.group === g).map((c) => [c.name, c.pass ? "✔" : "✘", c.detail]),
+  );
+}
+report.save(join(config.reportDir, "migration-v2-verify.md"));
+
+console.log("\n========== 迁移 v2 对账 ==========");
 let fails = 0;
 for (const c of checks) {
   if (!c.pass) fails++;
-  const mark = c.pass ? (c.warn ? "⚠" : "✔") : "✘";
-  console.log(`${mark} ${c.name.padEnd(26)} ${c.detail}`);
+  console.log(`${c.pass ? "✔" : "✘"} [${c.group}] ${c.name.padEnd(34)} ${c.detail}`);
 }
-console.log("==============================");
-console.log(
-  fails === 0 ? `全部通过（${checks.length} 项检查）` : `失败 ${fails} / ${checks.length} 项`,
-);
-
+console.log("==================================");
+console.log(fails === 0 ? `全部通过（${checks.length} 项）` : `失败 ${fails}/${checks.length} 项`);
 await closePools();
 process.exit(fails === 0 ? 0 : 1);

@@ -24,4 +24,4 @@ apps/web/next-env.d.ts
 .vercel
 .zcode/
 drizzle/meta/_journal.json.bak
-reports/
+/migration/reports/
