@@ -7,6 +7,7 @@ import {
   topicTypes,
   userBans,
 } from "./entities/basic.js";
+import { authz } from "./entities/authz.js";
 import { makeUsers } from "./entities/users.js";
 import { makeThreads, makePosts } from "./entities/threads.js";
 import { attachments, medals, credits, polls, messages } from "./entities/extra.js";
@@ -46,6 +47,7 @@ const ALL: Migrator[] = [
   forums,
   topicTypes,
   userBans,
+  authz,
   makeUsers(emo),
   makeThreads(emo),
   makePosts(emo),
@@ -98,7 +100,7 @@ for (const m of list) {
     console.log(`✔ ${m.name.padEnd(18)} ${String(rows).padStart(7)} 行  ${ms}ms  ${note ?? ""}`);
   } catch (e) {
     failed++;
-    console.error(`✘ ${m.name}: ${e instanceof Error ? e.message : e}`);
+    console.error(`✘ ${m.name}: ${e instanceof Error ? ((e as any).cause?.query ?? e.stack) : e}`);
   }
 }
 

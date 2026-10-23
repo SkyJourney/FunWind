@@ -6,6 +6,8 @@ import { ThreadRow } from "@/components/content/thread-row";
 import { Pagination } from "@/components/content/pagination";
 import { getAllForums, getForum, getForumThreadCounts } from "@/lib/queries/forums";
 import { getLatestThreads, getTopicTypes, listThreads } from "@/lib/queries/threads";
+import { getCurrentUser } from "@/lib/auth/session";
+import { checkPermission } from "@/lib/authz/service";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +34,11 @@ export default async function ForumPage({ params, searchParams }: Params) {
     // 分类版块无主题：跳回首页目录
     notFound();
   }
+
+  // 版块读取权限（M5）：DENY → 404（不暴露受限版块存在性）
+  const user = await getCurrentUser();
+  const read = await checkPermission(user?.id ?? null, "forum.read", { forumId: fid });
+  if (!read.allowed) notFound();
 
   const page = Math.max(1, Number(pageRaw ?? "1") || 1);
   const typeId = Number(typeRaw ?? "0") || 0;

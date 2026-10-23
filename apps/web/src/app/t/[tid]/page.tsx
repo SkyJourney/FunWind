@@ -9,6 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { getThreadAttachments, listFloors } from "@/lib/queries/posts";
 import { getThreadDetail } from "@/lib/queries/threads";
+import { getCurrentUser } from "@/lib/auth/session";
+import { checkPermission } from "@/lib/authz/service";
 import { getForum } from "@/lib/queries/forums";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +33,11 @@ export default async function ThreadPage({ params, searchParams }: Params) {
   const thread = await getThreadDetail(tid);
   // spam 空壳 / 不存在 → 404；屏蔽态保留 tid 语义走 blocked 视图
   if (!thread || thread.isSpam) notFound();
+
+  // 版块读取权限（M5）：DENY 视为 404（不暴露受限版块存在性）
+  const user = await getCurrentUser();
+  const read = await checkPermission(user?.id ?? null, "forum.read", { forumId: thread.forumId });
+  if (!read.allowed) notFound();
 
   const { items: floors, total, totalPages } = await listFloors(tid, Number(pageRaw ?? "1") || 1);
   const page = Math.min(Math.max(1, Number(pageRaw ?? "1") || 1), totalPages);
