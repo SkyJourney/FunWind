@@ -1,9 +1,162 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "dbe5fc2e-717f-4afe-9633-70c7e28f9e32",
+  "id": "95f64fd9-4062-4b36-8283-116ff15a9ccc",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
+    "announcement_reads": {
+      "name": "announcement_reads",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "announcement_id": {
+          "name": "announcement_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "read_at": {
+          "name": "read_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_ar_announcement": {
+          "name": "idx_ar_announcement",
+          "columns": [
+            "announcement_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "announcement_reads_user_id_announcement_id_pk": {
+          "name": "announcement_reads_user_id_announcement_id_pk",
+          "columns": [
+            "user_id",
+            "announcement_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "announcements": {
+      "name": "announcements",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "title": {
+          "name": "title",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "body_md": {
+          "name": "body_md",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "level": {
+          "name": "level",
+          "type": "enum('info','important')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'info'"
+        },
+        "audience": {
+          "name": "audience",
+          "type": "enum('all','members')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'all'"
+        },
+        "show_banner": {
+          "name": "show_banner",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "starts_at": {
+          "name": "starts_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ends_at": {
+          "name": "ends_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_ann_window": {
+          "name": "idx_ann_window",
+          "columns": [
+            "starts_at",
+            "ends_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "announcements_id_pk": {
+          "name": "announcements_id_pk",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
     "attachments": {
       "name": "attachments",
       "columns": {
@@ -16,6 +169,13 @@
         },
         "post_id": {
           "name": "post_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "file_id": {
+          "name": "file_id",
           "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
@@ -35,43 +195,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": "''"
-        },
-        "storage_key": {
-          "name": "storage_key",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "mime": {
-          "name": "mime",
-          "type": "varchar(100)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "size_bytes": {
-          "name": "size_bytes",
-          "type": "int unsigned",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "width": {
-          "name": "width",
-          "type": "smallint unsigned",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "height": {
-          "name": "height",
-          "type": "smallint unsigned",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         },
         "downloads": {
           "name": "downloads",
@@ -94,6 +217,13 @@
           "name": "idx_att_post",
           "columns": [
             "post_id"
+          ],
+          "isUnique": false
+        },
+        "idx_att_file": {
+          "name": "idx_att_file",
+          "columns": [
+            "file_id"
           ],
           "isUnique": false
         },
@@ -255,13 +385,12 @@
           "autoincrement": false,
           "default": "''"
         },
-        "icon": {
-          "name": "icon",
-          "type": "varchar(100)",
+        "icon_file_id": {
+          "name": "icon_file_id",
+          "type": "int unsigned",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
+          "notNull": false,
+          "autoincrement": false
         },
         "kind": {
           "name": "kind",
@@ -343,6 +472,75 @@
           "columns": [
             "user_id",
             "checkin_date"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "content_reviews": {
+      "name": "content_reviews",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "post_id": {
+          "name": "post_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reviewer_id": {
+          "name": "reviewer_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "decision": {
+          "name": "decision",
+          "type": "enum('approved','rejected')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "note": {
+          "name": "note",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_cr_post": {
+          "name": "idx_cr_post",
+          "columns": [
+            "post_id",
+            "id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "content_reviews_id_pk": {
+          "name": "content_reviews_id_pk",
+          "columns": [
+            "id"
           ]
         }
       },
@@ -614,6 +812,96 @@
       "uniqueConstraints": {},
       "checkConstraint": {}
     },
+    "files": {
+      "name": "files",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "sha256": {
+          "name": "sha256",
+          "type": "char(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "storage_key": {
+          "name": "storage_key",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "size_bytes": {
+          "name": "size_bytes",
+          "type": "bigint unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "mime": {
+          "name": "mime",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "width": {
+          "name": "width",
+          "type": "smallint unsigned",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "height": {
+          "name": "height",
+          "type": "smallint unsigned",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "uq_files_sha256": {
+          "name": "uq_files_sha256",
+          "columns": [
+            "sha256"
+          ],
+          "isUnique": true
+        },
+        "uq_files_storage_key": {
+          "name": "uq_files_storage_key",
+          "columns": [
+            "storage_key"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "files_id_pk": {
+          "name": "files_id_pk",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
     "follows": {
       "name": "follows",
       "columns": {
@@ -805,6 +1093,22 @@
           "autoincrement": false,
           "default": "'inherit'"
         },
+        "write_policy": {
+          "name": "write_policy",
+          "type": "enum('inherit','members','restricted')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'inherit'"
+        },
+        "review_policy": {
+          "name": "review_policy",
+          "type": "enum('inherit','none','threads','all')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'inherit'"
+        },
         "is_listed": {
           "name": "is_listed",
           "type": "boolean",
@@ -920,14 +1224,6 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "source": {
-          "name": "source",
-          "type": "enum('purchase','migrated')",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'purchase'"
         },
         "unlocked_at": {
           "name": "unlocked_at",
@@ -1095,61 +1391,6 @@
       "uniqueConstraints": {},
       "checkConstraint": {}
     },
-    "migration_state": {
-      "name": "migration_state",
-      "columns": {
-        "entity": {
-          "name": "entity",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "rows_written": {
-          "name": "rows_written",
-          "type": "bigint unsigned",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "duration_ms": {
-          "name": "duration_ms",
-          "type": "bigint unsigned",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "finished_at": {
-          "name": "finished_at",
-          "type": "datetime",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "note": {
-          "name": "note",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "migration_state_entity_pk": {
-          "name": "migration_state_entity_pk",
-          "columns": [
-            "entity"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
     "module_state": {
       "name": "module_state",
       "columns": {
@@ -1189,6 +1430,177 @@
       "uniqueConstraints": {},
       "checkConstraint": {}
     },
+    "notification_preferences": {
+      "name": "notification_preferences",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "varchar(48)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "channel": {
+          "name": "channel",
+          "type": "enum('in_app','email','push')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "enabled": {
+          "name": "enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "notification_preferences_user_id_type_channel_pk": {
+          "name": "notification_preferences_user_id_type_channel_pk",
+          "columns": [
+            "user_id",
+            "type",
+            "channel"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "notifications": {
+      "name": "notifications",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "category": {
+          "name": "category",
+          "type": "enum('interaction','message','moderation','account')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "varchar(48)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "actor_id": {
+          "name": "actor_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "target_type": {
+          "name": "target_type",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "target_id": {
+          "name": "target_id",
+          "type": "bigint unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "group_key": {
+          "name": "group_key",
+          "type": "varchar(96)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "data": {
+          "name": "data",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "read_at": {
+          "name": "read_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_nf_user_read": {
+          "name": "idx_nf_user_read",
+          "columns": [
+            "user_id",
+            "read_at",
+            "id"
+          ],
+          "isUnique": false
+        },
+        "idx_nf_user_category": {
+          "name": "idx_nf_user_category",
+          "columns": [
+            "user_id",
+            "category",
+            "id"
+          ],
+          "isUnique": false
+        },
+        "idx_nf_user_group": {
+          "name": "idx_nf_user_group",
+          "columns": [
+            "user_id",
+            "group_key",
+            "read_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "notifications_id_pk": {
+          "name": "notifications_id_pk",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
     "permissions": {
       "name": "permissions",
       "columns": {
@@ -1220,20 +1632,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": "''"
-        },
-        "legacy_key": {
-          "name": "legacy_key",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "condition_params": {
-          "name": "condition_params",
-          "type": "json",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         }
       },
       "indexes": {},
@@ -1635,9 +2033,9 @@
           "notNull": true,
           "autoincrement": false
         },
-        "seq": {
-          "name": "seq",
-          "type": "tinyint unsigned",
+        "gate_key": {
+          "name": "gate_key",
+          "type": "varchar(16)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -1688,11 +2086,11 @@
         }
       },
       "indexes": {
-        "uq_pg_post_seq": {
-          "name": "uq_pg_post_seq",
+        "uq_pg_post_key": {
+          "name": "uq_pg_post_key",
           "columns": [
             "post_id",
-            "seq"
+            "gate_key"
           ],
           "isUnique": true
         }
@@ -1740,13 +2138,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "author_name_legacy": {
-          "name": "author_name_legacy",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "body_md": {
           "name": "body_md",
           "type": "mediumtext",
@@ -1771,7 +2162,7 @@
         },
         "state": {
           "name": "state",
-          "type": "enum('visible','hidden','deleted','spam')",
+          "type": "enum('visible','pending','rejected','hidden','deleted')",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
@@ -2232,13 +2623,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "author_name_legacy": {
-          "name": "author_name_legacy",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "title": {
           "name": "title",
           "type": "varchar(255)",
@@ -2270,27 +2654,27 @@
         },
         "state": {
           "name": "state",
-          "type": "enum('visible','hidden','deleted','spam')",
+          "type": "enum('visible','pending','rejected','hidden','deleted')",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
           "default": "'visible'"
         },
-        "topped": {
-          "name": "topped",
-          "type": "tinyint",
+        "pin_level": {
+          "name": "pin_level",
+          "type": "tinyint unsigned",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
           "default": 0
         },
-        "digest": {
-          "name": "digest",
-          "type": "tinyint",
+        "is_featured": {
+          "name": "is_featured",
+          "type": "boolean",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": 0
+          "default": false
         },
         "is_locked": {
           "name": "is_locked",
@@ -2351,7 +2735,7 @@
           "columns": [
             "forum_id",
             "state",
-            "topped",
+            "pin_level",
             "last_posted_at"
           ],
           "isUnique": false
@@ -2370,10 +2754,10 @@
           ],
           "isUnique": false
         },
-        "idx_threads_digest": {
-          "name": "idx_threads_digest",
+        "idx_threads_featured": {
+          "name": "idx_threads_featured",
           "columns": [
-            "digest"
+            "is_featured"
           ],
           "isUnique": false
         },
@@ -2514,9 +2898,9 @@
           "notNull": false,
           "autoincrement": false
         },
-        "avatar_key": {
-          "name": "avatar_key",
-          "type": "varchar(128)",
+        "avatar_file_id": {
+          "name": "avatar_file_id",
+          "type": "int unsigned",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -2736,8 +3120,8 @@
           "autoincrement": false,
           "default": 0
         },
-        "digest_count": {
-          "name": "digest_count",
+        "featured_count": {
+          "name": "featured_count",
           "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
@@ -2827,7 +3211,7 @@
         },
         "state": {
           "name": "state",
-          "type": "enum('active','spam')",
+          "type": "enum('active','deleted')",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,

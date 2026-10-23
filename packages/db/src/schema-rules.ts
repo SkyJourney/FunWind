@@ -1,5 +1,5 @@
 /**
- * schema 结构规则（M5.5）：把「唯一键不含可空列」「无 raw 归档列」等约定变成可执行断言。
+ * schema 结构规则（M5.5）：把「唯一键不含可空列」「无 raw 归档列」「运行时不认识旧站」等约定变成可执行断言。
  * 同时被 db:verify（对账脚本）与单测使用，约定因此不会只停留在文档里。
  */
 import { is } from "drizzle-orm";
@@ -19,6 +19,15 @@ export const NULLABLE_UNIQUE_ALLOWLIST = new Set(["users.email_key"]);
 
 /** 业务表禁止出现的归档列（旧行 JSON / 原始 UBB 正文双写已于 M5.5 取消） */
 const FORBIDDEN_COLUMNS = new Set(["raw", "content_raw"]);
+
+/**
+ * 运行时 schema 不得认识旧站（docs/DESIGN-MODEL.md §1）：
+ * 表名 migration_* / legacy_*，列名 legacy_* 或 *_legacy，枚举值 migrated / legacy 一律违例。
+ * 旧键映射、旧 gid、迁移记录只存在于 migration/。
+ */
+const LEGACY_TABLE_RE = /^(migration|legacy)_/;
+const LEGACY_COLUMN_RE = /^legacy_|_legacy$/;
+const LEGACY_ENUM_VALUES = new Set(["migrated", "legacy"]);
 
 type AnyTable = Parameters<typeof getTableConfig>[0];
 
@@ -54,6 +63,15 @@ export function checkSchemaRules(schemaModule: Record<string, unknown>): RuleVio
     // 2. 禁止归档列
     for (const col of cfg.columns) {
       if (FORBIDDEN_COLUMNS.has(col.name)) add(name, "no-archive-column", `不得保留列 ${col.name}`);
+    }
+
+    // 2b. 运行时不认识旧站
+    if (LEGACY_TABLE_RE.test(name)) add(name, "no-legacy", `表名 ${name} 带迁移/旧站痕迹`);
+    for (const col of cfg.columns) {
+      if (LEGACY_COLUMN_RE.test(col.name)) add(name, "no-legacy", `列 ${col.name} 带旧站痕迹`);
+      const enumValues = (col as unknown as { enumValues?: readonly string[] }).enumValues;
+      const bad = enumValues?.filter((v) => LEGACY_ENUM_VALUES.has(v));
+      if (bad?.length) add(name, "no-legacy", `列 ${col.name} 的枚举值含 ${bad.join(",")}`);
     }
 
     // 3. 唯一键不得依赖 NULL 去重

@@ -1,6 +1,6 @@
 /**
  * bootstrapDb —— 空库建表管线（零数据部署与青翼导入共用，决策 #10）
- * 1. drizzle 版本化迁移（drizzle/0000_init_v2.sql，journal 断点续跑，幂等）
+ * 1. drizzle 版本化迁移（drizzle/ 下的版本化迁移，journal 断点续跑，幂等）
  * 2. PATCHES：drizzle-kit 不支持的列级 COLLATE（username_key / email_key 需 utf8mb4_bin），按需执行、幂等
  * 3. seedSystemData：内置角色、权限词汇表、基线授权、站点设置默认值——零数据站点开箱即有可用的权限体系
  */
@@ -114,8 +114,6 @@ export async function seedSystemData(db: Db): Promise<SystemSeedSummary> {
         resource: p.resource,
         level: p.level,
         description: p.description,
-        legacyKey: p.legacyKey,
-        conditionParams: p.conditionParams ?? null,
       })),
     )
     .onDuplicateKeyUpdate({
@@ -123,8 +121,6 @@ export async function seedSystemData(db: Db): Promise<SystemSeedSummary> {
         resource: incoming("resource"),
         level: incoming("level"),
         description: incoming("description"),
-        legacyKey: incoming("legacy_key"),
-        conditionParams: incoming("condition_params"),
       },
     });
 

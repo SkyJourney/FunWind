@@ -1,13 +1,31 @@
+CREATE TABLE `announcement_reads` (
+	`user_id` int unsigned NOT NULL,
+	`announcement_id` int unsigned NOT NULL,
+	`read_at` datetime NOT NULL,
+	CONSTRAINT `announcement_reads_user_id_announcement_id_pk` PRIMARY KEY(`user_id`,`announcement_id`)
+);
+--> statement-breakpoint
+CREATE TABLE `announcements` (
+	`id` int unsigned AUTO_INCREMENT NOT NULL,
+	`title` varchar(200) NOT NULL,
+	`body_md` text NOT NULL,
+	`level` enum('info','important') NOT NULL DEFAULT 'info',
+	`audience` enum('all','members') NOT NULL DEFAULT 'all',
+	`show_banner` boolean NOT NULL DEFAULT false,
+	`starts_at` datetime NOT NULL,
+	`ends_at` datetime,
+	`created_by` int unsigned NOT NULL,
+	`created_at` datetime NOT NULL,
+	`updated_at` datetime NOT NULL,
+	CONSTRAINT `announcements_id_pk` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
 CREATE TABLE `attachments` (
 	`id` int unsigned AUTO_INCREMENT NOT NULL,
 	`post_id` int unsigned NOT NULL,
+	`file_id` int unsigned NOT NULL,
 	`uploader_id` int unsigned NOT NULL,
 	`original_name` varchar(255) NOT NULL DEFAULT '',
-	`storage_key` varchar(255) NOT NULL,
-	`mime` varchar(100) NOT NULL DEFAULT '',
-	`size_bytes` int unsigned NOT NULL DEFAULT 0,
-	`width` smallint unsigned,
-	`height` smallint unsigned,
 	`downloads` int unsigned NOT NULL DEFAULT 0,
 	`created_at` datetime NOT NULL,
 	CONSTRAINT `attachments_id_pk` PRIMARY KEY(`id`)
@@ -31,7 +49,7 @@ CREATE TABLE `badges` (
 	`key` varchar(48) NOT NULL,
 	`name` varchar(64) NOT NULL,
 	`description` varchar(255) NOT NULL DEFAULT '',
-	`icon` varchar(100) NOT NULL DEFAULT '',
+	`icon_file_id` int unsigned,
 	`kind` enum('team','honor') NOT NULL DEFAULT 'honor',
 	`sort_order` smallint NOT NULL DEFAULT 0,
 	`is_active` boolean NOT NULL DEFAULT true,
@@ -44,6 +62,16 @@ CREATE TABLE `checkins` (
 	`checkin_date` date NOT NULL,
 	`reward` int unsigned NOT NULL DEFAULT 0,
 	CONSTRAINT `checkins_user_id_checkin_date_pk` PRIMARY KEY(`user_id`,`checkin_date`)
+);
+--> statement-breakpoint
+CREATE TABLE `content_reviews` (
+	`id` int unsigned AUTO_INCREMENT NOT NULL,
+	`post_id` int unsigned NOT NULL,
+	`reviewer_id` int unsigned NOT NULL,
+	`decision` enum('approved','rejected') NOT NULL,
+	`note` varchar(255) NOT NULL DEFAULT '',
+	`created_at` datetime NOT NULL,
+	CONSTRAINT `content_reviews_id_pk` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
 CREATE TABLE `conversation_members` (
@@ -85,6 +113,20 @@ CREATE TABLE `event_log` (
 	CONSTRAINT `event_log_id_pk` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
+CREATE TABLE `files` (
+	`id` int unsigned AUTO_INCREMENT NOT NULL,
+	`sha256` char(64) NOT NULL,
+	`storage_key` varchar(128) NOT NULL,
+	`size_bytes` bigint unsigned NOT NULL DEFAULT 0,
+	`mime` varchar(100) NOT NULL DEFAULT '',
+	`width` smallint unsigned,
+	`height` smallint unsigned,
+	`created_at` datetime NOT NULL,
+	CONSTRAINT `files_id_pk` PRIMARY KEY(`id`),
+	CONSTRAINT `uq_files_sha256` UNIQUE(`sha256`),
+	CONSTRAINT `uq_files_storage_key` UNIQUE(`storage_key`)
+);
+--> statement-breakpoint
 CREATE TABLE `follows` (
 	`user_id` int unsigned NOT NULL,
 	`target_type` enum('user','forum') NOT NULL,
@@ -112,6 +154,8 @@ CREATE TABLE `forums` (
 	`icon` varchar(100) NOT NULL DEFAULT '',
 	`sort_order` int NOT NULL DEFAULT 0,
 	`read_policy` enum('inherit','public','members','restricted') NOT NULL DEFAULT 'inherit',
+	`write_policy` enum('inherit','members','restricted') NOT NULL DEFAULT 'inherit',
+	`review_policy` enum('inherit','none','threads','all') NOT NULL DEFAULT 'inherit',
 	`is_listed` boolean NOT NULL DEFAULT true,
 	`is_archived` boolean NOT NULL DEFAULT false,
 	`thread_count` int unsigned NOT NULL DEFAULT 0,
@@ -127,7 +171,6 @@ CREATE TABLE `gate_unlocks` (
 	`price_paid` int unsigned NOT NULL DEFAULT 0,
 	`author_income` int unsigned NOT NULL DEFAULT 0,
 	`ledger_id` bigint unsigned,
-	`source` enum('purchase','migrated') NOT NULL DEFAULT 'purchase',
 	`unlocked_at` datetime NOT NULL,
 	CONSTRAINT `gate_unlocks_gate_id_user_id_pk` PRIMARY KEY(`gate_id`,`user_id`)
 );
@@ -152,15 +195,6 @@ CREATE TABLE `messages` (
 	CONSTRAINT `messages_id_pk` PRIMARY KEY(`id`)
 );
 --> statement-breakpoint
-CREATE TABLE `migration_state` (
-	`entity` varchar(64) NOT NULL,
-	`rows_written` bigint unsigned NOT NULL DEFAULT 0,
-	`duration_ms` bigint unsigned NOT NULL DEFAULT 0,
-	`finished_at` datetime,
-	`note` varchar(255) NOT NULL DEFAULT '',
-	CONSTRAINT `migration_state_entity_pk` PRIMARY KEY(`entity`)
-);
---> statement-breakpoint
 CREATE TABLE `module_state` (
 	`module_id` varchar(64) NOT NULL,
 	`enabled` boolean NOT NULL DEFAULT true,
@@ -168,13 +202,34 @@ CREATE TABLE `module_state` (
 	CONSTRAINT `module_state_module_id_pk` PRIMARY KEY(`module_id`)
 );
 --> statement-breakpoint
+CREATE TABLE `notification_preferences` (
+	`user_id` int unsigned NOT NULL,
+	`type` varchar(48) NOT NULL,
+	`channel` enum('in_app','email','push') NOT NULL,
+	`enabled` boolean NOT NULL,
+	CONSTRAINT `notification_preferences_user_id_type_channel_pk` PRIMARY KEY(`user_id`,`type`,`channel`)
+);
+--> statement-breakpoint
+CREATE TABLE `notifications` (
+	`id` bigint unsigned AUTO_INCREMENT NOT NULL,
+	`user_id` int unsigned NOT NULL,
+	`category` enum('interaction','message','moderation','account') NOT NULL,
+	`type` varchar(48) NOT NULL,
+	`actor_id` int unsigned,
+	`target_type` varchar(32) NOT NULL DEFAULT '',
+	`target_id` bigint unsigned NOT NULL DEFAULT 0,
+	`group_key` varchar(96),
+	`data` json,
+	`read_at` datetime,
+	`created_at` datetime NOT NULL,
+	CONSTRAINT `notifications_id_pk` PRIMARY KEY(`id`)
+);
+--> statement-breakpoint
 CREATE TABLE `permissions` (
 	`key` varchar(64) NOT NULL,
 	`resource` varchar(32) NOT NULL,
 	`level` enum('read','write','manage'),
 	`description` varchar(255) NOT NULL DEFAULT '',
-	`legacy_key` varchar(64),
-	`condition_params` json,
 	CONSTRAINT `permissions_key_pk` PRIMARY KEY(`key`)
 );
 --> statement-breakpoint
@@ -235,7 +290,7 @@ CREATE TABLE `polls` (
 CREATE TABLE `post_gates` (
 	`id` int unsigned AUTO_INCREMENT NOT NULL,
 	`post_id` int unsigned NOT NULL,
-	`seq` tinyint unsigned NOT NULL,
+	`gate_key` varchar(16) NOT NULL,
 	`conditions` json NOT NULL,
 	`match_mode` enum('all','any') NOT NULL DEFAULT 'all',
 	`hidden_md` mediumtext NOT NULL,
@@ -243,7 +298,7 @@ CREATE TABLE `post_gates` (
 	`created_at` datetime NOT NULL,
 	`updated_at` datetime NOT NULL,
 	CONSTRAINT `post_gates_id_pk` PRIMARY KEY(`id`),
-	CONSTRAINT `uq_pg_post_seq` UNIQUE(`post_id`,`seq`)
+	CONSTRAINT `uq_pg_post_key` UNIQUE(`post_id`,`gate_key`)
 );
 --> statement-breakpoint
 CREATE TABLE `posts` (
@@ -251,11 +306,10 @@ CREATE TABLE `posts` (
 	`thread_id` int unsigned NOT NULL,
 	`floor` int unsigned NOT NULL,
 	`author_id` int unsigned NOT NULL,
-	`author_name_legacy` varchar(64),
 	`body_md` mediumtext,
 	`reply_to_post_id` int unsigned,
 	`has_gate` boolean NOT NULL DEFAULT false,
-	`state` enum('visible','hidden','deleted','spam') NOT NULL DEFAULT 'visible',
+	`state` enum('visible','pending','rejected','hidden','deleted') NOT NULL DEFAULT 'visible',
 	`like_count` int unsigned NOT NULL DEFAULT 0,
 	`created_at` datetime NOT NULL,
 	`edited_at` datetime,
@@ -324,14 +378,13 @@ CREATE TABLE `threads` (
 	`id` int unsigned AUTO_INCREMENT NOT NULL,
 	`forum_id` int unsigned NOT NULL,
 	`author_id` int unsigned NOT NULL,
-	`author_name_legacy` varchar(64),
 	`title` varchar(255) NOT NULL,
 	`prefix_id` int unsigned,
 	`kind` enum('normal','poll') NOT NULL DEFAULT 'normal',
 	`first_post_id` int unsigned,
-	`state` enum('visible','hidden','deleted','spam') NOT NULL DEFAULT 'visible',
-	`topped` tinyint NOT NULL DEFAULT 0,
-	`digest` tinyint NOT NULL DEFAULT 0,
+	`state` enum('visible','pending','rejected','hidden','deleted') NOT NULL DEFAULT 'visible',
+	`pin_level` tinyint unsigned NOT NULL DEFAULT 0,
+	`is_featured` boolean NOT NULL DEFAULT false,
 	`is_locked` boolean NOT NULL DEFAULT false,
 	`reply_count` int unsigned NOT NULL DEFAULT 0,
 	`view_count` int unsigned NOT NULL DEFAULT 0,
@@ -359,7 +412,7 @@ CREATE TABLE `user_profiles` (
 	`gender` tinyint NOT NULL DEFAULT 0,
 	`birthday` date,
 	`signature_md` text,
-	`avatar_key` varchar(128),
+	`avatar_file_id` int unsigned,
 	CONSTRAINT `user_profiles_user_id_pk` PRIMARY KEY(`user_id`)
 );
 --> statement-breakpoint
@@ -392,7 +445,7 @@ CREATE TABLE `user_stats` (
 	`user_id` int unsigned NOT NULL,
 	`thread_count` int unsigned NOT NULL DEFAULT 0,
 	`post_count` int unsigned NOT NULL DEFAULT 0,
-	`digest_count` int unsigned NOT NULL DEFAULT 0,
+	`featured_count` int unsigned NOT NULL DEFAULT 0,
 	`follower_count` int unsigned NOT NULL DEFAULT 0,
 	`last_post_at` datetime,
 	CONSTRAINT `user_stats_user_id_pk` PRIMARY KEY(`user_id`)
@@ -406,7 +459,7 @@ CREATE TABLE `users` (
 	`email_key` varchar(128),
 	`password_hash` varchar(255),
 	`email_verified_at` datetime,
-	`state` enum('active','spam') NOT NULL DEFAULT 'active',
+	`state` enum('active','deleted') NOT NULL DEFAULT 'active',
 	`created_at` datetime NOT NULL,
 	`last_login_at` datetime,
 	CONSTRAINT `users_id_pk` PRIMARY KEY(`id`),
@@ -414,11 +467,15 @@ CREATE TABLE `users` (
 	CONSTRAINT `uq_users_email_key` UNIQUE(`email_key`)
 );
 --> statement-breakpoint
+CREATE INDEX `idx_ar_announcement` ON `announcement_reads` (`announcement_id`);--> statement-breakpoint
+CREATE INDEX `idx_ann_window` ON `announcements` (`starts_at`,`ends_at`);--> statement-breakpoint
 CREATE INDEX `idx_att_post` ON `attachments` (`post_id`);--> statement-breakpoint
+CREATE INDEX `idx_att_file` ON `attachments` (`file_id`);--> statement-breakpoint
 CREATE INDEX `idx_att_uploader` ON `attachments` (`uploader_id`);--> statement-breakpoint
 CREATE INDEX `idx_audit_actor` ON `audit_log` (`actor_id`,`created_at`);--> statement-breakpoint
 CREATE INDEX `idx_audit_target` ON `audit_log` (`target_type`,`target_id`);--> statement-breakpoint
 CREATE INDEX `idx_audit_time` ON `audit_log` (`created_at`);--> statement-breakpoint
+CREATE INDEX `idx_cr_post` ON `content_reviews` (`post_id`,`id`);--> statement-breakpoint
 CREATE INDEX `idx_cm_user` ON `conversation_members` (`user_id`);--> statement-breakpoint
 CREATE INDEX `idx_et_user` ON `email_tokens` (`user_id`,`purpose`);--> statement-breakpoint
 CREATE INDEX `idx_el_name_time` ON `event_log` (`event_name`,`created_at`);--> statement-breakpoint
@@ -430,6 +487,9 @@ CREATE INDEX `idx_forums_path` ON `forums` (`path`);--> statement-breakpoint
 CREATE INDEX `idx_gu_user` ON `gate_unlocks` (`user_id`);--> statement-breakpoint
 CREATE INDEX `idx_ic_batch` ON `invite_codes` (`batch`);--> statement-breakpoint
 CREATE INDEX `idx_msg_conv` ON `messages` (`conversation_id`,`id`);--> statement-breakpoint
+CREATE INDEX `idx_nf_user_read` ON `notifications` (`user_id`,`read_at`,`id`);--> statement-breakpoint
+CREATE INDEX `idx_nf_user_category` ON `notifications` (`user_id`,`category`,`id`);--> statement-breakpoint
+CREATE INDEX `idx_nf_user_group` ON `notifications` (`user_id`,`group_key`,`read_at`);--> statement-breakpoint
 CREATE INDEX `idx_pl_user` ON `point_ledger` (`user_id`,`id`);--> statement-breakpoint
 CREATE INDEX `idx_pl_channel` ON `point_ledger` (`channel`,`created_at`);--> statement-breakpoint
 CREATE INDEX `idx_po_poll` ON `poll_options` (`poll_id`,`sort_order`);--> statement-breakpoint
@@ -441,10 +501,10 @@ CREATE INDEX `idx_rg_perm_scope` ON `role_grants` (`permission_key`,`scope_id`);
 CREATE INDEX `idx_sessions_user` ON `sessions` (`user_id`);--> statement-breakpoint
 CREATE INDEX `idx_sessions_expires` ON `sessions` (`expires_at`);--> statement-breakpoint
 CREATE INDEX `idx_tt_tag` ON `thread_tags` (`tag_id`);--> statement-breakpoint
-CREATE INDEX `idx_threads_forum` ON `threads` (`forum_id`,`state`,`topped`,`last_posted_at`);--> statement-breakpoint
+CREATE INDEX `idx_threads_forum` ON `threads` (`forum_id`,`state`,`pin_level`,`last_posted_at`);--> statement-breakpoint
 CREATE INDEX `idx_threads_author` ON `threads` (`author_id`);--> statement-breakpoint
 CREATE INDEX `idx_threads_created` ON `threads` (`created_at`);--> statement-breakpoint
-CREATE INDEX `idx_threads_digest` ON `threads` (`digest`);--> statement-breakpoint
+CREATE INDEX `idx_threads_featured` ON `threads` (`is_featured`);--> statement-breakpoint
 CREATE INDEX `idx_threads_last` ON `threads` (`state`,`last_posted_at`);--> statement-breakpoint
 CREATE INDEX `idx_ub_badge` ON `user_badges` (`badge_id`);--> statement-breakpoint
 CREATE INDEX `idx_ur_user_kind` ON `user_restrictions` (`user_id`,`kind`);--> statement-breakpoint

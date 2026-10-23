@@ -18,7 +18,10 @@ import { createDb, createPool } from "./client.js";
 import { newDbConfig } from "./env.js";
 import { DEMO, seedDemoData } from "./seed-data.js";
 import {
+  contentReviews,
+  files,
   forums,
+  notifications,
   permissions,
   pointAccounts,
   pointLedger,
@@ -27,6 +30,7 @@ import {
   roleGrants,
   roles,
   siteSettings,
+  threads,
   userRoles,
   users,
 } from "./schema.js";
@@ -69,7 +73,7 @@ describe.skipIf(skip)("bootstrap / seed 集成（临时库）", () => {
     }
   };
 
-  it("bootstrap 建出 v2 全部表，且列级排序规则补丁生效", async () => {
+  it("bootstrap 建出 v2.1 全部 43 张表，且列级排序规则补丁生效", async () => {
     const pool = createPool(config);
     try {
       const [tables] = await pool.query<RowDataPacket[]>(
@@ -77,7 +81,7 @@ describe.skipIf(skip)("bootstrap / seed 集成（临时库）", () => {
          WHERE TABLE_SCHEMA = ? AND TABLE_NAME <> '__drizzle_migrations'`,
         [dbName],
       );
-      expect(Number(tables[0]?.n)).toBe(38);
+      expect(Number(tables[0]?.n)).toBe(43);
       for (const p of PATCHES) {
         const [rows] = await pool.query<RowDataPacket[]>(
           `SELECT COLLATION_NAME AS c FROM information_schema.COLUMNS
@@ -214,6 +218,44 @@ describe.skipIf(skip)("bootstrap / seed 集成（临时库）", () => {
           .where(eq(pointLedger.userId, a.userId));
         expect(Number(sum?.s), `user ${a.userId}`).toBe(a.balance);
       }
+    });
+  });
+
+  it("v2.1 约束：帖内 gate_key 唯一、文件按 sha256 去重", async () => {
+    await withTestDb(async (db) => {
+      const gate = (gateKey: string) => ({
+        postId: DEMO.gatePost,
+        gateKey,
+        conditions: [{ type: "login" }],
+        hiddenMd: "x",
+        createdAt: "2026-10-12 09:00:00",
+        updatedAt: "2026-10-12 09:00:00",
+      });
+      await expect(db.insert(postGates).values(gate("a1"))).rejects.toThrow(); // 夹具已有 a1
+      await expect(db.insert(postGates).values(gate("a3"))).resolves.toBeDefined();
+
+      const file = (sha: string) => ({
+        sha256: sha.repeat(64).slice(0, 64),
+        storageKey: `${sha}${sha}/${sha}${sha}/${sha.repeat(64).slice(0, 64)}.png`,
+        createdAt: "2026-10-12 09:00:00",
+      });
+      await db.insert(files).values(file("a"));
+      await expect(db.insert(files).values(file("a"))).rejects.toThrow();
+    });
+  });
+
+  it("审核夹具：待审核/已驳回主题、驳回记录与通知齐备", async () => {
+    await withTestDb(async (db) => {
+      const states = new Map(
+        (await db.select().from(threads).where(eq(threads.forumId, DEMO.reviewForum))).map((t) => [
+          t.id,
+          t.state,
+        ]),
+      );
+      expect([...states.values()].sort()).toEqual(["pending", "rejected"]);
+      const [review] = await db.select().from(contentReviews);
+      expect(review?.decision).toBe("rejected");
+      expect((await db.select().from(notifications)).length).toBeGreaterThanOrEqual(2);
     });
   });
 });

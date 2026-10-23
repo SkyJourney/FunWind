@@ -5,15 +5,8 @@
     {
       "idx": 0,
       "version": "5",
-      "when": 1792761262151,
-      "tag": "0000_init_v2",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "5",
-      "when": 1792763454652,
-      "tag": "0001_forum_write_policy",
+      "when": 1792771333293,
+      "tag": "0000_init_v2_1",
       "breakpoints": true
     }
   ]

@@ -1,1 +1,0 @@
-ALTER TABLE `forums` ADD `write_policy` enum('inherit','members','restricted') DEFAULT 'inherit' NOT NULL;

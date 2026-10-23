@@ -3,9 +3,9 @@ import {
   BUILTIN_ROLE_KEYS,
   DEFAULT_ROLE_GRANTS,
   DEFAULT_SITE_SETTINGS,
-  LEGACY_CONDITION_KEYS,
   PERMISSION_DEFINITIONS,
   READ_POLICIES,
+  REVIEW_POLICIES,
   WRITE_POLICIES,
   ROLE_DEFINITIONS,
   isKnownPermission,
@@ -13,7 +13,7 @@ import {
   permissionSatisfies,
 } from "./authz-vocab.js";
 
-describe("权限词汇表 v2", () => {
+describe("权限词汇表", () => {
   it("权限点键唯一，且为 resource.action 形态", () => {
     const keys = PERMISSION_DEFINITIONS.map((p) => p.key);
     expect(new Set(keys).size).toBe(keys.length);
@@ -43,21 +43,13 @@ describe("权限词汇表 v2", () => {
     }
   });
 
-  it("提权护栏：forum.moderate 不映射任何旧键（旧 operate_thread 只是设置数组，曾导致全体会员获得版主权）", () => {
-    const moderate = PERMISSION_DEFINITIONS.find((p) => p.key === "forum.moderate");
-    expect(moderate?.legacyKey).toBeNull();
-    // 管理类权限点（admin.* / site.admin / forum.moderate）的 legacy_key 只允许后台面板键
-    for (const p of PERMISSION_DEFINITIONS.filter(
-      (x) => x.key.startsWith("admin.") || x.key === "site.admin" || x.key === "forum.moderate",
-    )) {
-      expect(p.legacyKey === null || p.legacyKey.startsWith("panel_"), p.key).toBe(true);
+  it("提权护栏：词汇表本身不带任何自动映射信息，forum.moderate 是唯一的版主权限点", () => {
+    for (const p of PERMISSION_DEFINITIONS) {
+      expect(Object.keys(p).sort(), p.key).toEqual(["description", "key", "level", "resource"]);
     }
-  });
-
-  it("门控权限点承接旧 thread.sell / thread.hide 的 legacy_key", () => {
-    const byKey = new Map(PERMISSION_DEFINITIONS.map((p) => [p.key, p]));
-    expect(byKey.get("gate.points")?.legacyKey).toBe("allow_thread_extend");
-    expect(byKey.get("gate.reply")?.legacyKey).toBe("allow_thread_extend");
+    expect(PERMISSION_DEFINITIONS.filter((p) => p.level === "manage").map((p) => p.key)).toEqual([
+      "forum.moderate",
+    ]);
   });
 
   it("分级域仅 forum：read < write < manage，且只有一个版主权限点", () => {
@@ -94,16 +86,6 @@ describe("权限词汇表 v2", () => {
     expect(permissionSatisfies("forum.read", "y")).toBe(false);
     expect(isKnownPermission("p1")).toBe(false);
   });
-
-  it("条件参数键的目标权限点都存在或为已知动作（thread.* 为事件/条件目标）", () => {
-    for (const [legacy, cond] of Object.entries(LEGACY_CONDITION_KEYS)) {
-      expect(legacy).toMatch(/^[a-z_0-9]+$/);
-      expect(cond.param.length).toBeGreaterThan(0);
-      const isPerm = isKnownPermission(cond.target);
-      const isAction = cond.target.startsWith("thread.");
-      expect(isPerm || isAction, `${legacy} → ${cond.target}`).toBe(true);
-    }
-  });
 });
 
 describe("内置角色与基线授权", () => {
@@ -113,17 +95,11 @@ describe("内置角色与基线授权", () => {
     expect(ROLE_DEFINITIONS.some((r) => r.key === "muted")).toBe(false);
   });
 
-  it("旧 gid 只映射到一个角色（防止 v1 的 23/38 互换类错误）", () => {
-    const seen = new Map<number, string>();
+  it("角色定义不带旧站信息；团队角色不是内置数据", () => {
     for (const r of ROLE_DEFINITIONS) {
-      for (const gid of r.legacyGids) {
-        expect(seen.has(gid), `gid ${gid} 重复映射 ${seen.get(gid)} / ${r.key}`).toBe(false);
-        seen.set(gid, r.key);
-      }
+      expect(Object.keys(r).sort(), r.key).toEqual(["description", "key", "kind", "name"]);
     }
-    // 旧库实测：23 = 实习组、38 = 策划组
-    expect(seen.get(23)).toBe("team-intern");
-    expect(seen.get(38)).toBe("team-planning");
+    expect(ROLE_DEFINITIONS.some((r) => r.key.startsWith("team-"))).toBe(false);
   });
 
   it("基线授权只引用词汇表内的权限点", () => {
@@ -150,5 +126,6 @@ describe("内置角色与基线授权", () => {
   it("版块可见性策略取值", () => {
     expect([...READ_POLICIES]).toEqual(["inherit", "public", "members", "restricted"]);
     expect([...WRITE_POLICIES]).toEqual(["inherit", "members", "restricted"]);
+    expect([...REVIEW_POLICIES]).toEqual(["inherit", "none", "threads", "all"]);
   });
 });

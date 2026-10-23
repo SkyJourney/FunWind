@@ -1,7 +1,7 @@
 /**
  * db:verify —— bootstrap 产物对账（自更新期望：直接读 schema.ts 的表/列定义）
  * 检查项：
- *  0. schema 结构规则（唯一键无可空列 / 无 raw 归档列 / 自增 id / 有主键）——schema-rules.ts
+ *  0. schema 结构规则（唯一键无可空列 / 无 raw 归档列 / 无旧站痕迹 / 自增 id / 有主键）——schema-rules.ts
  *  1. 表全集一致（schema.ts 全部表 ⇄ information_schema）
  *  2. 每表列名集合一致、列类型族一致（getSQLType() ⇄ COLUMN_TYPE 归一化对比）
  *  3. 引擎 InnoDB、表级字符集 utf8mb4
@@ -66,7 +66,7 @@ const tables = expectedTables();
     "rules:schema 结构规则",
     violations.length === 0,
     violations.length === 0
-      ? `${tables.length} 表全部符合（唯一键无可空列 / 无 raw 归档列 / 自增 id / 有主键）`
+      ? `${tables.length} 表全部符合（唯一键无可空列 / 无 raw 归档列 / 无旧站痕迹 / 自增 id / 有主键）`
       : violations
           .slice(0, 6)
           .map((v) => `${v.table}[${v.rule}] ${v.detail}`)

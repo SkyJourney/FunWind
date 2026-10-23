@@ -2,6 +2,7 @@ import { relations } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  char,
   date,
   datetime,
   index,
@@ -19,11 +20,12 @@ import {
 } from "drizzle-orm/mysql-core";
 
 /**
- * qysub_next · schema v2（M5.5，单一事实源，决策 #10）
+ * qysub_next · schema v2.1（M5.5，单一事实源，决策 #10；设计依据 docs/DESIGN-MODEL.md，共 43 表）
  *
- * 设计原则（详见 docs/milestones/M5.5-schema-v2.md）：
- *  - 业务库只放新模型：不带 raw / content_raw 归档列；旧结构不渗入
- *  - 保留旧主键（uid/tid/pid/fid/aid）以保证 URL 冻结；主键均为 AUTO_INCREMENT，迁移后把起点推到旧最大值之后
+ * 设计原则：
+ *  - 运行时 schema 不认识旧站：不出现 legacy_* / 迁移标记 / 迁移用 id 公式 / migration_* 表（schema-rules.ts 强制）
+ *  - 只保留 URL 必须稳定的 id（uid/fid/tid/pid）；主键均为 AUTO_INCREMENT，导入后把起点推到最大值之后
+ *  - 引用诚实：每个 author_id 都指向 users 中真实存在的一行（已注销账号 = state=deleted 的占位行）
  *  - 唯一键不得依赖 NULL 去重来表达作用域/层级：全局作用域用 scope_id = 0 哨兵
  *    （例外：单列、且「空值 = 没有」本身就是期望语义，如 users.email_key）
  *  - 状态是一等属性（read_policy / state / user_restrictions），不靠「有没有记录」推断
@@ -34,6 +36,18 @@ import {
  */
 
 const dt = (name: string) => datetime(name, { mode: "string" });
+
+/** 内容状态机（threads / posts 共用，见 docs/DESIGN-MODEL.md §4） */
+export const CONTENT_STATES = ["visible", "pending", "rejected", "hidden", "deleted"] as const;
+export type ContentState = (typeof CONTENT_STATES)[number];
+
+/** 通知大类（公告不在其中：它走 announcements） */
+export const NOTIFICATION_CATEGORIES = ["interaction", "message", "moderation", "account"] as const;
+export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
+
+/** 通知投递渠道；当前只实现 in_app，其余为注册边界预留 */
+export const NOTIFICATION_CHANNELS = ["in_app", "email", "push"] as const;
+export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 
 // ============================================================
 // 身份
@@ -52,7 +66,8 @@ export const users = mysqlTable(
     emailKey: varchar("email_key", { length: 128 }),
     passwordHash: varchar("password_hash", { length: 255 }),
     emailVerifiedAt: dt("email_verified_at"),
-    state: mysqlEnum("state", ["active", "spam"]).notNull().default("active"),
+    /** deleted = 已注销：保留行以维持引用完整，个人信息已清除 */
+    state: mysqlEnum("state", ["active", "deleted"]).notNull().default("active"),
     createdAt: dt("created_at").notNull(),
     lastLoginAt: dt("last_login_at"),
   },
@@ -75,8 +90,8 @@ export const userProfiles = mysqlTable(
     gender: tinyint("gender").notNull().default(0),
     birthday: date("birthday", { mode: "string" }),
     signatureMd: text("signature_md"),
-    /** 头像存储键；NULL = 无头像（迁移时扫磁盘确认文件存在才填） */
-    avatarKey: varchar("avatar_key", { length: 128 }),
+    /** 头像文件（files.id）；NULL = 无头像 */
+    avatarFileId: int("avatar_file_id", { unsigned: true }),
   },
   (t) => [primaryKey({ columns: [t.userId] })],
 );
@@ -88,14 +103,14 @@ export const userStats = mysqlTable(
     userId: int("user_id", { unsigned: true }).notNull(),
     threadCount: int("thread_count", { unsigned: true }).notNull().default(0),
     postCount: int("post_count", { unsigned: true }).notNull().default(0),
-    digestCount: int("digest_count", { unsigned: true }).notNull().default(0),
+    featuredCount: int("featured_count", { unsigned: true }).notNull().default(0),
     followerCount: int("follower_count", { unsigned: true }).notNull().default(0),
     lastPostAt: dt("last_post_at"),
   },
   (t) => [primaryKey({ columns: [t.userId] })],
 );
 
-/** 用户限制：封禁/禁言/禁头像/禁签名统一一处（取代 muted 角色 + user_bans + 旧 status 位） */
+/** 用户限制：封禁/禁言/禁头像/禁签名统一一处 */
 export const userRestrictions = mysqlTable(
   "user_restrictions",
   {
@@ -198,12 +213,19 @@ export const forums = mysqlTable(
     /**
      * 写入策略（发帖/回帖）：inherit 取最近的非 inherit 祖先（全无则 members：登录用户凭全局 forum.write 即可）；
      * restricted = 必须在该版块（或祖先版块）作用域持有 forum.write 授权，全局基线不算。
-     * 旧站「只有团队组能发帖」的 6 个版块即此类；同时满足将来「只读公告版」的常见需求。
+     * 典型用途：仅团队成员可发帖的版块、只读公告版。
      */
     writePolicy: mysqlEnum("write_policy", ["inherit", "members", "restricted"])
       .notNull()
       .default("inherit"),
-    /** 是否出现在首页目录/最新动态（旧 isshow=0 的版块仍可直达，不影响权限判定） */
+    /**
+     * 审核策略：inherit 取最近的非 inherit 祖先（全无则 none）；
+     * threads = 新主题需审核；all = 所有发帖（含回帖）需审核；持有 forum.moderate 的人免审。
+     */
+    reviewPolicy: mysqlEnum("review_policy", ["inherit", "none", "threads", "all"])
+      .notNull()
+      .default("inherit"),
+    /** 是否出现在首页目录/最新动态（不上目录的版块仍可直达，不影响权限判定） */
     isListed: boolean("is_listed").notNull().default(true),
     isArchived: boolean("is_archived").notNull().default(false),
     /** 以下为可由 threads/posts 重算的缓存 */
@@ -219,7 +241,7 @@ export const forums = mysqlTable(
   ],
 );
 
-/** 版块主题前缀（旧 topic_type；迁移时只带被引用的） */
+/** 版块主题前缀 */
 export const forumPrefixes = mysqlTable(
   "forum_prefixes",
   {
@@ -241,19 +263,17 @@ export const threads = mysqlTable(
     id: int("id", { unsigned: true }).notNull().autoincrement(),
     forumId: int("forum_id", { unsigned: true }).notNull(),
     authorId: int("author_id", { unsigned: true }).notNull(),
-    /** 仅历史孤儿作者（用户行已不存在）填写，渲染「已注销」 */
-    authorNameLegacy: varchar("author_name_legacy", { length: 64 }),
     title: varchar("title", { length: 255 }).notNull(),
     prefixId: int("prefix_id", { unsigned: true }),
     kind: mysqlEnum("kind", ["normal", "poll"]).notNull().default("normal"),
     firstPostId: int("first_post_id", { unsigned: true }),
-    state: mysqlEnum("state", ["visible", "hidden", "deleted", "spam"])
-      .notNull()
-      .default("visible"),
-    topped: tinyint("topped").notNull().default(0),
-    digest: tinyint("digest").notNull().default(0),
+    /** 状态机见 docs/DESIGN-MODEL.md §4：pending/rejected 仅作者与版主可见 */
+    state: mysqlEnum("state", CONTENT_STATES).notNull().default("visible"),
+    /** 置顶级别：0 无 / 1 版块 / 2 分区 / 3 全站 */
+    pinLevel: tinyint("pin_level", { unsigned: true }).notNull().default(0),
+    isFeatured: boolean("is_featured").notNull().default(false),
     isLocked: boolean("is_locked").notNull().default(false),
-    /** 以下为可由 posts 重算的缓存（旧值不可信：reply_count 在 50 个主题上对不上） */
+    /** 以下为可由 posts 重算的缓存 */
     replyCount: int("reply_count", { unsigned: true }).notNull().default(0),
     viewCount: int("view_count", { unsigned: true }).notNull().default(0),
     lastPostId: int("last_post_id", { unsigned: true }),
@@ -263,10 +283,10 @@ export const threads = mysqlTable(
   },
   (t) => [
     primaryKey({ columns: [t.id] }),
-    index("idx_threads_forum").on(t.forumId, t.state, t.topped, t.lastPostedAt),
+    index("idx_threads_forum").on(t.forumId, t.state, t.pinLevel, t.lastPostedAt),
     index("idx_threads_author").on(t.authorId),
     index("idx_threads_created").on(t.createdAt),
-    index("idx_threads_digest").on(t.digest),
+    index("idx_threads_featured").on(t.isFeatured),
     index("idx_threads_last").on(t.state, t.lastPostedAt),
   ],
 );
@@ -279,14 +299,11 @@ export const posts = mysqlTable(
     /** 楼层：首帖 = 1；删除后不重排（允许空洞） */
     floor: int("floor", { unsigned: true }).notNull(),
     authorId: int("author_id", { unsigned: true }).notNull(),
-    authorNameLegacy: varchar("author_name_legacy", { length: 64 }),
     /** 仅公开部分；门控隐藏内容拆在 post_gates.hidden_md（见 docs/GATES.md） */
     bodyMd: mediumtext("body_md"),
     replyToPostId: int("reply_to_post_id", { unsigned: true }),
     hasGate: boolean("has_gate").notNull().default(false),
-    state: mysqlEnum("state", ["visible", "hidden", "deleted", "spam"])
-      .notNull()
-      .default("visible"),
+    state: mysqlEnum("state", CONTENT_STATES).notNull().default("visible"),
     likeCount: int("like_count", { unsigned: true }).notNull().default(0),
     createdAt: dt("created_at").notNull(),
     editedAt: dt("edited_at"),
@@ -308,7 +325,8 @@ export const postGates = mysqlTable(
   {
     id: int("id", { unsigned: true }).notNull().autoincrement(),
     postId: int("post_id", { unsigned: true }).notNull(),
-    seq: tinyint("seq", { unsigned: true }).notNull(),
+    /** 帖内稳定身份（正文占位 :::gate{key="a1"} 引用它）；编辑时不变，解锁记录因此不丢 */
+    gateKey: varchar("gate_key", { length: 16 }).notNull(),
     conditions: json("conditions").notNull(),
     matchMode: mysqlEnum("match_mode", ["all", "any"]).notNull().default("all"),
     hiddenMd: mediumtext("hidden_md").notNull(),
@@ -316,7 +334,7 @@ export const postGates = mysqlTable(
     createdAt: dt("created_at").notNull(),
     updatedAt: dt("updated_at").notNull(),
   },
-  (t) => [primaryKey({ columns: [t.id] }), uniqueIndex("uq_pg_post_seq").on(t.postId, t.seq)],
+  (t) => [primaryKey({ columns: [t.id] }), uniqueIndex("uq_pg_post_key").on(t.postId, t.gateKey)],
 );
 
 export const gateUnlocks = mysqlTable(
@@ -326,35 +344,68 @@ export const gateUnlocks = mysqlTable(
     userId: int("user_id", { unsigned: true }).notNull(),
     pricePaid: int("price_paid", { unsigned: true }).notNull().default(0),
     authorIncome: int("author_income", { unsigned: true }).notNull().default(0),
-    /** 读者支出分录；价格 0 与迁移记录为 NULL */
+    /** 读者支出分录；价格 0 时为 NULL */
     ledgerId: bigint("ledger_id", { mode: "number", unsigned: true }),
-    source: mysqlEnum("source", ["purchase", "migrated"]).notNull().default("purchase"),
     unlockedAt: dt("unlocked_at").notNull(),
   },
   (t) => [primaryKey({ columns: [t.gateId, t.userId] }), index("idx_gu_user").on(t.userId)],
 );
 
+/**
+ * 文件注册表：内容寻址（SHA-256）。附件、头像、正文图片、徽章图统一入库，
+ * 存储位置由哈希派生（ab/cd/<sha256>.<ext>），根目录由 STORAGE_DIR 配置，可平移到对象存储。
+ */
+export const files = mysqlTable(
+  "files",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    sha256: char("sha256", { length: 64 }).notNull(),
+    storageKey: varchar("storage_key", { length: 128 }).notNull(),
+    sizeBytes: bigint("size_bytes", { mode: "number", unsigned: true }).notNull().default(0),
+    mime: varchar("mime", { length: 100 }).notNull().default(""),
+    width: smallint("width", { unsigned: true }),
+    height: smallint("height", { unsigned: true }),
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    uniqueIndex("uq_files_sha256").on(t.sha256),
+    uniqueIndex("uq_files_storage_key").on(t.storageKey),
+  ],
+);
+
+/** 帖子的下载附件（正文内联图片不进此表，只引用 files） */
 export const attachments = mysqlTable(
   "attachments",
   {
     id: int("id", { unsigned: true }).notNull().autoincrement(),
     postId: int("post_id", { unsigned: true }).notNull(),
+    fileId: int("file_id", { unsigned: true }).notNull(),
     uploaderId: int("uploader_id", { unsigned: true }).notNull(),
     originalName: varchar("original_name", { length: 255 }).notNull().default(""),
-    /** 存储键：历史附件为相对 attachment/ 的旧路径，新上传为 upload/… */
-    storageKey: varchar("storage_key", { length: 255 }).notNull(),
-    mime: varchar("mime", { length: 100 }).notNull().default(""),
-    sizeBytes: int("size_bytes", { unsigned: true }).notNull().default(0),
-    width: smallint("width", { unsigned: true }),
-    height: smallint("height", { unsigned: true }),
     downloads: int("downloads", { unsigned: true }).notNull().default(0),
     createdAt: dt("created_at").notNull(),
   },
   (t) => [
     primaryKey({ columns: [t.id] }),
     index("idx_att_post").on(t.postId),
+    index("idx_att_file").on(t.fileId),
     index("idx_att_uploader").on(t.uploaderId),
   ],
+);
+
+/** 审核历史：每次通过/驳回留一行（当前状态以 posts.state 为准） */
+export const contentReviews = mysqlTable(
+  "content_reviews",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    postId: int("post_id", { unsigned: true }).notNull(),
+    reviewerId: int("reviewer_id", { unsigned: true }).notNull(),
+    decision: mysqlEnum("decision", ["approved", "rejected"]).notNull(),
+    note: varchar("note", { length: 255 }).notNull().default(""),
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.id] }), index("idx_cr_post").on(t.postId, t.id)],
 );
 
 export const tags = mysqlTable(
@@ -486,6 +537,84 @@ export const messages = mysqlTable(
 );
 
 // ============================================================
+// 通知中心（docs/NOTIFICATIONS.md）
+// ============================================================
+
+/** 逐人收件箱：互动 / 私信指针 / 审核与管理 / 账号与安全；公告不逐人写行，见 announcements */
+export const notifications = mysqlTable(
+  "notifications",
+  {
+    id: bigint("id", { mode: "number", unsigned: true }).notNull().autoincrement(),
+    userId: int("user_id", { unsigned: true }).notNull(),
+    category: mysqlEnum("category", NOTIFICATION_CATEGORIES).notNull(),
+    /** 命名空间类型键，如 post.replied；由 notificationTypes 注册边界声明 */
+    type: varchar("type", { length: 48 }).notNull(),
+    /** 触发者；系统触发为 NULL */
+    actorId: int("actor_id", { unsigned: true }),
+    /** 指向对象类型（thread/post/user/conversation/forum/gate…）；无目标为空串 */
+    targetType: varchar("target_type", { length: 32 }).notNull().default(""),
+    targetId: bigint("target_id", { mode: "number", unsigned: true }).notNull().default(0),
+    /** 聚合键：同键的未读通知合并为一条；NULL = 不聚合 */
+    groupKey: varchar("group_key", { length: 96 }),
+    /** JSON 快照（标题摘录、积分数、理由、聚合计数与最近触发者），避免对象被删后通知变空 */
+    data: json("data"),
+    readAt: dt("read_at"),
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    index("idx_nf_user_read").on(t.userId, t.readAt, t.id),
+    index("idx_nf_user_category").on(t.userId, t.category, t.id),
+    index("idx_nf_user_group").on(t.userId, t.groupKey, t.readAt),
+  ],
+);
+
+/** 通知偏好：无记录 = 取注册边界里的默认值；强制类型（审核/限制/安全）不可关闭 */
+export const notificationPreferences = mysqlTable(
+  "notification_preferences",
+  {
+    userId: int("user_id", { unsigned: true }).notNull(),
+    type: varchar("type", { length: 48 }).notNull(),
+    channel: mysqlEnum("channel", NOTIFICATION_CHANNELS).notNull(),
+    enabled: boolean("enabled").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.type, t.channel] })],
+);
+
+/** 站点公告（广播）：读取时与 notifications 合并，不逐人写行 */
+export const announcements = mysqlTable(
+  "announcements",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    title: varchar("title", { length: 200 }).notNull(),
+    bodyMd: text("body_md").notNull(),
+    level: mysqlEnum("level", ["info", "important"]).notNull().default("info"),
+    audience: mysqlEnum("audience", ["all", "members"]).notNull().default("all"),
+    showBanner: boolean("show_banner").notNull().default(false),
+    startsAt: dt("starts_at").notNull(),
+    /** NULL = 长期有效 */
+    endsAt: dt("ends_at"),
+    createdBy: int("created_by", { unsigned: true }).notNull(),
+    createdAt: dt("created_at").notNull(),
+    updatedAt: dt("updated_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.id] }), index("idx_ann_window").on(t.startsAt, t.endsAt)],
+);
+
+export const announcementReads = mysqlTable(
+  "announcement_reads",
+  {
+    userId: int("user_id", { unsigned: true }).notNull(),
+    announcementId: int("announcement_id", { unsigned: true }).notNull(),
+    readAt: dt("read_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.announcementId] }),
+    index("idx_ar_announcement").on(t.announcementId),
+  ],
+);
+
+// ============================================================
 // 积分与荣誉（docs/POINTS.md）
 // ============================================================
 
@@ -539,7 +668,7 @@ export const checkins = mysqlTable(
   (t) => [primaryKey({ columns: [t.userId, t.checkinDate] })],
 );
 
-/** 荣誉徽章：纯展示、零权限语义（团队徽章 + 旧勋章） */
+/** 荣誉徽章：纯展示、零权限语义（团队徽章 + 荣誉徽章） */
 export const badges = mysqlTable(
   "badges",
   {
@@ -547,7 +676,7 @@ export const badges = mysqlTable(
     key: varchar("key", { length: 48 }).notNull(),
     name: varchar("name", { length: 64 }).notNull(),
     description: varchar("description", { length: 255 }).notNull().default(""),
-    icon: varchar("icon", { length: 100 }).notNull().default(""),
+    iconFileId: int("icon_file_id", { unsigned: true }),
     kind: mysqlEnum("kind", ["team", "honor"]).notNull().default("honor"),
     sortOrder: smallint("sort_order").notNull().default(0),
     isActive: boolean("is_active").notNull().default(true),
@@ -590,8 +719,6 @@ export const permissions = mysqlTable(
     // 分级域权限点带 read/write/manage（manage ⊃ write ⊃ read）；动作型为 NULL
     level: mysqlEnum("level", ["read", "write", "manage"]),
     description: varchar("description", { length: 255 }).notNull().default(""),
-    legacyKey: varchar("legacy_key", { length: 64 }),
-    conditionParams: json("condition_params"),
   },
   (t) => [primaryKey({ columns: [t.key] })],
 );
@@ -660,18 +787,6 @@ export const moduleState = mysqlTable(
     updatedAt: dt("updated_at").notNull(),
   },
   (t) => [primaryKey({ columns: [t.moduleId] })],
-);
-
-export const migrationState = mysqlTable(
-  "migration_state",
-  {
-    entity: varchar("entity", { length: 64 }).notNull(),
-    rowsWritten: bigint("rows_written", { mode: "number", unsigned: true }).notNull().default(0),
-    durationMs: bigint("duration_ms", { mode: "number", unsigned: true }).notNull().default(0),
-    finishedAt: dt("finished_at"),
-    note: varchar("note", { length: 255 }).notNull().default(""),
-  },
-  (t) => [primaryKey({ columns: [t.entity] })],
 );
 
 /** 管理动作统一审计：谁/何时/做了什么/对谁/前后值 */
