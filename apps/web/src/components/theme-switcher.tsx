@@ -3,12 +3,9 @@
 import { Monitor, Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
+import { THEME_OPTIONS } from "@/lib/theme";
 
-const OPTIONS = [
-  { value: "light", label: "浅色", icon: Sun },
-  { value: "dark", label: "暗色", icon: Moon },
-  { value: "system", label: "跟随系统", icon: Monitor },
-] as const;
+const ICONS = { Sun, Moon, Monitor } as const;
 
 export function ThemeSwitcher() {
   const { theme, setTheme } = useTheme();
@@ -19,19 +16,23 @@ export function ThemeSwitcher() {
       role="group"
       aria-label="主题切换"
     >
-      {OPTIONS.map(({ value, label, icon: Icon }) => (
-        <Button
-          key={value}
-          variant={theme === value ? "secondary" : "ghost"}
-          size="sm"
-          onClick={() => setTheme(value)}
-          aria-pressed={theme === value}
-          title={label}
-        >
-          <Icon className="size-4" aria-hidden />
-          <span className="hidden sm:inline">{label}</span>
-        </Button>
-      ))}
+      {THEME_OPTIONS.map(({ value, label, icon }) => {
+        const Icon = ICONS[icon];
+        const active = theme === value;
+        return (
+          <Button
+            key={value}
+            variant={active ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setTheme(value)}
+            aria-pressed={active}
+            title={label}
+          >
+            <Icon className="size-4" aria-hidden />
+            <span className="hidden sm:inline">{label}</span>
+          </Button>
+        );
+      })}
     </div>
   );
 }

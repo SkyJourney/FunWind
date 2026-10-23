@@ -1,0 +1,26 @@
+# FunWind 开发容器（可选）：docker compose --profile dev up dev-web
+# 本机直接 pnpm dev 等价；容器化用于环境一致性验证
+name: funwind-dev
+
+services:
+  dev-web:
+    build:
+      context: ../..
+      dockerfile: docker/dev/web.Dockerfile
+    container_name: funwind-dev-web
+    profiles: ["dev"]
+    ports:
+      - "127.0.0.1:3100:3100"
+    environment:
+      - NEW_DB_HOST=host.docker.internal
+      - NEW_DB_PORT=33621
+      - NEW_DB_NAME=qysub_next
+      - WATCHPACK_POLLING=true
+    volumes:
+      - ../..:/repo
+      - funwind_node_modules:/repo/node_modules
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  funwind_node_modules:

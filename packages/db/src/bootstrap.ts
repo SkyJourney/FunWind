@@ -14,7 +14,10 @@ import { newDbConfig } from "./env.js";
 const here = dirname(fileURLToPath(import.meta.url));
 const migrationsFolder = join(here, "../drizzle");
 
-export async function bootstrapDb(config = newDbConfig(), log = (m: string) => console.log(m)): Promise<void> {
+export async function bootstrapDb(
+  config = newDbConfig(),
+  log = (m: string) => console.log(m),
+): Promise<void> {
   const pool = createPool(config);
   const db = createDb(pool);
   try {

@@ -13,7 +13,7 @@
 
 | 里程碑 | 名称 | 覆盖模块 | 阶段 | 状态 |
 |--------|------|----------|------|------|
-| [M1](milestones/M1-infra-scaffold.md) | 工程骨架与基础设施 | — | 一·骨架 | ⬜ |
+| [M1](milestones/M1-infra-scaffold.md) | 工程骨架与基础设施 | — | 一·骨架 | ✅ 2026-10-23 |
 | [M2](milestones/M2-module-kernel.md) | 模块注册表内核 | 插入点 | 一·骨架 | ⬜ |
 | [M3](milestones/M3-content-readonly.md) | 内容只读渲染 | M01/M04 | 一·骨架 | ⬜ |
 | [M4](milestones/M4-users-auth.md) | 用户与认证 | M02 | 一·骨架 | ⬜ |

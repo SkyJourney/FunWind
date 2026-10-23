@@ -47,13 +47,13 @@
   --fw-blue-500: #3b82f6;
 
   /* 字阶（12–36px 六档 + 展示级） */
-  --fw-text-xs: 0.75rem;    /* 12 */
-  --fw-text-sm: 0.875rem;   /* 14 */
-  --fw-text-base: 1rem;     /* 16 */
-  --fw-text-lg: 1.125rem;   /* 18 */
-  --fw-text-xl: 1.5rem;     /* 24 */
-  --fw-text-2xl: 1.875rem;  /* 30 */
-  --fw-text-3xl: 2.25rem;   /* 36 */
+  --fw-text-xs: 0.75rem; /* 12 */
+  --fw-text-sm: 0.875rem; /* 14 */
+  --fw-text-base: 1rem; /* 16 */
+  --fw-text-lg: 1.125rem; /* 18 */
+  --fw-text-xl: 1.5rem; /* 24 */
+  --fw-text-2xl: 1.875rem; /* 30 */
+  --fw-text-3xl: 2.25rem; /* 36 */
 
   /* 行高 */
   --fw-leading-tight: 1.25;
@@ -78,12 +78,13 @@
 
   /* 阴影（浅色基准；暗色主题在 semantic 层加深） */
   --fw-shadow-1: 0 1px 2px rgb(15 23 42 / 0.06), 0 1px 3px rgb(15 23 42 / 0.08);
-  --fw-shadow-2: 0 4px 12px rgb(15 23 42 / 0.10);
+  --fw-shadow-2: 0 4px 12px rgb(15 23 42 / 0.1);
   --fw-shadow-3: 0 12px 32px rgb(15 23 42 / 0.16);
 
   /* 字体栈：中文/日文优先系统字体，离线友好 */
-  --fw-font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC",
-    "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans CJK SC", "Noto Sans CJK JP",
-    "Microsoft YaHei", "Microsoft JhengHei", sans-serif;
+  --fw-font-sans:
+    system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans",
+    "Hiragino Kaku Gothic ProN", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei",
+    "Microsoft JhengHei", sans-serif;
   --fw-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }

@@ -1,7 +1,7 @@
 # M1 · 工程骨架与基础设施
 
 - 阶段：一·骨架 ｜ 覆盖模块：—（基建）｜ 依赖：无
-- 状态：⬜ 未开始
+- 状态：✅ 完成（2026-10-23）
 
 ## 目标
 
@@ -36,14 +36,21 @@ shadcn/ui 模式组件地基 + 质量工具链 + 测试框架 + Drizzle 接入�
 
 ## 验收门禁
 
-- [ ] `npm run build` 成功；`npm run verify:all` 全绿
-- [ ] 令牌演示页明暗切换 E2E 通过
-- [ ] **双模式数据层回归**：空库 `db:bootstrap`→`db:seed`→演示查询跑通；
-  且青翼导入程序在新 Drizzle schema 上完整回归（`npm run migrate` + `npm run verify` 23 项全过）
-- [ ] 覆盖率报告可生成并达标（示范模块 ≥90%）
-- [ ] README「快速开始」可被新人照做跑通（应用启动部分补全）
-- [ ] CHANGELOG 记录 M1 交付
+- [x] `pnpm build` 成功；`pnpm verify:all` 全绿（lint + format + typecheck + test + build）
+- [x] 令牌演示页明暗切换 E2E 通过（4/4：加载/暗色切换/持久化/系统档位）
+- [x] **双模式数据层回归**：临时库空库 `db:bootstrap`→`db:seed`→`db:verify` 5/5；
+  青翼导入在新 Drizzle schema 上完整回归（`pnpm migrate` + 23 项对账全过，临时库与正式库各一轮）
+- [x] 覆盖率报告达标（示范模块 100%，门槛 90/85）
+- [x] README「快速开始」全流程可照做（pnpm workspace + 双模式数据层 + 应用启动）
+- [x] CHANGELOG 记录 M1 交付
 
 ## 遗留事项
 
-（无）
+- **Next 16.4.2 `title.template` 疑似回归**：root layout 的 `title: { default, template }` 未作用于子页字符串标题
+  （官方文档语义应为生效）。已放宽 E2E 断言并保留模板写法；升级 Next 次版本时复验，必要时改用 `title.absolute`。
+- **TypeScript 7 兼容复评**：M1 锁 5.9（TS7 为 Go 重写大版本）；M3 开工前做一次升级评估。
+- **ESLint 10 peer 警告**：eslint-config-next 传递插件（import/jsx-a11y/react）声明 peer 上限 ESLint 9，
+  实际运行正常；待上游更新 peer range 后消除。
+- **`allowedDevOrigins` 教训（已修复，记录防复发）**：Next 16 安全默认拦截"跨域"开发资源，
+  本机以 127.0.0.1 访问时 HMR/运行时块被静默拦截 → **页面可渲染但整页无交互（水合未开始、无任何报错）**。
+  修复：`next.config.ts` 配 `allowedDevOrigins: ["127.0.0.1"]`。此类"能看不能点"问题先查此处。

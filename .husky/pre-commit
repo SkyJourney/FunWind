@@ -1,0 +1,2 @@
+pnpm lint-staged
+pnpm -r --if-present lint

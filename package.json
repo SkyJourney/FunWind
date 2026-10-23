@@ -14,11 +14,25 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test",
     "test:e2e": "pnpm --filter @funwind/web test:e2e",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "husky",
     "db:bootstrap": "pnpm --filter @funwind/db bootstrap",
     "db:seed": "pnpm --filter @funwind/db seed",
     "db:verify": "pnpm --filter @funwind/db verify",
     "migrate": "pnpm --filter @funwind/migration migrate",
     "verify:migration": "pnpm --filter @funwind/migration verify",
-    "verify:all": "pnpm lint && pnpm typecheck && pnpm test && pnpm build"
+    "verify:all": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm build"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,mjs,cjs,css,json,yaml,yml}": [
+      "prettier --write"
+    ]
+  },
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "lint-staged": "^17.6.0",
+    "prettier": "^3.9.10",
+    "prettier-plugin-tailwindcss": "^0.8.1"
   }
 }

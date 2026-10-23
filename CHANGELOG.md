@@ -5,10 +5,26 @@
 
 ## [Unreleased]
 
-### Added
+### Added（M1 · 工程骨架与基础设施）
 
-- **决策 #10 · 数据层双模式**：项目支持零数据部署——Web 安装向导 + CLI bootstrap（新里程碑 M12）；
-  schema 单一事实源移至应用侧 Drizzle（M1 落地），`migration/` 降级为青翼专项可选导入器。
+- **pnpm workspace**（pnpm 12.15 自管版本）：`apps/web` + `packages/db` + `migration` 三包结构。
+- **@funwind/db 数据内核（决策 #10 单一事实源）**：17 张表 Drizzle 定义、版本化迁移
+  （`drizzle/0000_init.sql` 入库）、`db:bootstrap`（空库建表 + username 列级 as_cs 幂等 patch）、
+  `db:seed`（90000+ 号段幂等演示种子）、`db:verify`（information_schema 逐表对账，期望自 schema.ts）。
+- **双模式数据回归**：临时库空库→建表→全量导入 23 项对账全绿；正式库幂等重跑 23 项全绿。
+- **apps/web**：Next.js 16.4.2 + React 19.3.1 + TS strict；三层设计令牌
+  （primitives/semantic/themes：default + dark）；Tailwind v4 `@theme inline` 映射；
+  shadcn CLI 4.22 首批 10 组件（统一 radix-ui 包 + cn 别名）；next-themes 三态切换（无闪烁）；
+  令牌演示页（色板/字阶/圆角阴影/组件样例）。
+- **质量工具链**：ESLint 10（flat config，eslint-config-next 原生 flat 数组）+ Prettier 3.9
+  （tailwindcss 插件）+ husky/lint-staged；Vitest 5 + Testing Library（覆盖率门槛 90/85，当前 100%）；
+  Playwright（E2E：主题切换/持久化/语义配色）；`verify:all` 一键门禁。
+- **Docker dev**：`docker/dev/`（node:24-alpine + corepack pnpm，compose profile 可选路径）。
+
+### Fixed
+
+- Next 16 安全默认拦截 `127.0.0.1` 开发资源（HMR/运行时块）导致**开发模式整页无交互**（水合静默失败）——
+  `next.config.ts` 配置 `allowedDevOrigins: ["127.0.0.1"]` 修复。
 
 ### Changed
 
@@ -17,8 +33,8 @@
 
 ### 计划中
 
-- M1 工程骨架与基础设施（进行中）
-- M2–M13 里程碑（见 docs/ROADMAP.md）
+- M2 模块注册表内核（下一里程碑）
+- M3–M13 里程碑（见 docs/ROADMAP.md）
 
 ## [0.1.0] - 2026-10-23 · 项目设计与数据迁移（P0）
 

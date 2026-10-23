@@ -13,7 +13,8 @@
     "generate": "drizzle-kit generate",
     "bootstrap": "tsx scripts/bootstrap.ts",
     "seed": "tsx scripts/seed.ts",
-    "verify": "tsx scripts/verify.ts"
+    "verify": "tsx scripts/verify.ts",
+    "lint": "eslint ."
   },
   "dependencies": {
     "dotenv": "^18.0.9",
@@ -23,7 +24,9 @@
   "devDependencies": {
     "@types/node": "^22.10.0",
     "drizzle-kit": "^0.31.11",
+    "eslint": "^10.13.0",
     "tsx": "^4.23.15",
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.0",
+    "typescript-eslint": "^8.72.0"
   }
 }

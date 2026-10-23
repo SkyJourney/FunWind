@@ -25,9 +25,11 @@ function expectedTables(): [string, MySqlTable][] {
   return Object.entries(schema)
     .filter(
       (entry): entry is [string, MySqlTable] =>
-        typeof entry[1] === "object" && entry[1] !== null && Symbol.for("drizzle:Name") in (entry[1] as object),
+        typeof entry[1] === "object" &&
+        entry[1] !== null &&
+        Symbol.for("drizzle:Name") in (entry[1] as object),
     )
-    .map(([key, table]) => [getTableConfig(table).name, table] as [string, MySqlTable]);
+    .map(([_key, table]) => [getTableConfig(table).name, table] as [string, MySqlTable]);
 }
 
 function norm(s: string): string {
@@ -58,19 +60,32 @@ try {
   const expectedNames = new Set(tables.map(([sqlName]) => sqlName));
   const missing = [...expectedNames].filter((t) => !dbTables.has(t));
   const extra = [...dbTables].filter((t) => !expectedNames.has(t));
-  add("tables:全集一致", missing.length === 0 && extra.length === 0,
-    `期望 ${expectedNames.size} 张；缺失 ${missing.length ? missing.join(",") : "无"}；多余 ${extra.length ? extra.join(",") : "无"}`);
+  add(
+    "tables:全集一致",
+    missing.length === 0 && extra.length === 0,
+    `期望 ${expectedNames.size} 张；缺失 ${missing.length ? missing.join(",") : "无"}；多余 ${extra.length ? extra.join(",") : "无"}`,
+  );
 
   // 2. 引擎与表级字符集
   const badEngine = tableRows.filter((r) => r.ENGINE !== "InnoDB").map((r) => String(r.TABLE_NAME));
-  const badCharset = tableRows.filter((r) => !String(r.TABLE_COLLATION).startsWith("utf8mb4")).map((r) => String(r.TABLE_NAME));
-  add("tables:InnoDB", badEngine.length === 0, badEngine.length ? `非 InnoDB: ${badEngine.join(",")}` : "全部 InnoDB");
-  add("tables:utf8mb4", badCharset.length === 0, badCharset.length ? `非 utf8mb4: ${badCharset.join(",")}` : "全部 utf8mb4");
+  const badCharset = tableRows
+    .filter((r) => !String(r.TABLE_COLLATION).startsWith("utf8mb4"))
+    .map((r) => String(r.TABLE_NAME));
+  add(
+    "tables:InnoDB",
+    badEngine.length === 0,
+    badEngine.length ? `非 InnoDB: ${badEngine.join(",")}` : "全部 InnoDB",
+  );
+  add(
+    "tables:utf8mb4",
+    badCharset.length === 0,
+    badCharset.length ? `非 utf8mb4: ${badCharset.join(",")}` : "全部 utf8mb4",
+  );
 
   // 3. 逐表列对账
   let colFail = 0;
   const colDetails: string[] = [];
-  for (const [exportName, table] of tables) {
+  for (const [, table] of tables) {
     const cfg = getTableConfig(table);
     const tName = cfg.name;
     const [colRows] = await pool.query<ColInfoRow[]>(
@@ -95,12 +110,18 @@ try {
     }
     if (missingCols.length || extraCols.length || typeMismatch) {
       colFail++;
-      if (missingCols.length) colDetails.push(`${tName}: 缺列 ${missingCols.map((c) => c.name).join(",")}`);
+      if (missingCols.length)
+        colDetails.push(`${tName}: 缺列 ${missingCols.map((c) => c.name).join(",")}`);
       if (extraCols.length) colDetails.push(`${tName}: 多列 ${extraCols.join(",")}`);
     }
   }
-  add(`columns:逐表对账（${tables.length} 表）`, colFail === 0,
-    colFail === 0 ? "全部列名与类型一致" : `${colFail} 表异常：${colDetails.slice(0, 6).join("；")}`);
+  add(
+    `columns:逐表对账（${tables.length} 表）`,
+    colFail === 0,
+    colFail === 0
+      ? "全部列名与类型一致"
+      : `${colFail} 表异常：${colDetails.slice(0, 6).join("；")}`,
+  );
 
   // 4. 专项：username 列级 collation
   const [userCol] = await pool.query<ColInfoRow[]>(
@@ -109,8 +130,11 @@ try {
     [config.database],
   );
   const u = userCol[0];
-  add("special:username collation", !!u && u.COLLATION_NAME === "utf8mb4_0900_as_cs",
-    u ? `${u.COLLATION_NAME}（さくら≠サクラ红线）` : "users.username 不存在");
+  add(
+    "special:username collation",
+    !!u && u.COLLATION_NAME === "utf8mb4_0900_as_cs",
+    u ? `${u.COLLATION_NAME}（さくら≠サクラ红线）` : "users.username 不存在",
+  );
 } finally {
   await pool.end();
 }

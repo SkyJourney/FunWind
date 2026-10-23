@@ -17,8 +17,8 @@ export const config = {
     password: env.NEW_DB_PASSWORD ?? "",
     database: env.NEW_DB_NAME ?? "qysub_next",
   },
-  attachmentDir: env.ATTACHMENT_DIR
-    ?? "/Volumes/Docker/data/qingyisub/wwwroot/www.qingyisub.top/attachment",
+  attachmentDir:
+    env.ATTACHMENT_DIR ?? "/Volumes/Docker/data/qingyisub/wwwroot/www.qingyisub.top/attachment",
   // 新系统静态路由约定：/attachment/** → 旧附件目录；/emotion/** → 旧站 res/images/emotion
   batchSize: Number(env.BATCH_SIZE ?? 2000),
 };
@@ -30,6 +30,8 @@ export function toDatetime(unix: number | null | undefined): string | null {
   const p = (n: number) => String(n).padStart(2, "0");
   // 固定 +8（历史数据无夏令时语义）
   const t = new Date(d.getTime() + 8 * 3600 * 1000);
-  return `${t.getUTCFullYear()}-${p(t.getUTCMonth() + 1)}-${p(t.getUTCDate())} ` +
-         `${p(t.getUTCHours())}:${p(t.getUTCMinutes())}:${p(t.getUTCSeconds())}`;
+  return (
+    `${t.getUTCFullYear()}-${p(t.getUTCMonth() + 1)}-${p(t.getUTCDate())} ` +
+    `${p(t.getUTCHours())}:${p(t.getUTCMinutes())}:${p(t.getUTCSeconds())}`
+  );
 }

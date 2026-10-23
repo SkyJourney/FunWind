@@ -1,12 +1,4 @@
-import {
-  Archive,
-  ArrowRight,
-  Bell,
-  CreditCard,
-  LogOut,
-  Settings,
-  User,
-} from "lucide-react";
+import { Archive, ArrowRight, Bell, CreditCard, LogOut, Settings, User } from "lucide-react";
 import type { Metadata } from "next";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -66,7 +58,12 @@ const TEXT_SIZES = [
   ["--fw-text-3xl", "36px"],
 ] as const;
 
-function Section({ id, title, subtitle, children }: {
+function Section({
+  id,
+  title,
+  subtitle,
+  children,
+}: {
   id: string;
   title: string;
   subtitle: string;
@@ -157,7 +154,11 @@ export default function TokensPage() {
         </div>
       </Section>
 
-      <Section id="components" title="4. 组件样例（shadcn/ui 首批 10 件）" subtitle="全部经由语义令牌着色，随主题即时切换">
+      <Section
+        id="components"
+        title="4. 组件样例（shadcn/ui 首批 10 件）"
+        subtitle="全部经由语义令牌着色，随主题即时切换"
+      >
         <div className="grid gap-6 lg:grid-cols-2">
           <Card>
             <CardHeader>
@@ -229,13 +230,26 @@ export default function TokensPage() {
                 <DropdownMenuContent>
                   <DropdownMenuLabel>我的账户</DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem><User className="mr-2 size-4" />个人资料</DropdownMenuItem>
-                  <DropdownMenuItem><Settings className="mr-2 size-4" />设置</DropdownMenuItem>
-                  <DropdownMenuItem><CreditCard className="mr-2 size-4" />青翼币</DropdownMenuItem>
-                  <DropdownMenuItem><Archive className="mr-2 size-4" />存档</DropdownMenuItem>
+                  <DropdownMenuItem>
+                    <User className="mr-2 size-4" />
+                    个人资料
+                  </DropdownMenuItem>
+                  <DropdownMenuItem>
+                    <Settings className="mr-2 size-4" />
+                    设置
+                  </DropdownMenuItem>
+                  <DropdownMenuItem>
+                    <CreditCard className="mr-2 size-4" />
+                    青翼币
+                  </DropdownMenuItem>
+                  <DropdownMenuItem>
+                    <Archive className="mr-2 size-4" />
+                    存档
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem variant="destructive">
-                    <LogOut className="mr-2 size-4" />退出登录
+                    <LogOut className="mr-2 size-4" />
+                    退出登录
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

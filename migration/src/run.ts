@@ -1,11 +1,11 @@
-import { oldQuery, closePools } from './db.js';
-import { loadSchemaOnce } from './schema-init.js';
-import { emoticons as emoticonEnt, groups, forums } from './entities/basic.js';
-import { makeUsers } from './entities/users.js';
-import { makeThreads, makePosts } from './entities/threads.js';
-import { attachments, medals, credits, polls, messages } from './entities/extra.js';
-import { upsertBatch } from './db.js';
-import { toDatetime } from './config.js';
+import { oldQuery, closePools } from "./db.js";
+import { loadSchemaOnce } from "./schema-init.js";
+import { emoticons as emoticonEnt, groups, forums } from "./entities/basic.js";
+import { makeUsers } from "./entities/users.js";
+import { makeThreads, makePosts } from "./entities/threads.js";
+import { attachments, medals, credits, polls, messages } from "./entities/extra.js";
+import { upsertBatch } from "./db.js";
+import { toDatetime } from "./config.js";
 
 export interface EmoCtx {
   emoticons: Map<number, { folder: string; icon: string }>;
@@ -19,7 +19,9 @@ export interface Migrator {
 
 async function loadEmoCtx(): Promise<EmoCtx> {
   const emoticons = new Map<number, { folder: string; icon: string }>();
-  for (const r of await oldQuery(`SELECT emotion_id, emotion_folder, emotion_icon FROM nw_common_emotion`)) {
+  for (const r of await oldQuery(
+    `SELECT emotion_id, emotion_folder, emotion_icon FROM nw_common_emotion`,
+  )) {
     emoticons.set(Number(r.emotion_id), { folder: r.emotion_folder, icon: r.emotion_icon });
   }
   const atts = new Map<number, { name: string; path: string }>();
@@ -33,15 +35,23 @@ const emo = await loadEmoCtx();
 
 // 执行顺序：依赖无关（UPSERT + 保留旧主键），但按可读性排列
 const ALL: Migrator[] = [
-  emoticonEnt, groups, forums,
-  makeUsers(emo), makeThreads(emo), makePosts(emo),
-  attachments, medals, credits, polls, messages,
+  emoticonEnt,
+  groups,
+  forums,
+  makeUsers(emo),
+  makeThreads(emo),
+  makePosts(emo),
+  attachments,
+  medals,
+  credits,
+  polls,
+  messages,
 ];
 
 const only = process.argv.slice(2);
 const list = only.length > 0 ? ALL.filter((m) => only.includes(m.name)) : ALL;
 if (list.length === 0) {
-  console.error(`未找到实体: ${only.join(',')}。可选: ${ALL.map((m) => m.name).join(' ')}`);
+  console.error(`未找到实体: ${only.join(",")}。可选: ${ALL.map((m) => m.name).join(" ")}`);
   process.exit(1);
 }
 
@@ -53,10 +63,21 @@ for (const m of list) {
   try {
     const { rows, note } = await m.run();
     const ms = Date.now() - t0;
-    await upsertBatch('migration_state', ['entity', 'rows_written', 'duration_ms', 'finished_at', 'note'],
-      [{ entity: m.name, rows_written: rows, duration_ms: ms, finished_at: toDatetime(Math.floor(Date.now() / 1000)), note: note ?? '' }],
-      ['entity']);
-    console.log(`✔ ${m.name.padEnd(18)} ${String(rows).padStart(7)} 行  ${ms}ms  ${note ?? ''}`);
+    await upsertBatch(
+      "migration_state",
+      ["entity", "rows_written", "duration_ms", "finished_at", "note"],
+      [
+        {
+          entity: m.name,
+          rows_written: rows,
+          duration_ms: ms,
+          finished_at: toDatetime(Math.floor(Date.now() / 1000)),
+          note: note ?? "",
+        },
+      ],
+      ["entity"],
+    );
+    console.log(`✔ ${m.name.padEnd(18)} ${String(rows).padStart(7)} 行  ${ms}ms  ${note ?? ""}`);
   } catch (e) {
     failed++;
     console.error(`✘ ${m.name}: ${e instanceof Error ? e.message : e}`);

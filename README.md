@@ -21,32 +21,51 @@
 
 ## 技术栈（已确认）
 
-Next.js（最新版，App Router/RSC）+ TypeScript 严格模式 · Tailwind CSS v4 + 三层设计令牌 · shadcn/ui 模式组件 ·
-Drizzle ORM · **MySQL 8.4 LTS**（utf8mb4, InnoDB）· 自研轻量 RBAC/ABAC · 模块注册表插件化 · Docker Compose
+Next.js 16（App Router/RSC）+ React 19 + TypeScript 严格模式 · Tailwind CSS v4 + 三层设计令牌 · shadcn/ui 模式组件 ·
+Drizzle ORM · **MySQL 8.4 LTS**（utf8mb4, InnoDB）· 自研轻量 RBAC/ABAC · 模块注册表插件化 · Docker Compose ·
+**pnpm workspace**（apps/web + packages/db + migration）
 
-## 快速开始（当前阶段：迁移与数据库）
+## 快速开始
 
 ```bash
-# 0. 环境要求：Node 24+、Docker Desktop、本机 33620/33621 端口空闲
+# 0. 环境要求：Node 24+、pnpm 12（corepack/全局）、Docker Desktop
 
-# 1. 新库容器（MySQL 8.4 @ 127.0.0.1:33621/qysub_next）
+# 1. 安装依赖（workspace 一次装齐）
+pnpm install
+
+# 2. 新库容器（MySQL 8.4 @ 127.0.0.1:33621/qysub_next）
 docker compose -f docker/qysub-next/compose.yaml up -d
 
-# 2. 迁移程序
-cd migration
-cp .env.example .env        # 填入真实口令（见下表）
-npm install
-npm run schema              # 初始化表结构（幂等）
-npm run migrate             # 全量迁移（幂等，可重跑；-- users threads 可指定实体）
-npm run verify              # 23 项对账验证（行数/MD5/转换完整性/垃圾标记/附件磁盘/楼层）
+# 3. 环境变量（数据库连接等）
+cp .env.example .env        # 填入口令（见下表）
+
+# ── 数据层双模式（决策 #10）：二选一或先 A 后 B ──
+# A. 零数据部署路径：空库建表 + 可选演示种子
+pnpm db:bootstrap           # 空库建表（Drizzle 版本化迁移，幂等）
+pnpm db:seed                # 演示数据（90000+ 号段，幂等，仅开发用）
+# B. 青翼导入路径（可选）：phpwind 旧库 → qysub_next
+pnpm migrate                # 全量导入（幂等，可重跑）
+pnpm verify:migration       # 23 项对账（行数/MD5/转换完整性/垃圾标记/附件/楼层）
+
+# 4. schema 对账（information_schema 逐表比对，任何路径后都建议跑）
+pnpm db:verify
+
+# 5. 应用
+pnpm dev                    # http://127.0.0.1:3100（令牌演示页 + 明暗切换）
+
+# 质量门禁
+pnpm verify:all             # lint + format + typecheck + test(+coverage) + build
+pnpm test:e2e               # Playwright（chromium）
 ```
 
-应用本体自 M1 起在本仓库逐步落地（启动命令随 M1 里程碑补充）。
+> ⚠️ Next 16 开发服务器需 `allowedDevOrigins` 放行 `127.0.0.1`（已在 `apps/web/next.config.ts` 配置），
+> 否则开发资源被安全默认拦截、页面可渲染但无交互。
 
 ## 环境速查
 
 | 资源 | 地址 | 凭据 |
 |------|------|------|
+| 应用（开发） | http://127.0.0.1:3100 | `pnpm dev` |
 | 旧库（**只读红线**） | `127.0.0.1:33620/qingyisub`（GBK，mysql 5.7） | 见 `.env`（迁移程序内置只读守卫，非 SELECT 直接抛错） |
 | 新库 | `127.0.0.1:33621/qysub_next`（MySQL 8.4） | root / ***REMOVED***（本地开发） |
 | 旧站本地还原 | http://127.0.0.1:8080 | qingyisub-nginx 容器 |
