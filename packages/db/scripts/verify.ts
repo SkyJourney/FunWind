@@ -1,17 +1,22 @@
 /**
  * db:verify —— bootstrap 产物对账（自更新期望：直接读 schema.ts 的表/列定义）
  * 检查项：
- *  1. 表全集一致（schema.ts 中 17 张表 ⇄ information_schema）
+ *  0. schema 结构规则（唯一键无可空列 / 无 raw 归档列 / 自增 id / 有主键）——schema-rules.ts
+ *  1. 表全集一致（schema.ts 全部表 ⇄ information_schema）
  *  2. 每表列名集合一致、列类型族一致（getSQLType() ⇄ COLUMN_TYPE 归一化对比）
  *  3. 引擎 InnoDB、表级字符集 utf8mb4
- *  4. 专项：users.username 列级 COLLATE utf8mb4_0900_as_cs（さくら≠サクラ）
+ *  4. 专项：列级 COLLATE 补丁（username_key / email_key 须为 utf8mb4_bin，さくら≠サクラ）
+ *  5. 权限数据健康：role_grants / user_roles 中的角色键与权限点必须在 roles / 词汇表内（脏键零容忍）；
+ *     系统种子已就位（内置角色 + 词汇表）
  */
-import { is } from "drizzle-orm";
-import { getTableConfig, MySqlTable } from "drizzle-orm/mysql-core";
+import { getTableConfig } from "drizzle-orm/mysql-core";
 import type { RowDataPacket } from "mysql2/promise";
+import { PERMISSION_DEFINITIONS } from "../src/authz-vocab.js";
+import { PATCHES } from "../src/bootstrap.js";
 import { createPool } from "../src/client.js";
 import { newDbConfig } from "../src/env.js";
 import * as schema from "../src/schema.js";
+import { checkSchemaRules, collectTables } from "../src/schema-rules.js";
 
 const config = newDbConfig();
 const pool = createPool(config);
@@ -29,18 +34,13 @@ interface ExpectedTable {
 }
 
 function expectedTables(): ExpectedTable[] {
-  const out: ExpectedTable[] = [];
-  for (const [, value] of Object.entries(schema)) {
-    if (typeof value !== "object" || value === null) continue;
-    // is() 运行时守卫排除 relations 等非表导出（drizzle 泛型不变性导致类型层无法收窄，此处豁免）
-    if (!is(value, MySqlTable)) continue;
-    const cfg = getTableConfig(value as Parameters<typeof getTableConfig>[0]);
-    out.push({
+  return collectTables(schema).map((table) => {
+    const cfg = getTableConfig(table);
+    return {
       name: cfg.name,
       columns: cfg.columns.map((c) => ({ name: c.name, getSQLType: () => c.getSQLType() })),
-    });
-  }
-  return out;
+    };
+  });
 }
 
 function norm(s: string): string {
@@ -59,6 +59,20 @@ const checks: { name: string; pass: boolean; detail: string }[] = [];
 const add = (name: string, pass: boolean, detail: string) => checks.push({ name, pass, detail });
 
 const tables = expectedTables();
+
+{
+  const violations = checkSchemaRules(schema);
+  add(
+    "rules:schema 结构规则",
+    violations.length === 0,
+    violations.length === 0
+      ? `${tables.length} 表全部符合（唯一键无可空列 / 无 raw 归档列 / 自增 id / 有主键）`
+      : violations
+          .slice(0, 6)
+          .map((v) => `${v.table}[${v.rule}] ${v.detail}`)
+          .join("；"),
+  );
+}
 
 try {
   // 1. 表全集
@@ -133,17 +147,50 @@ try {
       : `${colFail} 表异常：${colDetails.slice(0, 6).join("；")}`,
   );
 
-  // 4. 专项：username 列级 collation
-  const [userCol] = await pool.query<ColInfoRow[]>(
-    `SELECT COLUMN_NAME, COLUMN_TYPE, COLLATION_NAME FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME = 'username'`,
-    [config.database],
+  // 4. 专项：列级 collation 补丁
+  for (const p of PATCHES) {
+    const [col] = await pool.query<ColInfoRow[]>(
+      `SELECT COLUMN_NAME, COLUMN_TYPE, COLLATION_NAME FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+      [config.database, p.table, p.column],
+    );
+    const c = col[0];
+    add(
+      `special:${p.table}.${p.column}`,
+      !!c && c.COLLATION_NAME === p.collation,
+      c ? `${c.COLLATION_NAME}（精确比较，さくら≠サクラ红线）` : `${p.table}.${p.column} 不存在`,
+    );
+  }
+
+  // 5. 权限数据健康 + 系统种子
+  const [badRoles] = await pool.query<RowDataPacket[]>(
+    `SELECT DISTINCT role_key AS k FROM (
+       SELECT role_key FROM role_grants UNION SELECT role_key FROM user_roles
+     ) x WHERE role_key NOT IN (SELECT \`key\` FROM roles)`,
   );
-  const u = userCol[0];
   add(
-    "special:username collation",
-    !!u && u.COLLATION_NAME === "utf8mb4_0900_as_cs",
-    u ? `${u.COLLATION_NAME}（さくら≠サクラ红线）` : "users.username 不存在",
+    "authz:角色键健康",
+    badRoles.length === 0,
+    badRoles.length ? `词汇外角色键: ${badRoles.map((r) => r.k).join(",")}` : "无脏角色键",
+  );
+  const [badPerms] = await pool.query<RowDataPacket[]>(
+    `SELECT DISTINCT permission_key AS k FROM role_grants
+     WHERE permission_key NOT IN (SELECT \`key\` FROM permissions)`,
+  );
+  add(
+    "authz:权限点健康",
+    badPerms.length === 0,
+    badPerms.length ? `词汇外权限点: ${badPerms.map((r) => r.k).join(",")}` : "无脏权限点",
+  );
+  const [seedRows] = await pool.query<RowDataPacket[]>(
+    `SELECT (SELECT COUNT(*) FROM roles WHERE kind = 'builtin') AS builtin,
+            (SELECT COUNT(*) FROM permissions) AS perms`,
+  );
+  const seed = seedRows[0] as { builtin: number; perms: number };
+  add(
+    "seed:系统种子",
+    Number(seed.builtin) >= 3 && Number(seed.perms) >= PERMISSION_DEFINITIONS.length,
+    `内置角色 ${seed.builtin} / 权限点 ${seed.perms}（词汇表 ${PERMISSION_DEFINITIONS.length}）`,
   );
 } finally {
   await pool.end();

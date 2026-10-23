@@ -1,8 +1,8 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "9dfabf81-5dcc-4e1f-a24e-22ea313d28c8",
-  "prevId": "496a8a3f-5163-4420-b9bb-f4f0f9c23a3b",
+  "id": "52db2f68-4779-4552-91e8-5f5cb35f36d1",
+  "prevId": "dbe5fc2e-717f-4afe-9633-70c7e28f9e32",
   "tables": {
     "attachments": {
       "name": "attachments",
@@ -12,20 +12,13 @@
           "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "thread_id": {
-          "name": "thread_id",
-          "type": "int unsigned",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "autoincrement": true
         },
         "post_id": {
           "name": "post_id",
           "type": "int unsigned",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
         "uploader_id": {
@@ -33,64 +26,52 @@
           "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": 0
+          "autoincrement": false
         },
-        "filename": {
-          "name": "filename",
+        "original_name": {
+          "name": "original_name",
           "type": "varchar(255)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
           "default": "''"
         },
-        "type": {
-          "name": "type",
-          "type": "varchar(20)",
+        "storage_key": {
+          "name": "storage_key",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mime": {
+          "name": "mime",
+          "type": "varchar(100)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
           "default": "''"
         },
-        "size_kb": {
-          "name": "size_kb",
+        "size_bytes": {
+          "name": "size_bytes",
           "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
           "default": 0
         },
-        "path": {
-          "name": "path",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "has_thumb": {
-          "name": "has_thumb",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
         "width": {
           "name": "width",
           "type": "smallint unsigned",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
+          "notNull": false,
+          "autoincrement": false
         },
         "height": {
           "name": "height",
           "type": "smallint unsigned",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
+          "notNull": false,
+          "autoincrement": false
         },
         "downloads": {
           "name": "downloads",
@@ -100,45 +81,15 @@
           "autoincrement": false,
           "default": 0
         },
-        "cost": {
-          "name": "cost",
-          "type": "int unsigned",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "special": {
-          "name": "special",
-          "type": "tinyint",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
         "created_at": {
           "name": "created_at",
           "type": "datetime",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "raw": {
-          "name": "raw",
-          "type": "json",
-          "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         }
       },
       "indexes": {
-        "idx_att_thread": {
-          "name": "idx_att_thread",
-          "columns": [
-            "thread_id"
-          ],
-          "isUnique": false
-        },
         "idx_att_post": {
           "name": "idx_att_post",
           "columns": [
@@ -166,11 +117,243 @@
       "uniqueConstraints": {},
       "checkConstraint": {}
     },
-    "credit_logs": {
-      "name": "credit_logs",
+    "audit_log": {
+      "name": "audit_log",
       "columns": {
         "id": {
           "name": "id",
+          "type": "bigint unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "actor_id": {
+          "name": "actor_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "action": {
+          "name": "action",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "target_type": {
+          "name": "target_type",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "target_id": {
+          "name": "target_id",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "before_json": {
+          "name": "before_json",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "after_json": {
+          "name": "after_json",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ip": {
+          "name": "ip",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_audit_actor": {
+          "name": "idx_audit_actor",
+          "columns": [
+            "actor_id",
+            "created_at"
+          ],
+          "isUnique": false
+        },
+        "idx_audit_target": {
+          "name": "idx_audit_target",
+          "columns": [
+            "target_type",
+            "target_id"
+          ],
+          "isUnique": false
+        },
+        "idx_audit_time": {
+          "name": "idx_audit_time",
+          "columns": [
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "audit_log_id_pk": {
+          "name": "audit_log_id_pk",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "badges": {
+      "name": "badges",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "key": {
+          "name": "key",
+          "type": "varchar(48)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "icon": {
+          "name": "icon",
+          "type": "varchar(100)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "kind": {
+          "name": "kind",
+          "type": "enum('team','honor')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'honor'"
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "is_active": {
+          "name": "is_active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        }
+      },
+      "indexes": {
+        "uq_badges_key": {
+          "name": "uq_badges_key",
+          "columns": [
+            "key"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "badges_id_pk": {
+          "name": "badges_id_pk",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "checkins": {
+      "name": "checkins",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "checkin_date": {
+          "name": "checkin_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reward": {
+          "name": "reward",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "checkins_user_id_checkin_date_pk": {
+          "name": "checkins_user_id_checkin_date_pk",
+          "columns": [
+            "user_id",
+            "checkin_date"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "conversation_members": {
+      "name": "conversation_members",
+      "columns": {
+        "conversation_id": {
+          "name": "conversation_id",
           "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
@@ -181,43 +364,17 @@
           "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": 0
+          "autoincrement": false
         },
-        "credit_type": {
-          "name": "credit_type",
-          "type": "varchar(8)",
+        "last_read_message_id": {
+          "name": "last_read_message_id",
+          "type": "bigint unsigned",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
+          "notNull": false,
+          "autoincrement": false
         },
-        "delta": {
-          "name": "delta",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "log_type": {
-          "name": "log_type",
-          "type": "varchar(40)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "description": {
-          "name": "description",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "created_at": {
-          "name": "created_at",
+        "deleted_at": {
+          "name": "deleted_at",
           "type": "datetime",
           "primaryKey": false,
           "notNull": false,
@@ -225,154 +382,148 @@
         }
       },
       "indexes": {
-        "idx_cl_user": {
-          "name": "idx_cl_user",
+        "idx_cm_user": {
+          "name": "idx_cm_user",
           "columns": [
-            "user_id",
-            "credit_type"
-          ],
-          "isUnique": false
-        },
-        "idx_cl_time": {
-          "name": "idx_cl_time",
-          "columns": [
-            "created_at"
+            "user_id"
           ],
           "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "credit_logs_id_pk": {
-          "name": "credit_logs_id_pk",
+        "conversation_members_conversation_id_user_id_pk": {
+          "name": "conversation_members_conversation_id_user_id_pk",
           "columns": [
-            "id"
+            "conversation_id",
+            "user_id"
           ]
         }
       },
       "uniqueConstraints": {},
       "checkConstraint": {}
     },
-    "emoticon_categories": {
-      "name": "emoticon_categories",
+    "conversations": {
+      "name": "conversations",
       "columns": {
         "id": {
           "name": "id",
           "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
+          "autoincrement": true
         },
-        "name": {
-          "name": "name",
-          "type": "varchar(64)",
+        "kind": {
+          "name": "kind",
+          "type": "enum('direct')",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "''"
+          "default": "'direct'"
         },
-        "folder": {
-          "name": "folder",
+        "pair_key": {
+          "name": "pair_key",
           "type": "varchar(32)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "apps": {
-          "name": "apps",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "orderid": {
-          "name": "orderid",
-          "type": "int unsigned",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "is_open": {
-          "name": "is_open",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "emoticon_categories_id_pk": {
-          "name": "emoticon_categories_id_pk",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "emoticons": {
-      "name": "emoticons",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "category_id": {
-          "name": "category_id",
-          "type": "int unsigned",
+        "last_message_at": {
+          "name": "last_message_at",
+          "type": "datetime",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
+          "notNull": false,
+          "autoincrement": false
         },
-        "folder": {
-          "name": "folder",
-          "type": "varchar(32)",
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "icon": {
-          "name": "icon",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "is_used": {
-          "name": "is_used",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
+          "autoincrement": false
         }
       },
       "indexes": {
-        "idx_emo_cat": {
-          "name": "idx_emo_cat",
+        "uq_conv_pair": {
+          "name": "uq_conv_pair",
           "columns": [
-            "category_id"
+            "pair_key"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "conversations_id_pk": {
+          "name": "conversations_id_pk",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "email_tokens": {
+      "name": "email_tokens",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "purpose": {
+          "name": "purpose",
+          "type": "enum('reset','verify','claim')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "used_at": {
+          "name": "used_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_et_user": {
+          "name": "idx_et_user",
+          "columns": [
+            "user_id",
+            "purpose"
           ],
           "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "emoticons_id_pk": {
-          "name": "emoticons_id_pk",
+        "email_tokens_id_pk": {
+          "name": "email_tokens_id_pk",
           "columns": [
             "id"
           ]
@@ -463,27 +614,154 @@
       "uniqueConstraints": {},
       "checkConstraint": {}
     },
+    "follows": {
+      "name": "follows",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "target_type": {
+          "name": "target_type",
+          "type": "enum('user','forum')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "target_id": {
+          "name": "target_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_fl_target": {
+          "name": "idx_fl_target",
+          "columns": [
+            "target_type",
+            "target_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "follows_user_id_target_type_target_id_pk": {
+          "name": "follows_user_id_target_type_target_id_pk",
+          "columns": [
+            "user_id",
+            "target_type",
+            "target_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "forum_prefixes": {
+      "name": "forum_prefixes",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "forum_id": {
+          "name": "forum_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        }
+      },
+      "indexes": {
+        "idx_fp_forum": {
+          "name": "idx_fp_forum",
+          "columns": [
+            "forum_id",
+            "sort_order"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "forum_prefixes_id_pk": {
+          "name": "forum_prefixes_id_pk",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
     "forums": {
       "name": "forums",
       "columns": {
         "id": {
           "name": "id",
-          "type": "smallint unsigned",
+          "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
+          "autoincrement": true
         },
         "parent_id": {
           "name": "parent_id",
-          "type": "smallint unsigned",
+          "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
           "default": 0
         },
-        "type": {
-          "name": "type",
-          "type": "enum('category','forum','sub','sub2')",
+        "path": {
+          "name": "path",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'/'"
+        },
+        "depth": {
+          "name": "depth",
+          "type": "tinyint unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "kind": {
+          "name": "kind",
+          "type": "enum('section','forum')",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
@@ -491,52 +769,14 @@
         },
         "name": {
           "name": "name",
-          "type": "varchar(255)",
+          "type": "varchar(100)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
-        },
-        "name_style": {
-          "name": "name_style",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
         },
         "description": {
           "name": "description",
           "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "summary": {
-          "name": "summary",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "vieworder": {
-          "name": "vieworder",
-          "type": "smallint",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "is_show": {
-          "name": "is_show",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
-        },
-        "managers": {
-          "name": "managers",
-          "type": "json",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -549,13 +789,45 @@
           "autoincrement": false,
           "default": "''"
         },
-        "logo": {
-          "name": "logo",
-          "type": "varchar(100)",
+        "sort_order": {
+          "name": "sort_order",
+          "type": "int",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "''"
+          "default": 0
+        },
+        "read_policy": {
+          "name": "read_policy",
+          "type": "enum('inherit','public','members','restricted')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'inherit'"
+        },
+        "write_policy": {
+          "name": "write_policy",
+          "type": "enum('inherit','members','restricted')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'inherit'"
+        },
+        "is_listed": {
+          "name": "is_listed",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
+        "is_archived": {
+          "name": "is_archived",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
         },
         "thread_count": {
           "name": "thread_count",
@@ -573,9 +845,16 @@
           "autoincrement": false,
           "default": 0
         },
-        "raw": {
-          "name": "raw",
-          "type": "json",
+        "last_post_id": {
+          "name": "last_post_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_posted_at": {
+          "name": "last_posted_at",
+          "type": "datetime",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -585,14 +864,15 @@
         "idx_forums_parent": {
           "name": "idx_forums_parent",
           "columns": [
-            "parent_id"
+            "parent_id",
+            "sort_order"
           ],
           "isUnique": false
         },
-        "idx_forums_order": {
-          "name": "idx_forums_order",
+        "idx_forums_path": {
+          "name": "idx_forums_path",
           "columns": [
-            "vieworder"
+            "path"
           ],
           "isUnique": false
         }
@@ -609,273 +889,212 @@
       "uniqueConstraints": {},
       "checkConstraint": {}
     },
-    "groups": {
-      "name": "groups",
+    "gate_unlocks": {
+      "name": "gate_unlocks",
       "columns": {
-        "id": {
-          "name": "id",
+        "gate_id": {
+          "name": "gate_id",
           "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "name": {
-          "name": "name",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "type": {
-          "name": "type",
-          "type": "enum('default','member','system','special','vip')",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'member'"
-        },
-        "points": {
-          "name": "points",
-          "type": "int unsigned",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "image": {
-          "name": "image",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "raw": {
-          "name": "raw",
-          "type": "json",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "groups_id_pk": {
-          "name": "groups_id_pk",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "medals": {
-      "name": "medals",
-      "columns": {
-        "id": {
-          "name": "id",
+        "user_id": {
+          "name": "user_id",
           "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "name": {
-          "name": "name",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "path": {
-          "name": "path",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "image": {
-          "name": "image",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "icon": {
-          "name": "icon",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "description": {
-          "name": "description",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "medal_type": {
-          "name": "medal_type",
-          "type": "tinyint",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 1
-        },
-        "receive_type": {
-          "name": "receive_type",
-          "type": "tinyint",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 1
-        },
-        "medal_gids": {
-          "name": "medal_gids",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "award_type": {
-          "name": "award_type",
-          "type": "tinyint",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 1
-        },
-        "award_condition": {
-          "name": "award_condition",
-          "type": "smallint",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "expired_days": {
-          "name": "expired_days",
-          "type": "smallint",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "is_open": {
-          "name": "is_open",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
-        },
-        "vieworder": {
-          "name": "vieworder",
-          "type": "tinyint",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "raw": {
-          "name": "raw",
-          "type": "json",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "medals_id_pk": {
-          "name": "medals_id_pk",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraint": {}
-    },
-    "message_dialogs": {
-      "name": "message_dialogs",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "int unsigned",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "from_uid": {
-          "name": "from_uid",
+        "price_paid": {
+          "name": "price_paid",
           "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
           "default": 0
         },
-        "to_uid": {
-          "name": "to_uid",
+        "author_income": {
+          "name": "author_income",
           "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
           "default": 0
         },
-        "unread_count": {
-          "name": "unread_count",
-          "type": "smallint unsigned",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "message_count": {
-          "name": "message_count",
-          "type": "int unsigned",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "last_message": {
-          "name": "last_message",
-          "type": "text",
+        "ledger_id": {
+          "name": "ledger_id",
+          "type": "bigint unsigned",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "modified_at": {
-          "name": "modified_at",
+        "source": {
+          "name": "source",
+          "type": "enum('purchase','migrated')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'purchase'"
+        },
+        "unlocked_at": {
+          "name": "unlocked_at",
           "type": "datetime",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         }
       },
       "indexes": {
-        "idx_md_to": {
-          "name": "idx_md_to",
+        "idx_gu_user": {
+          "name": "idx_gu_user",
           "columns": [
-            "to_uid"
+            "user_id"
           ],
           "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "message_dialogs_id_pk": {
-          "name": "message_dialogs_id_pk",
+        "gate_unlocks_gate_id_user_id_pk": {
+          "name": "gate_unlocks_gate_id_user_id_pk",
+          "columns": [
+            "gate_id",
+            "user_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "invite_codes": {
+      "name": "invite_codes",
+      "columns": {
+        "code": {
+          "name": "code",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "used_by": {
+          "name": "used_by",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "used_at": {
+          "name": "used_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "batch": {
+          "name": "batch",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_ic_batch": {
+          "name": "idx_ic_batch",
+          "columns": [
+            "batch"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "invite_codes_code_pk": {
+          "name": "invite_codes_code_pk",
+          "columns": [
+            "code"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "messages": {
+      "name": "messages",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "conversation_id": {
+          "name": "conversation_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sender_id": {
+          "name": "sender_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_msg_conv": {
+          "name": "idx_msg_conv",
+          "columns": [
+            "conversation_id",
+            "id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "messages_id_pk": {
+          "name": "messages_id_pk",
           "columns": [
             "id"
           ]
@@ -896,7 +1115,7 @@
         },
         "rows_written": {
           "name": "rows_written",
-          "type": "int unsigned",
+          "type": "bigint unsigned",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
@@ -904,7 +1123,7 @@
         },
         "duration_ms": {
           "name": "duration_ms",
-          "type": "int unsigned",
+          "type": "bigint unsigned",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
@@ -978,6 +1197,233 @@
       "uniqueConstraints": {},
       "checkConstraint": {}
     },
+    "permissions": {
+      "name": "permissions",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "resource": {
+          "name": "resource",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "level": {
+          "name": "level",
+          "type": "enum('read','write','manage')",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "legacy_key": {
+          "name": "legacy_key",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "condition_params": {
+          "name": "condition_params",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "permissions_key_pk": {
+          "name": "permissions_key_pk",
+          "columns": [
+            "key"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "point_accounts": {
+      "name": "point_accounts",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "balance": {
+          "name": "balance",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "lifetime_earned": {
+          "name": "lifetime_earned",
+          "type": "bigint unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "lifetime_spent": {
+          "name": "lifetime_spent",
+          "type": "bigint unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "point_accounts_user_id_pk": {
+          "name": "point_accounts_user_id_pk",
+          "columns": [
+            "user_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "point_ledger": {
+      "name": "point_ledger",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "delta": {
+          "name": "delta",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "balance_after": {
+          "name": "balance_after",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "channel": {
+          "name": "channel",
+          "type": "varchar(48)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ref_type": {
+          "name": "ref_type",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ref_id": {
+          "name": "ref_id",
+          "type": "bigint unsigned",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "varchar(96)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "note": {
+          "name": "note",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "uq_pl_idem": {
+          "name": "uq_pl_idem",
+          "columns": [
+            "idempotency_key"
+          ],
+          "isUnique": true
+        },
+        "idx_pl_user": {
+          "name": "idx_pl_user",
+          "columns": [
+            "user_id",
+            "id"
+          ],
+          "isUnique": false
+        },
+        "idx_pl_channel": {
+          "name": "idx_pl_channel",
+          "columns": [
+            "channel",
+            "created_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "point_ledger_id_pk": {
+          "name": "point_ledger_id_pk",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
     "poll_options": {
       "name": "poll_options",
       "columns": {
@@ -986,7 +1432,7 @@
           "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
+          "autoincrement": true
         },
         "poll_id": {
           "name": "poll_id",
@@ -995,36 +1441,36 @@
           "notNull": true,
           "autoincrement": false
         },
-        "voted_num": {
-          "name": "voted_num",
+        "content": {
+          "name": "content",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "vote_count": {
+          "name": "vote_count",
           "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
           "default": 0
         },
-        "content": {
-          "name": "content",
-          "type": "varchar(255)",
+        "sort_order": {
+          "name": "sort_order",
+          "type": "smallint",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "''"
-        },
-        "image": {
-          "name": "image",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
+          "default": 0
         }
       },
       "indexes": {
         "idx_po_poll": {
           "name": "idx_po_poll",
           "columns": [
-            "poll_id"
+            "poll_id",
+            "sort_order"
           ],
           "isUnique": false
         }
@@ -1041,8 +1487,8 @@
       "uniqueConstraints": {},
       "checkConstraint": {}
     },
-    "poll_voters": {
-      "name": "poll_voters",
+    "poll_votes": {
+      "name": "poll_votes",
       "columns": {
         "poll_id": {
           "name": "poll_id",
@@ -1069,7 +1515,7 @@
           "name": "created_at",
           "type": "datetime",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         }
       },
@@ -1084,8 +1530,8 @@
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "poll_voters_poll_id_option_id_user_id_pk": {
-          "name": "poll_voters_poll_id_option_id_user_id_pk",
+        "poll_votes_poll_id_option_id_user_id_pk": {
+          "name": "poll_votes_poll_id_option_id_user_id_pk",
           "columns": [
             "poll_id",
             "option_id",
@@ -1104,38 +1550,14 @@
           "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
+          "autoincrement": true
         },
         "thread_id": {
           "name": "thread_id",
           "type": "int unsigned",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
-        },
-        "voter_num": {
-          "name": "voter_num",
-          "type": "int unsigned",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "isafter_view": {
-          "name": "isafter_view",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
-        "isinclude_img": {
-          "name": "isinclude_img",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
         },
         "option_limit": {
           "name": "option_limit",
@@ -1143,17 +1565,115 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": 0
+          "default": 1
         },
-        "expired_time": {
-          "name": "expired_time",
+        "ends_at": {
+          "name": "ends_at",
           "type": "datetime",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "creator_id": {
-          "name": "creator_id",
+        "result_visibility": {
+          "name": "result_visibility",
+          "type": "enum('always','after_vote')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'always'"
+        },
+        "voter_count": {
+          "name": "voter_count",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "uq_polls_thread": {
+          "name": "uq_polls_thread",
+          "columns": [
+            "thread_id"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "polls_id_pk": {
+          "name": "polls_id_pk",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "post_gates": {
+      "name": "post_gates",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "post_id": {
+          "name": "post_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "seq": {
+          "name": "seq",
+          "type": "tinyint unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "conditions": {
+          "name": "conditions",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "match_mode": {
+          "name": "match_mode",
+          "type": "enum('all','any')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'all'"
+        },
+        "hidden_md": {
+          "name": "hidden_md",
+          "type": "mediumtext",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "unlock_count": {
+          "name": "unlock_count",
           "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
@@ -1164,30 +1684,31 @@
           "name": "created_at",
           "type": "datetime",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
-        "raw": {
-          "name": "raw",
-          "type": "json",
+        "updated_at": {
+          "name": "updated_at",
+          "type": "datetime",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         }
       },
       "indexes": {
-        "idx_polls_thread": {
-          "name": "idx_polls_thread",
+        "uq_pg_post_seq": {
+          "name": "uq_pg_post_seq",
           "columns": [
-            "thread_id"
+            "post_id",
+            "seq"
           ],
-          "isUnique": false
+          "isUnique": true
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "polls_id_pk": {
-          "name": "polls_id_pk",
+        "post_gates_id_pk": {
+          "name": "post_gates_id_pk",
           "columns": [
             "id"
           ]
@@ -1204,10 +1725,17 @@
           "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
+          "autoincrement": true
         },
         "thread_id": {
           "name": "thread_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "floor": {
+          "name": "floor",
           "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
@@ -1218,53 +1746,44 @@
           "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": 0
+          "autoincrement": false
         },
-        "floor": {
-          "name": "floor",
-          "type": "int unsigned",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "reply_to_pid": {
-          "name": "reply_to_pid",
-          "type": "int unsigned",
+        "author_name_legacy": {
+          "name": "author_name_legacy",
+          "type": "varchar(64)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "subject": {
-          "name": "subject",
-          "type": "varchar(100)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "content_md": {
-          "name": "content_md",
+        "body_md": {
+          "name": "body_md",
           "type": "mediumtext",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "content_raw": {
-          "name": "content_raw",
-          "type": "mediumtext",
+        "reply_to_post_id": {
+          "name": "reply_to_post_id",
+          "type": "int unsigned",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "usehtml": {
-          "name": "usehtml",
+        "has_gate": {
+          "name": "has_gate",
           "type": "boolean",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
           "default": false
+        },
+        "state": {
+          "name": "state",
+          "type": "enum('visible','hidden','deleted','spam')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'visible'"
         },
         "like_count": {
           "name": "like_count",
@@ -1274,44 +1793,29 @@
           "autoincrement": false,
           "default": 0
         },
-        "status": {
-          "name": "status",
-          "type": "tinyint",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
         "created_at": {
           "name": "created_at",
           "type": "datetime",
           "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         },
-        "modified_at": {
-          "name": "modified_at",
+        "edited_at": {
+          "name": "edited_at",
           "type": "datetime",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "raw": {
-          "name": "raw",
-          "type": "json",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         }
       },
       "indexes": {
-        "idx_posts_thread": {
-          "name": "idx_posts_thread",
+        "uq_posts_thread_floor": {
+          "name": "uq_posts_thread_floor",
           "columns": [
             "thread_id",
             "floor"
           ],
-          "isUnique": false
+          "isUnique": true
         },
         "idx_posts_author": {
           "name": "idx_posts_author",
@@ -1320,10 +1824,10 @@
           ],
           "isUnique": false
         },
-        "idx_posts_reply": {
-          "name": "idx_posts_reply",
+        "idx_posts_reply_to": {
+          "name": "idx_posts_reply_to",
           "columns": [
-            "reply_to_pid"
+            "reply_to_post_id"
           ],
           "isUnique": false
         }
@@ -1340,76 +1844,372 @@
       "uniqueConstraints": {},
       "checkConstraint": {}
     },
-    "private_messages": {
-      "name": "private_messages",
+    "reactions": {
+      "name": "reactions",
       "columns": {
-        "id": {
-          "name": "id",
+        "user_id": {
+          "name": "user_id",
           "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "from_uid": {
-          "name": "from_uid",
+        "post_id": {
+          "name": "post_id",
           "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "to_uid": {
-          "name": "to_uid",
-          "type": "int unsigned",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "content": {
-          "name": "content",
-          "type": "mediumtext",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'like'"
         },
         "created_at": {
           "name": "created_at",
           "type": "datetime",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "raw": {
-          "name": "raw",
-          "type": "json",
-          "primaryKey": false,
-          "notNull": false,
+          "notNull": true,
           "autoincrement": false
         }
       },
       "indexes": {
-        "idx_pm_from": {
-          "name": "idx_pm_from",
+        "idx_rx_post": {
+          "name": "idx_rx_post",
           "columns": [
-            "from_uid"
-          ],
-          "isUnique": false
-        },
-        "idx_pm_to": {
-          "name": "idx_pm_to",
-          "columns": [
-            "to_uid"
+            "post_id"
           ],
           "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "private_messages_id_pk": {
-          "name": "private_messages_id_pk",
+        "reactions_user_id_post_id_kind_pk": {
+          "name": "reactions_user_id_post_id_kind_pk",
+          "columns": [
+            "user_id",
+            "post_id",
+            "kind"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "role_grants": {
+      "name": "role_grants",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "role_key": {
+          "name": "role_key",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "permission_key": {
+          "name": "permission_key",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        }
+      },
+      "indexes": {
+        "uq_rg_grant": {
+          "name": "uq_rg_grant",
+          "columns": [
+            "role_key",
+            "permission_key",
+            "scope_id"
+          ],
+          "isUnique": true
+        },
+        "idx_rg_perm_scope": {
+          "name": "idx_rg_perm_scope",
+          "columns": [
+            "permission_key",
+            "scope_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "role_grants_id_pk": {
+          "name": "role_grants_id_pk",
           "columns": [
             "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "roles": {
+      "name": "roles",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "enum('builtin','custom')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "roles_key_pk": {
+          "name": "roles_key_pk",
+          "columns": [
+            "key"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "sessions": {
+      "name": "sessions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "last_seen_at": {
+          "name": "last_seen_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ip": {
+          "name": "ip",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "user_agent": {
+          "name": "user_agent",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_sessions_user": {
+          "name": "idx_sessions_user",
+          "columns": [
+            "user_id"
+          ],
+          "isUnique": false
+        },
+        "idx_sessions_expires": {
+          "name": "idx_sessions_expires",
+          "columns": [
+            "expires_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "sessions_id_pk": {
+          "name": "sessions_id_pk",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "site_settings": {
+      "name": "site_settings",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value": {
+          "name": "value",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "site_settings_key_pk": {
+          "name": "site_settings_key_pk",
+          "columns": [
+            "key"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "tags": {
+      "name": "tags",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "thread_count": {
+          "name": "thread_count",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        }
+      },
+      "indexes": {
+        "uq_tags_name": {
+          "name": "uq_tags_name",
+          "columns": [
+            "name"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "tags_id_pk": {
+          "name": "tags_id_pk",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "thread_tags": {
+      "name": "thread_tags",
+      "columns": {
+        "thread_id": {
+          "name": "thread_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tag_id": {
+          "name": "tag_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_tt_tag": {
+          "name": "idx_tt_tag",
+          "columns": [
+            "tag_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "thread_tags_thread_id_tag_id_pk": {
+          "name": "thread_tags_thread_id_tag_id_pk",
+          "columns": [
+            "thread_id",
+            "tag_id"
           ]
         }
       },
@@ -1424,35 +2224,69 @@
           "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
+          "autoincrement": true
         },
         "forum_id": {
           "name": "forum_id",
-          "type": "smallint unsigned",
+          "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": 0
+          "autoincrement": false
         },
         "author_id": {
           "name": "author_id",
           "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": 0
+          "autoincrement": false
+        },
+        "author_name_legacy": {
+          "name": "author_name_legacy",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "title": {
           "name": "title",
-          "type": "varchar(140)",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "prefix_id": {
+          "name": "prefix_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "enum('normal','poll')",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "''"
+          "default": "'normal'"
         },
-        "type_id": {
-          "name": "type_id",
+        "first_post_id": {
+          "name": "first_post_id",
           "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "state": {
+          "name": "state",
+          "type": "enum('visible','hidden','deleted','spam')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'visible'"
+        },
+        "topped": {
+          "name": "topped",
+          "type": "tinyint",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
@@ -1466,21 +2300,13 @@
           "autoincrement": false,
           "default": 0
         },
-        "topped": {
-          "name": "topped",
-          "type": "tinyint",
+        "is_locked": {
+          "name": "is_locked",
+          "type": "boolean",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": 0
-        },
-        "special": {
-          "name": "special",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
+          "default": false
         },
         "reply_count": {
           "name": "reply_count",
@@ -1498,95 +2324,32 @@
           "autoincrement": false,
           "default": 0
         },
-        "like_count": {
-          "name": "like_count",
+        "last_post_id": {
+          "name": "last_post_id",
           "type": "int unsigned",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
+          "notNull": false,
+          "autoincrement": false
         },
-        "attach_count": {
-          "name": "attach_count",
-          "type": "smallint unsigned",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "content_md": {
-          "name": "content_md",
-          "type": "mediumtext",
+        "last_poster_id": {
+          "name": "last_poster_id",
+          "type": "int unsigned",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "content_raw": {
-          "name": "content_raw",
-          "type": "mediumtext",
+        "last_posted_at": {
+          "name": "last_posted_at",
+          "type": "datetime",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "usehtml": {
-          "name": "usehtml",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
-        "tags": {
-          "name": "tags",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "is_spam": {
-          "name": "is_spam",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
-        "status": {
-          "name": "status",
-          "type": "tinyint",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
         },
         "created_at": {
           "name": "created_at",
           "type": "datetime",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "last_post_at": {
-          "name": "last_post_at",
-          "type": "datetime",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "last_post_user_id": {
-          "name": "last_post_user_id",
-          "type": "int unsigned",
-          "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "raw": {
-          "name": "raw",
-          "type": "json",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         }
       },
@@ -1595,8 +2358,9 @@
           "name": "idx_threads_forum",
           "columns": [
             "forum_id",
-            "is_spam",
-            "last_post_at"
+            "state",
+            "topped",
+            "last_posted_at"
           ],
           "isUnique": false
         },
@@ -1620,6 +2384,14 @@
             "digest"
           ],
           "isUnique": false
+        },
+        "idx_threads_last": {
+          "name": "idx_threads_last",
+          "columns": [
+            "state",
+            "last_posted_at"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {},
@@ -1634,8 +2406,8 @@
       "uniqueConstraints": {},
       "checkConstraint": {}
     },
-    "user_medals": {
-      "name": "user_medals",
+    "user_badges": {
+      "name": "user_badges",
       "columns": {
         "user_id": {
           "name": "user_id",
@@ -1644,23 +2416,29 @@
           "notNull": true,
           "autoincrement": false
         },
-        "medal_id": {
-          "name": "medal_id",
+        "badge_id": {
+          "name": "badge_id",
           "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "counts": {
-          "name": "counts",
-          "type": "int unsigned",
+        "awarded_at": {
+          "name": "awarded_at",
+          "type": "datetime",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": 0
+          "autoincrement": false
         },
-        "expired_time": {
-          "name": "expired_time",
+        "awarded_by": {
+          "name": "awarded_by",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
           "type": "datetime",
           "primaryKey": false,
           "notNull": false,
@@ -1668,74 +2446,43 @@
         }
       },
       "indexes": {
-        "idx_um_medal": {
-          "name": "idx_um_medal",
+        "idx_ub_badge": {
+          "name": "idx_ub_badge",
           "columns": [
-            "medal_id"
+            "badge_id"
           ],
           "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
-        "user_medals_user_id_medal_id_pk": {
-          "name": "user_medals_user_id_medal_id_pk",
+        "user_badges_user_id_badge_id_pk": {
+          "name": "user_badges_user_id_badge_id_pk",
           "columns": [
             "user_id",
-            "medal_id"
+            "badge_id"
           ]
         }
       },
       "uniqueConstraints": {},
       "checkConstraint": {}
     },
-    "users": {
-      "name": "users",
+    "user_profiles": {
+      "name": "user_profiles",
       "columns": {
-        "id": {
-          "name": "id",
+        "user_id": {
+          "name": "user_id",
           "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "username": {
-          "name": "username",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "email": {
-          "name": "email",
-          "type": "varchar(128)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
-        },
-        "password_hash": {
-          "name": "password_hash",
-          "type": "varchar(255)",
+        "bio": {
+          "name": "bio",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "group_id": {
-          "name": "group_id",
-          "type": "int unsigned",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "gender": {
-          "name": "gender",
-          "type": "tinyint",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
         },
         "location": {
           "name": "location",
@@ -1745,13 +2492,28 @@
           "autoincrement": false,
           "default": "''"
         },
-        "homepage": {
-          "name": "homepage",
+        "website": {
+          "name": "website",
           "type": "varchar(200)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
           "default": "''"
+        },
+        "gender": {
+          "name": "gender",
+          "type": "tinyint",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "birthday": {
+          "name": "birthday",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "signature_md": {
           "name": "signature_md",
@@ -1760,12 +2522,219 @@
           "notNull": false,
           "autoincrement": false
         },
-        "profile": {
-          "name": "profile",
-          "type": "text",
+        "avatar_key": {
+          "name": "avatar_key",
+          "type": "varchar(128)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "user_profiles_user_id_pk": {
+          "name": "user_profiles_user_id_pk",
+          "columns": [
+            "user_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "user_restrictions": {
+      "name": "user_restrictions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "enum('ban','mute','no_avatar','no_signature')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "reason": {
+          "name": "reason",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "starts_at": {
+          "name": "starts_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ends_at": {
+          "name": "ends_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_ur_user_kind": {
+          "name": "idx_ur_user_kind",
+          "columns": [
+            "user_id",
+            "kind"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "user_restrictions_id_pk": {
+          "name": "user_restrictions_id_pk",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "user_roles": {
+      "name": "user_roles",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "role_key": {
+          "name": "role_key",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "granted_by": {
+          "name": "granted_by",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "granted_at": {
+          "name": "granted_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "uq_ur_assignment": {
+          "name": "uq_ur_assignment",
+          "columns": [
+            "user_id",
+            "role_key",
+            "scope_id"
+          ],
+          "isUnique": true
+        },
+        "idx_ur_user": {
+          "name": "idx_ur_user",
+          "columns": [
+            "user_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "user_roles_id_pk": {
+          "name": "user_roles_id_pk",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "user_stats": {
+      "name": "user_stats",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "thread_count": {
+          "name": "thread_count",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
         },
         "post_count": {
           "name": "post_count",
@@ -1783,66 +2752,13 @@
           "autoincrement": false,
           "default": 0
         },
-        "followers": {
-          "name": "followers",
+        "follower_count": {
+          "name": "follower_count",
           "type": "int unsigned",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
           "default": 0
-        },
-        "fans": {
-          "name": "fans",
-          "type": "int unsigned",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "credits": {
-          "name": "credits",
-          "type": "json",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "online_time": {
-          "name": "online_time",
-          "type": "int unsigned",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "is_spam": {
-          "name": "is_spam",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
-        "status": {
-          "name": "status",
-          "type": "smallint",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "datetime",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "last_visit_at": {
-          "name": "last_visit_at",
-          "type": "datetime",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         },
         "last_post_at": {
           "name": "last_post_at",
@@ -1850,41 +2766,115 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "user_stats_user_id_pk": {
+          "name": "user_stats_user_id_pk",
+          "columns": [
+            "user_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "users": {
+      "name": "users",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
         },
-        "raw": {
-          "name": "raw",
-          "type": "json",
+        "username": {
+          "name": "username",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "username_key": {
+          "name": "username_key",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "email_key": {
+          "name": "email_key",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "password_hash": {
+          "name": "password_hash",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "email_verified_at": {
+          "name": "email_verified_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "state": {
+          "name": "state",
+          "type": "enum('active','spam')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'active'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "last_login_at": {
+          "name": "last_login_at",
+          "type": "datetime",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         }
       },
       "indexes": {
-        "uq_users_username": {
-          "name": "uq_users_username",
+        "uq_users_username_key": {
+          "name": "uq_users_username_key",
           "columns": [
-            "username"
+            "username_key"
           ],
           "isUnique": true
         },
-        "idx_users_email": {
-          "name": "idx_users_email",
+        "uq_users_email_key": {
+          "name": "uq_users_email_key",
           "columns": [
-            "email"
+            "email_key"
           ],
-          "isUnique": false
+          "isUnique": true
         },
-        "idx_users_group": {
-          "name": "idx_users_group",
+        "idx_users_state": {
+          "name": "idx_users_state",
           "columns": [
-            "group_id"
-          ],
-          "isUnique": false
-        },
-        "idx_users_spam": {
-          "name": "idx_users_spam",
-          "columns": [
-            "is_spam"
+            "state"
           ],
           "isUnique": false
         },
