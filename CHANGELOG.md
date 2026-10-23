@@ -5,6 +5,22 @@
 
 ## [Unreleased]
 
+### Added（M3 · 内容只读渲染）
+
+- **topic_type 补迁**（M0 漏迁，150 行）：版块页主题分类筛选的前提；迁移实体 11→12，verify 23→24 项。
+- **安全渲染管线**：unified/remark/rehype（allowDangerousHtml→raw→sanitize→harden→stringify）+ LRU 缓存；
+  白名单 schema + style 声明级过滤（保住 UBB 彩色/字号情怀排版，封死 url()/expression()）；
+  XSS 用例集 16 + 白名单保留 6（sanitize.test 29 例）。
+- **静态资源路由** `/attachment/**`、`/emotion/**`：逐段穿越守卫 + resolve 前缀双保险 + Content-Type 映射 +
+  非图片下载头 + immutable 缓存；探针实证含 `.env` 穿越拦截。
+- **三个页面**：首页（分类版块目录 + 真实计数 + 最新动态）、版块页（置顶前置/主题分类筛选/分页 25）、
+  帖子页（首帖正文 + 楼层 20/页 + 嵌套回复 + #p 锚点 + 首帖附件芯片）；
+  组件 RichContent/UserBadge（已注销）/ThreadRow（置顶三级/精华/投票/附件徽标）/Pagination。
+- **数据状态呈现**：spam→404、屏蔽→blocked 视图、孤儿作者→已注销（81 个真实作者）、售帖→付费提示块。
+- **E2E 15 例**（真实数据夹具）+ **perf:lcp**（生产构建 LCP 断言 <2500ms：首页 128ms/版块 68ms/帖子 68ms）。
+- **URL 格式冻结**（BLUEPRINT §4.5）：`/f/{fid}`、`/t/{tid}`、`?page=`、`#p{pid}` + 旧站 301 源映射表。
+
+
 ### Added（基线审查修复轮 · P1–P3 全项）
 
 - **连接层重构（P1）**：web 运行时单例池 `getWebDb()`（globalThis 守卫，消除每请求建池）；

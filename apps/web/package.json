@@ -11,7 +11,8 @@
     "test": "vitest run --coverage",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "modules:toggle": "tsx scripts/modules-toggle.ts"
+    "modules:toggle": "tsx scripts/modules-toggle.ts",
+    "perf:lcp": "tsx scripts/lcp.ts"
   },
   "dependencies": {
     "@funwind/db": "workspace:*",

@@ -5,7 +5,7 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import rehypeStringify from "rehype-stringify";
 import type { Root } from "hast";
-import { harden, sanitizeSchema } from "./sanitize.js";
+import { harden, sanitizeSchema } from "./sanitize";
 
 /**
  * content_md → 净化后 HTML（服务端渲染，M3）。

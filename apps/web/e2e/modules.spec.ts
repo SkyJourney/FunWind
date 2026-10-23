@@ -23,7 +23,7 @@ test.describe("M2 · 模块装卸闭环（demo-checkin）", () => {
     await page.goto("/");
     await expect(page.getByText(/demo-checkin/)).toBeVisible();
     // 4. 装卸不影响宿主页
-    await expect(page.getByRole("heading", { level: 1 })).toContainText("FunWind 设计令牌");
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("青翼字幕组");
   });
 
   test("禁用 → 横幅消失，宿主页正常渲染", async ({ request, page }) => {
@@ -34,7 +34,7 @@ test.describe("M2 · 模块装卸闭环（demo-checkin）", () => {
 
     await page.goto("/");
     await expect(page.getByText(/demo-checkin/)).toHaveCount(0);
-    await expect(page.getByRole("heading", { level: 1 })).toContainText("FunWind 设计令牌");
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("青翼字幕组");
 
     // 恢复启用（默认态），避免污染后续用例
     await request.post("/api/dev/modules/toggle", { data: { id: "demo-checkin", enabled: true } });

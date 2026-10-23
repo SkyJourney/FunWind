@@ -116,6 +116,16 @@ schema 演进：P0 期的 `migration/schema/schema.sql` 为基线底稿；**M1 �
 - 未知标签：剥壳留肉；`usehtml=1` 的极少数行原文保留走净化渲染
 - **双写**：`content_raw`（原始 UBB，永远可回滚）+ `content_md`
 
+## 4.5 URL 结构（M3 冻结，301 依赖）
+
+| 新 URL | 含义 | 旧站 301 源（M12 实施） |
+|--------|------|------------------------|
+| `/f/{fid}` | 版块（`?page=N`、`?type={type_id}`） | `thread.php?fid=N`、`simple/?f=N` |
+| `/t/{tid}` | 帖子（`?page=N`、锚点 `#p{pid}`） | `read.php?tid=N`、`simple/?t=N` |
+| `/attachment/**`、`/emotion/**` | 静态资源（原相对路径不变） | 同路径 |
+
+旧站未启用伪静态（nginx conf 实证），301 源即原生 query string。**新格式自 M3 起冻结**：改动必须先迁移 301 表。
+
 ## 5. 附件策略
 
 不复制文件。新系统以 `/attachment/**` 静态路由直指原目录（本地 dev 用 nginx/Next rewrite 指到
