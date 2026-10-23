@@ -8,6 +8,20 @@
       "when": 1792712876541,
       "tag": "0000_graceful_pandemic",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1792719704417,
+      "tag": "0001_fuzzy_shiva",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1792719854691,
+      "tag": "0002_majestic_mauler",
+      "breakpoints": true
     }
   ]
 }

@@ -1,10 +1,12 @@
 import { relations } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   datetime,
   index,
   int,
   json,
+  mediumint,
   mediumtext,
   mysqlEnum,
   mysqlTable,
@@ -32,7 +34,8 @@ import {
 export const groups = mysqlTable(
   "groups",
   {
-    id: int("id", { unsigned: true }).notNull(),
+    // P0 手写 DDL 语义：旧 gid 为 mediumint，保持一致（见 migration/schema/schema.sql）
+    id: mediumint("id", { unsigned: true }).notNull(),
     name: varchar("name", { length: 64 }).notNull(),
     type: mysqlEnum("type", ["default", "member", "system", "special", "vip"])
       .notNull()
@@ -51,7 +54,7 @@ export const users = mysqlTable(
     username: varchar("username", { length: 64 }).notNull(),
     email: varchar("email", { length: 128 }).notNull().default(""),
     passwordHash: varchar("password_hash", { length: 255 }),
-    groupId: int("group_id", { unsigned: true }).notNull().default(0),
+    groupId: mediumint("group_id", { unsigned: true }).notNull().default(0),
     gender: tinyint("gender").notNull().default(0),
     location: varchar("location", { length: 100 }).notNull().default(""),
     homepage: varchar("homepage", { length: 200 }).notNull().default(""),
@@ -361,8 +364,9 @@ export const migrationState = mysqlTable(
   "migration_state",
   {
     entity: varchar("entity", { length: 64 }).notNull(),
-    rowsWritten: int("rows_written", { unsigned: true }).notNull().default(0), // BIGINT 语义由应用层保证，行数上限内 int 足够
-    durationMs: int("duration_ms", { unsigned: true }).notNull().default(0),
+    // P0 手写 DDL 语义：计数列为 BIGINT（迁移量级不设上限）
+    rowsWritten: bigint("rows_written", { mode: "number", unsigned: true }).notNull().default(0),
+    durationMs: bigint("duration_ms", { mode: "number", unsigned: true }).notNull().default(0),
     finishedAt: datetime("finished_at"),
     note: varchar("note", { length: 255 }).notNull().default(""),
   },
@@ -381,3 +385,33 @@ export const postsRelations = relations(posts, ({ one }) => ({
   thread: one(threads, { fields: [posts.threadId], references: [threads.id] }),
   author: one(users, { fields: [posts.authorId], references: [users.id] }),
 }));
+
+// ---------- 模块内核平台表（M2；无旧键语义，自增主键） ----------
+
+export const eventLog = mysqlTable(
+  "event_log",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    eventName: varchar("event_name", { length: 64 }).notNull(),
+    payload: json("payload"),
+    actorId: int("actor_id", { unsigned: true }),
+    source: varchar("source", { length: 64 }),
+    errorJson: json("error_json"), // 消费异常摘要数组（drizzle 0.45 不支持列注释）
+    createdAt: datetime("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    index("idx_el_name_time").on(t.eventName, t.createdAt),
+    index("idx_el_time").on(t.createdAt),
+  ],
+);
+
+export const moduleState = mysqlTable(
+  "module_state",
+  {
+    moduleId: varchar("module_id", { length: 64 }).notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    updatedAt: datetime("updated_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.moduleId] })],
+);
