@@ -161,10 +161,10 @@ export async function assertNoLiveData(asOf: string): Promise<void> {
   if (process.env.MIGRATION_FORCE === "1") return;
   const [row] = await newQuery<Record<string, number>>(
     `SELECT (SELECT COUNT(*) FROM point_ledger WHERE channel <> 'opening') AS ledger,
-            (SELECT COUNT(*) FROM gate_unlocks WHERE source = 'purchase') AS purchases,
+            (SELECT COUNT(*) FROM gate_unlocks WHERE unlocked_at > ?) AS purchases,
             (SELECT COUNT(*) FROM posts WHERE created_at > ?) AS newer_posts,
             (SELECT COUNT(*) FROM audit_log) AS audits`,
-    [asOf],
+    [asOf, asOf],
   );
   const live = Object.entries(row ?? {}).filter(([, n]) => Number(n) > 0);
   if (live.length > 0) {

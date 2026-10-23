@@ -28,7 +28,6 @@ export interface ForumRow {
   readPolicy: ReadPolicy;
   writePolicy: WritePolicy;
   isListed: boolean;
-  isArchived: boolean;
 }
 
 export interface ForumScopeGrant {
@@ -43,7 +42,8 @@ export interface ForumTransformResult {
   grants: ForumScopeGrant[];
   stats: {
     styledNames: number;
-    archived: number;
+    /** 旧站「回收站」版块及其子版块（含回收内容）不迁移：旧库即归档 */
+    recycleDropped: number[];
     orphanParents: number[];
     cycles: number[];
     /** 白名单里出现、但没有对应角色的旧 gid → 出现的版块次数 */
@@ -104,10 +104,21 @@ export function transformForums(rows: readonly OldForum[]): ForumTransformResult
   const grants: ForumScopeGrant[] = [];
   const unmappedGids = new Map<number, number>();
   let styledNames = 0;
-  let archived = 0;
+
+  // 回收站版块及其整棵子树不迁移
+  const recycleRoots = rows.filter((r) => stripTags(String(r.name ?? "")).includes("回收站"));
+  const recycleDropped: number[] = [];
+  const isRecycled = (fid: number): boolean => {
+    const p = resolve(fid, new Set([fid])).path;
+    return recycleRoots.some((r) => p.includes(`/${Number(r.fid)}/`));
+  };
 
   for (const r of [...rows].sort((a, b) => Number(a.fid) - Number(b.fid))) {
     const id = Number(r.fid);
+    if (isRecycled(id)) {
+      recycleDropped.push(id);
+      continue;
+    }
     const { path, depth } = resolve(id, new Set([id]));
     const rawName = String(r.name ?? "");
     const name = stripTags(rawName);
@@ -117,8 +128,6 @@ export function transformForums(rows: readonly OldForum[]): ForumTransformResult
     const writeGids = [...new Set([...parseGidList(r.allow_post), ...parseGidList(r.allow_reply)])];
     const readPolicy = deriveReadPolicy(readGids);
     const writePolicy = deriveWritePolicy(writeGids);
-    const isArchived = name.includes("回收站");
-    if (isArchived) archived++;
 
     forums.push({
       id,
@@ -133,7 +142,6 @@ export function transformForums(rows: readonly OldForum[]): ForumTransformResult
       readPolicy,
       writePolicy,
       isListed: Number(r.isshow ?? 1) > 0,
-      isArchived,
     });
 
     // restricted 版块：白名单里的团队角色获得该版块作用域授权（admin 在评估器中短路，不需要）
@@ -160,6 +168,6 @@ export function transformForums(rows: readonly OldForum[]): ForumTransformResult
   return {
     forums,
     grants,
-    stats: { styledNames, archived, orphanParents, cycles, unmappedGids },
+    stats: { styledNames, recycleDropped, orphanParents, cycles, unmappedGids },
   };
 }

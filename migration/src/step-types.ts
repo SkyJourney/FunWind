@@ -10,6 +10,8 @@ export interface Ctx {
   asOf: string;
   /** users 步骤填充；单独运行后续步骤时由 loadUserIds 从库里补齐 */
   userIds: Set<number>;
+  /** users 步骤填充：uid → 头像在旧站磁盘上的相对路径；文件管线据此入库并回填 avatar_file_id */
+  avatarSources: Map<number, string>;
 }
 
 export interface Step {
@@ -22,6 +24,7 @@ export const newCtx = (report: Report, privateReport: Report): Ctx => ({
   privateReport,
   asOf: AS_OF,
   userIds: new Set(),
+  avatarSources: new Map(),
 });
 
 /** 报告里的长列表只列前 n 项 */

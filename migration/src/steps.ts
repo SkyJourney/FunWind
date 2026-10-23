@@ -50,7 +50,6 @@ export const forumsStep: Step = {
         "read_policy",
         "write_policy",
         "is_listed",
-        "is_archived",
       ],
       result.forums.map((f) => ({
         id: f.id,
@@ -65,7 +64,6 @@ export const forumsStep: Step = {
         read_policy: f.readPolicy,
         write_policy: f.writePolicy,
         is_listed: f.isListed ? 1 : 0,
-        is_archived: f.isArchived ? 1 : 0,
       })),
       ["id"],
     );
@@ -78,7 +76,7 @@ export const forumsStep: Step = {
     };
     const s = ctx.report.section("版块");
     s.line(
-      `共 ${result.forums.length} 个；名称内嵌 HTML 样式已剥离 ${result.stats.styledNames} 个（颜色不保留）；回收站版块标记归档 ${result.stats.archived} 个。`,
+      `共 ${result.forums.length} 个；名称内嵌 HTML 样式已剥离 ${result.stats.styledNames} 个（颜色不保留）；回收站版块（及其子版块）不迁移：${head(result.stats.recycleDropped) || "无"}。`,
     );
     s.table(
       ["读策略", "版块数"],
@@ -146,7 +144,7 @@ export const forumPrefixesStep: Step = {
 export const usersStep: Step = {
   name: "users",
   async run(ctx) {
-    const [oldUsers, spamUids, firstActivity, emojiIds] = [
+    const [oldUsers, excludeUids, firstActivity, emojiIds] = [
       await extractUsers(),
       await extractSpamUids(),
       await extractFirstActivity(toDatetime),
@@ -157,7 +155,7 @@ export const usersStep: Step = {
     const convertSignature = plainConverter(emojiIds);
 
     const result = transformUsers(oldUsers, {
-      spamUids,
+      excludeUids,
       firstActivity,
       avatarExists: (uid) => existsSync(join(config.attachmentDir, legacyAvatarKey(uid))),
       convertSignature,
@@ -194,7 +192,7 @@ export const usersStep: Step = {
     );
     await upsert(
       "user_profiles",
-      ["user_id", "bio", "location", "website", "gender", "birthday", "signature_md", "avatar_key"],
+      ["user_id", "bio", "location", "website", "gender", "birthday", "signature_md"],
       result.profiles.map((p) => ({
         user_id: p.userId,
         bio: p.bio,
@@ -203,17 +201,19 @@ export const usersStep: Step = {
         gender: p.gender,
         birthday: p.birthday,
         signature_md: p.signatureMd,
-        avatar_key: p.avatarKey,
       })),
       ["user_id"],
     );
     await bumpAutoIncrement("users");
     ctx.userIds = new Set(result.users.map((u) => u.id));
+    ctx.avatarSources = new Map(
+      result.profiles.flatMap((p) => (p.avatarSource ? [[p.userId, p.avatarSource] as const] : [])),
+    );
 
     const n = result.notes;
     const s = ctx.report.section("用户");
     s.line(
-      `共 ${result.users.length} 人；标记 spam ${n.spam} 人；有头像文件 ${n.avatars} 人；密码一律不迁移（password_hash=NULL，走邮件认领）。`,
+      `共 ${result.users.length} 人；spam 账号 ${n.excluded} 个不迁移（旧库即归档）；旧站有头像文件 ${n.avatars} 人（由文件管线入库）；密码一律不迁移（password_hash=NULL，走邮件认领）。`,
     );
     s.bullets([
       `用户名归一化冲突 ${n.usernameCollisions.length} 个${
@@ -250,7 +250,7 @@ export const usersStep: Step = {
       ["邮箱", "保留 uid", "已清空 uid"],
       n.duplicateEmails.map((d) => [d.email, d.keptUid, d.clearedUids.join("、")]),
     );
-    return { rows: result.users.length, note: `${n.spam} spam / ${n.avatars} 头像` };
+    return { rows: result.users.length, note: `${n.excluded} spam 未迁 / ${n.avatars} 头像待入库` };
   },
 };
 

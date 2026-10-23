@@ -73,18 +73,27 @@ describe("transformForums · 层级", () => {
 });
 
 describe("transformForums · 字段", () => {
-  it("名称剥离内嵌 HTML；回收站标记归档；is_listed 来自 isshow", () => {
+  it("名称剥离内嵌 HTML；is_listed 来自 isshow", () => {
     const r = transformForums([
       f({ fid: 1, name: '<span style="color:#cb4042">『动画』</span>' }),
-      f({ fid: 2, name: "回收站" }),
       f({ fid: 3, isshow: 0 }),
     ]);
     const by = new Map(r.forums.map((x) => [x.id, x]));
     expect(by.get(1)?.name).toBe("『动画』");
-    expect(by.get(2)?.isArchived).toBe(true);
     expect(by.get(3)?.isListed).toBe(false);
     expect(r.stats.styledNames).toBe(1);
-    expect(r.stats.archived).toBe(1);
+    expect(r.stats.recycleDropped).toEqual([]);
+  });
+
+  it("回收站版块及其整棵子树不迁移（旧库即归档），其余版块不受影响", () => {
+    const r = transformForums([
+      f({ fid: 1, name: "动画" }),
+      f({ fid: 2, name: "回收站" }),
+      f({ fid: 3, parentid: 2, name: "回收站下的子版块" }),
+      f({ fid: 4, parentid: 1, name: "普通子版块" }),
+    ]);
+    expect(r.forums.map((x) => x.id)).toEqual([1, 4]);
+    expect(r.stats.recycleDropped).toEqual([2, 3]);
   });
 
   it("排序、描述、图标", () => {

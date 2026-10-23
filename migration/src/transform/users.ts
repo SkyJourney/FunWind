@@ -25,7 +25,7 @@ export interface UserRow {
   emailKey: string | null;
   passwordHash: null;
   emailVerifiedAt: null;
-  state: "active" | "spam";
+  state: "active" | "deleted";
   createdAt: string;
   lastLoginAt: string | null;
 }
@@ -38,11 +38,13 @@ export interface ProfileRow {
   gender: number;
   birthday: string | null;
   signatureMd: string | null;
-  avatarKey: string | null;
+  /** 头像在旧站磁盘上的相对路径（attachment/ 之下）；文件管线入库后才得到 avatar_file_id */
+  avatarSource: string | null;
 }
 
 export interface UserTransformOptions {
-  spamUids: ReadonlySet<number>;
+  /** 不迁移的账号（只发过垃圾空壳主题的 spam 账号）：旧库保留即归档 */
+  excludeUids: ReadonlySet<number>;
   /** uid → 该用户最早的发帖/回帖时间（用于修复 regdate=0） */
   firstActivity: ReadonlyMap<number, string>;
   /** 头像主图在磁盘上是否存在 */
@@ -64,7 +66,8 @@ export interface UserTransformResult {
     createdAtRepaired: { uid: number; to: string; source: "activity" | "lastvisit" | "fallback" }[];
     emptyUsernames: number[];
     avatars: number;
-    spam: number;
+    /** 因 spam 而未迁移的账号数 */
+    excluded: number;
   };
 }
 
@@ -103,10 +106,13 @@ export function transformUsers(
     createdAtRepaired: [],
     emptyUsernames: [],
     avatars: 0,
-    spam: 0,
+    excluded: 0,
   };
 
-  const sorted = [...rows].sort((a, b) => Number(a.uid) - Number(b.uid));
+  // spam 账号不迁移：它们只发过被丢弃的垃圾空壳，保留只会留下无人引用的空账号
+  const kept = rows.filter((r) => !opts.excludeUids.has(Number(r.uid)));
+  const notesExcluded = rows.length - kept.length;
+  const sorted = [...kept].sort((a, b) => Number(a.uid) - Number(b.uid));
 
   // 邮箱归属：同一归一化邮箱保留注册最早者（regdate 升序，uid 兜底）
   const emailOf = new Map<number, string>();
@@ -179,9 +185,6 @@ export function transformUsers(
 
     const emailRaw = emailOf.get(uid);
     const hasEmail = emailRaw !== undefined && keepEmail.has(uid);
-    const isSpam = opts.spamUids.has(uid);
-    if (isSpam) notes.spam++;
-
     users.push({
       id: uid,
       username,
@@ -190,13 +193,13 @@ export function transformUsers(
       emailKey: hasEmail ? normalizeKey(emailRaw!) : null,
       passwordHash: null, // 红线：旧哈希不迁移，上线走邮件认领/重置
       emailVerifiedAt: null,
-      state: isSpam ? "spam" : "active",
+      state: "active",
       createdAt,
       lastLoginAt: toDatetime(r.lastvisit),
     });
 
-    const avatarKey = opts.avatarExists(uid) ? legacyAvatarKey(uid) : null;
-    if (avatarKey) notes.avatars++;
+    const avatarSource = opts.avatarExists(uid) ? legacyAvatarKey(uid) : null;
+    if (avatarSource) notes.avatars++;
     const signature = r.bbs_sign ? opts.convertSignature(String(r.bbs_sign)) : "";
     profiles.push({
       userId: uid,
@@ -210,9 +213,52 @@ export function transformUsers(
         r.bday === null ? null : Number(r.bday),
       ),
       signatureMd: signature || null,
-      avatarKey,
+      avatarSource,
     });
   }
 
+  notes.excluded = notesExcluded;
   return { users, profiles, notes };
+}
+
+export const placeholderUsername = (uid: number): string => `已注销用户#${uid}`;
+
+/**
+ * 引用诚实：内容的作者必须指向 users 里真实存在的一行。
+ * 被保留的内容引用了已不存在的旧 uid（旧站删号、虚拟账号 uid 1 等）时，沿用原 uid 建「已注销用户」占位账号：
+ * state=deleted，无邮箱无密码，用户名带 uid 保证唯一；内容表不加任何冗余列。
+ * @param firstSeen uid → 该作者最早的内容时间（占位账号的 created_at，保证确定性）
+ */
+export function transformPlaceholders(firstSeen: ReadonlyMap<number, string>): {
+  users: UserRow[];
+  profiles: ProfileRow[];
+} {
+  const users: UserRow[] = [];
+  const profiles: ProfileRow[] = [];
+  for (const [uid, createdAt] of [...firstSeen].sort((a, b) => a[0] - b[0])) {
+    const username = placeholderUsername(uid);
+    users.push({
+      id: uid,
+      username,
+      usernameKey: normalizeKey(username),
+      email: null,
+      emailKey: null,
+      passwordHash: null,
+      emailVerifiedAt: null,
+      state: "deleted",
+      createdAt,
+      lastLoginAt: null,
+    });
+    profiles.push({
+      userId: uid,
+      bio: null,
+      location: "",
+      website: "",
+      gender: 0,
+      birthday: null,
+      signatureMd: null,
+      avatarSource: null,
+    });
+  }
+  return { users, profiles };
 }

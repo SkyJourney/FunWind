@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   legacyAvatarKey,
+  placeholderUsername,
+  transformPlaceholders,
   normalizeKey,
   transformUsers,
   type OldUser,
@@ -25,7 +27,7 @@ const u = (over: Partial<OldUser> & { uid: number }): OldUser => ({
 });
 
 const opts: UserTransformOptions = {
-  spamUids: new Set<number>(),
+  excludeUids: new Set<number>(),
   firstActivity: new Map<number, string>(),
   avatarExists: () => false,
   convertSignature: (s: string) => s.toUpperCase(),
@@ -93,10 +95,11 @@ describe("transformUsers · 身份", () => {
     expect(r.notes.emptyUsernames).toEqual([9]);
   });
 
-  it("spam 用户标记", () => {
-    const r = run([u({ uid: 1 }), u({ uid: 2 })], { spamUids: new Set([2]) });
-    expect(r.users.map((x) => x.state)).toEqual(["active", "spam"]);
-    expect(r.notes.spam).toBe(1);
+  it("spam 账号不迁移（用户与资料都不生成），其余全部为 active", () => {
+    const r = run([u({ uid: 1 }), u({ uid: 2 })], { excludeUids: new Set([2]) });
+    expect(r.users.map((x) => [x.id, x.state])).toEqual([[1, "active"]]);
+    expect(r.profiles.map((p) => p.userId)).toEqual([1]);
+    expect(r.notes.excluded).toBe(1);
   });
 });
 
@@ -181,7 +184,7 @@ describe("transformUsers · 资料", () => {
       gender: 2,
       birthday: null,
       signatureMd: "SIG",
-      avatarKey: "avatar/000/00/00/5.jpg",
+      avatarSource: "avatar/000/00/00/5.jpg",
     });
     expect(r.notes.avatars).toBe(1);
   });
@@ -192,7 +195,7 @@ describe("transformUsers · 资料", () => {
       gender: 0,
       bio: null,
       signatureMd: null,
-      avatarKey: null,
+      avatarSource: null,
     });
   });
 
@@ -210,5 +213,44 @@ describe("transformUsers · 资料", () => {
       const r = run([u({ uid: 1, byear: y, bmonth: m, bday: d })]);
       expect(r.profiles[0]?.birthday, `${y}-${m}-${d}`).toBeNull();
     }
+  });
+});
+
+describe("transformPlaceholders · 已注销用户占位账号", () => {
+  const out = transformPlaceholders(
+    new Map([
+      [30, "2012-05-01 10:00:00"],
+      [1, "2010-01-02 00:00:00"],
+    ]),
+  );
+
+  it("沿用原 uid，按 uid 升序；state=deleted，无邮箱无密码", () => {
+    expect(out.users.map((x) => x.id)).toEqual([1, 30]);
+    for (const x of out.users) {
+      expect(x).toMatchObject({
+        state: "deleted",
+        email: null,
+        emailKey: null,
+        passwordHash: null,
+        emailVerifiedAt: null,
+        lastLoginAt: null,
+      });
+    }
+    expect(out.users[1]?.createdAt).toBe("2012-05-01 10:00:00");
+  });
+
+  it("用户名带 uid 保证唯一；归一化键与用户名一致", () => {
+    expect(out.users[0]?.username).toBe(placeholderUsername(1));
+    expect(out.users[0]?.username).toBe("已注销用户#1");
+    expect(new Set(out.users.map((x) => x.usernameKey)).size).toBe(2);
+  });
+
+  it("每个占位账号配一行空资料，没有头像", () => {
+    expect(out.profiles.map((p) => p.userId)).toEqual([1, 30]);
+    expect(out.profiles.every((p) => p.avatarSource === null && p.signatureMd === null)).toBe(true);
+  });
+
+  it("输入为空时返回空", () => {
+    expect(transformPlaceholders(new Map())).toEqual({ users: [], profiles: [] });
   });
 });
