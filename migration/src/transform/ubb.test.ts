@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assembleSource, splitSource } from "./gate-syntax.js";
+import { assembleSource, splitSource } from "@funwind/content";
 import { ubbToMarkdown, type UbbContext } from "./ubb.js";
 
 const EMOJI = new Set(Array.from({ length: 50 }, (_, i) => 120 + i));

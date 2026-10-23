@@ -1,5 +1,5 @@
-import { ROLE_DEFINITIONS } from "@funwind/db";
 import { toDatetime } from "../config.js";
+import { TEAM_ROLES } from "../mapping/legacy-roles.js";
 
 export interface BadgeRow {
   id: number;
@@ -118,7 +118,7 @@ export function transformBadges(
   }
 
   // 团队徽章：每个自定义（团队）角色一枚
-  const teamRoles = ROLE_DEFINITIONS.filter((r) => r.kind === "custom");
+  const teamRoles = TEAM_ROLES;
   const teamBadgeId = new Map<string, number>();
   for (const [i, r] of teamRoles.entries()) {
     const id = TEAM_BADGE_ID_BASE + i + 1;

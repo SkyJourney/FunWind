@@ -13,8 +13,7 @@
  *
  * 策略：树解析（未闭合标签自动收拢，未匹配闭合标签按字面量处理），未知标签剥壳留肉。
  */
-import type { GateDraft } from "./types.js";
-import { MAX_GATES_PER_POST } from "./gate-syntax.js";
+import { MAX_GATES_PER_POST, type GateDraft } from "@funwind/content";
 
 export interface UbbContext {
   /** 有静态资源的表情 id（旧站 120–169）；其余 [s:N] 视为遗留码并删除 */

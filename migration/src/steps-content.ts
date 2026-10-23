@@ -2,7 +2,6 @@
  * B2 迁移步骤：内容（统一 post / 门控 / 附件 / 标签）、表情资源、积分、徽章、社交、计数重算。
  * 每步 = extract → transform（纯函数）→ load（自然键幂等）。
  */
-import { ubbToMarkdown } from "@funwind/content";
 import { copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { config } from "./config.js";
@@ -38,6 +37,7 @@ import {
   transformTags,
   transformUnlocks,
 } from "./transform/content.js";
+import { plainConverter } from "./transform/plain.js";
 import { transformCheckins, transformPoints } from "./transform/points.js";
 import {
   transformConversations,
@@ -48,12 +48,6 @@ import {
 
 const b = (v: boolean) => (v ? 1 : 0);
 const jsonOf = (v: unknown) => JSON.stringify(v);
-
-/** 私信/签名里不允许门控：转换后丢弃门控占位与隐藏内容 */
-export function plainConverter(emojiIds: Set<number>) {
-  const stripGates = (md: string) => md.replace(/\n*:::gate\{id="\d+"\}\n:::\n*/g, "\n").trim();
-  return (ubb: string) => stripGates(ubbToMarkdown(ubb, { emojiIds, allocateGateId: () => 0 }).md);
-}
 
 // ---------- 表情静态资源 ----------
 

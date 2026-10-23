@@ -1,4 +1,5 @@
-import { ubbToMarkdown, type ConvertWarning, type GateCondition } from "@funwind/content";
+import type { GateCondition } from "@funwind/content";
+import { ubbToMarkdown, type ConvertWarning } from "./ubb.js";
 import { toDatetime } from "../config.js";
 
 /**
@@ -167,9 +168,12 @@ export function transformContent(
   const convert = (src: string | null, postId: number): { md: string; gateCount: number } => {
     const r = ubbToMarkdown(src, {
       emojiIds: ctx.emojiIds,
-      attachmentExists: ctx.attachmentExists,
-      resolveAttachment: ctx.resolveAttachment,
-      allocateGateId: (seq) => postId * 16 + seq,
+      // 临时适配（R3-3 起改为 resolveUpload / resolveAttachment 返回 /files 地址）
+      resolveUpload: (rel) => (ctx.attachmentExists(rel) ? `/attachment/${rel}` : null),
+      resolveAttachment: (aid) => {
+        const a = ctx.resolveAttachment(aid);
+        return a ? { name: a.name, url: `/attachment/${a.path}` } : null;
+      },
     });
     for (const w of r.warnings) collectWarning(stats, postId, w);
     for (const g of r.gates) {
@@ -177,7 +181,7 @@ export function transformContent(
       if (c === "points") stats.gates.points++;
       else if (c === "reply") stats.gates.reply++;
       gates.push({
-        id: g.id,
+        id: postId * 16 + g.seq, // 临时：R3-4 改为确定顺序自增
         postId,
         seq: g.seq,
         conditions: g.conditions,

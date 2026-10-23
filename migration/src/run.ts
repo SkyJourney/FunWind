@@ -1,6 +1,6 @@
 import { join } from "node:path";
-import { AS_OF, config, toDatetime } from "./config.js";
-import { assertNoLiveData, closePools, newQuery, upsert } from "./db.js";
+import { AS_OF, config } from "./config.js";
+import { assertNoLiveData, closePools, newQuery } from "./db.js";
 import { Report } from "./lib/report.js";
 import { loadSchemaOnce } from "./schema-init.js";
 import { STEPS } from "./pipeline.js";
@@ -48,20 +48,6 @@ for (const step of list) {
   try {
     const { rows, note } = await step.run(ctx);
     const ms = Date.now() - t0;
-    await upsert(
-      "migration_state",
-      ["entity", "rows_written", "duration_ms", "finished_at", "note"],
-      [
-        {
-          entity: step.name,
-          rows_written: rows,
-          duration_ms: ms,
-          finished_at: toDatetime(Math.floor(Date.now() / 1000)),
-          note: note ?? "",
-        },
-      ],
-      ["entity"],
-    );
     console.log(`✔ ${step.name.padEnd(16)} ${String(rows).padStart(7)} 行  ${ms}ms  ${note ?? ""}`);
   } catch (e) {
     failed++;

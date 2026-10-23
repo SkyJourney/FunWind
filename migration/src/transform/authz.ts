@@ -1,10 +1,10 @@
-import {
-  DEFAULT_ROLE_GRANTS,
-  LEGACY_CONDITION_KEYS,
-  PERMISSION_DEFINITIONS,
-  isKnownPermission,
-} from "@funwind/db";
+import { DEFAULT_ROLE_GRANTS, isKnownPermission } from "@funwind/db";
 import { toDatetime } from "../config.js";
+import {
+  LEGACY_CONDITION_KEYS,
+  LEGACY_PERMISSION_KEYS,
+  THREAD_EXTEND_KEY,
+} from "../mapping/legacy-permissions.js";
 import { isTruthy, parsePermissionValue, type PhpValue } from "../lib/php-serialize.js";
 import { MUTED_GID, roleOfGid } from "./legacy-groups.js";
 
@@ -19,14 +19,8 @@ export interface GlobalGrant {
   permissionKey: string;
 }
 
-/** 旧 rkey → 新权限点（来自词汇表 legacy_key，单一事实源）；同一旧键映射多个点的在 SPECIAL 里单独处理 */
-const RKEY_TO_PERMS = new Map<string, string[]>();
-for (const p of PERMISSION_DEFINITIONS) {
-  if (!p.legacyKey || p.legacyKey === "allow_thread_extend") continue;
-  RKEY_TO_PERMS.set(p.legacyKey, [...(RKEY_TO_PERMS.get(p.legacyKey) ?? []), p.key]);
-}
-// 旧站「回复」与「发帖」是两个键，新模型统一为 forum.write
-RKEY_TO_PERMS.set("allow_reply", ["forum.write"]);
+/** 旧 rkey → 新权限点（mapping/legacy-permissions）；allow_thread_extend 由 threadExtendPerms 单独处理 */
+const RKEY_TO_PERMS = new Map<string, readonly string[]>(Object.entries(LEGACY_PERMISSION_KEYS));
 
 /** 版块读权限由 forums.read_policy 表达，不翻译成全局授权 */
 const POLICY_RKEYS = new Set(["allow_read"]);
@@ -41,8 +35,7 @@ const MODERATION_RKEYS = new Set(["operate_thread"]);
  * 允许以「开关数组」形态出现的旧键：allow_thread_extend（sell/hide）与后台面板键 panel_*。
  * 其它键如果出现数组值，说明它是设置而非开关，不得按真值翻译成授权。
  */
-const isFlagArrayKey = (rkey: string) =>
-  rkey === "allow_thread_extend" || rkey.startsWith("panel_");
+const isFlagArrayKey = (rkey: string) => rkey === THREAD_EXTEND_KEY || rkey.startsWith("panel_");
 
 export interface AuthzTransformResult {
   grants: GlobalGrant[];
@@ -106,14 +99,14 @@ export function translateGlobalGrants(rows: readonly OldPermRow[]): AuthzTransfo
     }
     if (roleKey === "member") memberGids.add(gid);
 
-    let perms: string[];
+    let perms: readonly string[];
     if (POLICY_RKEYS.has(r.rkey)) {
       stats.skippedPolicy++;
       continue;
     } else if (MODERATION_RKEYS.has(r.rkey)) {
       stats.skippedModeration++;
       continue;
-    } else if (r.rkey === "allow_thread_extend" || RKEY_TO_PERMS.has(r.rkey)) {
+    } else if (r.rkey === THREAD_EXTEND_KEY || RKEY_TO_PERMS.has(r.rkey)) {
       let value: PhpValue;
       try {
         value = parsePermissionValue(r.rvalue);
@@ -126,7 +119,7 @@ export function translateGlobalGrants(rows: readonly OldPermRow[]): AuthzTransfo
         continue;
       }
       perms =
-        r.rkey === "allow_thread_extend"
+        r.rkey === THREAD_EXTEND_KEY
           ? threadExtendPerms(value)
           : isTruthy(value)
             ? RKEY_TO_PERMS.get(r.rkey)!

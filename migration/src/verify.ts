@@ -6,7 +6,8 @@
  */
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { PERMISSION_DEFINITIONS, ROLE_DEFINITIONS } from "@funwind/db";
+import { PERMISSION_DEFINITIONS } from "@funwind/db";
+import { BUILTIN_GIDS, TEAM_ROLES } from "./mapping/legacy-roles.js";
 import { AS_OF, config } from "./config.js";
 import { closePools, newQuery, oldQuery } from "./db.js";
 import { Report } from "./lib/report.js";
@@ -267,8 +268,12 @@ group = "权限";
   add("角色绑定不指向不存在的用户", orphanRole === 0, `孤儿 ${orphanRole}`);
 
   // 每个自定义/管理员角色的持有人数 = 旧库对应 gid 的未过期成员（主组 ∪ 附加组）去重
-  for (const role of ROLE_DEFINITIONS.filter((r) => r.key === "admin" || r.kind === "custom")) {
-    const gids = role.legacyGids.join(",");
+  const gidRoles = [
+    { key: "admin", gids: [...BUILTIN_GIDS.admin] },
+    ...TEAM_ROLES.map((t) => ({ key: t.key, gids: [t.gid] })),
+  ];
+  for (const role of gidRoles) {
+    const gids = role.gids.join(",");
     const expected = await num(
       `SELECT COUNT(*) n FROM (
          SELECT u.uid FROM nw_user u WHERE u.groupid IN (${gids})

@@ -2,7 +2,6 @@
  * 迁移步骤：每步 = extract → transform（纯函数）→ load（幂等）。
  * 步骤之间通过 Ctx 共享少量上下文（已迁用户 id、版块作用域授权等）。
  */
-import { ubbToMarkdown } from "@funwind/content";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { config, toDatetime } from "./config.js";
@@ -23,8 +22,10 @@ import {
 } from "./extract.js";
 import { maskEmail } from "./lib/pii.js";
 import { head, loadUserIds, mapRows, type Step } from "./step-types.js";
+import { TEAM_ROLES } from "./mapping/legacy-roles.js";
 import { translateGlobalGrants, translateUserRoles } from "./transform/authz.js";
 import { transformForums } from "./transform/forums.js";
+import { plainConverter } from "./transform/plain.js";
 import { legacyAvatarKey, transformUsers } from "./transform/users.js";
 import { transformRestrictions } from "./transform/restrictions.js";
 
@@ -153,9 +154,7 @@ export const usersStep: Step = {
     ];
 
     // 签名里不允许出现门控：转换后丢弃门控占位与隐藏内容
-    const stripGates = (md: string) => md.replace(/\n*:::gate\{id="\d+"\}\n:::\n*/g, "\n").trim();
-    const convertSignature = (ubb: string) =>
-      stripGates(ubbToMarkdown(ubb, { emojiIds, allocateGateId: () => 0 }).md);
+    const convertSignature = plainConverter(emojiIds);
 
     const result = transformUsers(oldUsers, {
       spamUids,
@@ -319,6 +318,18 @@ export const authzStep: Step = {
       await extractBelong(),
       await extractMainGroups(),
     ];
+    // 团队角色是站点数据：由迁移创建（零数据部署不带任何团队角色）
+    await upsert(
+      "roles",
+      ["key", "name", "kind", "description"],
+      TEAM_ROLES.map((t) => ({
+        key: t.key,
+        name: t.name,
+        kind: "custom",
+        description: t.description,
+      })),
+      ["key"],
+    );
     const global = translateGlobalGrants(permRows);
     const roles = translateUserRoles(belong, mainGroups, await loadUserIds(ctx), ctx.asOf);
     // restricted 版块的团队角色读/写授权由版块白名单推导（纯函数，可独立运行本步骤）
