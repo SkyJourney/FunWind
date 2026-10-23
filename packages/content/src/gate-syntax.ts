@@ -1,8 +1,9 @@
 /**
  * 门控语法（docs/GATES.md）：`:::gate{unlock="points" price="50"}` 容器指令。
  *
- * 存储契约：保存时把门控内容拆出——公开部分 publicMd 只含占位 `:::gate{id="N"}\n:::`，
- * 隐藏正文单独成为 GateDraft.hiddenMd。作者编辑时 assembleSource 再按 id 合并还原。
+ * 存储契约：保存时把门控内容拆出——公开部分 publicMd 只含占位 `:::gate{key="a1"}\n:::`，
+ * 隐藏正文单独成为 GateDraft.hiddenMd。作者编辑时 assembleSource 再按 key 合并还原。
+ * key 是门控在帖内的稳定身份（post_gates.gate_key）：编辑不改 key，已购买记录因此不丢；新门控由服务端分配。
  * 该文件是纯函数，迁移程序与线上保存共用同一套语法，不存在解析分歧。
  */
 import type { Root, RootContent } from "mdast";
@@ -15,16 +16,24 @@ import type {
   GateCondition,
   GateDraft,
   GateError,
-  GateIdAllocator,
+  GateKeyAllocator,
   GateMatchMode,
 } from "./types.js";
 
-/** 一个帖子最多的门控数；迁移的确定性 id 公式 postId*16+seq 依赖 seq ≤ 15 */
+/** 一个帖子最多的门控数（防滥用的合理上限） */
 export const MAX_GATES_PER_POST = 15;
+
+/** key 形态：短小的字母数字串，便于出现在正文占位里 */
+const KEY_RE = /^[A-Za-z0-9_-]{1,16}$/;
+
+/** 缺省 key 分配：g1、g2…取第一个未占用的 */
+export const defaultKeyAllocator: GateKeyAllocator = (_seq, used) => {
+  for (let n = 1; ; n++) if (!used.has(`g${n}`)) return `g${n}`;
+};
 
 const GATE_NAME = "gate";
 /** 门控块自身的保留属性（其余属性属于解锁条件的参数） */
-const RESERVED_ATTRS = new Set(["id", "unlock", "match"]);
+const RESERVED_ATTRS = new Set(["key", "unlock", "match"]);
 
 // ---------- 解锁条件规格 ----------
 
@@ -142,7 +151,7 @@ function parseConditionFromAttrs(
   attrs: Record<string, string | null | undefined>,
   specs: ReadonlyMap<string, ConditionSpec>,
   line: number,
-): { condition: GateCondition; matchMode: GateMatchMode; id: number | null } | GateError {
+): { condition: GateCondition; matchMode: GateMatchMode; key: string | null } | GateError {
   const clean: Record<string, string> = {};
   for (const [k, v] of Object.entries(attrs)) clean[k] = v ?? "";
 
@@ -168,12 +177,18 @@ function parseConditionFromAttrs(
   if (matchRaw !== undefined && matchRaw !== "all" && matchRaw !== "any") {
     return { code: "gate-invalid-params", message: "match 只能是 all 或 any", line };
   }
-  const idRaw = clean.id;
-  const id = idRaw !== undefined && /^\d{1,10}$/.test(idRaw) ? Number(idRaw) : null;
+  const keyRaw = clean.key;
+  if (keyRaw !== undefined && !KEY_RE.test(keyRaw)) {
+    return {
+      code: "gate-invalid-key",
+      message: "key 只能是 1–16 位字母、数字、下划线或连字符",
+      line,
+    };
+  }
   return {
     condition: { type: spec.type, ...parsed.params },
     matchMode: matchRaw === "any" ? "any" : "all",
-    id,
+    key: keyRaw ?? null,
   };
 }
 
@@ -182,21 +197,18 @@ function parseConditionFromAttrs(
 export interface SplitOptions {
   /** 条件规格表；默认 points / reply，模块内核的 gateConditions 注册表可在此扩展 */
   specs?: ReadonlyMap<string, ConditionSpec>;
-  /**
-   * 为门控分配 id：已有 id（编辑已存在的门控）原样传入 existingId；新门控 existingId 为 null。
-   * 迁移用确定性公式；线上保存由调用方分配（先写库再回填）。
-   */
-  allocateId?: GateIdAllocator;
+  /** 为没有 key 的新门控分配 key；缺省取第一个未占用的 g{n} */
+  allocateKey?: GateKeyAllocator;
 }
 
 export interface SplitResult {
-  /** 只含公开内容的 Markdown，门控处为 `:::gate{id="N"}\n:::` 占位 */
+  /** 只含公开内容的 Markdown，门控处为 `:::gate{key="…"}\n:::` 占位 */
   publicMd: string;
   gates: GateDraft[];
   errors: GateError[];
 }
 
-const placeholder = (id: number) => `:::gate{id="${id}"}\n:::`;
+const placeholder = (key: string) => `:::gate{key="${key}"}\n:::`;
 
 /**
  * 把含门控的完整源码拆为「公开正文 + 门控草稿」。
@@ -210,6 +222,22 @@ export function splitSource(source: string, options: SplitOptions = {}): SplitRe
   const gates: GateDraft[] = [];
   let out = "";
   let cursor = 0;
+  const allocateKey = options.allocateKey ?? defaultKeyAllocator;
+
+  // 先收集源码里显式写出的 key：分配新 key 时避让，重复的 key 直接报错
+  const usedKeys = new Set<string>();
+  for (const g of parsed) {
+    const k = g.node.attributes?.key;
+    if (k === undefined || k === null) continue;
+    if (usedKeys.has(k)) {
+      errors.push({
+        code: "gate-duplicate-key",
+        message: `同一帖子内门控 key 重复: ${k}`,
+        line: g.line,
+      });
+    }
+    usedKeys.add(k);
+  }
 
   for (const [index, g] of parsed.entries()) {
     errors.push(...innerGateErrors(g));
@@ -230,25 +258,28 @@ export function splitSource(source: string, options: SplitOptions = {}): SplitRe
     const slice = src.slice(g.start, g.end);
     const inner = slice.slice(slice.indexOf("\n") + 1, slice.lastIndexOf("\n"));
 
-    let id = parsedAttrs.id;
-    if (options.allocateId) id = options.allocateId(seq, parsedAttrs.id);
-    if (id === null) {
-      errors.push({
-        code: "gate-missing-id",
-        message: "新门控需要由调用方分配 id（提供 allocateId）",
-        line: g.line,
-      });
-      continue;
+    let key = parsedAttrs.key;
+    if (key === null) {
+      key = allocateKey(seq, usedKeys);
+      if (!KEY_RE.test(key) || usedKeys.has(key)) {
+        errors.push({
+          code: "gate-invalid-key",
+          message: `分配到的 key 非法或已被占用: ${key}`,
+          line: g.line,
+        });
+        continue;
+      }
+      usedKeys.add(key);
     }
 
     gates.push({
-      id,
+      key,
       seq,
       conditions: [parsedAttrs.condition],
       matchMode: parsedAttrs.matchMode,
       hiddenMd: inner,
     });
-    out += src.slice(cursor, g.start) + placeholder(id);
+    out += src.slice(cursor, g.start) + placeholder(key);
     cursor = g.end;
   }
   out += src.slice(cursor);
@@ -259,7 +290,7 @@ export function splitSource(source: string, options: SplitOptions = {}): SplitRe
 
 /** 序列化单个门控为完整源码块；篱笆冒号数自动加长，避免隐藏内容里的 ::: 行提前闭合 */
 export function serializeGate(
-  g: Pick<GateDraft, "id" | "conditions" | "matchMode" | "hiddenMd">,
+  g: Pick<GateDraft, "key" | "conditions" | "matchMode" | "hiddenMd">,
   specs = DEFAULT_CONDITION_SPECS,
 ): string {
   const cond = g.conditions[0];
@@ -267,7 +298,7 @@ export function serializeGate(
   const spec = specs.get(cond.type);
   if (!spec) throw new Error(`未知的解锁条件: ${cond.type}`);
   const attrs: Record<string, string> = {
-    id: String(g.id),
+    key: g.key,
     unlock: cond.type,
     ...(g.matchMode === "any" ? { match: "any" } : {}),
     ...spec.toAttrs(cond),
@@ -290,45 +321,43 @@ export interface AssembleResult {
 }
 
 /**
- * 把公开正文里的占位按 id 替换回完整门控块（作者/版主编辑入口）。
+ * 把公开正文里的占位按 key 替换回完整门控块（作者/版主编辑入口）。
  * 占位找不到对应门控、或门控未被引用，都会报错，避免静默丢失隐藏内容。
  */
 export function assembleSource(
   publicMd: string,
-  gates: readonly Pick<GateDraft, "id" | "conditions" | "matchMode" | "hiddenMd">[],
+  gates: readonly Pick<GateDraft, "key" | "conditions" | "matchMode" | "hiddenMd">[],
   specs = DEFAULT_CONDITION_SPECS,
 ): AssembleResult {
   const src = normalizeEol(publicMd);
   const { gates: parsed, errors } = scan(src);
-  const byId = new Map(gates.map((g) => [g.id, g]));
-  const used = new Set<number>();
+  const byKey = new Map(gates.map((g) => [g.key, g]));
+  const used = new Set<string>();
 
   let out = "";
   let cursor = 0;
   for (const g of parsed) {
-    const idRaw = g.node.attributes?.id;
-    const id =
-      idRaw !== undefined && idRaw !== null && /^\d{1,10}$/.test(idRaw) ? Number(idRaw) : null;
-    const gate = id === null ? undefined : byId.get(id);
-    if (id === null || !gate) {
+    const keyRaw = g.node.attributes?.key ?? undefined;
+    const gate = keyRaw === undefined ? undefined : byKey.get(keyRaw);
+    if (keyRaw === undefined || !gate) {
       errors.push({
         code: "gate-unknown-placeholder",
-        message: `正文占位引用了不存在的门控: ${idRaw ?? "(无 id)"}`,
+        message: `正文占位引用了不存在的门控: ${keyRaw ?? "(无 key)"}`,
         line: g.line,
       });
       continue;
     }
-    used.add(id);
+    used.add(keyRaw);
     out += src.slice(cursor, g.start) + serializeGate(gate, specs);
     cursor = g.end;
   }
   out += src.slice(cursor);
 
   for (const gate of gates) {
-    if (!used.has(gate.id)) {
+    if (!used.has(gate.key)) {
       errors.push({
         code: "gate-unknown-placeholder",
-        message: `门控 ${gate.id} 没有对应的正文占位（继续还原会丢失隐藏内容）`,
+        message: `门控 ${gate.key} 没有对应的正文占位（继续还原会丢失隐藏内容）`,
       });
     }
   }
@@ -337,5 +366,5 @@ export function assembleSource(
 
 /** 仅校验：源码里的门控语法是否合法（编辑器实时提示用）；不需要分配 id */
 export function validateGates(source: string, specs = DEFAULT_CONDITION_SPECS): GateError[] {
-  return splitSource(source, { specs, allocateId: (seq, existing) => existing ?? seq }).errors;
+  return splitSource(source, { specs }).errors;
 }

@@ -11,17 +11,18 @@ import {
 } from "./gate-syntax.js";
 import type { ConditionSpec } from "./types.js";
 
-const alloc = (seq: number, existing: number | null) => existing ?? 1000 + seq;
+/** 测试用分配器：k{seq}，让期望值可读 */
+const alloc = (seq: number) => `k${seq}`;
 
 describe("splitSource · 基本拆分", () => {
   it("拆出积分门控：正文只留占位，隐藏内容进 GateDraft", () => {
     const src = 'a\n\n:::gate{unlock="points" price="50"}\n付费 **内容**\n:::\n\nz';
-    const r = splitSource(src, { allocateId: alloc });
+    const r = splitSource(src, { allocateKey: alloc });
     expect(r.errors).toEqual([]);
-    expect(r.publicMd).toBe('a\n\n:::gate{id="1001"}\n:::\n\nz');
+    expect(r.publicMd).toBe('a\n\n:::gate{key="k1"}\n:::\n\nz');
     expect(r.gates).toEqual([
       {
-        id: 1001,
+        key: "k1",
         seq: 1,
         conditions: [{ type: "points", price: 50 }],
         matchMode: "all",
@@ -34,45 +35,64 @@ describe("splitSource · 基本拆分", () => {
   it("多个门控按出现顺序编号；回复可见无参数；match=any", () => {
     const src =
       ':::gate{unlock="reply"}\nA\n:::\n\n中间\n\n:::gate{unlock="points" price="0" match="any"}\nB\n:::';
-    const r = splitSource(src, { allocateId: alloc });
+    const r = splitSource(src, { allocateKey: alloc });
     expect(r.errors).toEqual([]);
-    expect(r.gates.map((g) => [g.seq, g.id, g.conditions[0]?.type, g.matchMode])).toEqual([
-      [1, 1001, "reply", "all"],
-      [2, 1002, "points", "any"],
+    expect(r.gates.map((g) => [g.seq, g.key, g.conditions[0]?.type, g.matchMode])).toEqual([
+      [1, "k1", "reply", "all"],
+      [2, "k2", "points", "any"],
     ]);
     expect(r.gates[1]?.conditions[0]).toEqual({ type: "points", price: 0 });
   });
 
   it("价格 0 合法（登录后免费解锁）", () => {
-    const r = splitSource(':::gate{unlock="points" price="0"}\nx\n:::', { allocateId: alloc });
+    const r = splitSource(':::gate{unlock="points" price="0"}\nx\n:::', { allocateKey: alloc });
     expect(r.errors).toEqual([]);
   });
 
-  it("已有 id 的门控原样保留 id（编辑已存在的门控）", () => {
-    const r = splitSource(':::gate{id="42" unlock="reply"}\nx\n:::', {
-      allocateId: (_seq, existing) => existing ?? 999,
-    });
-    expect(r.gates[0]?.id).toBe(42);
-    expect(r.publicMd).toBe(':::gate{id="42"}\n:::');
+  it("已有 key 的门控原样保留（编辑已存在的门控），新门控分配时避让已用 key", () => {
+    const r = splitSource(
+      ':::gate{key="a1" unlock="reply"}\nx\n:::\n\n:::gate{unlock="reply"}\ny\n:::',
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.gates.map((g) => g.key)).toEqual(["a1", "g1"]);
+    expect(r.publicMd).toBe(':::gate{key="a1"}\n:::\n\n:::gate{key="g1"}\n:::');
+  });
+
+  it("缺省分配器取第一个未占用的 g{n}", () => {
+    const r = splitSource(
+      ':::gate{key="g1" unlock="reply"}\nx\n:::\n\n:::gate{unlock="reply"}\ny\n:::\n\n:::gate{unlock="reply"}\nz\n:::',
+    );
+    expect(r.gates.map((g) => g.key)).toEqual(["g1", "g2", "g3"]);
+  });
+
+  it("编辑时在前面插入新门控：已有门控的 key 不变（解锁记录不丢）", () => {
+    const before = splitSource(':::gate{unlock="points" price="5"}\nx\n:::');
+    const assembled = assembleSource(before.publicMd, before.gates).source;
+    const edited = `:::gate{unlock="reply"}\n新增\n:::\n\n${assembled}`;
+    const after = splitSource(edited);
+    expect(after.errors).toEqual([]);
+    const old = after.gates.find((g) => g.hiddenMd === "x");
+    expect(old?.key).toBe(before.gates[0]?.key);
+    expect(after.gates.find((g) => g.hiddenMd === "新增")?.key).not.toBe(old?.key);
   });
 
   it("CRLF 输入与 LF 等价", () => {
     const a = splitSource('a\r\n\r\n:::gate{unlock="reply"}\r\nh\r\n:::\r\n', {
-      allocateId: alloc,
+      allocateKey: alloc,
     });
-    const b = splitSource('a\n\n:::gate{unlock="reply"}\nh\n:::\n', { allocateId: alloc });
+    const b = splitSource('a\n\n:::gate{unlock="reply"}\nh\n:::\n', { allocateKey: alloc });
     expect(a).toEqual(b);
   });
 
   it("空门控（隐藏内容为空）合法", () => {
-    const r = splitSource(':::gate{unlock="reply"}\n:::', { allocateId: alloc });
+    const r = splitSource(':::gate{unlock="reply"}\n:::', { allocateKey: alloc });
     expect(r.errors).toEqual([]);
     expect(r.gates[0]?.hiddenMd).toBe("");
   });
 
   it("代码围栏内的 :::gate 是普通文本，不构成门控", () => {
     const src = '```\n:::gate{unlock="reply"}\nx\n:::\n```';
-    const r = splitSource(src, { allocateId: alloc });
+    const r = splitSource(src, { allocateKey: alloc });
     expect(r.gates).toEqual([]);
     expect(r.publicMd).toBe(src);
   });
@@ -84,7 +104,7 @@ describe("splitSource · 基本拆分", () => {
 
   it("隐藏内容可含其它容器指令与代码块（外层篱笆加长）", () => {
     const src = '::::gate{unlock="reply"}\n:::poll\ninner\n:::\n\n```js\nx\n```\n::::';
-    const r = splitSource(src, { allocateId: alloc });
+    const r = splitSource(src, { allocateKey: alloc });
     expect(r.errors).toEqual([]);
     expect(r.gates[0]?.hiddenMd).toContain(":::poll");
     expect(r.gates[0]?.hiddenMd).toContain("```js");
@@ -92,7 +112,7 @@ describe("splitSource · 基本拆分", () => {
 });
 
 describe("splitSource · 非法输入必须报错", () => {
-  const codes = (src: string) => splitSource(src, { allocateId: alloc }).errors.map((e) => e.code);
+  const codes = (src: string) => splitSource(src, { allocateKey: alloc }).errors.map((e) => e.code);
 
   it("未闭合：不得把后续正文吞进门控", () => {
     expect(codes('a\n\n:::gate{unlock="reply"}\n隐藏\n\n后面还有正文')).toContain("gate-unclosed");
@@ -134,9 +154,17 @@ describe("splitSource · 非法输入必须报错", () => {
     expect(codes(':::gate{unlock="reply" match="none"}\nx\n:::')).toContain("gate-invalid-params");
   });
 
-  it("新门控缺少 id 分配器", () => {
-    const r = splitSource(':::gate{unlock="reply"}\nx\n:::');
-    expect(r.errors.map((e) => e.code)).toContain("gate-missing-id");
+  it("key 形态非法 / 帖内重复 / 分配器返回已占用 key", () => {
+    expect(codes(':::gate{key="a b" unlock="reply"}\nx\n:::')).toContain("gate-invalid-key");
+    expect(codes(':::gate{key="" unlock="reply"}\nx\n:::')).toContain("gate-invalid-key");
+    const dup =
+      ':::gate{key="a" unlock="reply"}\nx\n:::\n\n:::gate{key="a" unlock="reply"}\ny\n:::';
+    expect(codes(dup)).toContain("gate-duplicate-key");
+    const bad = splitSource(
+      ':::gate{key="a" unlock="reply"}\nx\n:::\n\n:::gate{unlock="reply"}\ny\n:::',
+      { allocateKey: () => "a" },
+    );
+    expect(bad.errors.map((e) => e.code)).toContain("gate-invalid-key");
   });
 
   it("超过单帖门控上限", () => {
@@ -146,7 +174,7 @@ describe("splitSource · 非法输入必须报错", () => {
   });
 
   it("错误携带行号，便于编辑器提示", () => {
-    const r = splitSource('a\n\nb\n\n:::gate{unlock="nope"}\nx\n:::', { allocateId: alloc });
+    const r = splitSource('a\n\nb\n\n:::gate{unlock="nope"}\nx\n:::', { allocateKey: alloc });
     expect(r.errors[0]?.line).toBe(5);
   });
 });
@@ -155,7 +183,7 @@ describe("assembleSource · 还原", () => {
   it("拆分后立即还原：再拆一次结果完全一致（往返无损）", () => {
     const src =
       '前言\n\n:::gate{unlock="points" price="30"}\n**付费** `code`\n\n- 列表\n:::\n\n中段\n\n:::gate{unlock="reply" match="any"}\n回复可见\n:::\n\n尾';
-    const first = splitSource(src, { allocateId: alloc });
+    const first = splitSource(src, { allocateKey: alloc });
     const asm = assembleSource(first.publicMd, first.gates);
     expect(asm.errors).toEqual([]);
     const second = splitSource(asm.source);
@@ -166,7 +194,7 @@ describe("assembleSource · 还原", () => {
 
   it("隐藏内容含 ::: 行时篱笆自动加长，仍可往返", () => {
     const g = {
-      id: 7,
+      key: "k7",
       conditions: [{ type: "reply" }],
       matchMode: "all" as const,
       hiddenMd: ":::note\n提示\n:::\n正文",
@@ -179,18 +207,18 @@ describe("assembleSource · 还原", () => {
   });
 
   it("占位引用不存在的门控 → 报错而不是静默吞掉", () => {
-    const r = assembleSource(':::gate{id="99"}\n:::', []);
+    const r = assembleSource(':::gate{key="zz"}\n:::', []);
     expect(r.errors.map((e) => e.code)).toContain("gate-unknown-placeholder");
   });
 
   it("有门控没有对应占位 → 报错（防止丢失隐藏内容）", () => {
     const r = assembleSource("只有公开文字", [
-      { id: 5, conditions: [{ type: "reply" }], matchMode: "all", hiddenMd: "秘密" },
+      { key: "k5", conditions: [{ type: "reply" }], matchMode: "all", hiddenMd: "秘密" },
     ]);
     expect(r.errors.map((e) => e.code)).toContain("gate-unknown-placeholder");
   });
 
-  it("占位缺 id 同样报错", () => {
+  it("占位缺 key 同样报错", () => {
     expect(assembleSource(":::gate\n:::", []).errors.length).toBeGreaterThan(0);
   });
 });
@@ -198,10 +226,10 @@ describe("assembleSource · 还原", () => {
 describe("serializeGate / 条件规格", () => {
   it("未知条件抛错；缺条件抛错", () => {
     expect(() =>
-      serializeGate({ id: 1, conditions: [{ type: "nope" }], matchMode: "all", hiddenMd: "" }),
+      serializeGate({ key: "k1", conditions: [{ type: "nope" }], matchMode: "all", hiddenMd: "" }),
     ).toThrow();
     expect(() =>
-      serializeGate({ id: 1, conditions: [], matchMode: "all", hiddenMd: "" }),
+      serializeGate({ key: "k1", conditions: [], matchMode: "all", hiddenMd: "" }),
     ).toThrow();
   });
 
@@ -214,14 +242,14 @@ describe("serializeGate / 条件规格", () => {
     const specs = new Map([...DEFAULT_CONDITION_SPECS, [spec.type, spec]]);
     const out = serializeGate(
       {
-        id: 1,
+        key: "k1",
         conditions: [{ type: "tag", name: 'a" onclick="x' }],
         matchMode: "all",
         hiddenMd: "h",
       },
       specs,
     );
-    expect(out).toBe(':::gate{id="1" unlock="tag" name="a onclick=x"}\nh\n:::');
+    expect(out).toBe(':::gate{key="k1" unlock="tag" name="a onclick=x"}\nh\n:::');
   });
 
   it("可注入新的条件规格（模块内核 gateConditions 的扩展点）", () => {
@@ -231,7 +259,7 @@ describe("serializeGate / 条件规格", () => {
       toAttrs: () => ({}),
     };
     const specs = new Map([...DEFAULT_CONDITION_SPECS, [login.type, login]]);
-    const r = splitSource(':::gate{unlock="login"}\nx\n:::', { specs, allocateId: alloc });
+    const r = splitSource(':::gate{unlock="login"}\nx\n:::', { specs, allocateKey: alloc });
     expect(r.errors).toEqual([]);
     expect(r.gates[0]?.conditions).toEqual([{ type: "login" }]);
   });
@@ -243,7 +271,7 @@ describe("serializeGate / 条件规格", () => {
     expect(replySpec.toAttrs({ type: "reply" })).toEqual({});
   });
 
-  it("validateGates：无需分配 id 即可校验", () => {
+  it("validateGates：无需 key 即可校验", () => {
     expect(validateGates(':::gate{unlock="reply"}\nx\n:::')).toEqual([]);
     expect(validateGates(':::gate{unlock="zzz"}\nx\n:::').length).toBe(1);
   });

@@ -3,13 +3,22 @@ import { assembleSource, splitSource } from "./gate-syntax.js";
 import { ubbToMarkdown, type UbbContext } from "./ubb.js";
 
 const EMOJI = new Set(Array.from({ length: 50 }, (_, i) => 120 + i));
-const FILES = new Set(["photo/Mon_1003/3_abc.jpg", "Mon_1004/55_7_hash.jpg"]);
+/** 假装已入库的旧站上传路径 → 最终文件地址 */
+const UPLOADS = new Map([
+  ["photo/Mon_1003/3_abc.jpg", "/files/aa/bb/aabb-3.jpg"],
+  ["Mon_1004/55_7_hash.jpg", "/files/cc/dd/ccdd-55.jpg"],
+]);
 
 const ctx = (over: Partial<UbbContext> = {}): UbbContext => ({
   emojiIds: EMOJI,
-  attachmentExists: (rel) => FILES.has(rel),
-  resolveAttachment: (aid) => (aid === 7 ? { name: "字幕.zip", path: "1302/thread/a.zip" } : null),
-  allocateGateId: (seq) => 5000 + seq,
+  resolveUpload: (rel) => UPLOADS.get(rel) ?? null,
+  resolveAttachment: (aid) =>
+    aid === 7
+      ? { name: "字幕.zip", url: "/files/ee/ff/eeff.zip" }
+      : aid === 8
+        ? { name: "截图.png", url: "/files/11/22/1122.png", image: true }
+        : null,
+  gateKey: (seq) => `k${seq}`,
   ...over,
 });
 const conv = (src: string, over?: Partial<UbbContext>) => ubbToMarkdown(src, ctx(over));
@@ -23,7 +32,7 @@ describe("基础标签", () => {
   it("强调 / 删除线 / 上下标 / 水平线", () => {
     expect(conv("[b]粗[/b][i]斜[/i]").md).toBe("**粗***斜*");
     expect(conv("[u]下[/u][s]删[/s][sup]2[/sup][sub]i[/sub]").md).toBe(
-      "<u>下</u><s>删</s><sup>2</sup><sub>i</sub>",
+      "<u>下</u>~~删~~<sup>2</sup><sub>i</sub>",
     );
     expect(conv("上[hr]下").md).toBe("上\n\n---\n\n下");
   });
@@ -32,19 +41,23 @@ describe("基础标签", () => {
     expect(conv("[hr][b]x[/b]").md).toBe("---\n\n**x**");
   });
 
-  it("颜色 / 字号 / 对齐（情怀排版），非法值被清洗", () => {
-    expect(conv("[color=red]红[/color]").md).toBe('<span style="color:red">红</span>');
-    expect(conv("[size=7]大[/size]").md).toBe('<span style="font-size:32px">大</span>');
-    expect(conv("[color=red;x:url(a)]c[/color]").md).toBe("c"); // 含函数调用的值整体丢弃
-    expect(conv("[color=rgb(10, 20,30)]c[/color]").md).toBe(
-      '<span style="color:rgb(10, 20,30)">c</span>',
-    );
-    expect(conv("[backcolor=#fff]c[/backcolor]").md).toBe(
-      '<span style="background-color:#fff">c</span>',
-    );
-    expect(conv("[size=99x]c[/size]").md).toBe("c");
-    expect(conv("[align=center]中[/align]").md).toContain("text-align:center");
+  it("内容只有 Markdown：颜色 / 字号 / 背景 / 对齐 / 字体降级为纯文本并记告警", () => {
+    expect(conv("[color=red]红[/color]").md).toBe("红");
+    expect(conv("[size=7]大[/size]").md).toBe("大");
+    expect(conv("[backcolor=#fff]c[/backcolor]").md).toBe("c");
+    expect(conv("[align=center]中[/align]").md).toBe("中");
     expect(conv("[font=宋体]f[/font]").md).toBe("f");
+    expect(conv("[color=red;x:url(a)]c[/color]").md).toBe("c");
+    const r = conv("[color=red][size=3]甲[/size][/color]");
+    expect(r.warnings.map((w) => w.detail)).toEqual(["size", "color"]);
+    expect(r.warnings.every((w) => w.code === "style-degraded")).toBe(true);
+  });
+
+  it("输出绝不含内联样式", () => {
+    const md = conv(
+      "[color=red]a[/color][size=5]b[/size][backcolor=#000]c[/backcolor][align=right]d[/align]",
+    ).md;
+    expect(md).not.toMatch(/style=|<span|<div/i);
   });
 
   it("引用 / 代码 / 列表", () => {
@@ -55,7 +68,8 @@ describe("基础标签", () => {
 
   it("email / 附件", () => {
     expect(conv("[email]a@b.io[/email]").md).toBe("[a@b.io](mailto:a@b.io)");
-    expect(conv("[attachment=7]").md).toBe("[📎 字幕.zip](/attachment/1302/thread/a.zip)");
+    expect(conv("[attachment=7]").md).toBe("[📎 字幕.zip](/files/ee/ff/eeff.zip)");
+    expect(conv("[attachment=8]").md).toBe("![截图.png](/files/11/22/1122.png)"); // 图片附件内联
     expect(conv("[attachment=99]").md).toBe("[附件 #99]");
     expect(conv("[attachment=x]y[/attachment]").md).toBe("y");
   });
@@ -115,9 +129,9 @@ describe("链接与图片改写", () => {
     expect(conv("[url=javascript:alert(1)]x[/url]").md).toBe("x");
   });
 
-  it("p_w_upload 图片：磁盘存在 → /attachment/；不存在 → 保留原绝对地址并告警", () => {
+  it("p_w_upload 图片：已入库 → /files/…；未入库 → 保留原绝对地址并告警", () => {
     const hit = conv("[img]http://www.qingyisub.com/p_w_upload/photo/Mon_1003/3_abc.jpg[/img]");
-    expect(hit.md).toBe("![img](/attachment/photo/Mon_1003/3_abc.jpg)");
+    expect(hit.md).toBe("![img](/files/aa/bb/aabb-3.jpg)");
     const miss = conv("[img]http://www.qingyisub.com/p_w_upload/photo/Mon_1003/gone.jpg[/img]");
     expect(miss.md).toBe("![img](http://www.qingyisub.com/p_w_upload/photo/Mon_1003/gone.jpg)");
     expect(miss.warnings.map((w) => w.code)).toEqual(["image-unresolved"]);
@@ -156,7 +170,7 @@ describe("表格与门控", () => {
     const r = conv("[table][tr][td]下载[post]百度网盘链接[/post][/td][/tr]");
     expect(r.gates).toHaveLength(1);
     expect(r.gates[0]).toMatchObject({ seq: 1, hiddenMd: "百度网盘链接" });
-    expect(r.md).toBe('| 下载 |\n| --- |\n\n:::gate{id="5001"}\n:::');
+    expect(r.md).toBe('| 下载 |\n| --- |\n\n:::gate{key="k1"}\n:::');
     expect(r.md).not.toContain("百度网盘");
   });
 
@@ -181,14 +195,14 @@ describe("门控转换", () => {
     const r = conv("前[sell=5,1]秘密A[/sell]后");
     expect(r.gates).toEqual([
       {
-        id: 5001,
+        key: "k1",
         seq: 1,
         conditions: [{ type: "points", price: 5 }],
         matchMode: "all",
         hiddenMd: "秘密A",
       },
     ]);
-    expect(r.md).toBe('前\n\n:::gate{id="5001"}\n:::\n\n后');
+    expect(r.md).toBe('前\n\n:::gate{key="k1"}\n:::\n\n后');
     expect(r.md).not.toContain("秘密A");
   });
 
@@ -230,7 +244,7 @@ describe("门控转换", () => {
   it("穿过样式包装的门控被提升为顶层块", () => {
     const r = conv("[color=red][sell=3,]x[/sell][/color]");
     expect(r.gates).toHaveLength(1);
-    expect(r.md).toContain(':::gate{id="5001"}');
+    expect(r.md).toContain(':::gate{key="k1"}');
     expect(r.md).not.toContain(">x");
   });
 
@@ -254,7 +268,7 @@ describe("门控转换", () => {
     const r = conv("公开前文[sell=5,]没有闭合的付费内容\n以及后面的全部文字");
     expect(r.gates).toHaveLength(1);
     expect(r.gates[0]?.hiddenMd).toBe("没有闭合的付费内容\n以及后面的全部文字");
-    expect(r.md).toBe('公开前文\n\n:::gate{id="5001"}\n:::');
+    expect(r.md).toBe('公开前文\n\n:::gate{key="k1"}\n:::');
     expect(r.md).not.toContain("付费内容");
     expect(r.warnings.map((w) => w.code)).toEqual(["gate-unclosed"]);
   });
@@ -281,31 +295,29 @@ describe("门控转换", () => {
     expect(again.gates).toEqual(r.gates);
   });
 
-  it("样式包装内的门控：占位提升为顶层块，两侧文本各自保留样式", () => {
+  it("样式包装内的门控：样式降级为纯文本，占位仍提升为顶层块", () => {
     const r = conv("[color=red]前[sell=3,]x[/sell]后[/color]");
-    expect(r.md).toBe(
-      '<span style="color:red">前</span>\n\n:::gate{id="5001"}\n:::\n\n<span style="color:red">后</span>',
-    );
+    expect(r.md).toBe('前\n\n:::gate{key="k1"}\n:::\n\n后');
     const asm = assembleSource(r.md, r.gates);
     expect(splitSource(asm.source).gates).toEqual(r.gates);
     const al = conv("[align=center][post]p[/post][/align]");
-    expect(al.md).toBe(':::gate{id="5001"}\n:::');
+    expect(al.md).toBe(':::gate{key="k1"}\n:::');
   });
 });
 
 describe("未闭合标签不吞内容（v1 的数据丢失缺陷）", () => {
   it("[attachment=N] 无闭合标签：后面的正文必须保留", () => {
     expect(conv("[attachment=7] 附件后面的正文不能丢").md).toBe(
-      "[📎 字幕.zip](/attachment/1302/thread/a.zip) 附件后面的正文不能丢",
+      "[📎 字幕.zip](/files/ee/ff/eeff.zip) 附件后面的正文不能丢",
     );
     expect(conv("前[attachment=7]中[attachment=99]后").md).toBe(
-      "前[📎 字幕.zip](/attachment/1302/thread/a.zip)中[附件 #99]后",
+      "前[📎 字幕.zip](/files/ee/ff/eeff.zip)中[附件 #99]后",
     );
   });
 
   it("闭合的 [attachment=N]内容[/attachment] 保留内容", () => {
     expect(conv("[attachment=7]说明[/attachment]").md).toBe(
-      "[📎 字幕.zip](/attachment/1302/thread/a.zip)说明",
+      "[📎 字幕.zip](/files/ee/ff/eeff.zip)说明",
     );
   });
 
@@ -332,7 +344,7 @@ describe("未闭合标签不吞内容（v1 的数据丢失缺陷）", () => {
   it("未闭合的 [quote]：门控提升为顶层，引用只包裹两侧文本", () => {
     const r = conv("[quote]前[post]秘[/post]后");
     expect(r.gates).toHaveLength(1);
-    expect(r.md).toBe('> 前\n\n:::gate{id="5001"}\n:::\n\n> 后');
+    expect(r.md).toBe('> 前\n\n:::gate{key="k1"}\n:::\n\n> 后');
   });
 
   it("真正闭合的 [quote] 内的门控仍然丢弃（那是别人对原文的引用）", () => {

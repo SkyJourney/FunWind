@@ -5,6 +5,15 @@
 
 ## [Unreleased]
 
+### Changed（M5.5 · R2：schema v2.1 与内容包重做，代码）
+
+- **`packages/db` 重做为 43 表**（已提交 R2-A）：详见 [DESIGN-MODEL.md](docs/DESIGN-MODEL.md)；旧迁移 SQL 以 `git rm` 删除，重新生成单一基线 `0000_init_v2_1`；
+  权限词汇表与角色定义不再携带旧站信息；`schema-rules` 新增 `no-legacy` 断言；演示夹具补审核/通知/公告。
+- **`packages/content`（R2-B）**：门控以帖内稳定 `key` 为身份（`:::gate{key="a1"}`），取代 id 公式与 seq；新门控缺省分配 `g{n}`，key 形态与重复有校验；
+  内容只有 Markdown——`color/size/backcolor/align/font` 降级为纯文本并记 `style-degraded` 告警，删除线改为 `~~`；
+  文件引用改由调用方注入的 `resolveAttachment` / `resolveUpload` 解析为 `/files/…`，转换器不再写死 `/attachment/`。
+- **暂时破坏**：`migration/` 引用了被删除的导出与旧字段，类型检查为红，R3 修复；`apps/web` 仍是 v1 代码，S4 适配。
+
 ### Changed（M5.5 · R1：设计先行，文档重定）
 
 站长在 S4 开工前调整思路：**以新系统设计为原则，旧数据向它靠拢，迁移只是适配层**。第一轮 v2（S1–S3，38 表）中沿袭旧结构的部分将经 R2/R3 重做；

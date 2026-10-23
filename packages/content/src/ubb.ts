@@ -1,12 +1,12 @@
 /**
- * UBB/BBCODE → Markdown 转换器 v2（M5.5）
+ * UBB/BBCODE → Markdown 转换器（迁移适配用）
  *
- * 相对 v1（migration/src/ubb.ts）的变化：
  *  - 门控：[sell=N,…] → points 门控，[post] / [hide] → reply 门控；隐藏内容拆出为 GateDraft，md 只留占位
  *  - 表情：[s:N] 展开为静态资源 /emoji/{id}.gif；映射外的遗留码（旧站自己也渲染不出）直接删除
  *  - 站内链接：job.php?action=topost / read.php / thread.php → /t/.. /f/..；回到原帖图标 → 「↩ 原帖」
- *  - 旧站内部图片 p_w_upload/… → /attachment/…（以磁盘实际存在为准），p_w_picpath/ 内置图丢弃
- *  - table → Markdown 表格；hr → ---；sup/sub 保留；媒体标签降级为链接
+ *  - 文件引用（附件、旧站内部图片）经调用方注入的解析回调改写为 /files/… 地址；解析不到的保留原样并告警
+ *  - 内容只有 Markdown：color / size / backcolor / align / font 等样式标签一律降级为纯文本语义（只留内容，记告警）
+ *  - table → Markdown 表格；hr → ---；删除线 → ~~；sup/sub/u 保留为 HTML；媒体标签降级为链接
  *
  * 门控的安全不变量（有专门的性质测试）：被拆出的隐藏内容绝不会出现在 md 中。
  * 位于引用/列表/表格等非顶层位置的门控，宁可丢弃内容也不留在公开正文里。
@@ -21,14 +21,20 @@ export interface UbbContext {
   emojiIds: ReadonlySet<number>;
   /** 表情 id → 静态地址，默认 /emoji/{id}.gif */
   emojiUrl?: (id: number) => string;
-  /** [attachment=N] → 附件元数据，渲染为 /attachment/{path} */
-  resolveAttachment?: (aid: number) => { name: string; path: string } | null;
-  /** 相对 attachment/ 的路径在磁盘上是否存在（p_w_upload 改写依据）；缺省视为不存在 */
-  attachmentExists?: (relPath: string) => boolean;
+  /**
+   * [attachment=N] → 已入库文件的最终地址。image=true 渲染为内联图片，否则渲染为下载链接。
+   * 返回 null 表示该附件无法解析（文件缺失等），输出占位 `[附件 #N]`。
+   */
+  resolveAttachment?: (aid: number) => { name: string; url: string; image?: boolean } | null;
+  /**
+   * 旧站内部上传路径（p_w_upload/ 之后的相对路径）→ 已入库文件的最终地址；
+   * 返回 null 表示文件不存在或未入库（保留原绝对地址并告警）。缺省视为全部解析不到。
+   */
+  resolveUpload?: (relPath: string) => string | null;
   /** 站内域名（小写、不含 www.），用于识别站内链接，默认 qingyisub.com / qingyisub.top */
   siteHosts?: readonly string[];
-  /** 门控 id 分配：迁移用确定性公式 postId*16+seq */
-  allocateGateId: (seq: number) => number;
+  /** 门控 key 分配（帖内唯一）；缺省 g{seq}，转换结果因此是确定的 */
+  gateKey?: (seq: number) => string;
   /** 价格 ≥ 该值的 [sell] 一律改为免费（站长决策：旧「9999」是永不可买的占位），默认 9999 */
   freeAbovePrice?: number;
 }
@@ -42,6 +48,7 @@ export type ConvertWarningCode =
   | "gate-price-invalid"
   | "gate-price-reset"
   | "level-stripped"
+  | "style-degraded"
   | "image-dropped"
   | "image-unresolved";
 
@@ -199,25 +206,7 @@ const TRANSPARENT = new Set([
   "FONT",
   "ALIGN",
 ]);
-// phpwind [size=1..7] 语义 → px；超出按 px 直读
-const SIZE_PX: Record<string, number> = {
-  "1": 12,
-  "2": 14,
-  "3": 16,
-  "4": 18,
-  "5": 20,
-  "6": 24,
-  "7": 32,
-};
-
 const DEFAULT_SITE_HOSTS = ["qingyisub.com", "qingyisub.top"];
-
-/** 颜色值白名单：命名色 / 十六进制 / rgb()、hsl()；其余（含任何其它函数调用）一律丢弃 */
-function safeCss(v: string | undefined): string {
-  const t = (v ?? "").replace(/[^#\w(),.%\s-]/g, "").trim();
-  if (t.includes("(")) return /^(?:rgb|rgba|hsl|hsla)\(\s*[\d\s,.%]+\)$/i.test(t) ? t : "";
-  return t;
-}
 
 function blockquote(inner: string): string {
   return (
@@ -281,7 +270,7 @@ function rewriteInternalLink(u: string, hosts: readonly string[]): string | null
   return null;
 }
 
-/** p_w_upload/… → /attachment/…（仅当文件存在）；返回 null 表示不是该形态或文件不存在 */
+/** p_w_upload/… → 已入库文件地址；url 为 null 表示不是该形态或文件未入库，matched 表示形态命中 */
 function rewriteUpload(u: string, st: State): { url: string | null; matched: boolean } {
   const hosts = st.ctx.siteHosts ?? DEFAULT_SITE_HOSTS;
   const relative = !/^[a-z]+:\/\//i.test(u);
@@ -289,8 +278,7 @@ function rewriteUpload(u: string, st: State): { url: string | null; matched: boo
   const m = UPLOAD_RE.exec(u.split(/[?#]/)[0]!);
   if (!m) return { url: null, matched: false };
   const rel = decodeURIComponent(m[1]!);
-  const exists = st.ctx.attachmentExists?.(rel) ?? false;
-  return { url: exists ? `/attachment/${rel}` : null, matched: true };
+  return { url: st.ctx.resolveUpload?.(rel) ?? null, matched: true };
 }
 
 function safeUrl(u: string): string {
@@ -363,14 +351,14 @@ function renderGate(n: Node, st: State): string {
 
   const seq = ++st.seq;
   if (seq > MAX_GATES_PER_POST) throw new RangeError(`一个帖子最多 ${MAX_GATES_PER_POST} 个门控`);
-  const id = st.ctx.allocateGateId(seq);
-  st.gates.push({ id, seq, conditions: [condition], matchMode: "all", hiddenMd: hidden });
-  return `\n\n:::gate{id="${id}"}\n:::\n\n`;
+  const key = st.ctx.gateKey?.(seq) ?? `g${seq}`;
+  st.gates.push({ key, seq, conditions: [condition], matchMode: "all", hiddenMd: hidden });
+  return `\n\n:::gate{key="${key}"}\n:::\n\n`;
 }
 
 // ---------- 渲染 ----------
 
-const GATE_PLACEHOLDER_RE = /(\n\n:::gate\{id="\d+"\}\n:::\n\n)/;
+const GATE_PLACEHOLDER_RE = /(\n\n:::gate\{key="[\w-]+"\}\n:::\n\n)/;
 
 /**
  * 样式包装：门控占位必须保持顶层独立块（不能被塞进 HTML 标签里，否则无法被识别为门控）。
@@ -389,7 +377,7 @@ function renderChildren(n: Node, st: State, env: Env): string {
 }
 
 /** 门控占位块（renderGate 的输出形态） */
-const GATE_PLACEHOLDER_ANY = /\n*:::gate\{id="\d+"\}\n:::\n*/g;
+const GATE_PLACEHOLDER_ANY = /\n*:::gate\{key="[\w-]+"\}\n:::\n*/g;
 
 function renderTable(n: Node, st: State, env: Env): string {
   const rows = n.children.filter((c) => c.tag === "TR");
@@ -472,7 +460,7 @@ function render(n: Node, st: State, env: Env): string {
     case "S":
     case "STRIKE":
     case "DEL":
-      return wrap(inner, (x) => `<s>${x}</s>`);
+      return wrap(inner, (x) => `~~${x.trim() || x}~~`);
     case "SUP":
       return `<sup>${inner}</sup>`;
     case "SUB":
@@ -481,29 +469,14 @@ function render(n: Node, st: State, env: Env): string {
       return "\n\n---\n\n";
     case "BR":
       return "\n";
-    case "COLOR": {
-      const c = safeCss(n.arg);
-      return c ? wrap(inner, (x) => `<span style="color:${c}">${x}</span>`) : inner;
-    }
-    case "BACKCOLOR": {
-      const c = safeCss(n.arg);
-      return c ? wrap(inner, (x) => `<span style="background-color:${c}">${x}</span>`) : inner;
-    }
-    case "SIZE": {
-      const v = (n.arg ?? "").trim();
-      const px = SIZE_PX[v] ?? (/^\d{2,3}$/.test(v) ? Number(v) : 0);
-      return px ? wrap(inner, (x) => `<span style="font-size:${px}px">${x}</span>`) : inner;
-    }
-    case "ALIGN": {
-      const a = /center/i.test(n.arg ?? "")
-        ? "center"
-        : /right/i.test(n.arg ?? "")
-          ? "right"
-          : "left";
-      return wrap(inner, (x) => `\n<div style="text-align:${a}">${x.trim()}</div>\n`);
-    }
+    case "COLOR":
+    case "BACKCOLOR":
+    case "SIZE":
+    case "ALIGN":
     case "FONT":
-      return inner; // 字体族不保留
+      // 内容只有 Markdown：样式标签只留内容，不产生任何内联样式
+      st.warnings.push({ code: "style-degraded", detail: tag.toLowerCase() });
+      return inner;
     case "QUOTE":
       return wrap(inner, blockquote);
     case "CODE":
@@ -523,7 +496,11 @@ function render(n: Node, st: State, env: Env): string {
       const aid = parseInt((n.arg ?? inner).trim(), 10);
       if (!Number.isFinite(aid)) return inner;
       const att = st.ctx.resolveAttachment?.(aid);
-      const link = att ? `[📎 ${att.name}](/attachment/${att.path})` : `[附件 #${aid}]`;
+      const link = att
+        ? att.image
+          ? `![${att.name}](${att.url})`
+          : `[📎 ${att.name}](${att.url})`
+        : `[附件 #${aid}]`;
       return n.arg !== undefined && inner.trim() ? `${link}${inner}` : link;
     }
     case "LEVEL":
