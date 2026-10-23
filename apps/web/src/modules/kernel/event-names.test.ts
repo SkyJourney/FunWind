@@ -1,0 +1,41 @@
+import { describe, expect, it } from "vitest";
+import { EVENT_NAMES, isEventName, validateEventPayload } from "./event-names";
+import type { EventPayloads } from "./types";
+
+describe("EVENT_NAMES / isEventName", () => {
+  it("清单完整（10 事件）", () => {
+    expect(EVENT_NAMES).toHaveLength(10);
+  });
+
+  it("识别合法/非法事件名", () => {
+    expect(isEventName("user.logged_in")).toBe(true);
+    expect(isEventName("nope")).toBe(false);
+    expect(isEventName(42)).toBe(false);
+  });
+});
+
+describe("validateEventPayload", () => {
+  it("合法 payload 通过", () => {
+    expect(validateEventPayload("user.logged_in", { userId: 1 })).toBeNull();
+    expect(
+      validateEventPayload("thread.created", { threadId: 1, forumId: 2, authorId: 3 }),
+    ).toBeNull();
+  });
+
+  it("缺字段报出缺失键", () => {
+    expect(validateEventPayload("user.logged_in", {})).toContain("userId");
+    expect(validateEventPayload("credit.changed", { userId: 1 })).toContain("creditType");
+  });
+
+  it("非对象 payload 拒绝", () => {
+    expect(validateEventPayload("user.logged_in", null)).toContain("对象");
+    expect(validateEventPayload("user.logged_in", [1])).toContain("对象");
+    expect(validateEventPayload("user.logged_in", "x")).toContain("对象");
+  });
+
+  it("额外字段不拒绝（宽容写入，raw 归档哲学一致）", () => {
+    const p: EventPayloads["user.logged_in"] & { extra?: string } = { userId: 1 };
+    p.extra = "ok";
+    expect(validateEventPayload("user.logged_in", p)).toBeNull();
+  });
+});

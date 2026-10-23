@@ -68,9 +68,9 @@ export const users = mysqlTable(
     onlineTime: int("online_time", { unsigned: true }).notNull().default(0),
     isSpam: boolean("is_spam").notNull().default(false),
     status: smallint("status").notNull().default(0),
-    createdAt: datetime("created_at"),
-    lastVisitAt: datetime("last_visit_at"),
-    lastPostAt: datetime("last_post_at"),
+    createdAt: datetime("created_at", { mode: "string" }),
+    lastVisitAt: datetime("last_visit_at", { mode: "string" }),
+    lastPostAt: datetime("last_post_at", { mode: "string" }),
     raw: json("raw"),
   },
   (t) => [
@@ -130,8 +130,8 @@ export const threads = mysqlTable(
     tags: varchar("tags", { length: 255 }).notNull().default(""),
     isSpam: boolean("is_spam").notNull().default(false),
     status: tinyint("status").notNull().default(0),
-    createdAt: datetime("created_at"),
-    lastPostAt: datetime("last_post_at"),
+    createdAt: datetime("created_at", { mode: "string" }),
+    lastPostAt: datetime("last_post_at", { mode: "string" }),
     lastPostUserId: int("last_post_user_id", { unsigned: true }).notNull().default(0),
     raw: json("raw"),
   },
@@ -158,8 +158,8 @@ export const posts = mysqlTable(
     usehtml: boolean("usehtml").notNull().default(false),
     likeCount: int("like_count", { unsigned: true }).notNull().default(0),
     status: tinyint("status").notNull().default(0),
-    createdAt: datetime("created_at"),
-    modifiedAt: datetime("modified_at"),
+    createdAt: datetime("created_at", { mode: "string" }),
+    modifiedAt: datetime("modified_at", { mode: "string" }),
     raw: json("raw"),
   },
   (t) => [
@@ -187,7 +187,7 @@ export const attachments = mysqlTable(
     downloads: int("downloads", { unsigned: true }).notNull().default(0),
     cost: int("cost", { unsigned: true }).notNull().default(0),
     special: tinyint("special").notNull().default(0),
-    createdAt: datetime("created_at"),
+    createdAt: datetime("created_at", { mode: "string" }),
     raw: json("raw"),
   },
   (t) => [
@@ -255,7 +255,7 @@ export const userMedals = mysqlTable(
     userId: int("user_id", { unsigned: true }).notNull(),
     medalId: int("medal_id", { unsigned: true }).notNull(),
     counts: int("counts", { unsigned: true }).notNull().default(0),
-    expiredTime: datetime("expired_time"),
+    expiredTime: datetime("expired_time", { mode: "string" }),
   },
   (t) => [primaryKey({ columns: [t.userId, t.medalId] }), index("idx_um_medal").on(t.medalId)],
 );
@@ -271,7 +271,7 @@ export const creditLogs = mysqlTable(
     delta: int("delta").notNull().default(0),
     logType: varchar("log_type", { length: 40 }).notNull().default(""),
     description: varchar("description", { length: 255 }).notNull().default(""),
-    createdAt: datetime("created_at"),
+    createdAt: datetime("created_at", { mode: "string" }),
   },
   (t) => [
     primaryKey({ columns: [t.id] }),
@@ -291,9 +291,9 @@ export const polls = mysqlTable(
     isafterView: boolean("isafter_view").notNull().default(false),
     isincludeImg: boolean("isinclude_img").notNull().default(false),
     optionLimit: smallint("option_limit", { unsigned: true }).notNull().default(0),
-    expiredTime: datetime("expired_time"),
+    expiredTime: datetime("expired_time", { mode: "string" }),
     creatorId: int("creator_id", { unsigned: true }).notNull().default(0),
-    createdAt: datetime("created_at"),
+    createdAt: datetime("created_at", { mode: "string" }),
     raw: json("raw"),
   },
   (t) => [primaryKey({ columns: [t.id] }), index("idx_polls_thread").on(t.threadId)],
@@ -317,7 +317,7 @@ export const pollVoters = mysqlTable(
     pollId: int("poll_id", { unsigned: true }).notNull(),
     optionId: int("option_id", { unsigned: true }).notNull(),
     userId: int("user_id", { unsigned: true }).notNull(),
-    createdAt: datetime("created_at"),
+    createdAt: datetime("created_at", { mode: "string" }),
   },
   (t) => [
     primaryKey({ columns: [t.pollId, t.optionId, t.userId] }),
@@ -334,7 +334,7 @@ export const privateMessages = mysqlTable(
     fromUid: int("from_uid", { unsigned: true }).notNull().default(0),
     toUid: int("to_uid", { unsigned: true }).notNull().default(0),
     content: mediumtext("content"),
-    createdAt: datetime("created_at"),
+    createdAt: datetime("created_at", { mode: "string" }),
     raw: json("raw"),
   },
   (t) => [
@@ -353,7 +353,7 @@ export const messageDialogs = mysqlTable(
     unreadCount: smallint("unread_count", { unsigned: true }).notNull().default(0),
     messageCount: int("message_count", { unsigned: true }).notNull().default(0),
     lastMessage: text("last_message"),
-    modifiedAt: datetime("modified_at"),
+    modifiedAt: datetime("modified_at", { mode: "string" }),
   },
   (t) => [primaryKey({ columns: [t.id] }), index("idx_md_to").on(t.toUid)],
 );
@@ -367,7 +367,7 @@ export const migrationState = mysqlTable(
     // P0 手写 DDL 语义：计数列为 BIGINT（迁移量级不设上限）
     rowsWritten: bigint("rows_written", { mode: "number", unsigned: true }).notNull().default(0),
     durationMs: bigint("duration_ms", { mode: "number", unsigned: true }).notNull().default(0),
-    finishedAt: datetime("finished_at"),
+    finishedAt: datetime("finished_at", { mode: "string" }),
     note: varchar("note", { length: 255 }).notNull().default(""),
   },
   (t) => [primaryKey({ columns: [t.entity] })],
@@ -397,7 +397,7 @@ export const eventLog = mysqlTable(
     actorId: int("actor_id", { unsigned: true }),
     source: varchar("source", { length: 64 }),
     errorJson: json("error_json"), // 消费异常摘要数组（drizzle 0.45 不支持列注释）
-    createdAt: datetime("created_at").notNull(),
+    createdAt: datetime("created_at", { mode: "string" }).notNull(),
   },
   (t) => [
     primaryKey({ columns: [t.id] }),
@@ -411,7 +411,7 @@ export const moduleState = mysqlTable(
   {
     moduleId: varchar("module_id", { length: 64 }).notNull(),
     enabled: boolean("enabled").notNull().default(true),
-    updatedAt: datetime("updated_at").notNull(),
+    updatedAt: datetime("updated_at", { mode: "string" }).notNull(),
   },
   (t) => [primaryKey({ columns: [t.moduleId] })],
 );

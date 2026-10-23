@@ -30,8 +30,7 @@ interface ExpectedTable {
 
 function expectedTables(): ExpectedTable[] {
   const out: ExpectedTable[] = [];
-  for (const [key, value] of Object.entries(schema)) {
-    void key;
+  for (const [, value] of Object.entries(schema)) {
     if (typeof value !== "object" || value === null) continue;
     // is() 运行时守卫排除 relations 等非表导出（drizzle 泛型不变性导致类型层无法收窄，此处豁免）
     if (!is(value, MySqlTable)) continue;

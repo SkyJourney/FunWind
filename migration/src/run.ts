@@ -1,4 +1,4 @@
-import { oldQuery, closePools } from "./db.js";
+import { newQuery, oldQuery, closePools } from "./db.js";
 import { loadSchemaOnce } from "./schema-init.js";
 import { emoticons as emoticonEnt, groups, forums } from "./entities/basic.js";
 import { makeUsers } from "./entities/users.js";
@@ -56,6 +56,16 @@ if (list.length === 0) {
 }
 
 await loadSchemaOnce();
+
+// 并发锁（基线审查 P3）：GET_LOCK 会话级互斥，双开即拒；进程退出（连接关闭）自动释放
+const lockRows = await newQuery<{ got: number }>(
+  "SELECT GET_LOCK('qysub_migration_run', 0) AS got",
+);
+if (Number(lockRows[0]?.got) !== 1) {
+  console.error("✘ 已有迁移进程在运行（GET_LOCK 'qysub_migration_run' 被占用），拒绝并发执行。");
+  await closePools();
+  process.exit(1);
+}
 
 let failed = 0;
 for (const m of list) {

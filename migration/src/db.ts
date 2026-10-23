@@ -30,17 +30,17 @@ export async function newQuery<T = any>(sql: string, params: unknown[] = []): Pr
 
 export type Row = Record<string, unknown>;
 
-/** 批量 UPSERT：keys 为主键列（冲突时更新全部列） */
+/** 批量 UPSERT：keys 为主键列（冲突时更新全部列）。AS new 别名语法——VALUES() 已于 MySQL 8.0.20 弃用 */
 export async function upsertBatch(table: string, cols: string[], rows: Row[], keys: string[]) {
   if (rows.length === 0) return;
   const placeholders = rows.map(() => `(${cols.map(() => "?").join(",")})`).join(",");
   const update = cols
     .filter((c) => !keys.includes(c))
-    .map((c) => `\`${c}\` = VALUES(\`${c}\`)`)
+    .map((c) => `\`${c}\` = new.\`${c}\``)
     .join(",");
-  const keyCheck = keys.map((k) => `\`${k}\` = VALUES(\`${k}\`)`).join(" AND ");
+  const keyCheck = keys.map((k) => `\`${k}\` = new.\`${k}\``).join(" AND ");
   const sql = `INSERT INTO \`${table}\` (${cols.map((c) => `\`${c}\``).join(",")})
-    VALUES ${placeholders}
+    VALUES ${placeholders} AS new
     ON DUPLICATE KEY UPDATE ${update || `${keyCheck}`}`;
   const values = rows.flatMap((r) => cols.map((c) => r[c] ?? null));
   await newPool.query(sql, values);

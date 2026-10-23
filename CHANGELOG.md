@@ -5,6 +5,30 @@
 
 ## [Unreleased]
 
+### Added（基线审查修复轮 · P1–P3 全项）
+
+- **连接层重构（P1）**：web 运行时单例池 `getWebDb()`（globalThis 守卫，消除每请求建池）；
+  连接统一 `timezone: "+08:00"` + `dateStrings` —— 库内 DATETIME 锁定为北京墙面时间，
+  UTC 容器化不再漂移；`apps/web/src/lib/datetime.ts` 为唯一解析入口（parseDbDateTime/nowBeijingWallTime）。
+- **actor 语义（P2）**：`event_log.actor_id` 按事件映射 payload 字段
+  （thread.created→authorId 等 10 项），显式 actorId 可覆盖；语义表入 MODULES.md。
+- **外部入口校验（P2）**：REQUIRED_PAYLOAD_KEYS + validateEventPayload，dev emit API 强制校验。
+- **E2E 独立数据库（P2）**：`qysub_next_e2e`（e2e-reset 脚本 drop→create→bootstrap→seed，
+  根 `test:e2e` 编排），测试不再污染开发库。
+- **迁移 UPSERT 语法升级（P2）**：upsertBatch 迁至 `AS new` 别名（VALUES() 于 8.0.20 弃用）；
+  迁移回归 23 项全绿。
+- **并发锁（P3）**：迁移进程 GET_LOCK 互斥，双开即拒。
+- **测试补强（P2）**：覆盖率改目录策略（kernel/lib 新文件自动纳入，当前 96/94/97）；
+  event-names / datetime 单测补齐（48 用例）；e2e 纳入 typecheck。
+
+### Fixed
+
+- drizzle datetime 列统一 `mode: "string"`（与连接层 dateStrings 对齐，消除 Date/字符串双形态）。
+- .dockerignore 补齐（构建上下文不再吞 node_modules/.next/dist）。
+- next-env.d.ts 出库；state.ts 重复导入合并；db verify.ts `void key` 清理。
+- BLUEPRINT §6/§9 文档漂移同步（pnpm 命令 + 根 .env 路径 + §2.3 新增时区/连接两条红线）。
+
+
 ### Added（M2 · 模块注册表内核）
 
 - **内核五件**（`apps/web/src/modules/kernel/`）：types（10 事件 + home.* 槽位 + 六类注册边界，编译期防呆）、

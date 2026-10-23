@@ -1,0 +1,14 @@
+# 构建上下文卫生（基线审查 P1-3）
+node_modules/
+**/node_modules/
+.next/
+**/.next/
+dist/
+**/dist/
+coverage/
+playwright-report/
+test-results/
+.zcode/
+.env
+*.log
+.DS_Store

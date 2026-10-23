@@ -101,6 +101,20 @@ describe("emit", () => {
     expect(r.dispatched).toEqual([{ moduleId: "after" }]);
     expect(r.errors).toEqual([{ moduleId: "boom", message: "boom!" }]);
     expect(w.rows[0].errorJson).toBe(JSON.stringify([{ moduleId: "boom", message: "boom!" }]));
+    expect(w.rows[0].actorId).toBe(2); // actor 按事件映射：thread.created → authorId
+  });
+
+  it("actor 按事件映射：thread.deleted → operatorId", async () => {
+    const w = fakeWriter();
+    await emit(
+      "thread.deleted",
+      { threadId: 1, operatorId: 66 },
+      {
+        enabledModuleIds: new Set(),
+        writer: w.write,
+      },
+    );
+    expect(w.rows[0].actorId).toBe(66);
   });
 
   it("非 Error 抛出物也能被摘要", async () => {
@@ -152,7 +166,7 @@ describe("emit", () => {
 
   it("显式 actorId/source/now 透传审计行", async () => {
     const w = fakeWriter();
-    const now = new Date("2026-10-23T12:00:00+08:00");
+    const now = "2026-10-23 12:00:00";
     await emit(
       "user.logged_in",
       { userId: 5 },

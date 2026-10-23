@@ -59,9 +59,15 @@ M9 后由管理后台管理）。
 2. **隔离**：消费者抛错→记入该事件 `event_log.error_json`，后续消费者照常，业务主流程不受影响；
    Slot 渲染失败→该模块跳过，宿主页不受影响。
 3. **审计**：每次 emit 落 `event_log`（payload/actor/source/错误摘要）；落库失败仅降级告警。
+   **actor 语义**：`event_log.actor_id` = 动作发起者，按事件映射 payload 字段
+   （user.\* → userId；thread.created/replied → authorId；thread.edited → editorId；
+   thread.deleted → operatorId；attachment.uploaded → uploaderId）；
+   调用方显式传 `deps.actorId` 时覆盖映射（如代操作场景）。
 4. **装卸**：注册（编译期，改 modules/index.ts）与启用（运行期，module_state）分离；禁用模块不渲染不消费，注册信息保留。
 5. **注册表封板**：modules/index.ts 求值完毕即封板，运行时注册抛错（无热插拔）。
 6. **API 路由与页面是两棵模块图**：任何使用内核的 route handler 必须自行 `import "@/modules"`。
+7. **外部入口校验**：emit 本身是类型安全的内部 API；任何**外部**入口（dev API、未来的表单/开放接口）
+   必须先经 `validateEventPayload`（REQUIRED_PAYLOAD_KEYS）校验 payload 必填键再派发。
 
 ## 消费者实现清单
 

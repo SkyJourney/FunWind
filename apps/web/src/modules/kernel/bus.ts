@@ -1,4 +1,6 @@
 import type { EventName, EventPayloads } from "./types";
+import { getWebDb, eventLog } from "@funwind/db";
+import { nowBeijingWallTime } from "@/lib/datetime";
 import { getEnabledModuleIds } from "./state";
 import { getEventConsumers } from "./registry";
 
@@ -16,7 +18,7 @@ export interface EventLogRow {
   actorId: number | null;
   source: string | null;
   errorJson: string | null;
-  createdAt: Date;
+  createdAt: string; // 北京墙面 DATETIME（库内语义，见 lib/datetime）
 }
 
 export type EventLogWriter = (row: EventLogRow) => Promise<void>;
@@ -26,7 +28,7 @@ export interface EmitDeps {
   enabledModuleIds?: ReadonlySet<string>;
   /** 覆盖审计落库（单测注入 fake；缺省写 event_log 表） */
   writer?: EventLogWriter;
-  now?: Date;
+  now?: string; // 北京墙面 DATETIME 字符串
   source?: string;
   actorId?: number;
 }
@@ -37,20 +39,39 @@ export interface EmitResult {
   logged: boolean;
 }
 
+/**
+ * actor 语义映射（基线审查 P2-a）：每个事件的「动作发起者」字段。
+ * deps.actorId 显式传入时优先（调用方比映射更清楚语义时使用，如被代操作）。
+ */
+const ACTOR_FIELD_BY_EVENT: Record<EventName, string | null> = {
+  "user.logged_in": "userId",
+  "user.registered": "userId",
+  "thread.created": "authorId",
+  "thread.replied": "authorId",
+  "thread.edited": "editorId",
+  "thread.deleted": "operatorId",
+  "attachment.uploaded": "uploaderId",
+  "credit.changed": "userId",
+  "medal.awarded": "userId",
+  "checkin.done": "userId",
+};
+
+function resolveActor(name: EventName, payload: EventPayloads[EventName]): number | null {
+  const field = ACTOR_FIELD_BY_EVENT[name];
+  if (!field) return null;
+  const v = (payload as Record<string, unknown>)[field];
+  return typeof v === "number" ? v : null;
+}
+
 async function defaultWriter(row: EventLogRow): Promise<void> {
-  const [{ eventLog }, { withDb }] = await Promise.all([
-    import("@funwind/db"),
-    import("@funwind/db"),
-  ]);
-  await withDb(async ({ db }) => {
-    await db.insert(eventLog).values({
-      eventName: row.eventName,
-      payload: row.payload as object,
-      actorId: row.actorId,
-      source: row.source,
-      errorJson: row.errorJson,
-      createdAt: row.createdAt,
-    });
+  const db = getWebDb();
+  await db.insert(eventLog).values({
+    eventName: row.eventName,
+    payload: row.payload as object,
+    actorId: row.actorId,
+    source: row.source,
+    errorJson: row.errorJson,
+    createdAt: row.createdAt,
   });
 }
 
@@ -59,7 +80,7 @@ export async function emit<K extends EventName>(
   payload: EventPayloads[K],
   deps: EmitDeps = {},
 ): Promise<EmitResult> {
-  const now = deps.now ?? new Date();
+  const now = deps.now ?? nowBeijingWallTime();
   const enabled = deps.enabledModuleIds ?? (await getEnabledModuleIds());
   const writer = deps.writer ?? defaultWriter;
 
@@ -82,7 +103,7 @@ export async function emit<K extends EventName>(
     await writer({
       eventName: name,
       payload,
-      actorId: deps.actorId ?? ("userId" in payload ? (payload.userId as number) : null),
+      actorId: deps.actorId ?? resolveActor(name, payload),
       source: deps.source ?? null,
       errorJson: errors.length > 0 ? JSON.stringify(errors) : null,
       createdAt: now,

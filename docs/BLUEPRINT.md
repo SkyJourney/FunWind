@@ -79,6 +79,8 @@
 2. 旧密码（md5+salt，phpwind 私有流程）**不迁移**：新库 `password_hash=NULL`，上线用邮件重置召回。
 3. 迁移程序幂等：可重复执行（保留旧主键 + UPSERT）。
 4. 新内容统一 utf8mb4。
+5. **时区约定**：库内 DATETIME 一律为北京墙面时间——连接层 `timezone: "+08:00"` + `dateStrings`（packages/db/client.ts），web 侧解析必须经 `apps/web/src/lib/datetime.ts` 的 parseDbDateTime（显式 +08:00），禁止裸 new Date(字符串)。
+6. **连接约定**：web 运行时用 `getWebDb()` 单例池（globalThis 守卫，基线审查 P1-1）；`withDb` 仅限一次性脚本。
 
 ## 3. 新库 schema（qysub_next）
 
@@ -124,7 +126,7 @@ schema 演进：P0 期的 `migration/schema/schema.sql` 为基线底稿；**M1 �
 
 1. **P0 数据迁移** ✅（2026-10-23 完成）：`migration/` 幂等迁移程序 + 23 项验证全部通过
    - 新库：`qysub-next-mysql`（MySQL 8.4 LTS）@ 127.0.0.1:33621 / `qysub_next`
-   - 重跑：`npm run migrate`（UPSERT 幂等）· 验证：`npm run verify`
+   - 重跑：`pnpm migrate`（UPSERT 幂等，AS new 语法）· 验证：`pnpm verify:migration`
 2. **P1 论坛 MVP**：Next.js 骨架、版块/主题/回帖只读渲染 → 编辑器（MD）→ 登录（密码重置注册流）→ 管理侧
 3. **P2 功能补全**：等级/勋章/积分流水、投票、私信、点赞关注、签到（按 §8 模块化实现）
 4. **P3 移动端 PWA**：manifest + 离线壳 + 推送
@@ -169,5 +171,5 @@ src/modules/
 | 旧站本地还原 | http://127.0.0.1:8080（qingyisub-nginx） |
 | 附件目录 | `/Volumes/Docker/data/qingyisub/wwwroot/www.qingyisub.top/attachment/`（527MB） |
 | 表情目录 | 同上 `res/images/emotion/{folder}/`（新站路由 `/emotion/**`） |
-| 迁移程序 | `FunWind/migration/`（`.env` 已配好；`npm run migrate` / `npm run verify`） |
+| 迁移程序 | `FunWind/migration/`（环境见仓库根 `.env`；`pnpm migrate` / `pnpm verify:migration`） |
 | 新库容器 | `FunWind/docker/qysub-next/compose.yaml` |

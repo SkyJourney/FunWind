@@ -11,17 +11,10 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],
-      // 覆盖率范围：已交付的纯逻辑与内核（随里程碑扩展）；
-      // state.ts / slot.tsx 组件渲染由 E2E 覆盖，不入单测阈值
-      include: [
-        "src/lib/utils.ts",
-        "src/lib/theme.ts",
-        "src/components/theme-switcher.tsx",
-        "src/components/ui/button.tsx",
-        "src/modules/kernel/types.ts",
-        "src/modules/kernel/registry.ts",
-        "src/modules/kernel/bus.ts",
-      ],
+      // 覆盖率范围：纯逻辑 + 内核（目录策略，新文件自动纳入）；
+      // state.ts / slot.tsx 为 IO 边界，由 E2E 覆盖（显式排除）
+      include: ["src/lib/**", "src/modules/kernel/**"],
+      exclude: ["src/modules/kernel/state.ts", "src/modules/kernel/slot.tsx"],
       thresholds: { lines: 90, branches: 85, functions: 90, statements: 90 },
     },
   },

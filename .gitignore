@@ -18,6 +18,7 @@ test-results/
 Thumbs.db
 
 # 工具缓存
+apps/web/next-env.d.ts
 .turbo/
 .eslintcache
 .vercel
