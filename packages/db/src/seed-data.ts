@@ -5,6 +5,9 @@
 import { sql } from "drizzle-orm";
 import type { Db } from "./client.js";
 import {
+  inviteCodes,
+  siteSettings,
+  userBans,
   emoticonCategories,
   emoticons,
   forums,
@@ -222,6 +225,43 @@ async function seedMedals(db: Db) {
     .onDuplicateKeyUpdate({ set: { counts: sql`VALUES(counts)` } });
 }
 
+// ---------- 认证夹具（M4）----------
+
+// 被封禁用户密码哈希（明文 e2e-banned-pass；预计算 argon2id——packages/db 不依赖 apps/web）
+const BANNED_HASH =
+  "$argon2id$v=19$m=19456,t=2,p=1$e3soyXfZ/wbsB+vxrPFUrA$l3IIWfhsuHFhCDMmVzXnS0TjiwWENRbboTfUwsM6YpY";
+
+export async function seedAuthFixtures(db: Db): Promise<void> {
+  // 注册模式：邀请制（站点默认语义）
+  await db
+    .insert(siteSettings)
+    .values({ key: "register.mode", value: { mode: "invite" }, updatedAt: sql`NOW()` })
+    .onDuplicateKeyUpdate({ set: { value: sql`VALUES(value)` } });
+
+  // E2E 邀请码（永不过期、未使用；e2e-reset 每轮重置恢复）
+  await db
+    .insert(inviteCodes)
+    .values({ code: "E2E-INVITE-CODE", batch: "e2e", createdAt: sql`NOW()` })
+    .onDuplicateKeyUpdate({ set: { usedBy: null, usedAt: null } });
+
+  // 被封禁演示用户（可登录：哈希如上；全局永久封禁 → 登录拦截用例）
+  await db
+    .insert(users)
+    .values({
+      id: 90003,
+      username: "demo_banned",
+      email: "banned@demo.local",
+      groupId: 1,
+      passwordHash: BANNED_HASH,
+      credits: { "1": 0 },
+    })
+    .onDuplicateKeyUpdate({ set: { email: sql`VALUES(email)`, passwordHash: BANNED_HASH } });
+  await db
+    .insert(userBans)
+    .values({ id: 901, userId: 90003, typeId: "1", fid: 0, reason: "E2E 封禁夹具" })
+    .onDuplicateKeyUpdate({ set: { reason: sql`VALUES(reason)` } });
+}
+
 /**
  * 幂等写入全部演示数据（bootstrap 后调用）
  */
@@ -233,4 +273,5 @@ export async function seedDemoData(db: Db): Promise<void> {
   await seedPosts(db);
   await seedEmoticons(db);
   await seedMedals(db);
+  await seedAuthFixtures(db);
 }

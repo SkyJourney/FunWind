@@ -14,7 +14,7 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "db:build": "pnpm --filter @funwind/db build",
     "test": "pnpm -r --if-present test",
-    "test:e2e": "pnpm db:build && NEW_DB_NAME=qysub_next_e2e pnpm --filter @funwind/db exec tsx scripts/e2e-reset.ts && NEW_DB_NAME=qysub_next_e2e pnpm migrate && NEW_DB_NAME=qysub_next_e2e pnpm db:seed && NEW_DB_NAME=qysub_next_e2e pnpm --filter @funwind/web test:e2e",
+    "test:e2e": "pnpm db:build && docker compose -f docker/dev/compose.yaml up -d mailpit && NEW_DB_NAME=qysub_next_e2e pnpm --filter @funwind/db exec tsx scripts/e2e-reset.ts && NEW_DB_NAME=qysub_next_e2e pnpm migrate && NEW_DB_NAME=qysub_next_e2e pnpm db:seed && NEW_DB_NAME=qysub_next_e2e pnpm --filter @funwind/web test:e2e",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "husky",

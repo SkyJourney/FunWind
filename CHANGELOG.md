@@ -5,6 +5,26 @@
 
 ## [Unreleased]
 
+### Added（M4 · 用户与认证）
+
+- **认证数据层**：sessions（SHA-256 令牌/可撤销/滑动续期）、invite_codes、site_settings
+  （register.mode）、email_tokens（reset/verify/claim 单次令牌）、user_bans（补迁 nw_user_ban
+  103 行，fid=0 全局/end_time NULL 永久）；users 加 email_verified_at；0004 迁移；verify 25 项。
+- **auth 库**：argon2id 密码、会话（登录轮换/全局封禁判定/Secure 协议自适应/请求级缓存）、
+  滑动窗口频控（单实例约束文档化）、邮件令牌（原子单次消费）、旧站头像算法（双实证样本）。
+- **页面与动作**：/login /register（invite|open 双模式）/forgot /reset/[token] /claim /verify/[token]
+  /u/[uid]（旧头像+签名+积分+封禁徽标）+ 登出；Server Actions；统一话术防枚举；
+  全局封禁登录拦截+站内只读横幅。
+- **邮件**：nodemailer + MailPit 容器（SMTP 1025/UI 8025）；模板四封（重置/认领/验证/邀请）。
+- **E2E 6 例**（邀请注册/重复码拒绝/找回重置/认领/防枚举/封禁拦截）+ Cookie 属性断言；
+  E2E 基建升级：独立 3200 端口 + 配置内固定隔离库 env（杜绝与 dev 服务抢端口错配）。
+- **种子夹具**：E2E 邀请码/被封禁演示用户（预计算 argon2id）/register.mode。
+
+### Fixed
+
+- E2E 与 dev 服务抢 3100 端口导致 env 错配（注册打错库）：E2E 迁至 3200 + 配置内注入隔离库。
+
+
 ### Added（M3 · 内容只读渲染）
 
 - **topic_type 补迁**（M0 漏迁，150 行）：版块页主题分类筛选的前提；迁移实体 11→12，verify 23→24 项。

@@ -126,6 +126,15 @@ schema 演进：P0 期的 `migration/schema/schema.sql` 为基线底稿；**M1 �
 
 旧站未启用伪静态（nginx conf 实证），301 源即原生 query string。**新格式自 M3 起冻结**：改动必须先迁移 301 表。
 
+## 4.6 认证与账号（M4 行为冻结）
+
+- **注册**：`register.mode` = invite（默认，站点语义）/ open（邮箱验证令牌）；模式存 `site_settings`。
+- **会话**：不透明令牌 cookie（HttpOnly+Lax，Secure 随站点协议），库内仅存 SHA-256；登录轮换、改密/重置吊销全部；封禁/过期即时失效。
+- **找回/认领**：同一邮件令牌管线（purpose 区分）；找回=已设密账户、认领=`password_hash IS NULL` 老账户（服务端强校验）；频控与统一话术防枚举。
+- **封禁**：`user_bans`（fid=0 全局，end_time NULL 永久）；登录拦截+理由展示；全局封禁 → 站内只读横幅；版块级封禁由 M5 authz 消费。
+- **头像**：旧站算法 `avatar/{pad3(⌊uid/1e6⌋)}/{pad2(⌊uid/1e4⌋)}/{pad2(⌊uid/100⌋)}/{uid}[_middle|_small].jpg`，由 `/attachment/**` 直出。
+- **E2E**：独立库 `qysub_next_e2e` + 3200 端口 + MailPit（8025 API 抓信）；一键 `pnpm test:e2e`。
+
 ## 5. 附件策略
 
 不复制文件。新系统以 `/attachment/**` 静态路由直指原目录（本地 dev 用 nginx/Next rewrite 指到
