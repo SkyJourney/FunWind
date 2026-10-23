@@ -20,6 +20,9 @@ export function loadRootEnv(): NodeJS.ProcessEnv {
 }
 
 export function newDbConfig(env: NodeJS.ProcessEnv = loadRootEnv()) {
+  if (process.env.FUNWIND_DEBUG_DB === "1") {
+    console.log("[db] NEW_DB_NAME =", env.NEW_DB_NAME ?? "(default qysub_next)");
+  }
   return {
     host: env.NEW_DB_HOST ?? "127.0.0.1",
     port: Number(env.NEW_DB_PORT ?? 33621),

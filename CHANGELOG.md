@@ -5,6 +5,33 @@
 
 ## [Unreleased]
 
+### Added（M5 · 权限内核：现代 RBAC + 级联数据范围 + 分级权限）
+
+- **四表**：roles（builtin|custom）/permissions（resource + level + legacy_key + condition_params）/
+  role_grants（授权唯一通道，global|forum 作用域）/user_roles（可过期绑定）；0005 迁移。
+- **词汇表** `packages/db/src/authz-vocab.ts`（单一事实源）：57 旧键 → 37 权限点归一；
+  forum 分级域 read/write/manage（manage ⊃ write ⊃ read）；18 个数值型旧键转 ABAC 条件参数；
+  10 角色（4 内置 guest/member/muted/admin + 6 团队 custom）。
+- **评估器**（纯函数，单测 12 例）：admin 短路 → muted 拦截 → 授权匹配 → 默认拒绝。
+- **作用域语义**（本轮最关键的设计收敛）：
+  `forum.read` 显式优先（链上最近有配置的层说了算，不回退父级——防父级公开读击穿子级受限版块，
+  实证：fid 53 会被 fid 98 父链的 guest 读打开）；`forum.write/manage` 级联合并（子版块自动带父版块版主）。
+- **翻译迁移** `authz` 实体：旧五类数据 → 新模型（全局组权限、43 版块 allow_* 白名单逐格翻译、
+  user_belong 299 带过期、users.group_id 主组；旧版主名单不迁移——派生制取代）。
+  翻译结果：角色 10 / 权限点 37 / 全局授权 124 / 版块授权 5232 / 用户绑定 251；
+  **对账报告** `migration/reports/authz-translation-report.md`（未知 gid / 未映射 rkey / 并集差异 / 疑点）。
+- **派生版主**查询（授权角色 ∩ 持有人，含父链继承标注）；guard 接入 /f /t（DENY→404 不暴露存在性）。
+- **/admin 最小三页**：site.admin 总门、角色列表 + 自定义角色增删、授权矩阵（分级三态 + 作用域切换）、
+  版块视角（级联授权 + 派生版主）。
+- **E2E 26/26**（新增 5 例权限用例 + 隔离库自证 /api/dev/whoami）。
+
+### Changed
+
+- **M7 范围调整**：取消用户等级/成长系统（levels 引擎），旧 LV 魔界称号改为**纯展示荣誉标识**（M7 承接）。
+- 登录频控改**双层**（IP 20 次/10 分钟 + 账号 5 次/10 分钟）——原单层 IP 限流对共享 NAT 过严且使 E2E 失真。
+- 迁移 UPSERT 回退 `VALUES()` 语法（`AS new` 别名在 ODKU 引用上存在歧义解析坑，技术债清单已记）。
+
+
 ### Added（M4 · 用户与认证）
 
 - **认证数据层**：sessions（SHA-256 令牌/可撤销/滑动续期）、invite_codes、site_settings

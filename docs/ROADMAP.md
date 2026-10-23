@@ -17,7 +17,7 @@
 | [M2](milestones/M2-module-kernel.md) | 模块注册表内核 | 插入点 | 一·骨架 | ✅ 2026-10-23 |
 | [M3](milestones/M3-content-readonly.md) | 内容只读渲染 | M01/M04 | 一·骨架 | ✅ 2026-10-23 |
 | [M4](milestones/M4-users-auth.md) | 用户与认证 | M02 | 一·骨架 | ✅ 2026-10-23 |
-| [M5](milestones/M5-authz.md) | 权限内核（RBAC/ABAC） | M03 | 一·骨架 | ⬜ |
+| [M5](milestones/M5-authz.md) | 权限内核（RBAC/ABAC） | M03 | 一·骨架 | ✅ 2026-10-23 |
 | [M6](milestones/M6-posting.md) | 发帖与内容生产 | M01 交互层 | 二·核心 | ⬜ |
 | [M7](milestones/M7-gamification.md) | 游戏化（积分/等级/勋章/签到） | M07 | 二·核心 | ⬜ |
 | [M8](milestones/M8-interact-search.md) | 互动套件与检索 | M05/M06 | 二·核心 | ⬜ |

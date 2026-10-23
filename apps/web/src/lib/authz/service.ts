@@ -68,13 +68,17 @@ export const getScopeChain = cache(async (forumId: number): Promise<number[]> =>
 
 const PERM_DEF_BY_KEY = new Map(PERMISSION_DEFINITIONS.map((p) => [p.key, p]));
 
-/** 装载用户角色在作用域链上的全部有效授权行 */
+/** 装载用户角色在作用域链上的全部有效授权行（按角色键直查 role_grants） */
 async function loadGrants(
   authz: AuthzUser,
   chain: number[],
-): Promise<{ roleKey: string; permissionKey: string }[]> {
+): Promise<
+  { roleKey: string; permissionKey: string; layer: number; scopeType: "forum" | "global" }[]
+> {
   if (authz.roleKeys.length === 0) return [];
   const db = getWebDb();
+  // 授权是「角色」的属性（role_grants），与谁绑定无关——按作用域链直查全部行，
+  // 由评估器区分「用户持有的角色行」与「显式配置层」（读权限的显式优先判定需要后者）。
   const rows = await db
     .select({
       roleKey: roleGrants.roleKey,
@@ -83,31 +87,22 @@ async function loadGrants(
       forumId: roleGrants.forumId,
     })
     .from(roleGrants)
-    .innerJoin(
-      userRoles,
-      and(
-        eq(userRoles.roleKey, roleGrants.roleKey),
-        eq(userRoles.userId, authz.id!),
-        or(isNull(userRoles.expiresAt), sql`${userRoles.expiresAt} > NOW()`),
-      ),
-    )
     .where(
-      and(
-        inArray(userRoles.roleKey, authz.roleKeys),
-        or(
-          eq(roleGrants.scopeType, "global"),
-          chain.length > 0
-            ? and(eq(roleGrants.scopeType, "forum"), inArray(roleGrants.forumId, chain))
-            : sql`FALSE`,
-        ),
-        or(
-          // 授权作用域与绑定作用域一致（全局授权需全局绑定；版块授权需对应版块绑定或任意绑定）
-          eq(roleGrants.scopeType, userRoles.scopeType),
-          eq(userRoles.scopeType, "global"),
-        ),
+      or(
+        eq(roleGrants.scopeType, "global"),
+        chain.length > 0
+          ? and(eq(roleGrants.scopeType, "forum"), inArray(roleGrants.forumId, chain))
+          : sql`FALSE`,
       ),
     );
-  return rows.map((r) => ({ roleKey: r.roleKey, permissionKey: r.permissionKey }));
+  // 作用域层级：0=目标版块，1=父级…；全局为末层
+  const globalLayer = chain.length;
+  return rows.map((r) => ({
+    roleKey: r.roleKey,
+    permissionKey: r.permissionKey,
+    scopeType: r.scopeType as "forum" | "global",
+    layer: r.scopeType === "global" ? globalLayer : Math.max(0, chain.indexOf(Number(r.forumId))),
+  }));
 }
 
 /** 权限检查主入口（userId=null 走 guest 隐式角色） */

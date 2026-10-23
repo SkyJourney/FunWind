@@ -39,8 +39,13 @@ async function findUserByIdentifier(identifier: string) {
 export async function loginAction(formData: FormData): Promise<void> {
   const identifier = String(formData.get("identifier") ?? "").trim();
   const password = String(formData.get("password") ?? "");
-  const limiter = await clientKey("login");
-  if (!rateLimit(limiter, 10, 10 * 60_000).allowed) {
+  // 双层频控：IP 级（防撞库）+ 账号级（防定向爆破）
+  const ipKey = await clientKey("login-ip");
+  const accountKey = `login-account:${identifier.toLowerCase()}`;
+  if (
+    !rateLimit(ipKey, 20, 10 * 60_000).allowed ||
+    !rateLimit(accountKey, 5, 10 * 60_000).allowed
+  ) {
     redirect("/login?error=" + encodeURIComponent("尝试过于频繁，请 10 分钟后再试"));
   }
 
@@ -70,7 +75,7 @@ export async function loginAction(formData: FormData): Promise<void> {
   }
 
   await createSession(user.id, {
-    ip: limiter.replace("login:", ""),
+    ip: ipKey.replace("login-ip:", ""),
     userAgent: (await headers()).get("user-agent") ?? "",
   });
   redirect("/");

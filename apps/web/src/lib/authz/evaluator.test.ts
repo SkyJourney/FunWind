@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { evaluate, isMutedBlocked, type GrantRow } from "./evaluator";
 
-const G = (roleKey: string, permissionKey: string): GrantRow => ({ roleKey, permissionKey });
+const G = (
+  roleKey: string,
+  permissionKey: string,
+  layer = 0,
+  scopeType: "forum" | "global" = "forum",
+): GrantRow => ({ roleKey, permissionKey, layer, scopeType });
 
 describe("evaluate · admin 短路", () => {
   it("admin 无需任何授权即放行任意权限点", () => {

@@ -160,6 +160,26 @@ export const authz: Migrator = {
     }[] = [];
     const unionByPerm = new Map<string, Set<string>>(); // perm → 值为 "1" 的 gid 集（member 基线用）
 
+    // 1.5 admin 内置基线：全站管理 + 角色矩阵管理（admin.roles 为新权限点，旧系统无对应键）
+    for (const perm of [
+      "site.admin",
+      "admin.roles",
+      "admin.users",
+      "admin.recycle",
+      "admin.reports",
+      "admin.logs",
+      "forum.read",
+      "forum.write",
+      "forum.manage", // admin 例外：全站读写（其余角色的 forum 域不走全局授权）
+    ]) {
+      permRows.push({
+        role_key: "admin",
+        permission_key: perm,
+        scope_type: "global",
+        forum_id: null,
+      });
+    }
+
     const groupRows = await oldQuery(
       `SELECT gid, rkey, rvalue, vtype FROM nw_user_permission_groups`,
     );
@@ -176,7 +196,9 @@ export const authz: Migrator = {
         else report.add(`- ⚠ 未映射 rkey ${r.rkey}（gid ${r.gid}）跳过`);
         continue;
       }
-      const on = String(r.rvalue) === "1";
+      // rvalue 形态：'1' / '0' / PHP 序列化数组（a:1:{...}，非空即视为开启）
+      const rvalue = String(r.rvalue ?? "").trim();
+      const on = rvalue === "1" || (rvalue.startsWith("a:") && rvalue.includes('s:1:"1"'));
       for (const perm of perms) {
         // allow_thread_extend 数组值按内容过滤（sell/hide 独立权限点）
         if (String(r.rkey) === "allow_thread_extend") {
@@ -207,6 +229,7 @@ export const authz: Migrator = {
     );
 
     // member 基线：最宽并集（任一 LV 组开启即开启）
+    const unionSet = new Set(unionByPerm.keys());
     for (const [perm] of unionByPerm) {
       permRows.push({
         role_key: "member",

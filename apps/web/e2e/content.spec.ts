@@ -39,7 +39,8 @@ test.describe("M3 · 内容只读渲染", () => {
   });
 
   test("孤儿作者 → 「已注销」渲染", async ({ page }) => {
-    await page.goto("/t/121");
+    // tid 200（fid 109 动画·アニメ，游客可读）第 1 楼作者账号已注销
+    await page.goto("/t/200");
     await expect(page.getByText("已注销").first()).toBeVisible();
   });
 
@@ -55,10 +56,10 @@ test.describe("M3 · 内容只读渲染", () => {
     await expect(page.getByText(/第 2\/10 页/)).toBeVisible();
   });
 
-  test("主题分类筛选（字幕制作组 type=59 招募）", async ({ page }) => {
-    await page.goto("/f/121");
-    await page.getByRole("link", { name: "招募", exact: true }).click();
-    await expect(page).toHaveURL(/type=59/);
+  test("主题分类筛选（游客可读版块的分类）", async ({ page }) => {
+    await page.goto("/f/109");
+    await page.getByRole("link", { name: "连载中", exact: true }).click();
+    await expect(page).toHaveURL(/type=48/);
   });
 
   test("移动视口 375px smoke", async ({ page }) => {

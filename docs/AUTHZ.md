@@ -1,63 +1,98 @@
-# 权限体系现代化方案（✅ 已确认：自研轻量评估器；邀请制起步后开放）
+# 权限模型（AUTHZ）· 实现对照
 
-> 旧模型考古（2012 年 phpwind 9）：
-> ① 25 个用户组（gid）× **57 个权限点**（`nw_user_permission_groups`，gid+rkey → rvalue，1,383 行覆盖值）
-> ② 版块级 ACL：`nw_bbs_forum.allow_visit/read/post/reply/upload/download` 六列存「允许的 gid 串」
-> ③ 版主：`nw_bbs_forum.manager`（用户名串）+ nw_bbs_forum_user(163 行)
-> ④ 升级机制：member 组按积分阈值自动迁移（points 列）
-> 问题：权限点语义分散在代码里、无策略组合能力、"特殊权限组"本质是 gid 的补丁表。
+> M5 落地：现代 RBAC + 级联数据范围 + 分级权限。
+> 设计取舍见 [LEGACY-FEATURE-MAP.md](LEGACY-FEATURE-MAP.md) 与 M5 里程碑文档。
+> 旧系统语义（phpwind 9）考古：25 个用户组 × 57 个权限点 + 附加组补丁（`nw_user_belong` 299 行，带过期）
+> + 版块 gid 白名单（`nw_bbs_forum.allow_*`，43 个版块全部配置）。旧运行时判定入口为用户 BO 的 `getPermission(key)`。
 
-## 1. 新模型：角色（RBAC）为骨、属性条件（ABAC）为肉
+## 1. 三条核心决策（2026-10-23 站长定）
+
+1. **不搬运旧结构，按现代模型重组**：旧「特殊组/等级组」在旧系统既是权限载体又是展示标识，职责混杂。
+   新模型拆开——
+   - **内置角色**（builtin，4 个）：`guest` / `member` / `muted`（禁言）/ `admin`，权限基线，不可删除；
+   - **可分配角色**（custom）：管理员可任意创建（旧 6 个团队组由翻译生成）；
+   - **纯展示标识**：旧 LV 魔界称号等 → 零权限语义，交给 M7「荣誉/称号」功能。
+2. **用户等级/成长系统整体出局**：不再有 LV1–LV12 等级组与升级引擎；旧 LV 称号作为考古信息保留
+   （翻译报告），展示由 M7 承接。**M7 范围随之调整**：保留 青翼币 / 勋章 / 签到，去掉等级引擎。
+3. **版主是派生的，不是指派的**：旧站「板块设版主 + 查询联查」改为——
+   版主 = 在该版块作用域（含父链级联）持有 `forum.write` / `forum.manage` 授权的用户，由查询派生；
+   子版块自动继承父版块的授权与版主，旧 `forum.manager` 名单不迁移（导出至对账报告供核对）。
+
+## 2. 数据模型（四表）
+
+| 表 | 语义 |
+|----|------|
+| `roles` | 角色目录：`key` / `name` / `kind(builtin\|custom)` / `description` |
+| `permissions` | 权限点：`key` / `resource` / `level(read\|write\|manage\|NULL)` / `legacy_key`（旧 57 键对照）/ `condition_params`（ABAC 参数） |
+| `role_grants` | **角色获得权限的唯一通道**：`role_key` + `permission_key` + `scope_type(global\|forum)` + `forum_id` |
+| `user_roles` | 用户→角色绑定：`user_id` + `role_key` + `scope_type` + `forum_id` + `expires_at`（可过期） |
+
+**权限点两级形态**：
+- **分级域**：`forum.read`（只读）→ `forum.write`（可编辑：发帖/回帖/编辑）→ `forum.manage`（可管理：置顶/加精/删除/审核）；
+  级别隐含：持有 `manage` 即满足 `write`/`read`。
+- **动作型**（无级别）：`thread.sell` / `thread.hide` / `attachment.upload` / `vote.create` / `pm.send` / `tag.add` /
+  `site.admin`（后台总门）/ `admin.roles`（角色矩阵管理）… 共 37 点，逐一映射自旧 57 键。
+- **数值型旧键**（`threads_perday` / `post_pertime` / `post_url_num` / `message_max_send` 等 18 个）
+  → 转 **ABAC 条件参数**（`condition_params`），不是权限点；M6 实装计数。
+
+## 3. 作用域与级联
+
+- 作用域：`global` > `forum`（版块授权自动覆盖其子版块）。
+- 解析链：目标版块 → 父 → … → 全局。
+- **读权限 forum.read = 显式优先**：链上最近一「有该权限点配置」的版块层说了算，**不回退父级**。
+  理由：旧站 `allow_read` 是每版块独立的显式白名单；若回退，父级的公开读会击穿子级受限版块
+  （实证：fid 53「真·酱油无双」在 fid 98 父链上会被公开读打开）。
+- **管理权限 forum.write / forum.manage = 级联合并**：任一层命中即生效——这正是「子版块自动带父版块版主」。
+- 链上完全无配置 → 默认策略（读=游客可读；写=注册用户）。
+
+## 4. 评估器（apps/web/src/lib/authz/）
 
 ```
-check(user, "forum.reply", { forum, thread }) → ALLOW | DENY(原因)
+check(userId, "resource.action", { forumId? }) → { allowed, reason }
+  1. admin 内置角色 → 短路 ALLOW
+  2. muted 生效 → 发帖类权限 DENY（优先于授权）
+  3. 授权匹配（按角色键直查 role_grants —— 授权是角色属性，与谁绑定无关）
+     · forum.read → 显式优先（就近层判定）
+     · 其余 → 级联合并（任一层命中）
+  4. 默认拒绝
 ```
 
-- **权限点 Permission**：`resource.action` 字符串。**直接继承旧 57 点词汇表**（改名归一：
-  `panel_bbs_manage → forum.moderate` 等，建一张新旧映射表），一次审计到位。
-- **角色 Role**：guest / member / veteran / moderator / admin + 特殊组直映射
-  （字幕制作组/资源组/美工组/技术分流组/实习组 → 与旧 gid 一一对应，用户绑定关系已随 users.group_id 迁移）。
-- **等级**：member 组不再膨胀成 12 个组（旧 LV1–LV12），改为 `level` 属性
-  （由 credits 计算，阈值沿用旧 points 表——等级只影响展示与 ABAC 条件，不影响角色）。
-- **ABAC 条件**（策略维度，均来自旧系统真实语义）：
-  - `forum`：版块级覆盖（替代旧 allow_* 六列，细粒度到权限点）
-  - `ownership`：作者本人可编辑（post.edit_time 时限沿用）
-  - `credit-threshold`：积分/等级门槛（旧 readprivilege/threads_buy 语义）
-  - `rate-limit`：threads_perday / post_pertime / post_url_num（旧反灌水三件套）
-  - `content-state`：locked/digest/shield/spam 状态位参与判定
+- `getScopeChain(fid)`：作用域链解析（请求级缓存）。
+- `getUserPermissionSet`：预加载 + React `cache()` 请求级缓存。
+- `getForumModerators(fid)`：**派生版主**查询（授权角色 ∩ 角色持有人，含父链继承标注）。
+- ABAC 条件接口已定义（ownership / 频控 / 积分门槛），**计数实现随 M6 落地**。
 
-## 2. 存储（5 张表，MySQL 8.4）
+## 5. 后台与菜单权限
 
-```sql
-roles             (id, key, name, is_system, builtin_flags)
-permissions       (key, resource, action, description, legacy_key)
-role_permissions  (role_id, permission_key, allowed)
-forum_overrides   (forum_id, permission_key, allowed_gids JSON / denied_gids JSON)
-user_roles        (user_id, role_id, granted_by, expires_at)   -- 兼容旧 nw_user_belong(299)
-```
+**后台不设平行权限体系**——复用同一套权限点与作用域解析：
 
-- 评估器（自研，~200 行）：请求时加载 `user → roles → 权限集`，再叠 `forum_overrides` 与条件；
-  结果按请求缓存（React `cache()` / Redis）。**不用 Casbin**——模型就这五种关系，引库成本>收益（此点可议）。
-- 中间件形态：Server Component 直查 + Server Action/Route Handler 入口统一 guard。
+| 关注点 | 机制 |
+|--------|------|
+| 能否进后台 | `site.admin`（admin 角色基线授予） |
+| 菜单可见性 | 菜单声明其所需权限点，由用户权限集派生（**不建菜单权限表**） |
+| 后台数据范围 | 版主仅见其授权辖区（与前台同一评估器，作用域链解析） |
+| 角色矩阵管理 | `admin.roles`（新权限点，旧系统无对应键） |
 
-## 3. 旧数据迁移（追加进 migration/）
+`/admin` 最小实现（M9 完善为完整后台）：① 角色列表 + 自定义角色增删；② 单角色授权矩阵
+（分级域三态 + 动作勾选 + 全局/版块作用域切换）；③ 版块视角（级联授权 + 派生版主列表）。
 
-| 旧 | 新 |
-|----|----|
-| nw_user_groups 25 组 | roles（member 12 组→合并为 member + level 阈值表 levels） |
-| nw_user_permission_groups 1,383 行 | role_permissions（经 57 点映射表翻译） |
-| nw_bbs_forum.allow_* 六列 | forum_overrides |
-| manager / nw_bbs_forum_user | user_roles: moderator + forum_overrides |
-| nw_user_ban(103) | user_roles: banned（带过期） |
+## 6. 翻译与对账
 
-## 4. 管理后台（M11 的权限页）
+| 旧 | 新 | 规则 |
+|----|----|------|
+| `nw_user_groups`(25) | roles(10) | default→member、游客 2→guest、系统 3/4/5→admin、禁止发言 6→muted、special 6 组→custom 团队角色；**member LV 12 组→称号清单（不建 levels）** |
+| `nw_user_permission_groups`(1383) | role_grants(global) | 经 `legacy_key` 映射；**member 十二组取最宽并集**（差异清单入报告）；旧 panel_* 的 PHP 序列化 rvalue 需识别为开启 |
+| `nw_bbs_forum.allow_*`(43×6) | role_grants(forum) | 白名单 gid→角色逐格翻译；**forum 域权限不走全局授权**（否则击穿白名单），仅 admin 例外 |
+| `forum.manager` | **不迁移** | 派生制取代；旧名单导出至报告供核对 |
+| `nw_user_belong`(299) | user_roles | 团队角色/muted，过期时间保留（永久优先） |
 
-- 组×权限点**矩阵编辑器**（勾选即改 role_permissions）
-- 版块覆盖页：选版块 → 权限点 → 允许/拒绝的角色（可视化旧 allow_* 六列）
-- 全部变更出审计日志（M13 log 模块）
+对账报告：`migration/reports/authz-translation-report.md`（自动生成）——含未知 gid、未映射 rkey、
+member 并集差异、gid3 allow_post=0 疑点、旧版主名单。
 
-## 5. 子决策状态
+## 7. 已知边界与后续
 
-1. **评估器**：✅ 自研轻量（5 表 + ~200 行评估器），不引 Casbin/Casl。
-2. **注册策略**：✅ 邀请制起步（老用户召回发放邀请码），稳定后切开放注册+邮箱验证+频控；**骨架期两套接口都留**（authz 注册边界里 `register.mode` 为配置项）。
-3. **LV 组名称号**（魔狱原住民→圣魔王）：建议作为等级称号完整保留（社区记忆），未收到异议即按保留执行。
+- **ABAC 条件只留接口**：频控/编辑时限/所有权判定随 M6 实装（M6 清单：`threads_perday`、`post_pertime`、
+  `post_url_num`、`post_modify_time`、`uploads_perday`）。
+- **member 基线最宽并集**会抹平个别 LV 组的旧行为差异——差异报告供复核；如需找回，走荣誉标识（不进权限内核）。
+- **旧 status 位标志**（51 人非零）语义未考古：仅 raw 归档，不参与判定。
+- 后台菜单清单与完整后台交互归 M9。
