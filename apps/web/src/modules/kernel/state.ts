@@ -1,7 +1,7 @@
 import { cache } from "react";
 import { moduleState } from "@funwind/db";
 import { withDb } from "@funwind/db";
-import { getModules } from "./registry.js";
+import { getModules } from "./registry";
 
 /**
  * 模块启用状态：module_state 行覆盖「默认启用」。

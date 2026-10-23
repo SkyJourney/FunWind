@@ -1,10 +1,4 @@
-import type {
-  EventConsumer,
-  EventName,
-  ModuleDefinition,
-  SlotName,
-  SlotRenderer,
-} from "./types.js";
+import type { EventConsumer, EventName, ModuleDefinition, SlotName, SlotRenderer } from "./types";
 
 /**
  * 模块注册表：进程内单例。

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { emit, type EventLogRow } from "./bus.js";
-import { registerModule, resetRegistryForTests } from "./registry.js";
-import { defineModule } from "./types.js";
+import { emit, type EventLogRow } from "./bus";
+import { registerModule, resetRegistryForTests } from "./registry";
+import { defineModule } from "./types";
 
 beforeEach(() => resetRegistryForTests());
 

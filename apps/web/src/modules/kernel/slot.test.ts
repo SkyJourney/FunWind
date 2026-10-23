@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { registerModule, resetRegistryForTests } from "./registry.js";
-import { selectSlotRenderers } from "./slot.js";
-import { defineModule } from "./types.js";
+import { registerModule, resetRegistryForTests } from "./registry";
+import { selectSlotRenderers } from "./slot";
+import { defineModule } from "./types";
 
 beforeEach(() => resetRegistryForTests());
 

@@ -1,6 +1,6 @@
-import type { EventName, EventPayloads } from "./types.js";
-import { getEnabledModuleIds } from "./state.js";
-import { getEventConsumers } from "./registry.js";
+import type { EventName, EventPayloads } from "./types";
+import { getEnabledModuleIds } from "./state";
+import { getEventConsumers } from "./registry";
 
 /**
  * 事件总线：同步顺序派发、逐消费者隔离、event_log 审计落库。

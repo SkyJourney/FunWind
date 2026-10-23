@@ -1,6 +1,7 @@
 import { Archive, ArrowRight, Bell, CreditCard, LogOut, Settings, User } from "lucide-react";
 import type { Metadata } from "next";
 import { ThemeSwitcher } from "@/components/theme-switcher";
+import { Slot } from "@/modules/kernel/slot";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export const metadata: Metadata = { title: "设计令牌" };
+
+// Slot 读库（模块横幅），演示页接受动态渲染（M3 建页时统一定缓存策略）
+export const dynamic = "force-dynamic";
 
 const PRIMITIVES = [
   { label: "cyan 500", value: "var(--fw-cyan-500)" },
@@ -92,6 +96,9 @@ export default function TokensPage() {
         </div>
         <ThemeSwitcher />
       </header>
+
+      {/* 槽位宿主：M2 演示（home.after-header 当前无注册渲染器，渲染 null） */}
+      <Slot name="home.after-header" />
 
       <Section id="colors" title="1. 色彩" subtitle="原子层色板采样；组件经由语义令牌引用（下排）">
         <div className="grid grid-cols-5 gap-2 sm:grid-cols-10">
@@ -274,6 +281,8 @@ export default function TokensPage() {
           </Card>
         </div>
       </Section>
+
+      <Slot name="home.footer-notice" />
 
       <footer className="flex items-center justify-between border-t pt-6 text-sm text-muted-foreground">
         <span>

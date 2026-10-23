@@ -8,8 +8,8 @@ import {
   registerModule,
   resetRegistryForTests,
   sealRegistry,
-} from "./registry.js";
-import { defineModule, type EventPayloads } from "./types.js";
+} from "./registry";
+import { defineModule, type EventPayloads } from "./types";
 
 function mod(id: string, extra: Partial<Parameters<typeof defineModule>[0]> = {}) {
   return defineModule({ id, description: `模块 ${id}`, ...extra });

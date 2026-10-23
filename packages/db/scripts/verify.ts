@@ -6,7 +6,8 @@
  *  3. 引擎 InnoDB、表级字符集 utf8mb4
  *  4. 专项：users.username 列级 COLLATE utf8mb4_0900_as_cs（さくら≠サクラ）
  */
-import { getTableConfig, type MySqlTable } from "drizzle-orm/mysql-core";
+import { is } from "drizzle-orm";
+import { getTableConfig, MySqlTable } from "drizzle-orm/mysql-core";
 import type { RowDataPacket } from "mysql2/promise";
 import { createPool } from "../src/client.js";
 import { newDbConfig } from "../src/env.js";
@@ -21,15 +22,26 @@ interface ColInfoRow extends RowDataPacket {
   COLLATION_NAME: string | null;
 }
 
-function expectedTables(): [string, MySqlTable][] {
-  return Object.entries(schema)
-    .filter(
-      (entry): entry is [string, MySqlTable] =>
-        typeof entry[1] === "object" &&
-        entry[1] !== null &&
-        Symbol.for("drizzle:Name") in (entry[1] as object),
-    )
-    .map(([_key, table]) => [getTableConfig(table).name, table] as [string, MySqlTable]);
+/** 表期望项：name + 列定义（列经 drizzle 泛型收口，此处用运行时形状规避泛型不变性） */
+interface ExpectedTable {
+  name: string;
+  columns: { name: string; getSQLType(): string }[];
+}
+
+function expectedTables(): ExpectedTable[] {
+  const out: ExpectedTable[] = [];
+  for (const [key, value] of Object.entries(schema)) {
+    void key;
+    if (typeof value !== "object" || value === null) continue;
+    // is() 运行时守卫排除 relations 等非表导出（drizzle 泛型不变性导致类型层无法收窄，此处豁免）
+    if (!is(value, MySqlTable)) continue;
+    const cfg = getTableConfig(value as Parameters<typeof getTableConfig>[0]);
+    out.push({
+      name: cfg.name,
+      columns: cfg.columns.map((c) => ({ name: c.name, getSQLType: () => c.getSQLType() })),
+    });
+  }
+  return out;
 }
 
 function norm(s: string): string {
@@ -57,7 +69,7 @@ try {
     [config.database],
   );
   const dbTables = new Set(tableRows.map((r) => String(r.TABLE_NAME)));
-  const expectedNames = new Set(tables.map(([sqlName]) => sqlName));
+  const expectedNames = new Set(tables.map((t) => t.name));
   const missing = [...expectedNames].filter((t) => !dbTables.has(t));
   const extra = [...dbTables].filter((t) => !expectedNames.has(t));
   add(
@@ -85,16 +97,15 @@ try {
   // 3. 逐表列对账
   let colFail = 0;
   const colDetails: string[] = [];
-  for (const [, table] of tables) {
-    const cfg = getTableConfig(table);
-    const tName = cfg.name;
+  for (const expectedTable of tables) {
+    const tName = expectedTable.name;
     const [colRows] = await pool.query<ColInfoRow[]>(
       `SELECT COLUMN_NAME, COLUMN_TYPE, COLLATION_NAME FROM information_schema.COLUMNS
        WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? ORDER BY ORDINAL_POSITION`,
       [config.database, tName],
     );
     const dbCols = new Map(colRows.map((r) => [r.COLUMN_NAME, r]));
-    const expectedCols = cfg.columns;
+    const expectedCols = expectedTable.columns;
     const missingCols = expectedCols.filter((c) => !dbCols.has(c.name));
     const extraCols = [...dbCols.keys()].filter((n) => !expectedCols.some((c) => c.name === n));
     let typeMismatch = 0;

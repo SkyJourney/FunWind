@@ -4,17 +4,22 @@
   "private": true,
   "type": "module",
   "description": "schema 单一事实源：Drizzle 定义 + 版本化 SQL 迁移 + bootstrap/seed/verify（决策 #10）",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
   "scripts": {
     "generate": "drizzle-kit generate",
+    "build": "tsc -p tsconfig.build.json",
     "bootstrap": "tsx scripts/bootstrap.ts",
     "seed": "tsx scripts/seed.ts",
     "verify": "tsx scripts/verify.ts",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "dotenv": "^18.0.9",

@@ -21,7 +21,10 @@ export function createPool(config = newDbConfig()) {
   });
 }
 
-export function createDb(pool: mysql.Pool) {
+export function createDb(pool: mysql.Pool): Db {
+  // mysql2/promise 的 Pool 品牌在 drizzle d.ts 解析链下双身份（promise 增强差异），行为一致，
+  // 边界处显式豁免；若上游类型修复，此 expect-error 将因未使用而报错提醒移除
+  // @ts-expect-error mysql2 Pool 品牌双身份
   return drizzle(pool, { schema, mode: "default" });
 }
 

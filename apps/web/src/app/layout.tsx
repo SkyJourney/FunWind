@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
+// 模块注册表求值（注册 + 封板）：任何内核调用前加载
+import "@/modules";
 import "./globals.css";
 
 export const metadata: Metadata = {

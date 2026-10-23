@@ -5,6 +5,25 @@
 
 ## [Unreleased]
 
+### Added（M2 · 模块注册表内核）
+
+- **内核五件**（`apps/web/src/modules/kernel/`）：types（10 事件 + home.* 槽位 + 六类注册边界，编译期防呆）、
+  registry（唯一性/kebab-case/封板）、bus（顺序派发、逐消费者隔离、event_log 审计、落库失败降级、依赖注入）、
+  state（module_state + React cache 请求级缓存、库故障降级）、slot（selectSlotRenderers 纯函数 + RSC 槽位宿主）。
+- **平台表**：event_log + module_state（0001/0002 迁移；正式库补 drizzle journal 基线，与 P0 手写 DDL
+  的 mediumint/bigint 类型漂移经 db:verify 暴露并以 0002 对齐）。
+- **装卸机制**：`modules:toggle` CLI + dev-only API（/api/dev/emit 假会话事件、/api/dev/modules/toggle），
+  双重生产守卫。
+- **demo-checkin 演示模块**：user.logged_in 消费 + home.footer-notice 最近登录横幅（M7 由真实签到替换）。
+- **契约文档** `docs/MODULES.md`：事件/槽位清单、六类边界、语义与边界（扩清单=改内核+说明）。
+- **测试**：内核单测 18 例（注册唯一性/派发顺序/异常隔离/槽位合并/装卸过滤），E2E 2 例装卸闭环
+  （串行——装卸共享 dev 服务器状态），全站 36 单测 + 6 E2E 全绿，内核覆盖率 95/97/95。
+
+### Fixed
+
+- API 路由与页面是两棵模块图：使用内核的 route handler 必须自行 `import "@/modules"`
+  （已写入 MODULES.md 边界第 6 条，dev API 首版即踩）。
+
 ### Added（M1 · 工程骨架与基础设施）
 
 - **pnpm workspace**（pnpm 12.15 自管版本）：`apps/web` + `packages/db` + `migration` 三包结构。

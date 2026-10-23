@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
-import { getEnabledModuleIds } from "./state.js";
-import { getSlotRenderers } from "./registry.js";
-import type { SlotContext, SlotName } from "./types.js";
+import { getEnabledModuleIds } from "./state";
+import { getSlotRenderers } from "./registry";
+import type { SlotContext, SlotName } from "./types";
 
 /**
  * 槽位选择（纯函数，可单测）：按注册序收集启用模块的渲染器。
