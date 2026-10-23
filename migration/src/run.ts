@@ -1,6 +1,6 @@
 import { newQuery, oldQuery, closePools } from "./db.js";
 import { loadSchemaOnce } from "./schema-init.js";
-import { emoticons as emoticonEnt, groups, forums } from "./entities/basic.js";
+import { emoticons as emoticonEnt, groups, forums, topicTypes } from "./entities/basic.js";
 import { makeUsers } from "./entities/users.js";
 import { makeThreads, makePosts } from "./entities/threads.js";
 import { attachments, medals, credits, polls, messages } from "./entities/extra.js";
@@ -38,6 +38,7 @@ const ALL: Migrator[] = [
   emoticonEnt,
   groups,
   forums,
+  topicTypes,
   makeUsers(emo),
   makeThreads(emo),
   makePosts(emo),

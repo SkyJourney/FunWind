@@ -109,6 +109,22 @@ export const forums = mysqlTable(
   ],
 );
 
+/** 版块主题分类（M3 补迁：nw_bbs_topic_type，版块页筛选依赖） */
+export const topicTypes = mysqlTable(
+  "topic_type",
+  {
+    id: int("id", { unsigned: true }).notNull(),
+    fid: int("fid", { unsigned: true }).notNull().default(0), // 旧 topic_type.id/所属版块（threads.type_id 引用）
+    name: varchar("name", { length: 255 }).notNull().default(""),
+    parentId: int("parent_id", { unsigned: true }).notNull().default(0),
+    logo: varchar("logo", { length: 255 }).notNull().default(""),
+    vieworder: tinyint("vieworder").notNull().default(0),
+    issys: tinyint("issys").notNull().default(0),
+    raw: json("raw"),
+  },
+  (t) => [primaryKey({ columns: [t.id] }), index("idx_tt_fid").on(t.fid)],
+);
+
 export const threads = mysqlTable(
   "threads",
   {

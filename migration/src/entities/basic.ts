@@ -133,3 +133,29 @@ export const forums: Migrator = {
     return { rows: out.length, note: `${styled} 个版块名剥离了内嵌样式` };
   },
 };
+
+/** 版块主题分类（M3 补迁：版块页筛选依赖，threads.type_id 引用） */
+export const topicTypes: Migrator = {
+  name: "topic_types",
+  async run() {
+    const rows = await oldQuery(
+      `SELECT id, fid, name, parentid, logo, vieworder, issys FROM nw_bbs_topic_type`,
+    );
+    await upsertBatch(
+      "topic_type",
+      ["id", "fid", "name", "parent_id", "logo", "vieworder", "issys", "raw"],
+      rows.map((r) => ({
+        id: r.id,
+        fid: r.fid ?? 0,
+        name: r.name ?? "",
+        parent_id: r.parentid ?? 0,
+        logo: r.logo ?? "",
+        vieworder: r.vieworder ?? 0,
+        issys: r.issys ?? 0,
+        raw: j(r),
+      })),
+      ["id"],
+    );
+    return { rows: rows.length, note: "版块主题分类（M3 补迁）" };
+  },
+};
