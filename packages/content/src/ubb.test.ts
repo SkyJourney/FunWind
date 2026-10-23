@@ -151,6 +151,31 @@ describe("表格", () => {
   });
 });
 
+describe("表格与门控", () => {
+  it("未闭合的表格里放门控：只产生一个门控（不再被渲染两次），占位提升到表格之后", () => {
+    const r = conv("[table][tr][td]下载[post]百度网盘链接[/post][/td][/tr]");
+    expect(r.gates).toHaveLength(1);
+    expect(r.gates[0]).toMatchObject({ seq: 1, hiddenMd: "百度网盘链接" });
+    expect(r.md).toBe('| 下载 |\n| --- |\n\n:::gate{id="5001"}\n:::');
+    expect(r.md).not.toContain("百度网盘");
+  });
+
+  it("闭合的表格同样：门控内容保留并提升，表格行内不残留占位", () => {
+    const r = conv("[table][tr][td]甲[sell=3,]秘密[/sell][/td][td]乙[/td][/tr][/table]后文");
+    expect(r.gates.map((g) => g.hiddenMd)).toEqual(["秘密"]);
+    expect(r.md).toContain("| 甲 | 乙 |");
+    expect(r.md).not.toMatch(/\|[^\n]*:::gate/);
+    expect(r.md.endsWith("后文")).toBe(true);
+    expect(splitSource(assembleSource(r.md, r.gates).source).errors).toEqual([]);
+  });
+
+  it("引用里的表格内的门控仍按嵌套丢弃", () => {
+    const r = conv("[quote][table][tr][td][post]秘[/post][/td][/tr][/table][/quote]");
+    expect(r.gates).toEqual([]);
+    expect(r.md).not.toContain("秘");
+  });
+});
+
 describe("门控转换", () => {
   it("[sell=N,K] → 积分门控：N 为价格，K（积分类型）忽略", () => {
     const r = conv("前[sell=5,1]秘密A[/sell]后");
@@ -318,6 +343,39 @@ describe("未闭合标签不吞内容（v1 的数据丢失缺陷）", () => {
   });
 });
 
+describe("标签交叉嵌套：门控优先（失败即封闭）", () => {
+  it("[color][sell]A[/color]B[/sell]C：A、B 都在隐藏内容里，C 是公开的", () => {
+    const r = conv("[color=red][sell=5,]秘密甲[/color]秘密乙[/sell]公开丙");
+    expect(r.gates).toHaveLength(1);
+    expect(r.gates[0]?.hiddenMd).toContain("秘密甲");
+    expect(r.gates[0]?.hiddenMd).toContain("秘密乙");
+    expect(r.md).not.toContain("秘密");
+    expect(r.md).toContain("公开丙");
+  });
+
+  it("没有对应开标签的门控闭合标签被丢弃，不在正文里露出", () => {
+    const r = conv("前[/sell]后[/post]");
+    expect(r.md).toBe("前后");
+    expect(r.warnings.filter((w) => w.code === "gate-stray-close")).toHaveLength(2);
+  });
+
+  it("门控内被交叉的非门控闭合标签留作隐藏内容里的字面量，不影响门控边界", () => {
+    const r = conv("[b][post]甲[/b]乙[/post]丙");
+    expect(r.gates[0]?.hiddenMd).toContain("甲");
+    expect(r.gates[0]?.hiddenMd).toContain("乙");
+    expect(r.md).toContain("丙");
+    expect(r.md).not.toMatch(/[甲乙]/);
+  });
+
+  it("门控与门控交叉：外层闭合时内层随之结束，后续闭合标签丢弃", () => {
+    const r = conv("[sell=1,]甲[post]乙[/sell]丙[/post]丁");
+    expect(r.gates).toHaveLength(1);
+    expect(r.md).toContain("丙");
+    expect(r.md).toContain("丁");
+    expect(r.md).not.toMatch(/[甲乙]/);
+  });
+});
+
 describe("性质测试 · 泄露不变量", () => {
   /** 确定性伪随机，避免引入依赖且结果可复现 */
   function rng(seed: number) {
@@ -358,6 +416,8 @@ describe("性质测试 · 泄露不变量", () => {
         // 约四分之一的门控故意不写闭合标签：失败即封闭，秘密同样不得进入公开正文
         const closeTag = rand() < 0.25 ? "" : `[/${gateTag}]`;
         let piece = `[${gate}]${token}${closeTag}`;
+        // 约五分之一的门控与样式标签交叉嵌套（旧帖里真实存在的写法）：秘密同样不得进入公开正文
+        if (rand() < 0.2) piece = `[color=red][${gate}]${token}[/color]${token}x${closeTag}`;
         const depth = Math.floor(rand() * 3);
         for (let d = 0; d < depth; d++) {
           const w = pick(WRAPPERS);

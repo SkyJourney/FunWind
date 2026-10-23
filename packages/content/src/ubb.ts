@@ -37,6 +37,7 @@ export type ConvertWarningCode =
   | "emoji-legacy-stripped"
   | "gate-nested-dropped"
   | "gate-unclosed"
+  | "gate-stray-close"
   | "gate-empty-dropped"
   | "gate-price-invalid"
   | "gate-price-reset"
@@ -57,6 +58,8 @@ export interface ConvertResult {
 }
 
 interface Node {
+  /** 仅根节点：没有对应开标签而被丢弃的门控闭合标签数 */
+  strayGateClosers?: number;
   tag?: string;
   arg?: string;
   text?: string;
@@ -67,6 +70,7 @@ interface Node {
 
 const TAG_RE = /\[(\/?)([a-zA-Z]+)(?:=([^\][\n]*))?\]/g;
 const EMO_RE = /\[s:(\d+)\]/gi;
+const GATE_TAGS = new Set(["SELL", "POST", "HIDE"]);
 /** 没有闭合标签的标签：不入栈，避免吞掉后续内容 */
 const VOID_TAGS = new Set(["HR", "BR"]);
 
@@ -96,6 +100,18 @@ function parse(src: string): Node {
         }
       }
       if (idx === -1) {
+        // 没有对应开标签的门控闭合标签：丢弃（保留字面量会在页面上露出 [/sell]）
+        if (GATE_TAGS.has(tag)) {
+          root.strayGateClosers = (root.strayGateClosers ?? 0) + 1;
+          continue;
+        }
+        top.children.push({ text: full, children: [] });
+        continue;
+      }
+      // 门控优先：非门控的闭合标签不得越过仍未闭合的门控。否则门控会被一并弹出栈，
+      // 之后本该隐藏的内容就落到公开区（交叉嵌套如 [color][sell]…[/color]…[/sell]）。
+      // 此时把这个闭合标签当作字面量留在隐藏内容里。
+      if (!GATE_TAGS.has(tag) && stack.slice(idx + 1).some((n) => GATE_TAGS.has(n.tag ?? ""))) {
         top.children.push({ text: full, children: [] });
         continue;
       }
@@ -167,7 +183,6 @@ function unwrapUnclosed(node: Node): void {
   }
   node.children = out;
 }
-const GATE_TAGS = new Set(["SELL", "POST", "HIDE"]);
 /** 样式包装：不改变「是否顶层」，门控可以穿过它们被提升为顶层块 */
 const TRANSPARENT = new Set([
   "B",
@@ -373,11 +388,20 @@ function renderChildren(n: Node, st: State, env: Env): string {
   return n.children.map((c) => render(c, st, env)).join("");
 }
 
+/** 门控占位块（renderGate 的输出形态） */
+const GATE_PLACEHOLDER_ANY = /\n*:::gate\{id="\d+"\}\n:::\n*/g;
+
 function renderTable(n: Node, st: State, env: Env): string {
   const rows = n.children.filter((c) => c.tag === "TR");
   if (rows.length === 0) return renderChildren(n, st, env);
+  // 单元格里的门控占位不能留在表格行内（会被压成一行而失效）：提升到表格之后，内容不丢
+  const hoisted: string[] = [];
   const cellText = (c: Node) =>
     renderChildren(c, st, env)
+      .replace(GATE_PLACEHOLDER_ANY, (m) => {
+        hoisted.push(m.trim());
+        return " ";
+      })
       .replace(/\s*\n\s*/g, " ")
       .replace(/\|/g, "\\|")
       .trim();
@@ -394,6 +418,7 @@ function renderTable(n: Node, st: State, env: Env): string {
     `| ${Array(width).fill("---").join(" | ")} |`,
     ...body.map(line),
     "",
+    ...(hoisted.length ? ["", ...hoisted.flatMap((h) => [h, ""])] : []),
   ].join("\n");
 }
 
@@ -426,9 +451,14 @@ function render(n: Node, st: State, env: Env): string {
   }
 
   // 门控位置判定：样式包装、未知标签、未正常闭合的标签都是透明的（只有真正闭合的容器才算「嵌套」）
-  const transparent = TRANSPARENT.has(tag) || !KNOWN_TAGS.has(tag) || n.closed !== true;
+  const transparent =
+    TRANSPARENT.has(tag) || tag === "TABLE" || !KNOWN_TAGS.has(tag) || n.closed !== true;
   const childEnv: Env = transparent ? env : { ...env, pos: "nested", container: tag };
-  const inner = renderChildren(n, st, tag === "CODE" ? { ...childEnv, raw: true } : childEnv);
+  // TABLE 由 renderTable 自行渲染各单元格；这里若再预渲染一遍，门控会被渲染两次（产生重复/孤立门控）
+  const inner =
+    tag === "TABLE"
+      ? ""
+      : renderChildren(n, st, tag === "CODE" ? { ...childEnv, raw: true } : childEnv);
 
   switch (tag) {
     case "B":
@@ -532,6 +562,8 @@ export function ubbToMarkdown(input: string | null | undefined, ctx: UbbContext)
   const src = input.replace(/\r\n?/g, "\n");
   // 根节点没有 tag：直接渲染其子节点，保持顶层语义（不能走 render，否则会被当成非透明容器）
   const tree = parse(src);
+  for (let i = 0; i < (tree.strayGateClosers ?? 0); i++)
+    st.warnings.push({ code: "gate-stray-close" });
   unwrapUnclosed(tree);
   const md = renderChildren(tree, st, { pos: "top", inGate: false, raw: false })
     .replace(/\n{3,}/g, "\n\n")
