@@ -1,9 +1,10 @@
 import { join } from "node:path";
 import { AS_OF, config, toDatetime } from "./config.js";
-import { closePools, newQuery, upsert } from "./db.js";
+import { assertNoLiveData, closePools, newQuery, upsert } from "./db.js";
 import { Report } from "./lib/report.js";
 import { loadSchemaOnce } from "./schema-init.js";
-import { assertSystemSeeded, newCtx, STEPS } from "./steps.js";
+import { STEPS } from "./pipeline.js";
+import { assertSystemSeeded, newCtx } from "./step-types.js";
 
 /**
  * 迁移入口：phpwind 9 → qysub_next（schema v2）。
@@ -18,6 +19,8 @@ if (list.length === 0) {
 
 await loadSchemaOnce();
 await assertSystemSeeded();
+
+await assertNoLiveData(AS_OF);
 
 // 并发锁：GET_LOCK 会话级互斥，双开即拒；进程退出（连接关闭）自动释放
 const lockRows = await newQuery<{ got: number }>(

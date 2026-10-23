@@ -8,6 +8,7 @@ import type { OldUser } from "./transform/users.js";
 import type { MutedGroupMember, OldBan } from "./transform/restrictions.js";
 import type { OldBelong, OldPermRow } from "./transform/authz.js";
 import { MUTED_GID } from "./transform/legacy-groups.js";
+import type { OldPost, OldThread } from "./transform/content.js";
 
 export const extractForums = () =>
   oldQuery<OldForum>(
@@ -123,3 +124,158 @@ export async function extractEmojiIds(): Promise<Set<number>> {
   const rows = await oldQuery<{ id: number }>(`SELECT emotion_id AS id FROM nw_common_emotion`);
   return new Set(rows.map((r) => Number(r.id)));
 }
+
+// ---------- B2：内容 / 积分 / 社交 ----------
+
+/** 主题 + 首帖正文（threads_content 左连接：无正文的主题 content 为 NULL） */
+export const extractThreads = () =>
+  oldQuery<OldThread>(
+    `SELECT t.tid, t.fid, t.topic_type, t.subject, t.digest, t.topped, t.special,
+            t.disabled, t.ifshield, t.hits, t.created_time, t.created_username,
+            t.created_userid, t.modified_time, c.content, (c.tid IS NOT NULL) AS has_content
+     FROM nw_bbs_threads t
+     LEFT JOIN nw_bbs_threads_content c ON c.tid = t.tid`,
+  );
+
+export const extractPosts = () =>
+  oldQuery<OldPost>(
+    `SELECT pid, tid, rpid, disabled, ifshield, content, created_time, created_username,
+            created_userid, modified_time
+     FROM nw_bbs_posts`,
+  );
+
+/** 空壳主题：无首帖正文且无任何回帖（广告洪泛），迁移为 state=spam、不生成首帖 */
+export async function extractSpamTids(): Promise<Set<number>> {
+  const rows = await oldQuery<{ tid: number }>(`
+    SELECT t.tid FROM nw_bbs_threads t
+    LEFT JOIN nw_bbs_threads_content c ON c.tid = t.tid
+    WHERE c.tid IS NULL
+      AND NOT EXISTS (SELECT 1 FROM nw_bbs_posts p WHERE p.tid = t.tid)`);
+  return new Set(rows.map((r) => Number(r.tid)));
+}
+
+export const extractBuys = () =>
+  oldQuery<{
+    tid: number;
+    pid: number;
+    created_userid: number;
+    created_time: number;
+    cost: number;
+  }>(`SELECT tid, pid, created_userid, created_time, cost FROM nw_bbs_threads_buy`);
+
+export const extractAttachments = () =>
+  oldQuery<{
+    aid: number;
+    tid: number;
+    pid: number;
+    name: string;
+    type: string;
+    size: number;
+    hits: number;
+    width: number;
+    height: number;
+    path: string;
+    created_userid: number;
+    created_time: number;
+  }>(
+    `SELECT aid, tid, pid, name, type, size, hits, width, height, path, created_userid, created_time
+     FROM nw_attachs_thread`,
+  );
+
+export const extractTags = () =>
+  oldQuery<{ tag_id: number; tag_name: string }>(`SELECT tag_id, tag_name FROM nw_tag`);
+
+export const extractTagRelations = () =>
+  oldQuery<{ tag_id: number; param_id: number; type_id: number; ifcheck: number }>(
+    `SELECT tag_id, param_id, type_id, ifcheck FROM nw_tag_relation`,
+  );
+
+export const extractCreditBalances = () =>
+  oldQuery<{ uid: number; credit1: number }>(`SELECT uid, credit1 FROM nw_user_data`);
+
+export const extractBank = () =>
+  oldQuery<{ uid: number; deposit: number; ddeposit: number }>(
+    `SELECT uid, deposit, ddeposit FROM nw_app_bank`,
+  );
+
+export const extractPunchLogs = () =>
+  oldQuery<{ id: number; uid: number; affect: number; created_time: number }>(
+    `SELECT id, created_userid AS uid, affect, created_time
+     FROM nw_credit_log WHERE logtype = 'punch' ORDER BY id`,
+  );
+
+export const extractMedalInfo = () =>
+  oldQuery<{
+    medal_id: number;
+    name: string;
+    image: string | null;
+    icon: string | null;
+    descrip: string | null;
+    isopen: number;
+    vieworder: number;
+  }>(`SELECT medal_id, name, image, icon, descrip, isopen, vieworder FROM nw_medal_info`);
+
+export const extractMedalUsers = () =>
+  oldQuery<{ uid: number; medals: string; expired_time: number }>(
+    `SELECT uid, medals, expired_time FROM nw_medal_user`,
+  );
+
+export const extractAttention = () =>
+  oldQuery<{ uid: number; touid: number; created_time: number }>(
+    `SELECT uid, touid, created_time FROM nw_attention`,
+  );
+
+export const extractForumJoins = () =>
+  oldQuery<{ uid: number; fid: number; join_time: number }>(
+    `SELECT uid, fid, join_time FROM nw_bbs_forum_user`,
+  );
+
+/** 点赞明细：typeid 1 = 主题（fromid = tid），2 = 回帖（fromid = pid） */
+export const extractLikes = () =>
+  oldQuery<{ uid: number; created_time: number; typeid: number; fromid: number }>(
+    `SELECT l.uid, l.created_time, c.typeid, c.fromid
+     FROM nw_like_log l JOIN nw_like_content c ON c.likeid = l.likeid`,
+  );
+
+export const extractPolls = () =>
+  oldQuery<{
+    poll_id: number;
+    tid: number | null;
+    voter_num: number;
+    option_limit: number;
+    isafter_view: number;
+    expired_time: number;
+    created_userid: number;
+    created_time: number;
+  }>(
+    `SELECT p.poll_id, pt.tid, p.voter_num, p.option_limit, p.isafter_view, p.expired_time,
+            p.created_userid, p.created_time
+     FROM nw_app_poll p LEFT JOIN nw_app_poll_thread pt ON pt.poll_id = p.poll_id`,
+  );
+
+export const extractPollOptions = () =>
+  oldQuery<{ option_id: number; poll_id: number; content: string }>(
+    `SELECT option_id, poll_id, content FROM nw_app_poll_option ORDER BY option_id`,
+  );
+
+export const extractPollVotes = () =>
+  oldQuery<{ uid: number; poll_id: number; option_id: number; created_time: number }>(
+    `SELECT uid, poll_id, option_id, created_time FROM nw_app_poll_voter`,
+  );
+
+export const extractMessages = () =>
+  oldQuery<{
+    message_id: number;
+    from_uid: number;
+    to_uid: number;
+    content: string;
+    created_time: number;
+  }>(
+    `SELECT message_id, from_uid, to_uid, content, created_time FROM nw_windid_message
+     ORDER BY created_time, message_id`,
+  );
+
+export const extractDialogs = () =>
+  oldQuery<{ from_uid: number; to_uid: number; unread_count: number }>(
+    `SELECT from_uid, to_uid, unread_count FROM nw_windid_message_dialog`,
+  );
