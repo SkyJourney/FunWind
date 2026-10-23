@@ -1,4 +1,5 @@
 import { oldQuery, upsertBatch, j } from "../db.js";
+import { toDatetime } from "../config.js";
 import type { Migrator } from "../run.js";
 
 /** 表情分类 + 表情（[s:N] 渲染映射的数据源） */
@@ -157,5 +158,32 @@ export const topicTypes: Migrator = {
       ["id"],
     );
     return { rows: rows.length, note: "版块主题分类（M3 补迁）" };
+  },
+};
+
+/** 封禁记录（M4 补迁：nw_user_ban，登录拦截 + M5 版块级封禁消费） */
+export const userBans: Migrator = {
+  name: "user_bans",
+  async run() {
+    const rows = await oldQuery(
+      `SELECT id, uid, typeid, fid, end_time, created_userid, created_time, reason FROM nw_user_ban`,
+    );
+    await upsertBatch(
+      "user_bans",
+      ["id", "user_id", "type_id", "fid", "end_time", "reason", "created_by", "created_at", "raw"],
+      rows.map((r) => ({
+        id: r.id,
+        user_id: r.uid,
+        type_id: r.typeid ?? "",
+        fid: r.fid ?? 0,
+        end_time: toDatetime(r.end_time),
+        reason: r.reason ?? "",
+        created_by: r.created_userid ?? 0,
+        created_at: toDatetime(r.created_time),
+        raw: j(r),
+      })),
+      ["id"],
+    );
+    return { rows: rows.length, note: "封禁记录（M4 补迁）" };
   },
 };

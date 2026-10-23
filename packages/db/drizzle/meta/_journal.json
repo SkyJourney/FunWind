@@ -29,6 +29,13 @@
       "when": 1792727154126,
       "tag": "0003_old_maximus",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1792735426042,
+      "tag": "0004_warm_namora",
+      "breakpoints": true
     }
   ]
 }

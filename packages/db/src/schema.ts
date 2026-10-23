@@ -60,6 +60,7 @@ export const users = mysqlTable(
     homepage: varchar("homepage", { length: 200 }).notNull().default(""),
     signatureMd: text("signature_md"),
     profile: text("profile"),
+    emailVerifiedAt: datetime("email_verified_at", { mode: "string" }),
     postCount: int("post_count", { unsigned: true }).notNull().default(0),
     digestCount: int("digest_count", { unsigned: true }).notNull().default(0),
     followers: int("followers", { unsigned: true }).notNull().default(0),
@@ -387,6 +388,77 @@ export const migrationState = mysqlTable(
     note: varchar("note", { length: 255 }).notNull().default(""),
   },
   (t) => [primaryKey({ columns: [t.entity] })],
+);
+
+// ---------- 认证（M4）----------
+
+export const sessions = mysqlTable(
+  "sessions",
+  {
+    // 存 SHA-256(token)：库泄漏不等于会话劫持
+    id: varchar("id", { length: 64 }).notNull(),
+    userId: int("user_id", { unsigned: true }).notNull(),
+    createdAt: datetime("created_at", { mode: "string" }).notNull(),
+    expiresAt: datetime("expires_at", { mode: "string" }).notNull(),
+    lastSeenAt: datetime("last_seen_at", { mode: "string" }),
+    ip: varchar("ip", { length: 64 }),
+    userAgent: varchar("user_agent", { length: 255 }),
+  },
+  (t) => [primaryKey({ columns: [t.id] }), index("idx_sessions_user").on(t.userId)],
+);
+
+export const inviteCodes = mysqlTable(
+  "invite_codes",
+  {
+    code: varchar("code", { length: 32 }).notNull(),
+    createdBy: int("created_by", { unsigned: true }),
+    usedBy: int("used_by", { unsigned: true }),
+    usedAt: datetime("used_at", { mode: "string" }),
+    expiresAt: datetime("expires_at", { mode: "string" }),
+    batch: varchar("batch", { length: 64 }).notNull().default(""),
+    createdAt: datetime("created_at", { mode: "string" }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.code] }), index("idx_ic_batch").on(t.batch)],
+);
+
+export const siteSettings = mysqlTable(
+  "site_settings",
+  {
+    key: varchar("key", { length: 64 }).notNull(),
+    value: json("value"),
+    updatedAt: datetime("updated_at", { mode: "string" }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.key] })],
+);
+
+export const emailTokens = mysqlTable(
+  "email_tokens",
+  {
+    id: varchar("id", { length: 64 }).notNull(), // 存 SHA-256(token)：库泄漏不等于会话劫持
+    purpose: mysqlEnum("purpose", ["reset", "verify", "claim"]).notNull(),
+    userId: int("user_id", { unsigned: true }).notNull(),
+    createdAt: datetime("created_at", { mode: "string" }).notNull(),
+    expiresAt: datetime("expires_at", { mode: "string" }).notNull(),
+    usedAt: datetime("used_at", { mode: "string" }),
+  },
+  (t) => [primaryKey({ columns: [t.id] }), index("idx_et_user").on(t.userId, t.purpose)],
+);
+
+/** 封禁（补迁 nw_user_ban）：fid=0 全局，end_time 为空=永久；版块级封禁由 M5 authz 消费 */
+export const userBans = mysqlTable(
+  "user_bans",
+  {
+    id: int("id", { unsigned: true }).notNull(),
+    userId: int("user_id", { unsigned: true }).notNull(),
+    typeId: varchar("type_id", { length: 20 }).notNull().default(""),
+    fid: int("fid", { unsigned: true }).notNull().default(0), // 0=全局
+    endTime: datetime("end_time", { mode: "string" }), // NULL=永久
+    reason: varchar("reason", { length: 80 }).notNull().default(""),
+    createdBy: int("created_by", { unsigned: true }).notNull().default(0),
+    createdAt: datetime("created_at", { mode: "string" }),
+    raw: json("raw"),
+  },
+  (t) => [primaryKey({ columns: [t.id] }), index("idx_ub_user").on(t.userId)],
 );
 
 // ---------- 关系声明（查询辅助；不生成外键） ----------

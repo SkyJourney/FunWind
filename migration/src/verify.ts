@@ -27,6 +27,7 @@ const expected: [string, string, number | "same"][] = [
   ["attachments", `SELECT COUNT(*) n FROM nw_attachs_thread`, "same"],
   ["emoticons", `SELECT COUNT(*) n FROM nw_common_emotion`, "same"],
   ["topic_type", `SELECT COUNT(*) n FROM nw_bbs_topic_type`, "same"],
+  ["user_bans", `SELECT COUNT(*) n FROM nw_user_ban`, "same"],
   ["medals", `SELECT COUNT(*) n FROM nw_medal_info`, "same"],
   ["credit_logs", `SELECT COUNT(*) n FROM nw_credit_log`, "same"],
   ["polls", `SELECT COUNT(*) n FROM nw_app_poll`, "same"],
