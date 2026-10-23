@@ -503,3 +503,66 @@ export const moduleState = mysqlTable(
   },
   (t) => [primaryKey({ columns: [t.moduleId] })],
 );
+
+// ---------- 权限内核（M5：现代 RBAC + 级联数据范围 + 分级权限）----------
+
+export const roles = mysqlTable(
+  "roles",
+  {
+    key: varchar("key", { length: 64 }).notNull(),
+    name: varchar("name", { length: 64 }).notNull(),
+    kind: mysqlEnum("kind", ["builtin", "custom"]).notNull(),
+    description: varchar("description", { length: 255 }).notNull().default(""),
+  },
+  (t) => [primaryKey({ columns: [t.key] })],
+);
+
+export const permissions = mysqlTable(
+  "permissions",
+  {
+    key: varchar("key", { length: 64 }).notNull(),
+    resource: varchar("resource", { length: 32 }).notNull(),
+    // 分级域权限点带 read/write/manage（manage ⊃ write ⊃ read）；动作型为 NULL
+    level: mysqlEnum("level", ["read", "write", "manage"]),
+    description: varchar("description", { length: 255 }).notNull().default(""),
+    legacyKey: varchar("legacy_key", { length: 64 }),
+    conditionParams: json("condition_params"),
+  },
+  (t) => [primaryKey({ columns: [t.key] })],
+);
+
+export const roleGrants = mysqlTable(
+  "role_grants",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    roleKey: varchar("role_key", { length: 64 }).notNull(),
+    permissionKey: varchar("permission_key", { length: 64 }).notNull(),
+    scopeType: mysqlEnum("scope_type", ["global", "forum"]).notNull(),
+    forumId: int("forum_id", { unsigned: true }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    uniqueIndex("uq_rg_grant").on(t.roleKey, t.permissionKey, t.scopeType, t.forumId),
+    index("idx_rg_perm_scope").on(t.permissionKey, t.scopeType, t.forumId),
+  ],
+);
+
+export const userRoles = mysqlTable(
+  "user_roles",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    userId: int("user_id", { unsigned: true }).notNull(),
+    roleKey: varchar("role_key", { length: 64 }).notNull(),
+    scopeType: mysqlEnum("scope_type", ["global", "forum"]).notNull(),
+    forumId: int("forum_id", { unsigned: true }),
+    expiresAt: datetime("expires_at", { mode: "string" }),
+    grantedBy: int("granted_by", { unsigned: true }),
+    grantedAt: datetime("granted_at", { mode: "string" }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    // NULL 语义唯一性由应用层保证（MySQL UNIQUE 不去重 NULL）
+    uniqueIndex("uq_ur_assignment").on(t.userId, t.roleKey, t.scopeType, t.forumId),
+    index("idx_ur_user").on(t.userId),
+  ],
+);

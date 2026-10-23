@@ -8,6 +8,7 @@ import {
   inviteCodes,
   siteSettings,
   userBans,
+  userRoles,
   emoticonCategories,
   emoticons,
   forums,
@@ -274,4 +275,27 @@ export async function seedDemoData(db: Db): Promise<void> {
   await seedEmoticons(db);
   await seedMedals(db);
   await seedAuthFixtures(db);
+  await seedAdminFixtures(db);
+}
+
+// ---------- 权限夹具（M5）：管理员演示账户 ----------
+
+export async function seedAdminFixtures(db: Db): Promise<void> {
+  await db
+    .insert(users)
+    .values({
+      id: 90004,
+      username: "demo_admin",
+      email: "admin@demo.local",
+      groupId: 3,
+      passwordHash:
+        // 明文 e2e-admin-pass（预计算 argon2id）
+        "$argon2id$v=19$m=19456,t=2,p=1$4ZRjLqgcJ4kA41dJfLLHUQ$lPZYIsJMv5I94ZOYGWcXvL+QNEKXcwx7Sz6bcAitpZU",
+      credits: { "1": 0 },
+    })
+    .onDuplicateKeyUpdate({ set: { email: sql`VALUES(email)` } });
+  await db
+    .insert(userRoles)
+    .values({ userId: 90004, roleKey: "admin", scopeType: "global", grantedAt: sql`NOW()` })
+    .onDuplicateKeyUpdate({ set: { grantedAt: sql`NOW()` } });
 }
