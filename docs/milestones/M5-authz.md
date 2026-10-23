@@ -51,3 +51,22 @@
 - **旧 status 位标志**语义未考古：raw 归档，不参与判定。
 - **后台菜单清单**与完整后台交互归 M9（M5 为最小三页）。
 - **登录频控改双层**（IP 20 次/10 分钟 + 账号 5 次/10 分钟）——原单层 IP 限流对共享 NAT 过严且使 E2E 失真。
+
+## 复验发现（2026-10-23，M5.5 审查；缺陷由 M5.5 清账）
+
+以下门禁勾选与实测不符：
+
+- 「权限数据翻译迁移……幂等验证」✗：`role_grants`/`user_roles` 唯一键含可空 `forum_id`，MySQL 不对 NULL 去重，每次重跑追加重复行。
+  实测 `user_roles` 1255 行仅 251 组不同（每组 5 份），`role_grants` 2874 行仅 2035 组不同；CHANGELOG 里的授权计数为去重前数字。
+- 「权限变更出审计」✗：`/admin` 五个管理动作均未写 `event_log`/审计表。
+- 「评估器单测……每个权限点至少 1 例（57+）」✗：实际 12 例；「forum.read 显式优先」「级联合并」「就近层」等关键语义没有单测，仅靠 E2E。
+- 「覆盖率达标」✗：`lib/authz/service.ts` 0% 覆盖，全局门槛红。
+- 「翻译对账……人工签字」：未见留痕；对账报告被 gitignore，且充斥「未知 gid 跳过」噪声。
+- 数据质量：`role_grants` 含词汇表外的脏键（角色 `a`/`x`、权限点 `p1`/`p2`/`y`）；gid 19/20/24/26/27/35 的 `user_belong`（约 63 人）被「未知 gid」跳过。
+- 设计缺陷：版块「显式限制」靠推断（删光读授权即悄悄变公开）；派生版主把 `forum.write` 当版主授权（翻译产物无 `forum.manage`），会把整个团队角色派生成版主；
+  `checkPermission(userId, …)` 忽略传入 `userId`；`createCustomRole` upsert 可改写内置角色。
+- 文档漂移：「5 表」与实际 4 表；`forum_overrides` 已被 `role_grants` 取代。
+- **角色映射错误**：`GID_TO_ROLE` 把旧 gid 23 映射为 `team-planning`（策划组）、gid 38 映射为 `team-intern`（实习组），而旧库实测 gid 23 = 实习组（10 人）、gid 38 = 策划组（1 人），
+  两个团队角色的成员整体错配（开发库 `team-planning` 150 行实为实习组成员）。M5.5 S2 的词汇表已纠正。
+
+M5.5 以 `scope_id` 哨兵、`read_policy`、`forum.moderate`、`user_restrictions`、`audit_log` 重做上述各项。

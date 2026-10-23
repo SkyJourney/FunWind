@@ -4,7 +4,7 @@
 > 旧程序与旧库只作内容源与业务逻辑参考，代码零复用。
 > 青翼字幕组：日语/ACG 字幕组情怀社区（www.qingyisub.top），1,472 个真实主题、35,248 条回复、10,701 名用户、25 枚勋章、93,765 条积分流水。
 
-- **当前进度**：P0 数据迁移 ✅ → **P1 论坛 MVP（M1 工程骨架）进行中**
+- **当前进度**：P0 数据迁移 ✅ → 阶段一 M1–M5 ✅ → **M5.5 重构里程碑（数据模型 v2 / 迁移 v2）设计定稿中** → M6 发帖与内容生产
 - **开发方式**：里程碑制，见 [docs/ROADMAP.md](docs/ROADMAP.md)（每里程碑有明确范围、边界、测试规则与验收门禁）
 
 ## 文档索引
@@ -15,7 +15,10 @@
 | [docs/LEGACY-FEATURE-MAP.md](docs/LEGACY-FEATURE-MAP.md) | 旧源码↔新模块对齐报告（M01–M15 模块编号、57 权限点清单、骨架插入点）——新功能落地前先查它 |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | 里程碑路线图（M1–M13）、依赖关系、全局测试基线与完成定义 |
 | [docs/FRONTEND-DESIGN.md](docs/FRONTEND-DESIGN.md) | 前端与主题系统：三层设计令牌、主题包、shadcn/ui 模式、响应式 |
-| [docs/AUTHZ.md](docs/AUTHZ.md) | 权限模型：自研 RBAC/ABAC、5 表设计、旧数据翻译 |
+| [docs/AUTHZ.md](docs/AUTHZ.md) | 权限模型：自研 RBAC/ABAC；§1–§7 为 M5 实现，**§8 为 M5.5 修订（目标态）** |
+| [docs/GATES.md](docs/GATES.md) | 门控规范：`:::gate` 容器指令、隐藏内容拆分存储、可插拔解锁条件、解锁事务 |
+| [docs/POINTS.md](docs/POINTS.md) | 积分规范：用户积分台账、`applyPoints` 单一入口、渠道注册 |
+| [docs/MODULES.md](docs/MODULES.md) | 模块内核契约：事件清单、槽位清单、注册边界 |
 | [docs/milestones/](docs/milestones/) | 里程碑详单（范围/边界/测试/门禁） |
 | [CHANGELOG.md](CHANGELOG.md) | 变更日志 |
 
@@ -75,8 +78,8 @@ pnpm test:e2e               # Playwright（chromium）
 ## 核心约定
 
 1. **旧库只读**：仅 SELECT/SHOW/DESC，代码层守卫强制。
-2. **保留旧主键**（uid/tid/pid/fid/aid）：旧 URL 可精确 301，附件路径天然可用；每表 `raw JSON` 归档旧行。
-3. **正文双写**：`content_raw`（原始 UBB）+ `content_md`（Markdown），永远可回滚。
+2. **保留旧主键**（uid/tid/pid/fid/aid）：旧 URL 可精确 301，附件路径天然可用。（M5.5 起业务表不再带 `raw JSON` 归档列；旧库保持只读至 M13 签字，即为归档。）
+3. **正文只留 Markdown**：M5.5 起业务表仅存 `body_md`，不再双写 `content_raw`；保真靠迁移对账（源库正文 md5 抽样）。门控隐藏内容拆入独立表。
 4. **垃圾只标记不删除**：`is_spam=1` 默认隐藏、可审计可恢复；密码不迁移（邮件重置召回）。
 5. **先骨架后功能**：模块注册表（事件总线/UI 槽位/权限点/导航/令牌覆盖）在骨架期就位，功能逐模块插入。
 6. **数据层双模式**：schema 单一事实源在应用侧（Drizzle，`npm run db:bootstrap` 空库建表 + `db:seed` 演示种子），

@@ -12,13 +12,24 @@
 4. **迁移范围：全量**（含私信/投票/勋章/积分流水等外围实体）。
 5. **视觉：现代简洁为主 + 首发即带「复刻·青翼2010」情怀主题包**（三层令牌架构，主题=CSS 变量表；见 FRONTEND-DESIGN.md）。
 6. **组件：shadcn/ui 模式**（源码进仓库，Radix 行为 + Tailwind，可任意深度接主题令牌）。
-7. **权限：自研轻量 RBAC/ABAC**（5 表 + ~200 行评估器，继承旧 57 权限点词汇表；见 AUTHZ.md）。
+7. **权限：自研轻量 RBAC/ABAC**（4 表 + 评估器，继承旧 57 权限点词汇表并归一为 37 点；M5.5 修订见 AUTHZ.md §8）。
 8. **注册：邀请制起步、稳定后开放**（邀请码 + 邮箱验证 + 频控两套接口骨架都留）。
 9. **开发路线：先骨架后功能**——按 [LEGACY-FEATURE-MAP.md](LEGACY-FEATURE-MAP.md) 的 M01–M15 顺序，
    骨架期就落事件总线/UI 槽位/注册表边界，逐模块填充。
 10. **数据层双模式**：项目必须支持**零数据部署**（Web 安装向导 + CLI bootstrap，见里程碑 M12），
     青翼 phpwind 迁移导入是可选路径而非前提。schema 单一事实源在应用侧（Drizzle 定义，M1 起），
     `migration/` 降级为「青翼专项导入器」，其 schema-init 与应用共用同一 Drizzle 管线。
+
+### 重构决策（2026-10-23，M5.5，站长确认）
+
+11. **重构方针**：旧系统是 20 年前的产物，按现代论坛视角裁剪无用子系统、按现代设计重做库表与功能，**最终只是把旧数据映射进新模型**；破坏性变更全部接受（重新迁移即可）。详见 [M5.5](milestones/M5.5-schema-v2.md)。
+12. **未被新模型使用的旧表一律丢弃，不建归档库**（含全部 `pw_*` 311 张表、任务/银行/抽奖/草稿/日志/通知/动态流等）；旧库保持原样只读，直至 M13 签字，即事实上的归档。
+13. **版块层级**：邻接表 `parent_id` + 物化路径 `path` + 启动加载的内存树 `ForumTree`；`read_policy`（inherit/public/members/restricted）作为一等属性。
+14. **统一 post 模型**：首帖即 `floor 1`；`posts_reply` 丢弃；业务表去掉 `raw`/`content_raw`，正文只留 `body_md`。
+15. **表情**：迁移期展开为静态图片资源，运行时无表情表，新编辑器不带表情面板。
+16. **门控抽象**：内容容器 + 可插拔解锁条件（`gateConditions`），隐藏内容保存时拆出存独立表；首批条件 `points`（购买）、`reply`（回复可见）；价格 0 = 登录后免费解锁；旧价 ≥ 9999 一律改免费；作者获得收益，手续费默认 0。详见 [GATES.md](GATES.md)。
+17. **积分抽象**：单一「用户积分」（显示名可配，默认青翼币），只做台账，获取仅发帖/回帖/签到；渠道注册 `pointChannels` 预留消费与获取的扩展；不迁旧流水，每人一条期初余额。详见 [POINTS.md](POINTS.md)。
+18. **取消**：用户等级/成长、任务引擎、勋章自动颁发、银行、抽奖、多币种。
 
 ---
 
@@ -81,12 +92,18 @@
 4. 新内容统一 utf8mb4。
 5. **时区约定**：库内 DATETIME 一律为北京墙面时间——连接层 `timezone: "+08:00"` + `dateStrings`（packages/db/client.ts），web 侧解析必须经 `apps/web/src/lib/datetime.ts` 的 parseDbDateTime（显式 +08:00），禁止裸 new Date(字符串)。
 6. **连接约定**：web 运行时用 `getWebDb()` 单例池（globalThis 守卫，基线审查 P1-1）；`withDb` 仅限一次性脚本。
+7. **唯一键不含可空列**（M5.5）：MySQL 唯一索引不去重 NULL，全局作用域一律用 `scope_id = 0` 哨兵；违例曾导致权限表重复 5 倍。
+8. **口令不入库**：任何文档/配置不得出现真实口令（旧库口令已于 M5.5 S1 从本文清除，改读根 `.env`）；推送前需审计 git 历史。
 
 ## 3. 新库 schema（qysub_next）
 
 设计原则：**保留旧主键**（uid/tid/pid/fid/aid）→ 历史 URL 可 301、附件路径天然可用；每表带 `raw JSON` 归档旧行，永不丢信息。
 schema 演进：P0 期的 `migration/schema/schema.sql` 为基线底稿；**M1 起以应用侧 Drizzle 定义为单一事实源**（决策 #10），
 零数据 bootstrap 与迁移导入共用同一建表管线。
+
+> ⚠️ **本节下表为 v1（P0–M5）的「忠实搬运」映射，仅作历史对照。** M5.5 起目标态为 schema v2（见下方 §3.2 与
+> [M5.5](milestones/M5.5-schema-v2.md)）：统一 post、`forums` 重做、`user_restrictions`、`post_gates`、`point_*`、
+> 会话模型等；`groups`、`emoticon*`、`credit_logs`、`private_messages`、`message_dialogs` 及所有 `raw`/`content_raw` 列退出。
 
 | 新表 | 来源 | 要点 |
 |------|------|------|
@@ -103,7 +120,21 @@ schema 演进：P0 期的 `migration/schema/schema.sql` 为基线底稿；**M1 �
 | `private_messages` / `message_dialogs` | nw_windid_message / _dialog | 一期迁移，UI 后做 |
 | `migration_state` | — | 迁移清单/水位/行数校验 |
 
-完整 DDL：`migration/schema/schema.sql`
+完整 DDL（v1 历史基线）：`migration/schema/schema.sql`；v2 以 `packages/db/src/schema.ts` 为准。
+
+### 3.2 schema v2 目标态（M5.5）
+
+| 域 | 表 | 要点 |
+|----|----|------|
+| 身份 | `users`、`user_profiles`、`sessions`、`email_tokens`、`invite_codes`、`user_restrictions` | id 自增（起点 = 旧最大 uid + 1）；邮箱/用户名归一化列唯一；限制统一（封禁/禁言/禁头像） |
+| 版块 | `forums`、`forum_prefixes` | `parent_id` + `path` + `depth` + `kind` + `read_policy` + `is_listed`；内存树 `ForumTree` |
+| 内容 | `threads`、`posts`、`post_gates`、`gate_unlocks`、`attachments`、`tags`、`thread_tags` | 首帖 = floor 1；`body_md`；门控拆出独立表；附件 `post_id` 必填 |
+| 互动 | `reactions`、`follows`、`polls`、`poll_options`、`poll_votes`、`conversations`、`conversation_members`、`messages` | 迁移数据于 M5.5 入库，交互层归 M8/M10 |
+| 积分/荣誉 | `point_accounts`、`point_ledger`、`checkins`、`badges`、`user_badges` | 渠道注册；期初余额分录 |
+| 权限 | `roles`、`permissions`、`role_grants`、`user_roles` | `scope_id` 哨兵；内置角色 guest/member/admin |
+| 平台 | `event_log`、`module_state`、`site_settings`、`audit_log` | 管理动作统一审计 |
+
+旧表 → 新表的逐项转换规则见 [M5.5 迁移 v2](milestones/M5.5-schema-v2.md)。
 
 ## 4. 内容转换（UBB → Markdown）
 
@@ -115,6 +146,21 @@ schema 演进：P0 期的 `migration/schema/schema.sql` 为基线底稿；**M1 �
 - `[attach]` 类 → 附件链接；`[hide]/[buy]` → 折叠提示块（购买记录 threads_buy 保留）
 - 未知标签：剥壳留肉；`usehtml=1` 的极少数行原文保留走净化渲染
 - **双写**：`content_raw`（原始 UBB，永远可回滚）+ `content_md`
+
+## 4.2 内容转换 v2（M5.5，覆盖上文冲突项）
+
+- 转换器迁入 `packages/content`，与线上保存共用同一套门控语法（`:::gate{…}` 容器指令，见 [GATES.md](GATES.md)）。
+- `[sell]`/`[post]`/`[hide]` → 门控：隐藏内容拆入 `post_gates.hidden_md`，`body_md` 只留占位。
+- `[s:N]` 表情 → 静态图片引用（`/emoji/…`，gif 随迁移拷入 `apps/web/public/emoji/`；原文档的 `/attachment/emotion/…` 以代码实际 `/emotion/…` 为准且在 v2 退役）；映射外遗留码尽力对应旧目录 `03`，对不上降级为文本。
+- 旧站内部链接 `job.php?action=topost&tid&pid` → `#p{pid}`；`p_w_picpath/`、`p_w_upload/` 相对图片 → `/attachment/…`。
+- 样式标签（`color`/`size`/`backcolor`）按实测使用量（color 1,245 帖、size 915 帖）保留为受限 HTML；`font` 剥壳；`table` 转 Markdown 表格；`hr` → `---`；媒体标签（wmv/rmvb/flash 共约 120 帖）降级为文本链接。
+- `content_raw` 不再留在业务表；正文保真靠迁移对账（源库正文 md5 抽样）而非在线双写。
+- 实测依据（2026-10-23，旧库只读）：`[sell=N,K]` 的 N 与该帖购买记录的 `cost` 完全吻合（K 为积分类型，忽略）；
+  `[hide=N]` 的 5 个实例全是发帖模板里的空示例；遗留表情码 170–180 无法还原（编号与图片文件不按序对应，03 目录对应分类已关闭，旧站自己也渲染不出）→ **直接删除**；
+  `p_w_picpath/back.gif` 是旧站引用头里的「回到原帖」图标（包在 `job.php?action=topost;tid;pid` 链接中）→ `[↩ 原帖](/t/{tid}#p{pid})`；
+  `http://www.qingyisub.com/p_w_upload/photo/Mon_xxxx/…` 的文件实际位于 `attachment/photo/Mon_xxxx/…` → 按磁盘存在性改写为 `/attachment/…`。
+- 表情 50 枚（`emotion_id` 120–169）静态化为 `apps/web/public/emoji/{emotion_id}.gif`（约 1.4MB，入库提交），渲染白名单随 S4 增加 `/emoji/` 前缀与 `<sup>`/`<sub>`。
+- 未闭合标签规则：`[attachment=N]`、`[li]`、媒体标签及未知标签未闭合时**不包裹**后文（v1 会吞掉其后全部正文）。
 
 ## 4.5 URL 结构（M3 冻结，301 依赖）
 
@@ -185,8 +231,8 @@ src/modules/
 
 | 资源 | 地址/路径 |
 |------|-----------|
-| 旧库（只读！） | `127.0.0.1:33620/qingyisub`（GBK，root / ***REMOVED***） |
-| 新库 | `127.0.0.1:33621/qysub_next`（MySQL 8.4，root / ***REMOVED***） |
+| 旧库（只读！） | `127.0.0.1:33620/qingyisub`（GBK，root；口令见根 `.env`） |
+| 新库 | `127.0.0.1:33621/qysub_next`（MySQL 8.4，root；本地开发口令见根 `.env` / `docker/qysub-next/compose.yaml`） |
 | 旧站本地还原 | http://127.0.0.1:8080（qingyisub-nginx） |
 | 附件目录 | `/Volumes/Docker/data/qingyisub/wwwroot/www.qingyisub.top/attachment/`（527MB） |
 | 表情目录 | 同上 `res/images/emotion/{folder}/`（新站路由 `/emotion/**`） |

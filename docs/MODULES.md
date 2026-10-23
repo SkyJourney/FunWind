@@ -18,6 +18,9 @@ export const myModule = defineModule({
   nav: [{ id: "my", label: "我的", href: "/my", order: 10 }], // M10 消费
   cron: [{ name: "my-daily", schedule: "0 3 * * *", run: async () => {} }], // M13 消费
   schemaFragments: [myTable], // M7 起消费（表仍需登记进 @funwind/db 单一事实源）
+  // —— 以下两类为 M5.5 新增边界（设计定稿，S4 落地到 kernel/types.ts）——
+  pointChannels: [{ key: "earn.checkin", direction: "earn", label: "签到奖励" }], // 见 docs/POINTS.md
+  gateConditions: [{ type: "login", kind: "derived", /* paramsSchema/check/prompt */ }], // 见 docs/GATES.md
   tokenOverrides: { "--accent": "var(--fw-teal-500)" },
   routePrefix: "/my",         // 约定：自有页面放 src/app/(module-my)/…
 });
@@ -27,7 +30,10 @@ export const myModule = defineModule({
 —— **启用/停用运行中模块 = `pnpm --filter @funwind/web modules:toggle <id> <on|off>`**（module_state 表；
 M9 后由管理后台管理）。
 
-## 事件清单（10 个，定稿）
+## 事件清单（11 个，M5.5 修订；`credit.changed` 已改名 `points.changed`，新增 `gate.unlocked`）
+
+> M5.5 同时把注册边界由六类扩为**八类**：新增 `pointChannels`（[POINTS.md](POINTS.md)）与 `gateConditions`（[GATES.md](GATES.md)）。
+> 本节与上方示例为设计定稿，`kernel/types.ts` 在 M5.5 S4 落地；落地时事件清单以代码为准并回写本文。
 
 | 事件 | payload | 首个派发者 |
 |------|---------|-----------|
@@ -38,7 +44,8 @@ M9 后由管理后台管理）。
 | `thread.edited` | `{ threadId, editorId }` | M6 编辑 |
 | `thread.deleted` | `{ threadId, operatorId }` | M6 删除 |
 | `attachment.uploaded` | `{ attachmentId, uploaderId }` | M6 上传 |
-| `credit.changed` | `{ userId, creditType, delta }` | M7 credits |
+| `points.changed` | `{ userId, channel, delta }` | M5.5 积分核心 `applyPoints`（原 `credit.changed`，M5.5 改名） |
+| `gate.unlocked` | `{ gateId, userId, authorId, price }` | M5.5 `unlockGate`（M6 交互；M8 通知据此向作者发收益通知） |
 | `medal.awarded` | `{ userId, medalId }` | M7 medals |
 | `checkin.done` | `{ userId, streak }` | M7 checkin |
 
@@ -74,7 +81,7 @@ M9 后由管理后台管理）。
 | 消费者 | 状态 |
 |--------|------|
 | demo-checkin（演示：user.logged_in 消费 + home.footer-notice 横幅） | ✅ M2（M7 由真实签到替换） |
-| credits / levels / medals / checkin 真实模块 | M7 |
+| 积分规则 / 签到 / 荣誉徽章 真实模块（等级引擎已取消） | M7 |
 | 权限点汇聚 → authz | M5 |
 | 导航汇聚 → 站点框架 | M10 |
 | cron 调度 → 基建 | M13 |

@@ -1,5 +1,8 @@
 # 权限模型（AUTHZ）· 实现对照
 
+> ⚠️ **M5.5 修订（2026-10-23）**：§1–§7 描述 M5 已交付的实现（v1）；复验发现其存在结构性缺陷，目标态见文末 **§8（v2）**。
+> 与 §8 冲突处以 §8 为准：`scope_type` → `scope_id` 哨兵、内置角色去掉 `muted`、版块可见性改 `read_policy`、版主改由 `forum.moderate` 派生、封禁/禁言并入 `user_restrictions`。
+
 > M5 落地：现代 RBAC + 级联数据范围 + 分级权限。
 > 设计取舍见 [LEGACY-FEATURE-MAP.md](LEGACY-FEATURE-MAP.md) 与 M5 里程碑文档。
 > 旧系统语义（phpwind 9）考古：25 个用户组 × 57 个权限点 + 附加组补丁（`nw_user_belong` 299 行，带过期）
@@ -96,3 +99,71 @@ member 并集差异、gid3 allow_post=0 疑点、旧版主名单。
 - **member 基线最宽并集**会抹平个别 LV 组的旧行为差异——差异报告供复核；如需找回，走荣誉标识（不进权限内核）。
 - **旧 status 位标志**（51 人非零）语义未考古：仅 raw 归档，不参与判定。
 - 后台菜单清单与完整后台交互归 M9。
+
+## 8. v2 修订（M5.5，目标态）
+
+### 8.1 为什么改（M5 复验发现）
+
+| 缺陷 | 证据 | v2 对策 |
+|------|------|---------|
+| 全局授权行无法去重 | 唯一键含可空 `forum_id`；`user_roles` 1255 行仅 251 组不同，`role_grants` 2874 对 2035 | `scope_id INT NOT NULL DEFAULT 0`（0 = 全局，> 0 = 版块 id），删 `scope_type` |
+| 「显式限制」靠推断 | 评估器以「该层是否有授权行」判断受限；删光读授权，受限版块悄悄变公开 | `forums.read_policy` 一等属性 |
+| 派生版主错误 | 派生用 `forum.write`/`forum.manage`，而翻译产物每版块只有 `forum.write`（发帖白名单），整个团队角色被派生成版主 | 独立权限点 `forum.moderate`，版主 = 作用域链上持有它的角色的持有人 |
+| 禁言三处并存 | `muted` 角色、`user_bans`、旧 status 位 | 并入 `user_restrictions`，评估器只读一处 |
+| 评估入口隐式读当前用户 | `checkPermission(userId, …)` 忽略 `userId` | 显式 `subject`；`can()` 作为当前用户封装 |
+| 脏键 | `role_grants` 含角色 `a`/`x`、权限点 `p1`/`p2`/`y` | 迁移 v2 对账零容忍断言；`role_key`/`permission_key` 外键式校验 |
+| 无审计 | `/admin` 动作不写任何日志 | 所有管理动作写 `audit_log`（谁/何时/动作/对象/前后值） |
+
+### 8.2 数据模型（v2）
+
+| 表 | 语义 |
+|----|------|
+| `roles` | `key` / `name` / `kind(builtin\|custom)`；内置仅 `guest` / `member` / `admin` |
+| `permissions` | 词汇表：`key` / `resource` / `level` / `legacy_key` / `condition_params` |
+| `role_grants` | `(role_key, permission_key, scope_id)` 唯一；`scope_id=0` 全局 |
+| `user_roles` | `(user_id, role_key, scope_id)` 唯一；`expires_at` 可空（NULL 不进唯一键） |
+| `user_restrictions` | `kind(ban\|mute\|no_avatar\|no_signature…)` / `user_id` / `scope_id`（0 全站）/ `starts_at` / `ends_at`（NULL 永久）/ `reason` / `created_by` |
+| `forums.read_policy` | `inherit`（取最近非 inherit 祖先；全无则公开）\|`public`\|`members`\|`restricted` |
+| `forums.write_policy` | `inherit`（取最近非 inherit 祖先；全无则 members）\|`members`\|`restricted`（须在该版块作用域持有 `forum.write` 授权，全局基线不算）。旧站「只有团队组能发帖」的 6 个版块即此类，也满足将来「只读公告版」需求 |
+| `audit_log` | `id` / `actor_id` / `action` / `target_type` / `target_id` / `before` / `after` / `ip` / `created_at` |
+
+词汇表变化：`thread.sell` → `gate.points`、`thread.hide` → `gate.reply`（保留 `legacy_key`）；新增 `forum.moderate`；
+`forum.manage` 并入 `forum.moderate`（`forum.write` 仅表示「可发帖/回帖/编辑自己的帖」）。
+
+### 8.3 评估顺序（v2）
+
+```
+check(subject, "resource.action", { forumId? })
+  1. admin 角色 → ALLOW
+  2. 有效 user_restrictions（作用域覆盖该 forumId）与写类权限冲突 → DENY（优先于授权）
+  3. 开放注册模式且邮箱未验证 → 写类权限 DENY
+  4. forum.read：沿 ForumTree 祖先链找最近的非 inherit read_policy
+       public → ALLOW；members → 已登录即 ALLOW；restricted → 须持有该版块作用域的 forum.read 授权
+       全链 inherit → ALLOW（公开）
+  5. forum.write：沿 ForumTree 找最近的非 inherit write_policy
+       restricted → 须持有该版块（或祖先版块）作用域的 forum.write 授权（全局基线不算）
+       members / 全链 inherit → 登录用户凭全局 forum.write 即可
+     forum.moderate / 其它：沿作用域链级联合并（任一层命中即 ALLOW）；全局授权作基线
+  6. 默认拒绝
+```
+
+作用域链来自内存树 `ForumTree`（`path` 切分），评估器零 SQL 取链。
+
+### 8.4 旧数据翻译（v2）
+
+| 旧 | 新 |
+|----|----|
+| `nw_bbs_forum.allow_read` 白名单 | 含游客组 → `public`；含任一会员组 → `members`；否则 `restricted` + 逐团队角色 `forum.read` 作用域授权（admin 短路，不落行）。实测 43 版块：public 37 / restricted 6 |
+| `allow_post` ∪ `allow_reply` 白名单 | 含任一会员组 → `inherit`；否则 `write_policy=restricted` + 逐团队角色 `forum.write` 作用域授权。**实测「只有团队能发帖」的 6 个版块与 restricted 读版块是同一批** |
+| 旧 `operate_thread`（版主操作） | **不翻译**：对普通会员组只是设置数组（`up_time`/`topped_type`），不是开关；翻译会让全体会员获得版主权（迁移 v2 开发期曾踩到，已加翻译器白名单与对账护栏） |
+| `allow_upload` / `allow_download` 白名单 | `attachment.upload` / `attachment.download` 逐角色版块授权 |
+| `allow_visit` | 并入 `read_policy`（不再单列 `site.visit` 版块授权） |
+| `nw_user_ban` + 禁止发言组(6) + `nw_user_belong` 中的禁言 | `user_restrictions` |
+| `nw_user_belong` / 主组 → 团队角色 | `user_roles`（`scope_id=0`）；已删除组成员不恢复 |
+| 旧 `forum.manager` 名单（仅 1 个版块有值） | 不迁移（派生制取代，名单仅入报告） |
+| 版主授权 | 新建 `forum.moderate` 授权由站长在后台按需配置；迁移期不凭空派生版主 |
+
+### 8.5 测试（v2）
+
+词汇表每个权限点至少 1 例；`read_policy` 四取值各 ≥ 3 例；级联合并、就近层、restriction 优先、未验证邮箱各 ≥ 3 例；
+迁移后权限抽样 50 条人工对照（`docs/reports/` 留档）；覆盖率含服务层（DB 集成测试）。

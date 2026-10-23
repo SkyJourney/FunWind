@@ -5,6 +5,87 @@
 
 ## [Unreleased]
 
+### Added（M5.5 · S3-B / B0+B1 迁移 v2：身份、版块、限制、权限）
+
+- `forums.write_policy`（`inherit|members|restricted`）：旧站「只有团队组能发帖」的 6 个版块与 restricted 读版块是同一批；增量迁移 `0001_forum_write_policy`。
+- 迁移程序重构为 extract → transform（纯函数）→ load → verify 四层；`lib/php-serialize`（PHP 序列化解析器，取代 v1 的字符串匹配）；
+  `lib/report`（确定性 Markdown 报告，入库 `docs/reports/migration-v2-import.md` / `-verify.md`）。
+- 已迁入（临时库实测）：版块 43、主题前缀 91、用户 10,701（+资料）、用户限制 102、全局授权 117 + 版块作用域授权 68、用户角色 185。
+- 对账 v2 共 40 项，期望值用与实现不同的 SQL 路径独立推导；**二次运行两份报告逐字节一致**（幂等证据）。
+- `packages/db` 词汇表护栏单测；`migration` 引入 vitest，66 个测试，覆盖率 99%。
+
+### Fixed（M5.5 · B1）
+
+- **提权缺陷（开发期拦截）**：S2 词汇表曾把旧 `operate_thread` 映射为 `forum.moderate`，该键对普通会员只是设置数组（`up_time: 72`），
+  真值判断误判为开启，会让全体会员/团队组获得全局版主权。已修复：词汇表不再映射；翻译器对数组值只接受 `allow_thread_extend` 与 `panel_*` 开关数组；
+  对账新增「非 admin 无全局管理/版主权」护栏；各有回归测试。
+- 迁移每次先执行幂等 bootstrap（不再以 `migration_state` 是否存在判断初始化），保证词汇表与代码一致。
+- 迁移基线未重置：`write_policy` 以增量迁移 `0001` 追加（删除类命令被拒，改用 drizzle 标准做法）；基线合并留到 M13。
+
+### Added（M5.5 · S3-A `packages/content`）
+
+- 新包 `@funwind/content`：门控语法（`splitSource` / `assembleSource` / `validateGates`，条件规格可注入）与 UBB→Markdown 转换器 v2
+  （门控提取、表情静态化、遗留表情码删除、站内链接/旧图片改写、表格/hr/sup/sub、媒体降级）。
+- 69 个测试，覆盖率 99.7%；含 400 组随机嵌套的**泄露不变量**性质测试（隐藏内容绝不进入公开正文）。
+- 真实旧库只读验证（36,715 条正文）：零异常；门控 674 个（积分 309 = 旧 `[sell]` 帖数 / 回复可见 365）；汉字假名保留率 101.41%。
+
+### Fixed（M5.5 · S3-A，转换器相关）
+
+- **v1 转换器数据丢失缺陷**：`[attachment=N]`、`[li]`、媒体与未知标签没有闭合标签，v1 把其后全部正文当子节点吞掉
+  （约 200 个带附件的帖子的 `content_md` 在开发库中被截断）。v2 中这类标签未闭合时不再包裹后文；S3-B 全量重导后消除。
+- 样式标签（`[color]`/`[align]` 等）包住门控时，占位被塞进 HTML 标签而无法识别：改为占位提升为顶层块，两侧文本各自保留样式。
+- 颜色值白名单收紧（仅命名色/十六进制/rgb/hsl，其余函数调用整体丢弃）；媒体标签 URL 取内容优先于参数。
+
+### Changed（M5.5 · S2 schema v2：**破坏性**，分支 `feat/m5.5-schema-v2`）
+
+- **schema v2（38 张表）**：统一 post 模型、`forums` 物化路径 + `read_policy`、`user_restrictions`、`post_gates`/`gate_unlocks`、
+  `point_accounts`/`point_ledger`、`checkins`、`badges`、`audit_log`、会话模型私信等；`role_grants`/`user_roles` 改 `scope_id NOT NULL DEFAULT 0`；
+  业务表去掉全部 `raw`/`content_raw`；`groups`、`emoticon*`、`credit_logs`、`private_messages`、`message_dialogs`、`user_bans` 退出。
+- **迁移基线重置**：删除 v1 的 `0000–0005`，生成单个 `0000_init_v2.sql`；开发库须重建（S3 迁移 v2 重新导入）。
+- **权限词汇表 v2**：57 旧键 → 25 个权限点；`forum.manage` 并入 `forum.moderate`；`thread.sell/hide` → `gate.points/gate.reply`；
+  内置角色 guest/member/admin。纠正 v1 把旧 gid 23/38（实习组/策划组）映射反了的错误。
+- **bootstrap** 新增 `seedSystemData`（角色、权限点、首次基线授权、站点设置默认值；幂等、非破坏性）；列级 COLLATE 补丁泛化为 `PATCHES`。
+- `db:seed` 重写为 v2 演示夹具（受限版块、不上目录版块、门控、已购买、积分台账、封禁、团队角色）。
+
+### Added（M5.5 · S2）
+
+- `packages/db/src/schema-rules.ts`：schema 结构规则断言（唯一键无可空列 / 无 raw 归档列 / 整型 id 自增 / 有主键），`db:verify` 与单测共用。
+- `db:verify` 扩展到 10 项（含权限数据脏键零容忍、系统种子就位）。
+- `packages/db` 引入 vitest（含真实 MySQL 临时库集成测试）：29 个测试，覆盖率 98.7%。
+
+### Known（S2–S4 期间预期）
+
+- `apps/web` 与 `migration` 依赖 v1 schema，类型检查/构建为红，S3（迁移）与 S4（应用适配）恢复；main 分支不受影响。
+
+### Added（M5.5 · S1 设计定稿：重构里程碑，仅文档）
+
+- **M0–M5 深度审查**（2026-10-23）：库表逐张分类、旧站源码与旧库二次探查、M3–M5 代码复验。结论与证据见新增的
+  `docs/milestones/M5.5-schema-v2.md` 及 M3/M4/M5 里程碑文档的「复验发现」节。
+- **M5.5 里程碑文档**：数据模型 v2（统一 post、`forums` 物化路径 + `read_policy`、`user_restrictions`、`point_*`、`post_gates` 等）、
+  迁移 v2 转换规则（含丢弃清单）、S1–S5 分步、验收门禁，并把 M3–M5 的 P0/P1/P2 缺陷清账纳入 S4。
+- **`docs/GATES.md`**：门控规范——`:::gate{unlock=…}` 容器指令；隐藏内容保存时拆入 `post_gates`（`body_md` 只留占位）；
+  可插拔解锁条件注册表（`points` / `reply`，预留 `login`/`follow`/`time`）；SSR 切分渲染含「已购买」标签；`unlockGate` 单事务；
+  价格 0 = 登录后免费解锁，旧价 ≥ 9999 一律改免费，作者收益 100%（手续费默认 0）。
+- **`docs/POINTS.md`**：积分规范——单一用户积分（显示名可配），`point_accounts` + `point_ledger`，`applyPoints` 单一入口，
+  `pointChannels` 渠道注册；获取仅发帖/回帖/签到；不迁旧流水，每人一条期初余额。
+- 模块内核注册边界由六类扩为**八类**（`pointChannels`、`gateConditions`）；事件 `credit.changed` → `points.changed`，新增 `gate.unlocked`（实现随 S4）。
+- BLUEPRINT 新增重构决策 #11–#18、§3.2 schema v2 目标态、§4.2 内容转换 v2、红线 #7–#8；AUTHZ 新增 §8（v2 修订）；
+  LEGACY-FEATURE-MAP 新增「重构判定表」。
+
+### Changed
+
+- **ROADMAP**：插入 M5.5；M7 改为「积分与荣誉」并大幅收缩；M6 纳入编辑器与门控创作/购买；M10 收缩为交互层；M12 依赖 M5.5；
+  取消「M14 情怀遗珠」（银行/抽奖）、任务引擎、用户等级、`pw_*` 遗留表迁移。门禁勾选改以真实命令输出为准。
+- **M6–M13 里程碑文档**按新模型重写/修订（M6 编辑器选型推迟到开工时）。
+- 全局测试基线新增「集成（DB）」层，不得以 IO 层由 E2E 覆盖为由排除统计目录；`pre-push` 钩子运行单测。
+
+### Fixed（文档）
+
+- 清除 `docs/BLUEPRINT.md` 中的旧库 root 口令明文（改读根 `.env`；推送前仍需审计 git 历史）。
+- 订正文档漂移：权限「5 表」→ 4 表、README 进度、M3 重复「遗留事项」节、LEGACY-FEATURE-MAP 对签到机制的错误描述。
+- M3/M4/M5 里程碑文档追加「复验发现」：`pnpm test` 覆盖率门槛为红、权限翻译不幂等（`user_roles` 重复 5 倍）、
+  `role_grants` 脏键、管理动作无审计、首页权限泄露、门控内容变公开等——代码修复归 M5.5 S4。
+
 ### Added（M5 · 权限内核：现代 RBAC + 级联数据范围 + 分级权限）
 
 - **四表**：roles（builtin|custom）/permissions（resource + level + legacy_key + condition_params）/
