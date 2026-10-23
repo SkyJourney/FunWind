@@ -6,9 +6,10 @@
 ## 当前阶段
 
 - 阶段一·骨架 M1–M5 已交付，但 2026-10-23 审查发现其数据模型与多项门禁勾选需重做/更正。
-  **当前里程碑：M5.5 重构（数据模型 v2 + 迁移 v2 + 缺陷清账）**，S1 设计 ✅、S2 schema v2 ✅（packages/db）、**S3-A `packages/content` ✅**，**S3-B：B0+B1+B2 ✅（身份/版块/限制/权限/内容/积分/社交已迁入临时库，对账 83/83）**，B3（全量导入开发库）/S4 应用适配/S5 回归待开工；之后才是 M6 发帖。
+  **当前里程碑：M5.5 重构（数据模型 v2 + 迁移 v2 + 缺陷清账）**，S1 设计 ✅、S2 schema v2 ✅（packages/db）、**S3-A `packages/content` ✅**，**S3-B：B0+B1+B2 ✅（身份/版块/限制/权限/内容/积分/社交已迁入临时库，对账 83/83）**，**B3 ✅（开发库已重建为 v2 并全量导入）**，S3 全部完成；S4 应用适配/S5 回归待开工；之后才是 M6 发帖。
 - **工作分支 `feat/m5.5-schema-v2`**：`apps/web` 与 `migration` 仍依赖 v1 schema，类型检查/构建为红直到 S3/S4；S5 全绿后合回 main。
-  开发库 `qysub_next` 仍是 v1 结构，S3 会重建；schema 相关验证请用临时库（`NEW_DB_NAME=…`）。
+  开发库 `qysub_next` 现为 v2 纯导入（`apps/web` 在 S4 适配前无法在它上面运行）；`qysub_next_e2e` = 导入 + 演示夹具。
+  `verify:migration` 只对纯导入的库有意义（见 M5.5 文档 B3）。
 - **M5.5 是破坏性重构**：站长已确认任何破坏性变更均可接受（重新迁移即可）；M3–M5 的查询层/权限层/E2E 夹具将随 schema v2 重写。
 - 开工前先读：`docs/ROADMAP.md`（里程碑与 DoD）→ 对应 `docs/milestones/Mx-*.md`（范围/边界/测试/门禁）；M5.5 另读 `docs/GATES.md`、`docs/POINTS.md`、`docs/AUTHZ.md` §8。
 - 新功能落地前查 `docs/LEGACY-FEATURE-MAP.md`（末尾有重构判定表）追溯旧实现语义；模块内核契约看 `docs/MODULES.md`。

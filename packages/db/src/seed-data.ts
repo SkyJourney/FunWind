@@ -350,6 +350,7 @@ async function seedGates(db: Db) {
         seq: 1,
         conditions: [{ type: "points", price: 10 }],
         hiddenMd: "**付费内容**：这里是需要 10 积分才能解锁的隐藏正文。",
+        unlockCount: 1, // 与下方 demo_member 的解锁记录一致
         createdAt: "2026-10-12 09:00:00",
         updatedAt: "2026-10-12 09:00:00",
       },
@@ -363,7 +364,9 @@ async function seedGates(db: Db) {
         updatedAt: "2026-10-12 09:00:00",
       },
     ])
-    .onDuplicateKeyUpdate({ set: { hiddenMd: incoming("hidden_md") } });
+    .onDuplicateKeyUpdate({
+      set: { hiddenMd: incoming("hidden_md"), unlockCount: incoming("unlock_count") },
+    });
 
   // demo_member 已购买积分门控（迁移来源记录，不涉及台账）
   await db

@@ -29,6 +29,19 @@ const eq = (name: string, expected: number, actual: number, label = "") =>
 
 const asOfUnix = Math.floor(new Date(`${AS_OF.replace(" ", "T")}+08:00`).getTime() / 1000);
 
+// 对账只适用于「纯导入」的库：期望值来自旧库，叠加演示夹具（db:seed，id ≥ 90000）后数量必然不同
+{
+  const demo = await num("SELECT COUNT(*) n FROM users WHERE id >= 90000", newQuery);
+  if (demo > 0) {
+    console.error(
+      `✘ 当前库含 ${demo} 个演示用户（db:seed 的夹具），迁移对账只适用于纯导入的库。\n` +
+        `  请对未叠加演示数据的库运行（如 qysub_next），或先重建后只执行 pnpm migrate。`,
+    );
+    await closePools();
+    process.exit(2);
+  }
+}
+
 // ---------- 用户 ----------
 group = "用户";
 {

@@ -21,8 +21,8 @@
     "db:bootstrap": "pnpm --filter @funwind/db bootstrap",
     "db:seed": "pnpm --filter @funwind/db seed",
     "db:verify": "pnpm --filter @funwind/db verify",
-    "migrate": "pnpm --filter @funwind/db build && pnpm --filter @funwind/migration migrate",
-    "verify:migration": "pnpm --filter @funwind/db build && pnpm --filter @funwind/migration verify",
+    "migrate": "pnpm --filter @funwind/db build && pnpm --filter @funwind/content build && pnpm --filter @funwind/migration migrate",
+    "verify:migration": "pnpm --filter @funwind/db build && pnpm --filter @funwind/content build && pnpm --filter @funwind/migration verify",
     "verify:all": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm build"
   },
   "lint-staged": {
