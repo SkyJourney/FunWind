@@ -20,6 +20,7 @@
 ```
 
 - `unlock`：解锁条件类型（见 §3）；其余属性为该条件的参数，由条件注册项的 schema 校验。
+- `key`：门控在帖内的稳定身份（短字符串，如 `a1`）。**作者新写的门控不带 key**，保存时由服务端分配；编辑已有门控时 key 原样保留。
 - 价格 `price` 为非负整数；`0` 表示「登录后免费解锁」（旧站 `[sell=0,]` 语义，占旧购买记录的 91%）。
 - **只允许顶层块**：不得嵌套，不得出现在列表/引用/表格内。编辑器同步强制，保存时再校验。
 - 一个 post 可含多个门控；`seq` 按出现顺序编号。
@@ -30,9 +31,9 @@
 
 | 位置 | 内容 |
 |------|------|
-| `posts.body_md` | 仅公开部分；门控处只留空占位 `:::gate{id="17"}\n:::` |
-| `post_gates` | `id`, `post_id`, `seq`, `conditions`(JSON 数组), `match`(`all`\|`any`, 默认 `all`), `hidden_md`, `unlock_count`, `created_at`, `updated_at` |
-| `gate_unlocks` | `(gate_id, user_id)` 主键, `price_paid`, `author_income`, `ledger_id`, `source`(`purchase`\|`migrated`), `unlocked_at` |
+| `posts.body_md` | 仅公开部分；门控处只留空占位 `:::gate{key="a1"}\n:::` |
+| `post_gates` | `id`（自增）, `post_id`, **`gate_key`**（帖内唯一，`(post_id, gate_key)` 唯一）, `conditions`(JSON 数组), `match_mode`(`all`\|`any`, 默认 `all`), `hidden_md`, `unlock_count`, `created_at`, `updated_at` |
+| `gate_unlocks` | `(gate_id, user_id)` 主键, `price_paid`, `author_income`, `ledger_id`, `unlocked_at` |
 | `posts.has_gate` | 布尔位，无门控的帖子跳过全部门控查询 |
 
 **效果**：搜索、RSS、OG 摘要、通知预览、导出等任何只读 `body_md` 的路径都读不到隐藏内容。
@@ -41,7 +42,7 @@
 `conditions` 示例：`[{"type":"points","price":50}]`；组合条件（如回复且关注）为多元素数组 + `match`，现阶段只用单条件。
 
 **作者编辑**：作者/版主打开编辑时，`assembleSource(body_md, gates)` 把门控按 id 合并回完整源码；保存时 `splitSource()` 再拆。
-门控 id 在往返中保持稳定。有购买记录的门控**不可删除**，只能改内容；改价不退款，只影响之后的购买。
+门控 `key` 在往返中保持稳定，解锁记录因此不丢。有购买记录的门控**不可删除**，只能改内容；改价不退款，只影响之后的购买。
 
 ## 3. 解锁条件注册表（`gateConditions`）
 
@@ -54,7 +55,7 @@
 | `kind` | `stateful`（需用户动作，写 `gate_unlocks`）或 `derived`（每次渲染实时判定） |
 | `check(ctx)` | 返回 `satisfied` / `unsatisfied`（ctx 含 viewer、post、thread、params） |
 | `prompt(ctx)` | 未满足时的 UI 提示与动作（购买按钮 / 「回复本帖」链接 / 「登录」） |
-| `createPermission` | 创建该类门控所需权限点（如 `gate.points`、`gate.reply`；旧键 `thread.sell`/`thread.hide` 为 `legacy_key`） |
+| `createPermission` | 创建该类门控所需权限点（如 `gate.points`、`gate.reply`） |
 
 首批条件：
 
@@ -108,11 +109,11 @@ stateful 条件（`points`）的购买在**单个数据库事务**内完成：
 
 ## 6. 权限点
 
-| 权限点 | 含义 | 旧键 |
-|--------|------|------|
-| `gate.points` | 创建积分购买型门控 | `allow_thread_extend`(sell) |
-| `gate.reply` | 创建回复可见型门控 | `allow_thread_extend`(hide) |
-| `forum.moderate` | 免购查看（作用域内） | — |
+| 权限点 | 含义 |
+|--------|------|
+| `gate.points` | 创建积分购买型门控 |
+| `gate.reply` | 创建回复可见型门控 |
+| `forum.moderate` | 免购查看（作用域内） |
 
 ## 7. 旧数据迁移映射
 
@@ -121,7 +122,7 @@ stateful 条件（`points`）的购买在**单个数据库事务**内完成：
 | `[sell=N,…]`（309 帖） | `unlock="points"` price N | **N ≥ 9999（43 次）一律改为 0**，原价入对账报告；第二参数（如 `[sell=0,1]`）S3 考古后定 |
 | `[post]…[/post]`（306 帖） | `unlock="reply"` | — |
 | `[hide=N]`（5 帖） | `unlock="reply"` | 「积分可见」语义 S3 核对 |
-| `threads_buy`（6,984 行，91% 价格为 0，总花费 2,142 积分） | `gate_unlocks`（`source=migrated`） | 旧购买按帖子计，一帖多门控时展开为多条；不写台账 |
+| `threads_buy`（6,984 行，91% 价格为 0，总花费 2,142 积分） | `gate_unlocks` | 旧购买按帖子计，一帖多门控时展开为多条；不写台账；仅迁积分门控的购买，回复解锁由实际回帖派生 |
 
 迁移期即完成拆分（`hidden_md` 入 `post_gates`，`body_md` 只留占位），上线第一天不存在泄露窗口。
 对账项：任一 `hidden_md` 的特征片段不得出现在同 post 的 `body_md`。
@@ -130,7 +131,8 @@ stateful 条件（`points`）的购买在**单个数据库事务**内完成：
 
 `packages/content`（`@funwind/content`）已实现：`splitSource` / `assembleSource` / `validateGates`（门控语法）与 `ubbToMarkdown`（转换器 v2）。
 
-- **迁移用确定性门控 id**：`gate_id = post_id × 16 + seq`（单帖门控上限 15，超限抛 `RangeError` 由迁移显式处理）。同一帖重跑得到同一 id，`gate_unlocks` 的迁移展开因此幂等。
+- **门控身份用 `gate_key`**（首轮 v2 曾用 `post_id × 16 + seq` 这类 id 公式，已在 v2.1 废除：运行时不应理解迁移用的 id 公式）。
+  迁移按帖内出现顺序生成 `a1 a2 …`；单帖门控上限 15 个，超限抛 `RangeError`。迁移的可重复性靠「清空后按确定顺序重导」。
 - **位置规则**：门控只在文档顶层生效。包在样式标签（`[color]`/`[align]` 等）、未知标签或**未闭合**标签里的门控被提升为顶层块，两侧文本各自保留样式；
   位于**真正闭合**的 `[quote]`/`[list]`/`[table]` 内的门控内容**丢弃并留提示**（那是别人对原文的引用，宁可丢也不放进公开正文）。
 - **失败即封闭**：门控标签缺少闭合（`[sell=5,]` 之后没有 `[/sell]`）时，从该标签到所在容器末尾的内容都归入隐藏内容，

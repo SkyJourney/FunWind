@@ -31,6 +31,19 @@
 17. **积分抽象**：单一「用户积分」（显示名可配，默认青翼币），只做台账，获取仅发帖/回帖/签到；渠道注册 `pointChannels` 预留消费与获取的扩展；不迁旧流水，每人一条期初余额。详见 [POINTS.md](POINTS.md)。
 18. **取消**：用户等级/成长、任务引擎、勋章自动颁发、银行、抽奖、多币种。
 
+### 设计先行修订（2026-10-23，M5.5 R1，站长确认；与上文冲突处以本节为准）
+
+19. **设计先行，迁移只是适配层**：先按现代论坛原则定新系统（[DESIGN-MODEL.md](DESIGN-MODEL.md)，schema v2.1 共 43 表），旧数据向它靠拢；
+    运行时 schema 不出现 `legacy_*`、迁移标记、迁移用 id 公式；旧键映射只存在于 `migration/`。推翻第一轮 v2 中沿袭旧结构的部分。
+20. **不迁旧库归档类数据**：spam 空壳、回收站与屏蔽内容、私信、旧通知/公告一律不迁（推翻原先「回收站 hidden 迁入」的做法）；旧库只读保留至 M13 签字。
+    签到只迁每人最近的连续段；已注销作者建「已注销用户」占位账号，不加冗余列。
+21. **文件注册表**：新增 `files`（SHA-256 内容寻址）；附件、头像、正文图片、徽章图统一入库，`/files/<storage_key>` 取代 `/attachment/**`；非图片附件按所属版块读权限校验。
+22. **内容只有 Markdown**：不保留内联样式（`color`/`size`/`backcolor`/`align` 降级为纯文本语义），渲染白名单去掉 `style`。
+23. **内容状态机与审核**：`visible|pending|rejected|hidden|deleted`；版块 `review_policy`（inherit|none|threads|all）；`pending/rejected` 仅作者与版主可见，可编辑重新提交。
+24. **通知中心**：统一入口与未读数、按形态分别存储（`notifications` 逐人收件箱 + `announcements` 读取时合并 + 私信指针），分类互动/私信/审核与管理/账号与安全/公告；
+    内核注册边界扩为十类（+`notificationTypes`、`notificationChannels`），当前仅实现 `in_app`，邮件/推送只留口子。详见 [NOTIFICATIONS.md](NOTIFICATIONS.md)。
+25. **字段更名**：`topped → pin_level`（0无/1版块/2分区/3全站）、`digest → is_featured`；门控以帖内 `gate_key` 为稳定身份。
+
 ---
 
 ## 1. 技术栈
@@ -101,9 +114,9 @@
 schema 演进：P0 期的 `migration/schema/schema.sql` 为基线底稿；**M1 起以应用侧 Drizzle 定义为单一事实源**（决策 #10），
 零数据 bootstrap 与迁移导入共用同一建表管线。
 
-> ⚠️ **本节下表为 v1（P0–M5）的「忠实搬运」映射，仅作历史对照。** M5.5 起目标态为 schema v2（见下方 §3.2 与
-> [M5.5](milestones/M5.5-schema-v2.md)）：统一 post、`forums` 重做、`user_restrictions`、`post_gates`、`point_*`、
-> 会话模型等；`groups`、`emoticon*`、`credit_logs`、`private_messages`、`message_dialogs` 及所有 `raw`/`content_raw` 列退出。
+> ⚠️ **本节下表为 v1（P0–M5）的「忠实搬运」映射，仅作历史对照。** M5.5 起目标态为 schema v2.1（见下方 §3.2 与
+> [DESIGN-MODEL.md](DESIGN-MODEL.md)）：统一 post、`forums` 重做、`user_restrictions`、`post_gates`、`files`、`notifications`、`point_*`、
+> 会话模型等；`groups`、`emoticon*`、`credit_logs`、`private_messages`、`message_dialogs`、`migration_state` 及所有 `raw`/`content_raw`/`legacy_*` 列退出。
 
 | 新表 | 来源 | 要点 |
 |------|------|------|
@@ -122,19 +135,20 @@ schema 演进：P0 期的 `migration/schema/schema.sql` 为基线底稿；**M1 �
 
 完整 DDL（v1 历史基线）：`migration/schema/schema.sql`；v2 以 `packages/db/src/schema.ts` 为准。
 
-### 3.2 schema v2 目标态（M5.5）
+### 3.2 schema v2.1 目标态（M5.5，设计依据见 [DESIGN-MODEL.md](DESIGN-MODEL.md)）
 
-| 域 | 表 | 要点 |
+| 域 | 表（共 43） | 要点 |
 |----|----|------|
-| 身份 | `users`、`user_profiles`、`sessions`、`email_tokens`、`invite_codes`、`user_restrictions` | id 自增（起点 = 旧最大 uid + 1）；邮箱/用户名归一化列唯一；限制统一（封禁/禁言/禁头像） |
-| 版块 | `forums`、`forum_prefixes` | `parent_id` + `path` + `depth` + `kind` + `read_policy` + `is_listed`；内存树 `ForumTree` |
-| 内容 | `threads`、`posts`、`post_gates`、`gate_unlocks`、`attachments`、`tags`、`thread_tags` | 首帖 = floor 1；`body_md`；门控拆出独立表；附件 `post_id` 必填 |
-| 互动 | `reactions`、`follows`、`polls`、`poll_options`、`poll_votes`、`conversations`、`conversation_members`、`messages` | 迁移数据于 M5.5 入库，交互层归 M8/M10 |
-| 积分/荣誉 | `point_accounts`、`point_ledger`、`checkins`、`badges`、`user_badges` | 渠道注册；期初余额分录 |
-| 权限 | `roles`、`permissions`、`role_grants`、`user_roles` | `scope_id` 哨兵；内置角色 guest/member/admin |
-| 平台 | `event_log`、`module_state`、`site_settings`、`audit_log` | 管理动作统一审计 |
+| 身份（8） | `users`、`user_profiles`、`user_stats`、`user_restrictions`、`sessions`、`email_tokens`、`invite_codes`、`site_settings` | 保留 uid；`state(active\|deleted)`；邮箱/用户名归一化列唯一；限制统一（封禁/禁言/禁头像/禁签名） |
+| 版块（2） | `forums`、`forum_prefixes` | `parent_id` + `path` + `depth` + `kind`；`read_policy`/`write_policy`/`review_policy`；内存树 `ForumTree` |
+| 内容（9） | `threads`、`posts`、`post_gates`、`gate_unlocks`、`content_reviews`、`files`、`attachments`、`tags`、`thread_tags` | 首帖 = floor 1；`body_md`；`pin_level`/`is_featured`；门控 `gate_key`；文件内容寻址 |
+| 互动（8） | `reactions`、`follows`、`polls`、`poll_options`、`poll_votes`、`conversations`、`conversation_members`、`messages` | 迁移只带关注/点赞/投票，私信不迁；交互层归 M8/M10 |
+| 通知（4） | `notifications`、`notification_preferences`、`announcements`、`announcement_reads` | 见 NOTIFICATIONS.md；新表从空开始 |
+| 积分/荣誉（5） | `point_accounts`、`point_ledger`、`checkins`、`badges`、`user_badges` | 渠道注册；期初余额分录；签到仅最近连续段 |
+| 权限（4） | `roles`、`permissions`、`role_grants`、`user_roles` | `scope_id` 哨兵；内置角色 guest/member/admin，团队角色为站点数据 |
+| 平台（3） | `event_log`、`module_state`、`audit_log` | 管理动作统一审计；不含迁移状态表 |
 
-旧表 → 新表的逐项转换规则见 [M5.5 迁移 v2](milestones/M5.5-schema-v2.md)。
+旧表 → 新表的适配规则见 [M5.5 迁移适配](milestones/M5.5-schema-v2.md)。
 
 ## 4. 内容转换（UBB → Markdown）
 
@@ -162,6 +176,8 @@ schema 演进：P0 期的 `migration/schema/schema.sql` 为基线底稿；**M1 �
 - 表情 50 枚（`emotion_id` 120–169）静态化为 `apps/web/public/emoji/{emotion_id}.gif`（约 1.4MB，入库提交），渲染白名单随 S4 增加 `/emoji/` 前缀与 `<sup>`/`<sub>`。
 - 门控标签**优先于其它标签**：交叉嵌套（`[color][sell]…[/color]…[/sell]`）时门控边界不变；孤立的门控闭合标签丢弃；表格单元格内的门控占位提升到表格之后。
 - 门控标签未闭合时**失败即封闭**（到容器末尾都归入隐藏内容，不进公开正文）；旧库 tid 2023 的未闭合 `[sell]` 有 22 条购买记录，证明旧站按付费帖处理。
+- **v2.1 修订**：`color`/`size`/`backcolor`/`align` 不再保留为 HTML，降级为纯 Markdown（只留文本）；`[attach]`/`[attachment=N]` 与正文内图片改写为 `/files/<storage_key>`（见 DESIGN-MODEL §5）；
+  `/attachment/**` 在运行时退役，仅在迁移期作为读取旧文件的来源。
 - 未闭合标签规则：`[attachment=N]`、`[li]`、媒体标签及未知标签未闭合时**不包裹**后文（v1 会吞掉其后全部正文）。
 
 ## 4.5 URL 结构（M3 冻结，301 依赖）
@@ -179,15 +195,15 @@ schema 演进：P0 期的 `migration/schema/schema.sql` 为基线底稿；**M1 �
 - **注册**：`register.mode` = invite（默认，站点语义）/ open（邮箱验证令牌）；模式存 `site_settings`。
 - **会话**：不透明令牌 cookie（HttpOnly+Lax，Secure 随站点协议），库内仅存 SHA-256；登录轮换、改密/重置吊销全部；封禁/过期即时失效。
 - **找回/认领**：同一邮件令牌管线（purpose 区分）；找回=已设密账户、认领=`password_hash IS NULL` 老账户（服务端强校验）；频控与统一话术防枚举。
-- **封禁**：`user_bans`（fid=0 全局，end_time NULL 永久）；登录拦截+理由展示；全局封禁 → 站内只读横幅；版块级封禁由 M5 authz 消费。
+- **封禁**：v2 起统一为 `user_restrictions(kind=ban)`（`scope_id=0` 全局；`ends_at` 空 = 永久）；登录拦截+理由展示；全局封禁 → 站内只读横幅；版块级封禁由 authz 消费；设置/解除时发 `account.restricted` 通知。
 - **头像**：旧站算法 `avatar/{pad3(⌊uid/1e6⌋)}/{pad2(⌊uid/1e4⌋)}/{pad2(⌊uid/100⌋)}/{uid}[_middle|_small].jpg`，由 `/attachment/**` 直出。
 - **E2E**：独立库 `qysub_next_e2e` + 3200 端口 + MailPit（8025 API 抓信）；一键 `pnpm test:e2e`。
 
-## 5. 附件策略
+## 5. 附件策略（v2.1 修订）
 
-不复制文件。新系统以 `/attachment/**` 静态路由直指原目录（本地 dev 用 nginx/Next rewrite 指到
-`/Volumes/Docker/data/qingyisub/wwwroot/www.qingyisub.top/attachment`；生产 rsync 同布局）。
-元数据进 `attachments` 表。将来若要独立存储，路径语义不变，只换挂载点。
+不再直指旧站目录。迁移时把附件、头像、正文图片、徽章图计算 SHA-256 后复制进新存储（`STORAGE_DIR`，布局 `ab/cd/<sha256>.<ext>`），
+登记 `files` 并写 `attachments`；运行时统一经 `/files/<storage_key>` 提供。图片类公开；非图片附件按所属帖子的版块读权限校验并累加下载数。
+将来换对象存储只需替换存储适配层，路径语义不变。详见 [DESIGN-MODEL.md](DESIGN-MODEL.md) §5。
 
 ## 6. 里程碑（沿用四阶段，细化）
 

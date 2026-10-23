@@ -5,6 +5,18 @@
 
 ## [Unreleased]
 
+### Changed（M5.5 · R1：设计先行，文档重定）
+
+站长在 S4 开工前调整思路：**以新系统设计为原则，旧数据向它靠拢，迁移只是适配层**。第一轮 v2（S1–S3，38 表）中沿袭旧结构的部分将经 R2/R3 重做；
+本次 R1 仅改文档，未动代码。
+
+- 新增 [DESIGN-MODEL.md](docs/DESIGN-MODEL.md)：设计原则与 **schema v2.1（43 表）**——新增 `files`、`notifications`、`notification_preferences`、`announcements`、`announcement_reads`、`content_reviews`，删除 `migration_state`；
+  `topped→pin_level`、`digest→is_featured`；内容状态 `visible|pending|rejected|hidden|deleted`（去 `spam`）；`forums.review_policy`；门控 `gate_key`；运行时 schema 不含任何 `legacy_*`/迁移标记/id 公式。
+- 新增 [NOTIFICATIONS.md](docs/NOTIFICATIONS.md)：通知中心（互动/私信/审核与管理/账号与安全 + 公告），内核注册边界扩为十类（+`notificationTypes`、`notificationChannels`，仅实现 `in_app`），顶栏铃铛在 M8，完整页面后续独立里程碑。
+- 数据取舍：spam 空壳、回收站与屏蔽内容、私信、旧通知/公告**不迁**（旧库即归档）；附件迁入 `files` 内容寻址存储，`/files/**` 取代 `/attachment/**`；签到只迁最近连续段；正文内联样式降级为纯 Markdown。
+- 同步更新：BLUEPRINT（决策 #19–25、§3.2/§4.2/§5）、AUTHZ（`review_policy`、去 `legacy_key`）、GATES（`gate_key`）、MODULES（十类边界、事件清单 21 个）、ROADMAP，以及 M5.5、M6、M8、M9、M10 里程碑范围。
+- 计划：R2 重做 `packages/db` 与 `packages/content` → R3 迁移适配层重做并重建开发库 → S4 应用适配 → S5 收口。
+
 ### Changed（M5.5 · S3-B / B3：开发库重建为 v2）
 
 - **开发库 `qysub_next` 重建为 schema v2 并全量导入**（原 v1 结构、30 张表，已删除）：迁移对账 83/83、`db:verify` 10/10，

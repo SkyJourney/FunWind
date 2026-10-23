@@ -2,6 +2,7 @@
 
 > ⚠️ **M5.5 修订（2026-10-23）**：§1–§7 描述 M5 已交付的实现（v1）；复验发现其存在结构性缺陷，目标态见文末 **§8（v2）**。
 > 与 §8 冲突处以 §8 为准：`scope_type` → `scope_id` 哨兵、内置角色去掉 `muted`、版块可见性改 `read_policy`、版主改由 `forum.moderate` 派生、封禁/禁言并入 `user_restrictions`。
+> v2.1（设计先行）再做微调：权限表去掉 `legacy_key`/`condition_params`，团队角色改为站点数据，新增版块 `review_policy`，见 §8.2/§8.3/§8.4。
 
 > M5 落地：现代 RBAC + 级联数据范围 + 分级权限。
 > 设计取舍见 [LEGACY-FEATURE-MAP.md](LEGACY-FEATURE-MAP.md) 与 M5 里程碑文档。
@@ -118,16 +119,17 @@ member 并集差异、gid3 allow_post=0 疑点、旧版主名单。
 
 | 表 | 语义 |
 |----|------|
-| `roles` | `key` / `name` / `kind(builtin\|custom)`；内置仅 `guest` / `member` / `admin` |
-| `permissions` | 词汇表：`key` / `resource` / `level` / `legacy_key` / `condition_params` |
+| `roles` | `key` / `name` / `kind(builtin\|custom)`；内置仅 `guest` / `member` / `admin`。**团队角色（如青翼的字幕制作组）是站点数据**，由管理员创建，不随零数据安装下发 |
+| `permissions` | 词汇表：`key` / `resource` / `level` / `description`。**不含任何旧站字段**（v2.1 去掉 `legacy_key`、`condition_params`）；ABAC 参数到 M6 实现频控/编辑时限时按真实需求设计 |
 | `role_grants` | `(role_key, permission_key, scope_id)` 唯一；`scope_id=0` 全局 |
 | `user_roles` | `(user_id, role_key, scope_id)` 唯一；`expires_at` 可空（NULL 不进唯一键） |
 | `user_restrictions` | `kind(ban\|mute\|no_avatar\|no_signature…)` / `user_id` / `scope_id`（0 全站）/ `starts_at` / `ends_at`（NULL 永久）/ `reason` / `created_by` |
 | `forums.read_policy` | `inherit`（取最近非 inherit 祖先；全无则公开）\|`public`\|`members`\|`restricted` |
+| `forums.review_policy` | `inherit`（取最近非 inherit 祖先；全无则 none）\|`none`\|`threads`（新主题需审核）\|`all`（所有发帖需审核）。持有 `forum.moderate` 者发帖免审 |
 | `forums.write_policy` | `inherit`（取最近非 inherit 祖先；全无则 members）\|`members`\|`restricted`（须在该版块作用域持有 `forum.write` 授权，全局基线不算）。旧站「只有团队组能发帖」的 6 个版块即此类，也满足将来「只读公告版」需求 |
 | `audit_log` | `id` / `actor_id` / `action` / `target_type` / `target_id` / `before` / `after` / `ip` / `created_at` |
 
-词汇表变化：`thread.sell` → `gate.points`、`thread.hide` → `gate.reply`（保留 `legacy_key`）；新增 `forum.moderate`；
+词汇表变化：`thread.sell` → `gate.points`、`thread.hide` → `gate.reply`；新增 `forum.moderate`；
 `forum.manage` 并入 `forum.moderate`（`forum.write` 仅表示「可发帖/回帖/编辑自己的帖」）。
 
 ### 8.3 评估顺序（v2）
@@ -147,9 +149,13 @@ check(subject, "resource.action", { forumId? })
   6. 默认拒绝
 ```
 
+**发帖时的审核分流**（评估通过 `forum.write` 之后）：沿 ForumTree 取最近的非 inherit `review_policy`；
+`threads` 且为新主题、或 `all` → 内容以 `pending` 状态入库（持有 `forum.moderate` 者直接 `visible`）。
+内容状态机与可见性矩阵见 [DESIGN-MODEL.md](DESIGN-MODEL.md) §4。
+
 作用域链来自内存树 `ForumTree`（`path` 切分），评估器零 SQL 取链。
 
-### 8.4 旧数据翻译（v2）
+### 8.4 旧数据翻译（v2；v2.1 起该映射表只存在于 `migration/src/mapping/`，运行时不认识）
 
 | 旧 | 新 |
 |----|----|

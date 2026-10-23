@@ -18,9 +18,11 @@ export const myModule = defineModule({
   nav: [{ id: "my", label: "我的", href: "/my", order: 10 }], // M10 消费
   cron: [{ name: "my-daily", schedule: "0 3 * * *", run: async () => {} }], // M13 消费
   schemaFragments: [myTable], // M7 起消费（表仍需登记进 @funwind/db 单一事实源）
-  // —— 以下两类为 M5.5 新增边界（设计定稿，S4 落地到 kernel/types.ts）——
+  // —— 以下四类为 M5.5 新增边界（设计定稿，S4 落地到 kernel/types.ts）——
   pointChannels: [{ key: "earn.checkin", direction: "earn", label: "签到奖励" }], // 见 docs/POINTS.md
   gateConditions: [{ type: "login", kind: "derived", /* paramsSchema/check/prompt */ }], // 见 docs/GATES.md
+  notificationTypes: [{ key: "badge.awarded", category: "account", aggregate: false, mandatory: false }], // 见 docs/NOTIFICATIONS.md
+  notificationChannels: [{ key: "in_app", deliver: async (n, user) => {} }], // 当前仅站内；email/push 预留
   tokenOverrides: { "--accent": "var(--fw-teal-500)" },
   routePrefix: "/my",         // 约定：自有页面放 src/app/(module-my)/…
 });
@@ -30,24 +32,36 @@ export const myModule = defineModule({
 —— **启用/停用运行中模块 = `pnpm --filter @funwind/web modules:toggle <id> <on|off>`**（module_state 表；
 M9 后由管理后台管理）。
 
-## 事件清单（11 个，M5.5 修订；`credit.changed` 已改名 `points.changed`，新增 `gate.unlocked`）
+## 事件清单（21 个，M5.5 v2.1 设计定稿）
 
-> M5.5 同时把注册边界由六类扩为**八类**：新增 `pointChannels`（[POINTS.md](POINTS.md)）与 `gateConditions`（[GATES.md](GATES.md)）。
+> M5.5 把注册边界由六类扩为**十类**：新增 `pointChannels`（[POINTS.md](POINTS.md)）、`gateConditions`（[GATES.md](GATES.md)）、
+> `notificationTypes`、`notificationChannels`（[NOTIFICATIONS.md](NOTIFICATIONS.md)）。
 > 本节与上方示例为设计定稿，`kernel/types.ts` 在 M5.5 S4 落地；落地时事件清单以代码为准并回写本文。
+> 事件的一部分专为驱动通知而设：通知模块消费这些事件，解析接收人后写入（见 NOTIFICATIONS.md §4）。
 
 | 事件 | payload | 首个派发者 |
 |------|---------|-----------|
-| `user.logged_in` | `{ userId }` | M4 认证（承接旧 after_login） |
+| `user.logged_in` | `{ userId }` | M4 认证 |
 | `user.registered` | `{ userId }` | M4 注册 |
-| `thread.created` | `{ threadId, forumId, authorId }` | M6 发帖（承接旧 after_post） |
-| `thread.replied` | `{ threadId, postId, authorId }` | M6 回帖（承接旧 after_reply） |
+| `user.followed` | `{ userId, targetType, targetId }` | M8 关注 |
+| `thread.created` | `{ threadId, forumId, authorId }` | M6 发帖 |
+| `thread.replied` | `{ threadId, postId, authorId, replyToPostId? }` | M6 回帖 |
 | `thread.edited` | `{ threadId, editorId }` | M6 编辑 |
 | `thread.deleted` | `{ threadId, operatorId }` | M6 删除 |
-| `attachment.uploaded` | `{ attachmentId, uploaderId }` | M6 上传 |
-| `points.changed` | `{ userId, channel, delta }` | M5.5 积分核心 `applyPoints`（原 `credit.changed`，M5.5 改名） |
-| `gate.unlocked` | `{ gateId, userId, authorId, price }` | M5.5 `unlockGate`（M6 交互；M8 通知据此向作者发收益通知） |
-| `medal.awarded` | `{ userId, medalId }` | M7 medals |
-| `checkin.done` | `{ userId, streak }` | M7 checkin |
+| `thread.moderated` | `{ threadId, operatorId, action: lock\|unlock\|move\|feature\|pin, detail? }` | M9 版主操作 |
+| `content.submitted` | `{ postId, authorId, forumId, pending }` | M6 提交（版块需审核时 `pending=true`） |
+| `content.moderated` | `{ postId, operatorId, action: approve\|reject\|remove\|hide\|restore, reason? }` | M9 审核/版主操作 |
+| `post.mentioned` | `{ postId, authorId, mentionedUserId }` | M6 保存时解析 @ |
+| `reaction.added` | `{ userId, postId, kind }` | M8 点赞 |
+| `message.sent` | `{ conversationId, messageId, senderId, recipientId }` | M10 私信 |
+| `attachment.uploaded` | `{ attachmentId, fileId, uploaderId }` | M6 上传 |
+| `restriction.changed` | `{ userId, kind, action: created\|lifted, operatorId, reason?, endsAt? }` | M9 限制管理 |
+| `role.changed` | `{ userId, roleKey, scopeId, action: granted\|revoked, operatorId }` | M9 角色管理 |
+| `announcement.published` | `{ announcementId, createdBy }` | M9 公告管理 |
+| `points.changed` | `{ userId, channel, delta }` | M5.5 积分核心 `applyPoints` |
+| `gate.unlocked` | `{ gateId, userId, authorId, price }` | M5.5 `unlockGate`（M6 交互） |
+| `badge.awarded` | `{ userId, badgeId }` | M7 徽章（原 `medal.awarded`） |
+| `checkin.done` | `{ userId, streak }` | M7 签到 |
 
 ## 槽位清单（M2 启用 home.*；页面级随 M3 扩充）
 
@@ -68,7 +82,9 @@ M9 后由管理后台管理）。
 3. **审计**：每次 emit 落 `event_log`（payload/actor/source/错误摘要）；落库失败仅降级告警。
    **actor 语义**：`event_log.actor_id` = 动作发起者，按事件映射 payload 字段
    （user.\* → userId；thread.created/replied → authorId；thread.edited → editorId；
-   thread.deleted → operatorId；attachment.uploaded → uploaderId）；
+   thread.deleted / thread.moderated / content.moderated / restriction.changed / role.changed → operatorId；
+   content.submitted / post.mentioned → authorId；attachment.uploaded → uploaderId；
+   announcement.published → createdBy；其余按 payload 的 userId / senderId）；
    调用方显式传 `deps.actorId` 时覆盖映射（如代操作场景）。
 4. **装卸**：注册（编译期，改 modules/index.ts）与启用（运行期，module_state）分离；禁用模块不渲染不消费，注册信息保留。
 5. **注册表封板**：modules/index.ts 求值完毕即封板，运行时注册抛错（无热插拔）。

@@ -18,12 +18,12 @@
 | [M3](milestones/M3-content-readonly.md) | 内容只读渲染 | M01/M04 | 一·骨架 | ✅ 2026-10-23 |
 | [M4](milestones/M4-users-auth.md) | 用户与认证 | M02 | 一·骨架 | ✅ 2026-10-23 |
 | [M5](milestones/M5-authz.md) | 权限内核（RBAC/ABAC） | M03 | 一·骨架 | ✅ 2026-10-23（复验发现由 M5.5 清账） |
-| [M5.5](milestones/M5.5-schema-v2.md) | **重构：数据模型 v2 与迁移 v2** | M01–M07 数据层 + 缺陷清账 | 一·骨架 | 🚧 S1 设计定稿（2026-10-23） |
+| [M5.5](milestones/M5.5-schema-v2.md) | **重构：数据模型 v2 与迁移 v2** | M01–M07 数据层 + 缺陷清账 | 一·骨架 | 🚧 设计先行重做中：R1 文档 → R2 schema → R3 迁移适配 → S4 应用适配 → S5 收口（2026-10-23） |
 | [M6](milestones/M6-posting.md) | 发帖与内容生产（含编辑器、门控创作与购买） | M01 交互层 | 二·核心 | ⬜ |
 | [M7](milestones/M7-gamification.md) | 积分与荣誉（积分台账/签到/荣誉徽章） | M07 | 二·核心 | ⬜ |
-| [M8](milestones/M8-interact-search.md) | 互动套件与检索 | M05/M06 | 二·核心 | ⬜ |
-| [M9](milestones/M9-admin.md) | 管理后台与站点框架 | M10/M11/M13 | 三·完善 | ⬜ |
-| [M10](milestones/M10-poll-pm.md) | 投票与私信（交互层） | M08/M09 | 三·完善 | ⬜ |
+| [M8](milestones/M8-interact-search.md) | 互动套件、**通知中心后端与顶栏铃铛**、检索 | M05/M06 | 二·核心 | ⬜ |
+| [M9](milestones/M9-admin.md) | 管理后台（含审核队列、公告管理）与站点框架 | M10/M11/M13 | 三·完善 | ⬜ |
+| [M10](milestones/M10-poll-pm.md) | 投票与私信（私信接入通知指针） | M08/M09 | 三·完善 | ⬜ |
 | [M11](milestones/M11-themes-pwa.md) | 主题包与 PWA | M12 | 三·完善 | ⬜ |
 | [M12](milestones/M12-install-wizard.md) | 安装向导与零数据部署 | 数据层基建 | 三·完善 | ⬜ |
 | [M13](milestones/M13-launch.md) | 部署与社区重启 | P4 | 三·上线 | ⬜ |
@@ -38,6 +38,8 @@ M1 ─ M2 ─ M3 ─ M4 ─ M5 ─ M5.5 ─ M6 ─ M7 ─ M8 ── M9 ──┐
 ```
 
 > M5.5 是**重构里程碑**：地基（schema、迁移、权限、积分与门控抽象）重做对之后才进入写路径。
+> 2026-10-23 起采用**设计先行**：先定目标模型（[DESIGN-MODEL.md](DESIGN-MODEL.md)，43 表），迁移只是适配层。
+> **完整通知中心页面**不在 M1–M13 内，作为后续独立里程碑（后端与铃铛在 M8，设计见 [NOTIFICATIONS.md](NOTIFICATIONS.md)）。
 > M12（安装向导）依赖 M4 + M5.5 + M9；M13（部署上线）依赖 M9 + M12。
 > 里程碑文档中的门禁勾选一律以**真实命令输出**为准（M0–M5 复验发现多处勾选与实测不符，见各里程碑「复验发现」节）。
 >

@@ -6,12 +6,13 @@
 ## 当前阶段
 
 - 阶段一·骨架 M1–M5 已交付，但 2026-10-23 审查发现其数据模型与多项门禁勾选需重做/更正。
-  **当前里程碑：M5.5 重构（数据模型 v2 + 迁移 v2 + 缺陷清账）**，S1 设计 ✅、S2 schema v2 ✅（packages/db）、**S3-A `packages/content` ✅**，**S3-B：B0+B1+B2 ✅（身份/版块/限制/权限/内容/积分/社交已迁入临时库，对账 83/83）**，**B3 ✅（开发库已重建为 v2 并全量导入）**，S3 全部完成；S4 应用适配/S5 回归待开工；之后才是 M6 发帖。
+  **当前里程碑：M5.5 重构（设计先行）**。2026-10-23 站长调整思路：**先定目标模型（`docs/DESIGN-MODEL.md`，schema v2.1 共 43 表，含通知中心），旧数据向它靠拢，迁移只是适配层**。
+  第一轮 v2（S1–S3，38 表）已提交，但其中沿袭旧结构的部分要重做：**R1 文档（进行中）→ R2 重做 `packages/db` 与 `packages/content` → R3 迁移适配层重做并重建开发库 → S4 应用适配 → S5 收口**；之后才是 M6 发帖。
 - **工作分支 `feat/m5.5-schema-v2`**：`apps/web` 与 `migration` 仍依赖 v1 schema，类型检查/构建为红直到 S3/S4；S5 全绿后合回 main。
   开发库 `qysub_next` 现为 v2 纯导入（`apps/web` 在 S4 适配前无法在它上面运行）；`qysub_next_e2e` = 导入 + 演示夹具。
   `verify:migration` 只对纯导入的库有意义（见 M5.5 文档 B3）。
 - **M5.5 是破坏性重构**：站长已确认任何破坏性变更均可接受（重新迁移即可）；M3–M5 的查询层/权限层/E2E 夹具将随 schema v2 重写。
-- 开工前先读：`docs/ROADMAP.md`（里程碑与 DoD）→ 对应 `docs/milestones/Mx-*.md`（范围/边界/测试/门禁）；M5.5 另读 `docs/GATES.md`、`docs/POINTS.md`、`docs/AUTHZ.md` §8。
+- 开工前先读：`docs/ROADMAP.md`（里程碑与 DoD）→ 对应 `docs/milestones/Mx-*.md`（范围/边界/测试/门禁）；M5.5 另读 `docs/DESIGN-MODEL.md`（数据模型依据）、`docs/NOTIFICATIONS.md`、`docs/GATES.md`、`docs/POINTS.md`、`docs/AUTHZ.md` §8。
 - 新功能落地前查 `docs/LEGACY-FEATURE-MAP.md`（末尾有重构判定表）追溯旧实现语义；模块内核契约看 `docs/MODULES.md`。
 - 里程碑文档的门禁勾选**以真实命令输出为准**；M0–M5 复验发现多处勾选与实测不符。
 
@@ -48,9 +49,11 @@ pnpm --filter @funwind/web perf:lcp                       # 生产构建 LCP 门
 ## 硬约定（违反即回退）
 
 1. **旧库只读**：只允许 SELECT/SHOW/DESC，迁移程序有代码级守卫。迁移是**一次性全量导入**：迁移独占的表整体替换式加载，检测到线上数据会拒绝重跑（`MIGRATION_FORCE=1` 强制）。
-2. **保留旧主键**（uid/tid/pid/fid/aid）；新记录自增。**v2 起业务表不带 `raw`/`content_raw`**，正文只留 `body_md`；
-   未被新模型使用的旧表一律丢弃、**不建归档库**；旧库保持只读且在 M13 签字前不得删除。
-3. **垃圾只标记不删除**（v2 为 `state=spam`）；旧密码不迁移（`password_hash=NULL`，走邮件认领/重置）。
+2. **只保留 URL 必须稳定的旧主键**（uid/fid/tid/pid）；其余 id 自增。业务表不带 `raw`/`content_raw`，正文只留 `body_md`；
+   未被新模型使用的旧表一律丢弃、**不建归档库**；旧库保持只读且在 M13 签字前不得删除（即归档）。
+2a. **运行时 schema 不认识旧站**：禁止 `legacy_*` 列、`migrated` 标记、迁移用 id 公式、`migration_*` 表；旧键映射/旧 gid/旧路径只放 `migration/`。
+    被引用但已不存在的作者建「已注销用户」占位账号（`state=deleted`），不在内容表加冗余列。`schema-rules.ts` 将加断言（R2）。
+3. **垃圾空壳、回收站与屏蔽内容、私信不迁**（旧库即归档）；内容状态机为 `visible|pending|rejected|hidden|deleted`；旧密码不迁移（`password_hash=NULL`，走邮件认领/重置）。
 3a. **唯一键不得依赖 NULL 去重来表达作用域/层级**：全局作用域用 `scope_id = 0` 哨兵（MySQL 唯一索引不去重 NULL）。
     唯一例外：单列且「空值 = 没有」即期望语义（`users.email_key`）。由 `packages/db/src/schema-rules.ts` 断言，`db:verify` 与单测强制。
 3b. **隐藏内容只能经 `getGateContent` 读取**；`body_md` 永远只含公开部分（门控规范见 `docs/GATES.md`）。
@@ -59,7 +62,7 @@ pnpm --filter @funwind/web perf:lcp                       # 生产构建 LCP 门
 5. **DB 连接**：web 运行时只用 `getWebDb()` 单例；`withDb` 仅限一次性脚本。
 6. **渲染**：用户内容必须经 `lib/markdown.ts` + `lib/sanitize.ts` 管线，禁止 `dangerouslySetInnerHTML` 直出原文。
 7. **权限**：一律走 `lib/authz` 的 `checkPermission`；越权对外表现为 **404**（不暴露存在性）；不允许硬编码身份判断。
-8. **URL 已冻结**：`/f/{fid}`、`/t/{tid}`、`?page=`、`#p{pid}`、`/attachment/**`、`/emotion/**`（M13 的 301 依赖）。
+8. **URL 已冻结**：`/f/{fid}`、`/t/{tid}`、`?page=`、`#p{pid}`（M13 的 301 依赖）。文件统一走 `/files/<storage_key>`（取代 `/attachment/**`，S4 起生效）；表情为 `/emoji/{id}.gif`。
 9. **模块**：扩事件/槽位 = 改 `modules/kernel/types.ts` + 同步 `docs/MODULES.md`；使用内核的 route handler 必须自行 `import "@/modules"`。
 10. **schema 变更**：改 `packages/db/src/schema.ts` → `drizzle-kit generate` → 提交迁移 SQL → `db:verify` 通过；迁移程序与应用共用同一管线。
 11. **数据层双模式**：零数据部署是默认路径，青翼导入只是可选路径，应用代码不得依赖旧库。
