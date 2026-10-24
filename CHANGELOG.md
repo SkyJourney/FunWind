@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### Security（M5.5 之后审查 · P2 小批 6/6：演示种子的生产守卫）
+
+- `db:seed` 会写入固定口令的演示管理员与固定邀请码，在真实站点库误跑等于开后门，此前没有任何保护。新增 `packages/db/src/seed-guard.ts`，`db:seed` 与 `db:e2e-fixtures` 启动前先过守卫：`NODE_ENV=production`，或目标库里已有**非演示用户**（用户名键不以 `demo_` / `e2e_` 开头，即真实注册或迁移导入的账号）→ 拒绝并打印原因，须显式 `--force` 才覆盖（并留下警告）。
+- 空库与纯演示库照常放行（种子本身幂等，重复跑不受影响）。判定为纯函数；`LIKE` 前缀里的 `_` 已转义，`demoxadmin` 之类长得像演示前缀的真实用户名不会被放过（去掉转义后集成测试变红）。
+- 真实命令验证：迁移库（10763 个真实用户）上 `db:seed` / `db:e2e-fixtures` 均拒绝且未写入任何演示用户；E2E 库加 `NODE_ENV=production` 拒绝，非生产放行。被拒绝时脚本只输出中文原因并以非零码退出，不再多打堆栈。
+
 ### Fixed（M5.5 之后审查 · P2 小批 5/6：硬约定 9 的守卫）
 
 - `app/admin/actions.ts` 经 `lib/authz/admin.ts` 派发 `role.changed`，自己却没有 `import "@/modules"`：注册表不在该服务端上下文求值时，事件只落 `event_log`、消费者不会被调用。目前没有消费者所以无感，M8 通知订阅后会静默丢通知。已补上引入。

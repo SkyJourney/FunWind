@@ -47,7 +47,7 @@ cp .env.example .env        # 填入口令（见下表）
 # ── 数据层双模式（决策 #10）：二选一或先 A 后 B ──
 # A. 零数据部署路径：空库建表 + 可选演示种子
 pnpm db:bootstrap           # 空库建表（Drizzle 版本化迁移，幂等）
-pnpm db:seed                # 演示数据（90000+ 号段，幂等，仅开发用）
+pnpm db:seed                # 演示数据（90000+ 号段，幂等，仅开发用；生产环境或库里有真实用户时拒绝，须 --force）
 # B. 青翼导入路径（可选）：phpwind 旧库 → qysub_next
 pnpm migrate                # 全量导入（幂等，可重跑）
 pnpm verify:migration       # 23 项对账（行数/MD5/转换完整性/垃圾标记/附件/楼层）
