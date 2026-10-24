@@ -1,120 +1,188 @@
-import { permissionSatisfies } from "@funwind/db";
+import { permissionSatisfies, PERMISSION_DEFINITIONS } from "@funwind/db";
+import type { AuthzSnapshot, Decision, GrantRow, Subject } from "./types";
 
 /**
- * 权限评估器（M5，纯函数）。
- * 语义（见 docs/AUTHZ.md）：
- *  1. admin 内置角色 → 短路 ALLOW
- *  2. muted（禁言）→ 发帖类权限 DENY（优先于授权）
- *  3. 作用域链（forum → 父链）分两种语义：
- *     - 读类（forum.read）：**显式优先**——链上最近一「有该权限点配置」的层说了算，不再回退父级。
- *       （旧站 allow_read 是每版块独立白名单；若无回退，父级公开读会击穿子级受限版块）
- *     - 管理类（forum.write/manage）：**级联合并**——任一层命中即生效。
- *       （新设计：子版块自动带父版块版主的能力）
- *     - 链上完全无配置 → 走默认策略（读=游客可读；写=注册用户）
+ * 权限评估器（纯函数，零 SQL）。顺序与语义见 docs/AUTHZ.md §8.3：
+ *   未知权限点 → admin 短路 → 用户限制 → 开放注册未验证邮箱 → 按权限点类型分派
+ *   forum.read   ：沿版块树取最近的非 inherit read_policy（public / members / restricted）
+ *   forum.write  ：先过读判定，再取 write_policy（restricted 须在版块作用域持有授权，全局基线不算）
+ *   其余（含 forum.moderate）：级联合并——适用作用域内任一授权命中即允许
+ * 默认拒绝；评估器不内置“游客可读/会员可写”之类硬编码默认值（读靠策略默认公开，写靠基线授权）。
  */
 
-export interface GrantRow {
-  roleKey: string;
-  permissionKey: string;
-  /** 作用域层级：0=目标版块，1=父级…，末层=全局；用于就近优先判定 */
-  layer: number;
-  /** 作用域类型：forum=版块显式配置，global=全局基线 */
-  scopeType: "forum" | "global";
+/**
+ * 写类权限：会产生内容或社交副作用的动作。禁言/封禁与“开放注册未验证邮箱”拦的就是这一类。
+ * 浏览、举报、参与投票、查看投票结果不在其中——禁言不应妨碍举报与投票。
+ */
+export const WRITE_CLASS_KEYS: ReadonlySet<string> = new Set([
+  "forum.write",
+  "thread.replyLocked",
+  "gate.points",
+  "gate.reply",
+  "attachment.upload",
+  "vote.create",
+  "pm.send",
+  "tag.add",
+  "tag.edit",
+  "tag.manage",
+]);
+
+/** 非写类权限（显式列出，使词汇表里每个键都有明确归类；见单测的完备性断言） */
+export const NON_WRITE_CLASS_KEYS: ReadonlySet<string> = new Set([
+  "site.visit",
+  "site.admin",
+  "admin.roles",
+  "admin.users",
+  "admin.reports",
+  "admin.logs",
+  "admin.recycle",
+  "forum.read",
+  "forum.moderate",
+  "forum.report",
+  "attachment.download",
+  "vote.participate",
+  "vote.view",
+  "sign.use",
+  "user.viewIp",
+]);
+
+const KNOWN_KEYS: ReadonlySet<string> = new Set(PERMISSION_DEFINITIONS.map((p) => p.key));
+
+const allow = (reason: string): Decision => ({ allowed: true, reason });
+const deny = (reason: string): Decision => ({ allowed: false, reason });
+
+export interface EvalContext {
+  /** 版块作用域；缺省为站点级 */
+  forumId?: number;
 }
 
-export interface EvaluateInput {
-  /** 用户全部有效角色键（隐式 member/guest + user_roles 绑定，过期已过滤） */
-  roleKeys: readonly string[];
-  /** 全局禁言生效 */
-  mutedActive: boolean;
-  /** 用户角色在作用域链上的全部有效授权（按角色键直查 role_grants） */
-  grants: readonly GrantRow[];
-  permissionKey: string;
-}
+export function evaluate(
+  subject: Subject,
+  permissionKey: string,
+  ctx: EvalContext,
+  snap: AuthzSnapshot,
+): Decision {
+  if (!KNOWN_KEYS.has(permissionKey)) return deny(`未知权限点: ${permissionKey}`);
 
-export interface EvaluateResult {
-  allowed: boolean;
-  reason: string;
-}
+  const { tree } = snap;
+  if (ctx.forumId !== undefined && !tree.has(ctx.forumId)) return deny("版块不存在");
+  const chain = ctx.forumId !== undefined ? tree.chain(ctx.forumId) : [];
+  /** 作用域是否适用：全局恒适用；版块作用域仅当目标版块位于其子树内 */
+  const applies = (scopeId: number): boolean => scopeId === 0 || chain.includes(scopeId);
 
-export const BUILTIN = {
-  GUEST: "guest",
-  MEMBER: "member",
-  MUTED: "muted",
-  ADMIN: "admin",
-} as const;
+  // 1. admin 短路（角色绑定本身也受作用域约束）
+  const held = new Set(subject.roles.filter((r) => applies(r.scopeId)).map((r) => r.key));
+  if (held.has("admin")) return allow("admin");
 
-/** muted 禁言封堵的权限：发帖/回帖/附件上传/私信（浏览不受限） */
-export function isMutedBlocked(permissionKey: string): boolean {
-  return (
-    permissionKey === "forum.write" ||
-    permissionKey.startsWith("thread.") ||
-    permissionKey === "pm.send" ||
-    permissionKey === "attachment.upload"
-  );
-}
-
-/** 读类权限：显式优先（就近层判定，不回退父级） */
-export function isStrictScope(permissionKey: string): boolean {
-  return permissionKey === "forum.read";
-}
-
-/** 默认策略（链上无任何配置时）：游客可读，注册用户可写 */
-function defaultAllowed(permissionKey: string, roleKeys: readonly string[]): boolean {
-  if (permissionKey === "forum.read" || permissionKey === "site.visit") return true;
-  if (permissionKey === "forum.write") return roleKeys.includes(BUILTIN.MEMBER);
-  return false;
-}
-
-export function evaluate(input: EvaluateInput): EvaluateResult {
-  const roles = input.roleKeys;
-
-  // 1. admin 短路
-  if (roles.includes(BUILTIN.ADMIN)) {
-    return { allowed: true, reason: "admin" };
+  // 2. 用户限制优先于任何授权
+  const isWrite = WRITE_CLASS_KEYS.has(permissionKey);
+  for (const r of subject.restrictions) {
+    if (!applies(r.scopeId)) continue;
+    if (isWrite && (r.kind === "ban" || r.kind === "mute")) {
+      return deny(r.kind === "ban" ? "账号已被封禁" : "账号处于禁言状态");
+    }
+    if (r.kind === "no_signature" && permissionKey === "sign.use") {
+      return deny("账号被禁止使用签名档");
+    }
   }
 
-  // 2. muted：禁言优先于任何授权
-  if (input.mutedActive && isMutedBlocked(input.permissionKey)) {
-    return { allowed: false, reason: "账号处于禁言状态" };
+  // 3. 开放注册模式下，邮箱未验证的登录用户不得执行写类动作（邀请制不受影响）
+  if (
+    isWrite &&
+    subject.userId !== null &&
+    subject.registerMode === "open" &&
+    !subject.emailVerified
+  ) {
+    return deny("请先验证邮箱");
   }
 
-  // 3. 授权匹配
-  const mine = input.grants.filter((g) => roles.includes(g.roleKey));
-  const exact = mine.filter((g) => g.permissionKey === input.permissionKey);
-  const satisfying = mine.filter((g) => permissionSatisfies(g.permissionKey, input.permissionKey));
-
-  if (isStrictScope(input.permissionKey)) {
-    // 显式优先：链上「任何角色」在【版块作用域】对该权限点有配置的最浅层 → 只在该层判定
-    // （全局行是基线兜底，不参与就近层锚定——否则 admin 的全局授权会掩盖子版块的显式限制）
-    const forumLayers = [
-      ...new Set(
-        input.grants
-          .filter((g) => g.permissionKey === input.permissionKey && g.scopeType === "forum")
-          .map((g) => g.layer),
+  /** 持有（适用作用域内）满足该权限点的授权；scopeFilter 可进一步限定授权的作用域 */
+  const hasGrant = (key: string, scopeFilter: (scopeId: number) => boolean): boolean =>
+    [...held].some((role) =>
+      (snap.grantsByRole.get(role) ?? []).some(
+        (g: GrantRow) =>
+          applies(g.scopeId) && scopeFilter(g.scopeId) && permissionSatisfies(g.permissionKey, key),
       ),
-    ];
-    if (forumLayers.length === 0) {
-      // 无版块级配置 → 回退全局层，再退默认策略
-      const globalHit = exact.find((g) => g.scopeType === "global");
-      if (globalHit) return { allowed: true, reason: "授权（全局基线）" };
-      return defaultAllowed(input.permissionKey, roles)
-        ? { allowed: true, reason: "默认策略" }
-        : { allowed: false, reason: "默认拒绝" };
-    }
-    const nearest = Math.min(...forumLayers);
-    if (exact.some((g) => g.layer === nearest && g.scopeType === "forum")) {
-      return { allowed: true, reason: "授权" };
-    }
-    return { allowed: false, reason: "该版块显式限制（就近层不匹配）" };
+    );
+  /** 仅版块作用域（scope>0）的授权；全局基线不算 */
+  const forumScoped = (s: number): boolean => s > 0;
+  const anyScope = (): boolean => true;
+
+  // 4. 按权限点类型分派
+  if (permissionKey === "forum.read") {
+    if (ctx.forumId === undefined) return allow("站点默认公开");
+    return readDecision(subject, ctx.forumId, snap, (k) => hasGrant(k, forumScoped));
   }
 
-  // 级联合并：任一层命中即允许（版主继承语义）
-  if (exact.length > 0) return { allowed: true, reason: "授权" };
-  if (satisfying.length > 0) return { allowed: true, reason: "授权（级别隐含）" };
-
-  if (defaultAllowed(input.permissionKey, roles)) {
-    return { allowed: true, reason: "默认策略" };
+  if (permissionKey === "forum.write" && ctx.forumId !== undefined) {
+    const read = readDecision(subject, ctx.forumId, snap, (k) => hasGrant(k, forumScoped));
+    if (!read.allowed) return deny("无权访问该版块");
+    const policy = tree.writePolicy(ctx.forumId);
+    if (policy.value === "restricted") {
+      return hasGrant("forum.write", forumScoped)
+        ? allow("版块发帖授权")
+        : deny("该版块仅限授权角色发帖");
+    }
+    return hasGrant("forum.write", anyScope) ? allow("授权") : deny("无发帖权限");
   }
-  return { allowed: false, reason: "默认拒绝" };
+
+  // 级联合并：适用作用域（全局 ∪ 链上）内任一授权命中即允许（含级别隐含，如 moderate ⊃ write ⊃ read）
+  return hasGrant(permissionKey, anyScope) ? allow("授权") : deny("默认拒绝");
+}
+
+/** 读判定：public 任何人；members 须登录；restricted 须在版块作用域持有 forum.read（或更高级别）授权 */
+function readDecision(
+  subject: Subject,
+  forumId: number,
+  snap: AuthzSnapshot,
+  hasScopedGrant: (key: string) => boolean,
+): Decision {
+  const policy = snap.tree.readPolicy(forumId);
+  switch (policy.value) {
+    case "public":
+      return allow("公开版块");
+    case "members":
+      return subject.userId !== null ? allow("会员可读") : deny("该版块仅限登录会员");
+    case "restricted":
+      return hasScopedGrant("forum.read") ? allow("版块读授权") : deny("该版块仅限授权角色");
+  }
+}
+
+// ---------- 内容可见性 ----------
+
+export type ContentState = "visible" | "pending" | "rejected" | "hidden" | "deleted";
+
+/**
+ * 内容可见性矩阵（docs/DESIGN-MODEL.md §4）。调用方须已通过 forum.read 判定。
+ *   visible            → 所有人
+ *   pending / rejected → 作者本人 + 持有 forum.moderate 的版主
+ *   hidden / deleted   → 仅版主；对其他人表现为不存在
+ */
+export function contentVisibleTo(
+  subject: Subject,
+  content: { state: ContentState; authorId: number; forumId: number },
+  snap: AuthzSnapshot,
+): boolean {
+  if (content.state === "visible") return true;
+  const moderator = evaluate(subject, "forum.moderate", { forumId: content.forumId }, snap).allowed;
+  if (content.state === "pending" || content.state === "rejected") {
+    return moderator || (subject.userId !== null && subject.userId === content.authorId);
+  }
+  return moderator;
+}
+
+/** 主体可读的版块 id（查询层据此在取数前过滤，杜绝受限版块的标题/计数泄露） */
+export function readableForumIds(subject: Subject, snap: AuthzSnapshot): number[] {
+  return snap.tree
+    .all()
+    .filter((n) => evaluate(subject, "forum.read", { forumId: n.id }, snap).allowed)
+    .map((n) => n.id);
+}
+
+/** 主体持有 forum.moderate 的版块 id（可见 pending/rejected/hidden/deleted 内容的范围） */
+export function moderatedForumIds(subject: Subject, snap: AuthzSnapshot): number[] {
+  return snap.tree
+    .all()
+    .filter((n) => evaluate(subject, "forum.moderate", { forumId: n.id }, snap).allowed)
+    .map((n) => n.id);
 }

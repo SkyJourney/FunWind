@@ -3,7 +3,6 @@ import {
   legacyAvatarKey,
   placeholderUsername,
   transformPlaceholders,
-  normalizeKey,
   transformUsers,
   type OldUser,
   type UserTransformOptions,
@@ -36,13 +35,7 @@ const opts: UserTransformOptions = {
 const run = (rows: OldUser[], o: Partial<typeof opts> = {}) =>
   transformUsers(rows, { ...opts, ...o });
 
-describe("normalizeKey / 头像路径", () => {
-  it("归一化只做 trim + 小写，不做 NFKC（半角假名不与全角合并）", () => {
-    expect(normalizeKey("  Alice ")).toBe("alice");
-    expect(normalizeKey("さくら")).not.toBe(normalizeKey("サクラ"));
-    expect(normalizeKey("ｻｸﾗ")).not.toBe(normalizeKey("サクラ"));
-  });
-
+describe("头像路径", () => {
   it("旧站头像算法（与 web 侧实证样本一致）", () => {
     expect(legacyAvatarKey(25940)).toBe("avatar/000/02/59/25940.jpg");
     expect(legacyAvatarKey(20709)).toBe("avatar/000/02/07/20709.jpg");

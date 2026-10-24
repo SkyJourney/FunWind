@@ -1,10 +1,13 @@
 "use server";
 
-import { and, eq, isNull, or, sql } from "drizzle-orm";
+import { and, eq, or, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
-import { getWebDb, users, inviteCodes, userBans } from "@funwind/db";
+import { getWebDb, normalizeKey, users } from "@funwind/db";
+import { findActiveGlobalBan } from "@/lib/authz/restrictions";
+import { clientIpFrom } from "@/lib/net/client-ip";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
+import { RegisterError, registerUser } from "@/lib/auth/register";
 import { createSession, destroyCurrentSession, revokeAllForUser } from "@/lib/auth/session";
 import { rateLimit } from "@/lib/auth/ratelimit";
 import { issueEmailToken } from "@/lib/auth/tokens";
@@ -20,18 +23,18 @@ import { getRegisterMode } from "@/lib/auth/settings";
 const USERNAME_RE = /^[a-zA-Z0-9_\u4e00-\u9fa5]{2,20}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** 频控键：前缀 + 客户端 IP（按 TRUSTED_PROXY_HOPS 取，伪造的 X-Forwarded-For 不被信任） */
 async function clientKey(prefix: string): Promise<string> {
-  const h = await headers();
-  const ip = h.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local";
-  return `${prefix}:${ip}`;
+  return `${prefix}:${clientIpFrom(await headers())}`;
 }
 
+/** 用归一化键（username_key / email_key）查找；已注销账号不可登录 */
 async function findUserByIdentifier(identifier: string) {
-  const db = getWebDb();
-  const rows = await db
+  const key = normalizeKey(identifier);
+  const rows = await getWebDb()
     .select()
     .from(users)
-    .where(or(eq(users.username, identifier), eq(users.email, identifier)))
+    .where(and(eq(users.state, "active"), or(eq(users.usernameKey, key), eq(users.emailKey, key))))
     .limit(1);
   return rows[0] ?? null;
 }
@@ -54,28 +57,19 @@ export async function loginAction(formData: FormData): Promise<void> {
     redirect("/login?error=" + encodeURIComponent("用户名或密码错误"));
   }
 
-  // 全局封禁拦截（含理由与期限）
-  const db = getWebDb();
-  const bans = await db
-    .select({ reason: userBans.reason, endTime: userBans.endTime })
-    .from(userBans)
-    .where(
-      and(
-        eq(userBans.userId, user.id),
-        eq(userBans.fid, 0),
-        sql`(${userBans.endTime} IS NULL OR ${userBans.endTime} > NOW())`,
-      ),
-    )
-    .limit(1);
-  if (bans[0]) {
-    const until = bans[0].endTime ? `，至 ${bans[0].endTime}` : "（永久）";
-    redirect(
-      "/login?error=" + encodeURIComponent(`账号已被封禁${until}：${bans[0].reason || "违规"}`),
-    );
+  // 全站封禁拦截（含理由与期限）
+  const ban = await findActiveGlobalBan(user.id);
+  if (ban) {
+    const until = ban.endsAt ? `，至 ${ban.endsAt}` : "（永久）";
+    redirect("/login?error=" + encodeURIComponent(`账号已被封禁${until}：${ban.reason || "违规"}`));
   }
 
+  await getWebDb()
+    .update(users)
+    .set({ lastLoginAt: sql`NOW()` })
+    .where(eq(users.id, user.id));
   await createSession(user.id, {
-    ip: ipKey.replace("login-ip:", ""),
+    ip: clientIpFrom(await headers()),
     userAgent: (await headers()).get("user-agent") ?? "",
   });
   redirect("/");
@@ -99,64 +93,30 @@ export async function registerAction(formData: FormData): Promise<void> {
   if (!EMAIL_RE.test(email)) fail("邮箱格式不正确");
   if (password.length < 8) fail("密码至少 8 位");
 
-  const db = getWebDb();
-  const taken = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(or(eq(users.username, username), eq(users.email, email)))
-    .limit(1);
-  if (taken[0]) fail("用户名或邮箱已被使用");
+  const passwordHash = await hashPassword(password);
 
-  let verifiedAt: string | null = null;
-  if (mode === "invite") {
-    const rows = await db
-      .select()
-      .from(inviteCodes)
-      .where(and(eq(inviteCodes.code, invite), isNull(inviteCodes.usedBy)))
-      .limit(1);
-    const code = rows[0];
-    if (
-      !code ||
-      (code.expiresAt && code.expiresAt < new Date().toISOString().slice(0, 19).replace("T", " "))
-    ) {
-      fail("邀请码无效或已被使用");
-    }
-    // 原子核销（防并发复用）
-    const result = await db
-      .update(inviteCodes)
-      .set({ usedBy: 0, usedAt: sql`NOW()` })
-      .where(and(eq(inviteCodes.code, invite), isNull(inviteCodes.usedBy)));
-    if ((result as unknown as [{ affectedRows: number }])[0]?.affectedRows === 0) {
-      fail("邀请码无效或已被使用");
-    }
-  } else {
-    verifiedAt = null; // 待邮箱验证
+  let newId: number;
+  try {
+    newId = await registerUser({
+      username,
+      email,
+      passwordHash,
+      invite: mode === "invite" ? invite : null,
+    });
+  } catch (e) {
+    if (e instanceof RegisterError) return fail(e.message);
+    throw e;
   }
 
-  // 新 uid = max+1（users.id 保留旧主键无自增；单实例注册无并发竞争，加锁防撞）
-  const [maxRow] = await db.select({ m: sql<number>`COALESCE(MAX(id), 0)` }).from(users);
-  const newId = Number(maxRow?.m ?? 0) + 1;
-  await db.insert(users).values({
-    id: newId,
-    username,
-    email,
-    passwordHash: await hashPassword(password),
-    groupId: 1,
-    emailVerifiedAt: verifiedAt,
-    createdAt: sql`NOW()`,
-    credits: { "1": 0 },
-  });
-  if (mode === "invite") {
-    await db.update(inviteCodes).set({ usedBy: newId }).where(eq(inviteCodes.code, invite));
-  } else {
-    // 开放注册：邮箱验证令牌（验证前可登录但站点功能在 M5 权限处收敛）
+  if (mode === "open") {
+    // 开放注册：邮箱验证令牌（验证前可登录、可浏览，写类权限由评估器拦截）
     const token = await issueEmailToken(newId, "verify");
     const { APP_URL: appUrl } = await import("@/lib/site");
     await sendMail(email, verifyEmailMail(`${appUrl}/verify/${token}`));
   }
 
   await createSession(newId, {
-    ip: await clientKey("ip"),
+    ip: clientIpFrom(await headers()),
     userAgent: (await headers()).get("user-agent") ?? "",
   });
   redirect(mode === "invite" ? "/" : "/?notice=verify-email-sent");
@@ -174,7 +134,7 @@ export async function forgotAction(formData: FormData): Promise<void> {
   const rows = await db
     .select({ id: users.id, passwordHash: users.passwordHash })
     .from(users)
-    .where(eq(users.email, email))
+    .where(and(eq(users.emailKey, normalizeKey(email)), eq(users.state, "active")))
     .limit(1);
   const user = rows[0];
   if (user) {

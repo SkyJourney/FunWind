@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { notFound } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
 import { checkPermission } from "@/lib/authz/service";
+import { getCurrentSubject } from "@/lib/authz/subject";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "后台" };
@@ -11,7 +12,7 @@ export const metadata = { title: "后台" };
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  const r = await checkPermission(user.id, "site.admin");
+  const r = await checkPermission(await getCurrentSubject(), "site.admin");
   if (!r.allowed) notFound();
 
   return (

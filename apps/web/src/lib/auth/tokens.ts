@@ -1,5 +1,5 @@
 import { and, eq, sql } from "drizzle-orm";
-import { emailTokens, getWebDb } from "@funwind/db";
+import { emailTokens, getWebDb, users } from "@funwind/db";
 import { generateToken, hashToken } from "./token";
 
 /**
@@ -58,5 +58,20 @@ export async function consumeEmailToken(
     .from(emailTokens)
     .where(eq(emailTokens.id, id))
     .limit(1);
-  return rows[0]?.userId ?? null;
+  const userId = rows[0]?.userId ?? null;
+  if (userId !== null) {
+    // 令牌经邮件投递且被成功消费，就证明用户控制该邮箱：reset / claim / verify 三种用途都记为已验证。
+    // 这样站点切到开放注册模式时，已认领的迁移用户不会被“邮箱未验证”规则拦在写操作之外。
+    await db
+      .update(users)
+      .set({ emailVerifiedAt: sql`NOW()` })
+      .where(
+        and(
+          eq(users.id, userId),
+          sql`${users.email} IS NOT NULL`,
+          sql`${users.emailVerifiedAt} IS NULL`,
+        ),
+      );
+  }
+  return userId;
 }

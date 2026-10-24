@@ -1,75 +1,81 @@
 "use server";
 
-import { notFound } from "next/navigation";
+import { headers } from "next/headers";
+import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
 import {
-  checkPermission,
+  AdminError,
   createCustomRole,
   deleteCustomRole,
   grantRolePermission,
   revokeRolePermission,
-} from "@/lib/authz/service";
+  type AdminActor,
+} from "@/lib/authz/admin";
+import { checkPermission } from "@/lib/authz/service";
+import { loadSubject } from "@/lib/authz/subject";
+import { clientIpFrom } from "@/lib/net/client-ip";
 
-async function requireAdmin(): Promise<number> {
+/** 后台动作门禁：须登录且持有 admin.roles；越权表现为 404（不暴露后台存在） */
+async function requireAdmin(): Promise<AdminActor> {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  const r = await checkPermission(user.id, "admin.roles");
+  const subject = await loadSubject(user.id);
+  const r = await checkPermission(subject, "admin.roles");
   if (!r.allowed) notFound();
-  return user.id;
+  return { userId: user.id, ip: clientIpFrom(await headers()) };
 }
 
-const ROLE_KEY_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+/** 执行管理写操作；校验类错误（AdminError）带着消息跳回，其余异常照常抛出 */
+async function run(back: string, fn: () => Promise<void>): Promise<void> {
+  try {
+    await fn();
+  } catch (e) {
+    if (e instanceof AdminError) redirect(`${back}?error=${encodeURIComponent(e.message)}`);
+    throw e;
+  }
+}
+
+const scopeOf = (formData: FormData): number => {
+  const raw = String(formData.get("scopeId") ?? "0").trim();
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 ? n : -1; // -1 会被 requireScope 拒绝
+};
 
 export async function createRoleAction(formData: FormData): Promise<void> {
-  await requireAdmin();
+  const actor = await requireAdmin();
   const key = String(formData.get("key") ?? "").trim();
   const name = String(formData.get("name") ?? "").trim();
   const description = String(formData.get("description") ?? "").trim();
-  if (!ROLE_KEY_RE.test(key)) {
-    redirect("/admin/authz?error=" + encodeURIComponent("角色键需为 kebab-case"));
-  }
-  await createCustomRole(key, name || key, description);
+  await run("/admin/authz", () => createCustomRole(actor, key, name, description));
   revalidatePath("/admin/authz");
   redirect(`/admin/authz/${key}`);
 }
 
 export async function deleteRoleAction(formData: FormData): Promise<void> {
-  await requireAdmin();
+  const actor = await requireAdmin();
   const key = String(formData.get("key") ?? "");
-  try {
-    await deleteCustomRole(key);
-  } catch (e) {
-    redirect(
-      "/admin/authz?error=" + encodeURIComponent(e instanceof Error ? e.message : String(e)),
-    );
-  }
+  await run("/admin/authz", () => deleteCustomRole(actor, key));
   revalidatePath("/admin/authz");
   redirect("/admin/authz");
 }
 
 export async function grantAction(formData: FormData): Promise<void> {
-  await requireAdmin();
+  const actor = await requireAdmin();
   const roleKey = String(formData.get("roleKey") ?? "");
   const permissionKey = String(formData.get("permissionKey") ?? "");
-  const scopeType = String(formData.get("scopeType") ?? "global");
-  const forumIdRaw = String(formData.get("forumId") ?? "");
-  const forumId = scopeType === "forum" && forumIdRaw !== "" ? Number(forumIdRaw) : null;
-  if (scopeType === "forum" && (forumId === null || !Number.isInteger(forumId))) {
-    redirect(`/admin/authz/${roleKey}?error=` + encodeURIComponent("版块作用域需选择版块"));
-  }
-  await grantRolePermission(roleKey, permissionKey, forumId);
+  await run(`/admin/authz/${roleKey}`, () =>
+    grantRolePermission(actor, roleKey, permissionKey, scopeOf(formData)),
+  );
   revalidatePath(`/admin/authz/${roleKey}`);
 }
 
 export async function revokeAction(formData: FormData): Promise<void> {
-  await requireAdmin();
+  const actor = await requireAdmin();
   const roleKey = String(formData.get("roleKey") ?? "");
   const permissionKey = String(formData.get("permissionKey") ?? "");
-  const scopeType = String(formData.get("scopeType") ?? "global");
-  const forumIdRaw = String(formData.get("forumId") ?? "");
-  const forumId = scopeType === "forum" && forumIdRaw !== "" ? Number(forumIdRaw) : null;
-  await revokeRolePermission(roleKey, permissionKey, forumId);
+  await run(`/admin/authz/${roleKey}`, () =>
+    revokeRolePermission(actor, roleKey, permissionKey, scopeOf(formData)),
+  );
   revalidatePath(`/admin/authz/${roleKey}`);
 }

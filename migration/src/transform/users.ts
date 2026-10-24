@@ -1,3 +1,4 @@
+import { normalizeKey } from "@funwind/db";
 import { toDatetime } from "../config.js";
 
 export interface OldUser {
@@ -72,9 +73,6 @@ export interface UserTransformResult {
 }
 
 const EMAIL_RE = /^[^\s@'"<>]+@[^\s@'"<>]+\.[^\s@'"<>]+$/;
-
-/** 归一化键：trim + toLowerCase，不做 NFKC（半角 ｻｸﾗ 不得与 サクラ 碰撞） */
-export const normalizeKey = (s: string): string => s.trim().toLowerCase();
 
 /** 旧站头像路径算法（与 apps/web/src/lib/auth/avatar.ts 一致）：avatar/{3位}/{2位}/{2位}/{uid}.jpg */
 export function legacyAvatarKey(uid: number): string {

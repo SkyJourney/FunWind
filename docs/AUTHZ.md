@@ -51,20 +51,37 @@
 
 ## 4. 评估器（apps/web/src/lib/authz/）
 
+> M5 的旧签名 `check(userId, …)`（实际忽略 userId）已在 M5.5 S4-2 废弃；以下为 v2 实现。完整判定顺序见 §8.3。
+
 ```
-check(userId, "resource.action", { forumId? }) → { allowed, reason }
-  1. admin 内置角色 → 短路 ALLOW
-  2. muted 生效 → 发帖类权限 DENY（优先于授权）
-  3. 授权匹配（按角色键直查 role_grants —— 授权是角色属性，与谁绑定无关）
-     · forum.read → 显式优先（就近层判定）
-     · 其余 → 级联合并（任一层命中）
-  4. 默认拒绝
+checkPermission(subject, "resource.action", { forumId? }) → { allowed, reason }
+  subject = loadSubject(userId) | getCurrentSubject()     // 显式传入，评估器不读“当前请求用户”
 ```
 
-- `getScopeChain(fid)`：作用域链解析（请求级缓存）。
-- `getUserPermissionSet`：预加载 + React `cache()` 请求级缓存。
-- `getForumModerators(fid)`：**派生版主**查询（授权角色 ∩ 角色持有人，含父链继承标注）。
-- ABAC 条件接口已定义（ownership / 频控 / 积分门槛），**计数实现随 M6 落地**。
+| 模块 | 职责 |
+|------|------|
+| `lib/forums/forum-tree.ts` | 纯类：祖先链、子树、沿链取最近非 inherit 的 `read/write/review` 策略（零 SQL） |
+| `authz/types.ts` · `evaluator.ts` | 纯函数 `evaluate(subject, key, ctx, snapshot)`；`contentVisibleTo`；`readableForumIds` / `moderatedForumIds` |
+| `authz/snapshot.ts` | 版块树 + 全部 `role_grants` 常驻内存（globalThis 单例，30s TTL 兜底，管理动作后 `invalidateAuthzSnapshot()`） |
+| `authz/subject.ts` | `loadSubject`：登录用户隐含 `member@0`，过滤过期角色绑定与未生效/已结束的限制 |
+| `authz/service.ts` | `checkPermission` / `requirePermission`（抛 `ForbiddenError`）/ `can` / `getForumModerators` |
+| `authz/admin.ts` | 授权写操作：校验 + 同事务写 `audit_log` + 失效快照；`AdminError` 消息可直接展示 |
+
+实现约定（S4-2 定稿）：
+
+- **写类权限集合**（禁言/封禁与“开放注册未验证邮箱”拦的就是这一类）：`forum.write`、`thread.replyLocked`、`gate.points`、`gate.reply`、
+  `attachment.upload`、`vote.create`、`pm.send`、`tag.add`、`tag.edit`、`tag.manage`。`forum.report`、`vote.participate`、`vote.view` 不拦。
+  词汇表每个键都必须显式归入写类或非写类，单测校验完备性（新增权限点漏分类会红）。
+- **作用域语义**：`user_roles.scope_id` 与 `role_grants.scope_id` 同义——0 全局，>0 只在该版块子树内生效；评估器只有一种“链上命中”。
+- **`restricted` 的授权只认版块作用域**（全局基线不算）；授权可来自目标版块或其祖先；更高级别隐含低级别（moderate ⊃ write ⊃ read）。
+- **写之前先过读**：`forum.write` 先通过 `forum.read` 判定。
+- **封禁语义**：生效中的全站 `ban` 使会话失效、禁止登录（登录页显示理由与期限）；评估器对 ban 同样拦写类，作为纵深防御。
+- **邮箱未验证**只在 `register.mode = open` 时拦写类；邮件令牌（reset/claim/verify）被成功消费即记 `email_verified_at`，
+  因此已认领的迁移用户切到开放注册后不会被拦。
+- **版主**：`getForumModerators` 列出链上持有 `forum.moderate` 授权的**非 admin** 角色的持有人（admin 的全局基线授权不算“版主”）。
+- **管理护栏**：不得把 `forum.moderate`/`site.admin`/`admin.*`/`user.viewIp` 全局授予 `guest`/`member`；admin 的 `site.admin`/`admin.roles` 不可撤销；
+  `createCustomRole` 只 insert，同名（含内置）拒绝；内置角色不可删；`guest`/`member` 不可绑定到用户。
+- **客户端 IP**（审计、频控）：`lib/net/client-ip.ts` 按 `TRUSTED_PROXY_HOPS` 取 X-Forwarded-For 从右数第 N 项；默认 0 = 不信任转发头（归入 `unknown` 桶）。
 
 ## 5. 后台与菜单权限
 
