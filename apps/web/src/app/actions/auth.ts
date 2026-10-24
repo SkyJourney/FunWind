@@ -94,7 +94,14 @@ export async function registerAction(formData: FormData): Promise<void> {
 
   const fail = (msg: string): never => redirect(`/register?error=${encodeURIComponent(msg)}`);
 
-  if (!ipAllowed(await ipRateKey("register"), 5, 60 * 60_000)) {
+  // IP 未知时开放注册退回全局兜底桶（宽松，仅防批量灌号）；邀请制有邀请码把关，不需要
+  const registerIpKey = await ipRateKey("register");
+  if (
+    !ipAllowed(registerIpKey, 5, 60 * 60_000) ||
+    (registerIpKey === null &&
+      mode === "open" &&
+      !rateLimit("register-global", 60, 60 * 60_000).allowed)
+  ) {
     fail("注册过于频繁，请稍后再试");
   }
   if (!USERNAME_RE.test(username)) fail("用户名需 2-20 位（中文/字母/数字/下划线）");
@@ -134,11 +141,7 @@ export async function forgotAction(formData: FormData): Promise<void> {
   const email = String(formData.get("email") ?? "")
     .trim()
     .toLowerCase();
-  // 同时按邮箱限额：既防对同一受害邮箱的邮件轰炸，也在无可信 IP 时兜底
-  if (
-    !ipAllowed(await ipRateKey("forgot"), 5, 15 * 60_000) ||
-    !rateLimit(`forgot-email:${normalizeKey(email)}`, 3, 60 * 60_000).allowed
-  ) {
+  if (!ipAllowed(await ipRateKey("forgot"), 5, 15 * 60_000)) {
     redirect("/forgot?sent=1"); // 频控也返回中性视图
   }
 
@@ -150,11 +153,20 @@ export async function forgotAction(formData: FormData): Promise<void> {
     .limit(1);
   const user = rows[0];
   if (user) {
-    const purpose = user.passwordHash ? "reset" : "claim";
-    const token = await issueEmailToken(user.id, purpose);
-    const { APP_URL } = await import("@/lib/site");
-    const link = `${APP_URL}/${purpose === "claim" ? "claim" : "reset"}/${token}`;
-    await sendMail(email, purpose === "claim" ? claimMail(link) : resetPasswordMail(link));
+    // 按账号限额，且只对真实存在的账号计数（限额表不会被任意输入撑大）：
+    //  · 短冷却（2 分钟 1 封）+ 小时上限（6 封）防对同一邮箱的邮件轰炸，也在无可信 IP 时兜底；
+    //  · 不会让人把别人锁在外面：被限额丢弃的请求不签发新令牌，也就不会作废此前已发到本人邮箱的有效链接，
+    //    而触发那次发送的邮件本来就是发给邮箱主人的。
+    const allowed =
+      rateLimit(`forgot-cooldown:${user.id}`, 1, 2 * 60_000).allowed &&
+      rateLimit(`forgot-hour:${user.id}`, 6, 60 * 60_000).allowed;
+    if (allowed) {
+      const purpose = user.passwordHash ? "reset" : "claim";
+      const token = await issueEmailToken(user.id, purpose);
+      const { APP_URL } = await import("@/lib/site");
+      const link = `${APP_URL}/${purpose === "claim" ? "claim" : "reset"}/${token}`;
+      await sendMail(email, purpose === "claim" ? claimMail(link) : resetPasswordMail(link));
+    }
   }
   redirect("/forgot?sent=1");
 }
