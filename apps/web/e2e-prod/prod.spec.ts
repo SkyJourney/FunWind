@@ -88,4 +88,74 @@ test.describe("生产构建", () => {
     await page.goto("/admin/authz");
     await expect(page).toHaveURL(/\/login/);
   });
+
+  test("安全响应头（M5.6 S4）：基线头 + CSP Report-Only（生产不含 unsafe-eval），不暴露 X-Powered-By", async ({
+    request,
+  }) => {
+    for (const p of ["/", "/login", `/f/${FIX.anime.id}`]) {
+      const h = (await request.get(p)).headers();
+      expect(h["x-content-type-options"], p).toBe("nosniff");
+      expect(h["x-frame-options"], p).toBe("DENY");
+      expect(h["referrer-policy"], p).toBe("strict-origin-when-cross-origin");
+      expect(h["x-powered-by"], p).toBeUndefined();
+      expect(h["content-security-policy"], p).toBeUndefined(); // 还是 Report-Only
+      const csp = h["content-security-policy-report-only"]!;
+      expect(csp, p).toContain("frame-ancestors 'none'");
+      expect(csp, p).not.toContain("unsafe-eval");
+      expect(h["strict-transport-security"], p).toBeUndefined(); // 冒烟站点是 http
+    }
+  });
+
+  test("真实 next build 下，主要页面在这套 CSP 下零违规（生产的内联脚本与开发不同，必须单独实测）", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      const w = window as unknown as { __csp: string[] };
+      w.__csp = [];
+      document.addEventListener("securitypolicyviolation", (e) => {
+        w.__csp.push(`${e.violatedDirective} ← ${e.blockedURI || "inline"}`);
+      });
+    });
+    const found: string[] = [];
+    for (const p of [
+      "/",
+      "/login",
+      "/register",
+      `/f/${FIX.anime.id}`,
+      `/t/${FIX.thread.emoji}`,
+      `/t/${FIX.thread.image}`,
+      `/t/${FIX.thread.gfm}`,
+      "/t/900004",
+    ]) {
+      await page.goto(p);
+      await page.waitForLoadState("networkidle");
+      const v = await page.evaluate(() => (window as unknown as { __csp: string[] }).__csp);
+      for (const x of v) found.push(`${p}: ${x}`);
+    }
+    expect(found, found.join("\n")).toEqual([]);
+  });
+
+  test("/files 路径穿越变体在生产构建下同样 404（%2e%2e、%2f 别名、反斜杠、截断）", async ({
+    request,
+  }) => {
+    const [row] = await withE2eDb((q) =>
+      q.query<{ storage_key: string }>(
+        "SELECT storage_key FROM files WHERE mime LIKE 'image/%' ORDER BY id LIMIT 1",
+      ),
+    );
+    const [d1, d2, file] = row!.storage_key.split("/");
+    expect((await request.get(`/files/${row!.storage_key}`)).status()).toBe(200); // 对照
+    // 注意：Playwright 的 request 会先把 %2e%2e 规范化掉，所以这里只放它不会改写的形态；
+    // 完整的原始 HTTP 变体矩阵在 e2e/files-traversal.spec.ts（dev 服务器）
+    for (const p of [
+      `/files/${d1}%2f${d2}/${file}`,
+      `/files/${d1}%2F${d2}%2F${file}`,
+      `/files/${d1}/${d2}/${file}%00.png`,
+      `/files/${d1}/${d2}/${file}%20`,
+      `/files/..%5c..%5cetc%5cpasswd`,
+      `/files/%252e%252e/%252e%252e/etc/passwd`,
+    ]) {
+      expect((await request.get(p)).status(), p).toBe(404);
+    }
+  });
 });

@@ -10,6 +10,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { FORGOT_LIMITS, requestAccountEmail } from "./forgot";
 import { resetRateLimiter } from "./ratelimit";
+import { registerUser } from "./register";
 
 let tdb: TempDb;
 let aliceEmail: string; // 无密码（认领）
@@ -132,15 +133,38 @@ describe.skipIf(skipDb)("找回 / 认领 · 真实 MySQL", () => {
       expect(other.tasks).toHaveLength(1);
     });
 
-    it("无可信 IP：退到全局兜底桶，超过上限后不再发（旧实现这里没有任何限制）；有可信 IP 的访客不受它影响", async () => {
+    it("无可信 IP：全局兜底桶只对真实账号计数——随机邮箱烧不掉它（否则一个客户端就能让所有人收不到邮件）", async () => {
+      // 攻击者灌 500 个不存在的邮箱：查不到账号就返回，不占全局名额
       const noise = harness();
-      for (let i = 0; i < FORGOT_LIMITS.global.max; i++)
-        await requestAccountEmail(`noise${i}@example.com`, null, noise.deps);
-      const blocked = harness();
-      await requestAccountEmail(xiaoyiEmail, null, blocked.deps);
-      expect(blocked.tasks).toHaveLength(0);
+      for (let i = 0; i < 500; i++)
+        await requestAccountEmail(`nobody${i}@example.com`, null, noise.deps);
+      expect(noise.tasks).toHaveLength(0);
+      // 对照：真实用户此时仍然能收到邮件
+      const real = harness();
+      await requestAccountEmail(xiaoyiEmail, null, real.deps);
+      expect(real.tasks).toHaveLength(1);
+    });
+
+    it("无可信 IP：真实账号的请求累计超过全局上限后不再发（整体发信量有上限）；对账号的重复请求先被冷却挡住、不占全局名额；有可信 IP 的访客不受影响", async () => {
+      // 造足够多的真实账号（只要有邮箱即可）
+      const emails: string[] = [];
+      for (let i = 0; i < FORGOT_LIMITS.global.max; i++) {
+        const email = `bulk${i}@example.com`;
+        await registerUser({ username: `bulk_${i}`, email, passwordHash: "x", invite: null });
+        emails.push(email);
+      }
+      const h = harness();
+      for (const e of emails) await requestAccountEmail(e, null, h.deps);
+      expect(h.tasks).toHaveLength(FORGOT_LIMITS.global.max); // 恰好用满
+      // 对第 1 个账号再请求：被账号冷却挡住（在全局桶之前），不会多占名额
+      await requestAccountEmail(emails[0]!, null, h.deps);
+      expect(h.tasks).toHaveLength(FORGOT_LIMITS.global.max);
+      // 全局名额已满：另一个真实账号（从未请求过）被丢弃
+      await requestAccountEmail(xiaoyiEmail, null, h.deps);
+      expect(h.tasks).toHaveLength(FORGOT_LIMITS.global.max);
+      // 有可信 IP 的访客走 IP 桶，不受全局桶影响
       const withIp = harness();
-      await requestAccountEmail(xiaoyiEmail, "198.51.100.8", withIp.deps);
+      await requestAccountEmail(aliceEmail, "198.51.100.8", withIp.deps);
       expect(withIp.tasks).toHaveLength(1);
     });
 

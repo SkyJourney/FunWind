@@ -5,6 +5,24 @@
 
 ## [Unreleased]
 
+### Security（M5.6 S4：安全响应头 + `/files` 路径穿越矩阵，审查 C4）
+
+- **全站安全响应头**（`lib/security-headers.ts` 纯函数，`next.config.ts` 的 `headers()` 接入，单测直接断言）：`X-Content-Type-Options: nosniff`、`Referrer-Policy: strict-origin-when-cross-origin`、`X-Frame-Options: DENY`、`Permissions-Policy`（关摄像头 / 麦克风 / 定位 / 支付 / USB）；`poweredByHeader: false`；HSTS 只在「生产 + `APP_URL` 为 https」时下发（http 下浏览器忽略它，开发环境下发会污染 localhost 的 HSTS 缓存）。`/files/**` 一律排除，它自带更严的 `default-src 'none'; sandbox`，不能被叠加。
+- **CSP 只以 Report-Only 下发**（不拦截任何东西）：`default-src 'self'`、`object-src 'none'`、`base-uri 'self'`、`form-action 'self'`、`frame-ancestors 'none'`，`script-src 'self' 'unsafe-inline'`（Next App Router 用内联脚本带 RSC 载荷，nonce 需要中间件，留作后续）；`style-src` 含 `'unsafe-inline'`（ProseMirror 编辑器需要）；`img-src` 放行 http/https（正文允许外站图片）；开发环境才加 `'unsafe-eval'` 与 `ws:`。**这版防的是外部脚本源、`<object>` / `<base>` 劫持、表单外投、被嵌入，不是内联脚本注入**——后者仍靠 sanitize 白名单。
+- **违规报告收集** `POST /api/csp-report`：体积上限 16KB、字段截断到 200 字符并剔除控制字符（防日志注入）、每来源每分钟 30 份、永远 204；兼容旧格式与 Reporting API 格式；只记一行 `[csp-report]` 日志，不落库。
+- **实测各页面零违规**（这是以后转强制的前提）：开发服务器上 12 个游客页面 + 4 个管理员页面，以及**真实 `next build`** 上 8 个页面，用浏览器的 `securitypolicyviolation` 事件收集，全部为零；另有对照用例证明检测本身是灵的（注入外部脚本源会被记录，且浏览器确实把报告 POST 到了 `/api/csp-report`）。
+- **`/files` 路径穿越矩阵（C4）**：原始 HTTP（Playwright 的 request 会先把 `%2e%2e` 在客户端规范化掉，发不出真正的变体）测 28 种形态：`%2e%2e` 的各种大小写 / 混合、双重 / 三重编码、反斜杠（编码与字面）、超长 UTF-8（`%c0%ae`、`%c0%af`）、全角点、结尾 `/..`、`%00` 截断、空格 / 换行、哈希不匹配、扩展名异常等，一律 404，也不带出系统文件内容；HTTP 层规范化后落回规范路径的形态（`/./`、`//`、`/files/../files/…`）仍是同一个已授权文件，内容与规范路径一致。
+- **发现并修复一处真问题**：`%2f` 编码的斜杠被 Next 解码进路径段后，`/files/49%2f77/<sha>.png` 拼接起来仍能通过 `parseFileKey` 的正则，同一个文件有了多个 URL 形态（缓存键分裂，按路径写的前置 ACL / WAF 规则可被绕过）。`parseFileKey` 现在要求恰好 3 段且段内无 `/`。变异验证：去掉检查，单测与 E2E 变红。
+- 变异验证（E2E）：`script-src` 去掉 `'unsafe-inline'` → 真实页面上的零违规用例变红；不排除 `/files` → `/files` 用例变红；`next.config` 不接入 `headers()` → 响应头用例变红。
+- 测试：`security-headers.test.ts` 8 项、`csp-report/route.test.ts` 7 项、`parseFileKey` 别名 1 项；E2E 新增 13 项（响应头 5 + `/files` 1 + 报告端点 1 + 零违规 3 + 穿越矩阵 3），生产冒烟新增 3 项。
+- **以后转强制 CSP 的路径**：先观察生产的 `[csp-report]` 日志一段时间 → 把 `Content-Security-Policy-Report-Only` 改名为 `Content-Security-Policy`（`security-headers.test.ts` 里有一条断言「不含强制 CSP」，转强制时同步改）→ 再评估用 nonce 去掉 `script-src 'unsafe-inline'`。
+
+### Security（M5.6 S3 补丁：无可信 IP 时的全局桶，自动安全审查指出）
+
+- 提交 S3 后，自动安全审查指出两处「无可信 IP 时的全局共享桶可被一个客户端占满」。采纳并核实：`clientIpFrom` 在 `TRUSTED_PROXY_HOPS=0`（直连）时**恒为 null**，所以这不只是异常情形，直连部署的常态就是只剩全局桶。
+- **`forgot`**：全局桶改到「查到真实账号并通过账号级冷却 / 小时额度之后」才计数。随机邮箱查不到账号就返回，烧不掉它；对同一邮箱反复请求先被账号冷却挡住。要占满得知道 60 个互不相同的真实注册邮箱。新增 2 项测试（500 个随机邮箱不影响真实用户；真实账号累计到上限后才不再发，重复请求不多占名额），变异（桶放回查库之前）变红。
+- **邀请码**：保留全局桶并**明确记录取舍**，不放开——邀请码的熵无保证，放开等于无限猜测；被占满的代价只是等一小时。生产必须设置 `TRUSTED_PROXY_HOPS ≥ 1` 让 IP 桶生效。
+
 ### Fixed / Security（M5.6 S3：认证杂项加固）
 
 每项都按「复现 → 修 → 带对照组的回归 → 变异验证」；变异验证共 9 项，去掉修复各自变红。

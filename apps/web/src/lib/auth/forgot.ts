@@ -13,7 +13,7 @@ import { issueEmailToken } from "./tokens";
  * 现在响应前只做一次按邮箱的查库（存在与否耗时相同），签发令牌与发信一律交给 defer（生产里是 Next 的 after()，
  * 响应发出之后才执行），响应时间与邮箱是否存在无关。
  *
- * 频控：有可信 IP 按 IP 限额；取不到时退回全局兜底桶（宽松，只防批量轰炸，见 client-ip.ts 说明为什么不能共享 IP 桶）。
+ * 频控：有可信 IP 按 IP 限额；取不到时退回全局兜底桶，但它只对真实账号计数（见下），避免被一个客户端占满。
  * 按账号另有 2 分钟 1 封 + 每小时 6 封：只对真实存在的账号计数（限额表不会被任意输入撑大），
  * 被限额丢弃的请求不签发新令牌——这不会让人把别人锁在外面（令牌共存，见 tokens.ts）。
  */
@@ -48,8 +48,11 @@ export async function requestAccountEmail(
   const email = rawEmail.trim().toLowerCase();
   if (email === "" || email.length > MAX_EMAIL_LENGTH) return;
 
-  const lim = ip !== null ? FORGOT_LIMITS.ip : FORGOT_LIMITS.global;
-  if (!rateLimit(ip !== null ? `forgot:${ip}` : "forgot-global", lim.max, lim.windowMs).allowed)
+  // 有可信 IP：按 IP 限额，在查库之前（对所有输入一视同仁）
+  if (
+    ip !== null &&
+    !rateLimit(`forgot:${ip}`, FORGOT_LIMITS.ip.max, FORGOT_LIMITS.ip.windowMs).allowed
+  )
     return;
 
   const rows = await getWebDb()
@@ -60,12 +63,18 @@ export async function requestAccountEmail(
   const user = rows[0];
   if (!user) return;
 
-  const { cooldown, hourly } = FORGOT_LIMITS;
+  const { cooldown, hourly, global } = FORGOT_LIMITS;
   if (
     !rateLimit(`forgot-cooldown:${user.id}`, cooldown.max, cooldown.windowMs).allowed ||
     !rateLimit(`forgot-hour:${user.id}`, hourly.max, hourly.windowMs).allowed
   )
     return;
+
+  // 无可信 IP（直连部署 TRUSTED_PROXY_HOPS=0 时恒如此）：IP 桶不可用，只剩全局兜底桶限制整体发信量。
+  // 共享桶可被一个客户端占满、让所有人收不到邮件，所以它**只对真实存在、且通过了账号级额度的请求计数**，放在最后：
+  // 随机邮箱烧不掉它（查不到账号就返回了），对同一邮箱反复请求也被账号冷却挡在前面——要占满得知道
+  // 一批互不相同的真实注册邮箱。被它丢弃的请求照样返回中性视图，用户稍后重试即可。
+  if (ip === null && !rateLimit("forgot-global", global.max, global.windowMs).allowed) return;
 
   const deliver = deps.deliver ?? defaultDeliver;
   deps.defer(async () => {

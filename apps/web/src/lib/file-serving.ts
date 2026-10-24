@@ -33,6 +33,9 @@ const KEY_RE = /^([0-9a-f]{2})\/([0-9a-f]{2})\/([0-9a-f]{64})\.([a-z0-9]{1,8})$/
 
 /** 严格校验路径形态：ab/cd/<64 位小写十六进制>.<ext>，且前两级目录必须等于哈希前缀。通过则返回 storage_key */
 export function parseFileKey(segments: readonly string[]): string | null {
+  // 恰好三段、段内不含 "/"：Next 会把 %2f 解码进段内，`49%2f77/<sha>.png` 拼接后能通过下面的正则，
+  // 同一个文件就有了多个 URL 形态（缓存键分裂，按路径写的前置 ACL / WAF 规则也能被绕过，M5.6 S4）
+  if (segments.length !== 3 || segments.some((seg) => seg.includes("/"))) return null;
   const key = segments.join("/");
   const m = KEY_RE.exec(key);
   if (!m) return null;

@@ -53,6 +53,19 @@ const downloads = async (id: number) =>
   (await getWebDb().select().from(attachments).where(eq(attachments.id, id)))[0]?.downloads;
 
 describe("路径与响应头的纯函数", () => {
+  it('parseFileKey：段内带 "/"（%2f 被 Next 解码进段）的别名形态一律拒绝——同一文件只能有一个 URL（M5.6 S4）', () => {
+    const key = `aa/aa/${SHA}.png`;
+    expect(parseFileKey(["aa", "aa", `${SHA}.png`])).toBe(key); // 对照：规范三段形态通过
+    for (const alias of [
+      ["aa/aa", `${SHA}.png`], // 两段：/files/aa%2faa/<sha>.png
+      ["aa/aa/" + `${SHA}.png`], // 一段：全部 %2f
+      ["aa", `aa/${SHA}.png`], // 仅最后一个 %2f
+      ["aa/", "aa", `${SHA}.png`], // 三段但段内含斜杠
+    ]) {
+      expect(parseFileKey(alias), JSON.stringify(alias)).toBeNull();
+    }
+  });
+
   it("parseFileKey：只接受 ab/cd/<64位小写hex>.<ext>，且目录必须等于哈希前缀", () => {
     expect(parseFileKey(["aa", "aa", `${SHA}.png`])).toBe(`aa/aa/${SHA}.png`);
     for (const bad of [
