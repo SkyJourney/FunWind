@@ -61,6 +61,7 @@ pnpm --filter @funwind/web perf:lcp                       # 生产构建 LCP 门
     唯一例外：单列且「空值 = 没有」即期望语义（`users.email_key`）。由 `packages/db/src/schema-rules.ts` 断言，`db:verify` 与单测强制。
 3b. **隐藏内容只能经 `getGateContent` 读取**；`body_md` 永远只含公开部分（门控规范见 `docs/GATES.md`）。
 3c. **积分变动只能经 `applyPoints`**，渠道须先注册（`docs/POINTS.md`）。
+3d. **附件表只能经 `lib/gates/attachments.ts` 读写**：`attachments.gate_id` 非空的附件与门控隐藏正文同权，锁定项不得下发文件名 / 存储键 / 大小；`/files` 与帖子页共用同一出口（`docs/ATTACHMENT-GATES.md`，守卫测试 `attachments-guard.test.ts`）。
 4. **时区**：库内 DATETIME 一律北京墙面时间；连接层 `+08:00` + `dateStrings`，**且每条新连接必须 `SET time_zone='+08:00'`**（mysql2 的 `timezone` 选项不改服务器会话时区，`NOW()` 会是容器的 UTC；`createPool` 已处理，任何绕过它的裸连接须自行设置；`db:verify` 与 `client.int.test.ts` 守护）；解析只走 `lib/datetime.ts`，禁止裸 `new Date(字符串)`。
 5. **DB 连接**：web 运行时只用 `getWebDb()` 单例；`withDb` 仅限一次性脚本。
 6. **渲染**：用户内容必须经 `lib/markdown.ts` + `lib/sanitize.ts` 管线，禁止 `dangerouslySetInnerHTML` 直出原文。
@@ -81,7 +82,7 @@ pnpm --filter @funwind/web perf:lcp                       # 生产构建 LCP 门
   查询层用 `readableForumIds`/`moderatedForumIds` 在**取数前**过滤，不取出来再逐行判断。
 - **积分与门控的并发约定**（`lib/points`、`lib/gates`，教训来自真实复现的死锁/连接池饥饿）：① 事务内不得再借第二条连接（连接池仅 8 条）——渠道解析、权限检查等一律在开事务前完成；
   ② 加锁顺序固定「门控行 → 账户行（user_id 升序）」；③ 账户行用 `SELECT … FOR UPDATE` 加锁（不存在才 `INSERT IGNORE`），**禁止**用 `INSERT … ON DUPLICATE KEY UPDATE` 当加锁手段（共享锁升级死锁）；
-  ④ 先拿账户锁再查幂等/已解锁。积分表只能经 `lib/points` 写，隐藏正文只能经 `lib/gates/service.ts` 读，均有守卫测试。
+  ④ 先拿账户锁再查幂等/已解锁。积分表只能经 `lib/points` 写，隐藏正文只能经 `lib/gates/service.ts` 读，附件表只能经 `lib/gates/attachments.ts` 读写，均有守卫测试。
 
 ## 已知坑
 

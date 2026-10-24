@@ -1,5 +1,5 @@
 import { and, asc, count, eq, gt, inArray } from "drizzle-orm";
-import { attachments, files, getWebDb, posts, threads, users } from "@funwind/db";
+import { getWebDb, posts, threads, users } from "@funwind/db";
 import type { Subject } from "@/lib/authz/types";
 import type { ThreadListItem } from "./threads";
 import { buildViewerScope, visiblePredicate } from "./visibility";
@@ -100,42 +100,4 @@ export async function getParentFloors(
     .from(posts)
     .where(and(eq(posts.threadId, threadId), inArray(posts.id, unique)));
   return new Map(rows.map((r) => [r.id, r.floor]));
-}
-
-export interface AttachmentItem {
-  id: number;
-  postId: number;
-  originalName: string;
-  downloads: number;
-  storageKey: string;
-  mime: string;
-  sizeBytes: number;
-}
-
-/** 按帖批量取附件（一页的全部帖子一次查询，无 N+1）；调用方须只传入已通过可见性校验的帖子 id */
-export async function getAttachments(
-  postIds: readonly number[],
-): Promise<Map<number, AttachmentItem[]>> {
-  const out = new Map<number, AttachmentItem[]>();
-  if (postIds.length === 0) return out;
-  const rows = await getWebDb()
-    .select({
-      id: attachments.id,
-      postId: attachments.postId,
-      originalName: attachments.originalName,
-      downloads: attachments.downloads,
-      storageKey: files.storageKey,
-      mime: files.mime,
-      sizeBytes: files.sizeBytes,
-    })
-    .from(attachments)
-    .innerJoin(files, eq(files.id, attachments.fileId))
-    .where(inArray(attachments.postId, [...postIds]))
-    .orderBy(asc(attachments.id));
-  for (const r of rows) {
-    const list = out.get(r.postId) ?? [];
-    list.push(r);
-    out.set(r.postId, list);
-  }
-  return out;
 }

@@ -5,6 +5,16 @@
 
 ## [Unreleased]
 
+### Security（附件与门控 · 第 3 步：读取侧接入，审查 P1-2）
+
+- 新增 `lib/gates/attachments.ts`——**门控附件的唯一读取出口**：`listAttachments`（帖子页）、`resolveFileGrant` / `recordDownload`（`/files`）。附件与隐藏正文同权，判定复用 `openGateIds`。
+- 帖子页：锁定的附件在类型上没有文件名 / 存储键 / 大小 / 下载数，只显示「🔒 本帖有 N 个附件需解锁后下载」；`getAttachments` 已删除。
+- `/files`：附件行绑定了门控的，门控对观众开放才放行；**所有引用都绑定门控的图片也要过门控**，响应 `private, no-store`、无 ETag、不走 304；只要存在一条未绑定门控的引用，图片按内容已公开处理（行为同前）。
+- fail-closed：`gate_id` 悬空 / 属于别的帖子 → 对所有人锁定（含作者与版主，较设计稿原文收紧一档，已回写设计稿 §4.1）。
+- 新硬约定 3d + 守卫测试 `attachments-guard.test.ts`（除该模块外，运行时代码不得从 `@funwind/db` 引入 `attachments` 表）。
+- 集成测试 `attachments.int.test.ts`（10 项）：游客 / 作者 / 版主 / 已购 / 未购的开放集合；锁定项序列化无任何元数据；悬空与跨帖；**列表与 `/files` 逐观众对账不可分叉**；门控图片缓存头；下载计数；变异验证（让两处判定失效，7 项变红）。
+- **此步之后新建数据的门控附件已受保护**；迁移库里既有的 130 个附件 `gate_id` 仍全为 `NULL`，要到第 4 步映射并重新导入后才被保护，P1-2 尚未完全关闭。
+
 ### Changed（附件与门控 · 第 2 步：判定抽取）
 
 - `lib/gates/service.ts`：把读取侧第 ① 步（加载门控元数据 + 观众事实 → `evaluateGate`）抽成内部函数 `decideGates`，`resolveViews` 改为复用它，**行为不变**（既有 gates 测试原样全绿）。

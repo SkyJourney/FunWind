@@ -103,6 +103,8 @@
 - 上传 → 计算 SHA-256 → 已存在则复用 `files` 行，否则落盘 → 写 `attachments` / `user_profiles.avatar_file_id` / 正文图片引用。
 - `/files/<storage_key>`：**图片类**（头像、正文图片）公开；**非图片附件**必须经 `attachments` 反查所属帖子，按该帖所在版块的读权限校验，
   并累加下载数。取代旧 `/attachment/**` 公开静态直出，补上「受限版块附件无鉴权」的缺口。
+- **门控附件**：`attachments.gate_id` 非空时，附件与该门控的隐藏正文同权——门控对观众开放才能看到 / 取到；绑定门控的图片也不再公开，响应 `private, no-store`。
+  规则与判定链路见 `ATTACHMENT-GATES.md`，读取只经 `lib/gates/attachments.ts`。
 - 正文引用图片一律写 `/files/<storage_key>`（能力 URL，不可枚举）。
 
 ## 6. 内容约定（Markdown only）

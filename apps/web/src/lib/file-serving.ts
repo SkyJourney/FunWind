@@ -1,20 +1,20 @@
 import { createReadStream, promises as fs } from "node:fs";
 import { Readable } from "node:stream";
-import { and, eq, sql } from "drizzle-orm";
-import { attachments, files, getWebDb, posts, threads } from "@funwind/db";
-import { checkPermission } from "@/lib/authz/service";
+import { eq } from "drizzle-orm";
+import { files, getWebDb } from "@funwind/db";
 import type { Subject } from "@/lib/authz/types";
-import { buildViewerScope, visiblePredicate } from "@/lib/queries/visibility";
+import { recordDownload, resolveFileGrant } from "@/lib/gates/attachments";
 import { resolveStaticPath } from "@/lib/static-files";
 import { getStorageDir } from "@/lib/storage";
 
 /**
  * /files/<storage_key> 的请求处理（docs/DESIGN-MODEL.md §5）。路由文件只做薄薄一层，逻辑在这里以便脱离 Next 做集成测试。
  *
- * 鉴权：
+ * 鉴权（附件部分的判定集中在 lib/gates/attachments.ts，硬约定 3d）：
  *   · 图片类（头像、正文图片、徽章图）公开——storage_key 由内容哈希派生、不可枚举（能力 URL）。
- *   · 非图片附件：经 attachments 反查所属帖子，要求「帖子对观众可见」且「该版块持有 attachment.download」。
- *     同一文件可能被多个帖子引用（按哈希去重），任意一处放行即可。
+ *     例外：文件的所有附件引用都绑定了门控时，图片也要经门控放行，且响应 private / no-store。
+ *   · 非图片附件：经 attachments 反查所属帖子，要求「帖子对观众可见」「该版块持有 attachment.download」，
+ *     附件绑定了门控的还要求该门控对观众开放。同一文件可能被多个帖子引用（按哈希去重），任意一处放行即可。
  *   · 一切拒绝都是 404（硬约定 7），不暴露文件是否存在。
  * 响应头：Content-Type 只取 files.mime、绝不按扩展名推断；nosniff；非图片一律 attachment；
  * 再加 CSP sandbox 作纵深防御——即使将来有人登记了可脚本化类型，浏览器也不会执行。
@@ -55,7 +55,13 @@ export function contentDisposition(kind: "inline" | "attachment", originalName: 
 }
 
 export type FileAccess =
-  | { kind: "image"; sha256: string; mime: string }
+  | {
+      kind: "image";
+      sha256: string;
+      mime: string;
+      /** 经门控放行的图片：响应依赖会话，不得被共享缓存存下来，也不走 ETag 304 */
+      gated: boolean;
+    }
   | {
       kind: "attachment";
       sha256: string;
@@ -66,61 +72,34 @@ export type FileAccess =
 
 /** 解析观众对该 storage_key 的访问权；无权或不存在 → null（调用方一律 404） */
 export async function resolveFileAccess(viewer: Subject, key: string): Promise<FileAccess | null> {
-  const db = getWebDb();
-  const [file] = await db
+  const [file] = await getWebDb()
     .select({ id: files.id, sha256: files.sha256, mime: files.mime })
     .from(files)
     .where(eq(files.storageKey, key))
     .limit(1);
   if (!file) return null; // 只查库，不探测文件系统
   const mime = file.mime || "application/octet-stream";
+  const isImage = IMAGE_MIMES.has(mime);
 
-  if (IMAGE_MIMES.has(mime)) return { kind: "image", sha256: file.sha256, mime };
-
-  const scope = await buildViewerScope(viewer);
-  const candidates = await db
-    .select({
-      attachmentId: attachments.id,
-      originalName: attachments.originalName,
-      forumId: threads.forumId,
-    })
-    .from(attachments)
-    .innerJoin(posts, eq(posts.id, attachments.postId))
-    .innerJoin(threads, eq(threads.id, posts.threadId))
-    .where(
-      and(
-        eq(attachments.fileId, file.id),
-        visiblePredicate(
-          { forumId: threads.forumId, state: threads.state, authorId: threads.authorId },
-          scope,
-        ),
-        visiblePredicate(
-          { forumId: threads.forumId, state: posts.state, authorId: posts.authorId },
-          scope,
-        ),
-      ),
-    )
-    .orderBy(attachments.id);
-
-  const allowedForum = new Map<number, boolean>();
-  for (const c of candidates) {
-    if (!allowedForum.has(c.forumId)) {
-      allowedForum.set(
-        c.forumId,
-        (await checkPermission(viewer, "attachment.download", { forumId: c.forumId })).allowed,
-      );
-    }
-    if (allowedForum.get(c.forumId)) {
-      return {
-        kind: "attachment",
-        sha256: file.sha256,
-        mime,
-        attachmentId: c.attachmentId,
-        originalName: c.originalName,
-      };
-    }
+  const grant = await resolveFileGrant(viewer, { id: file.id, isImage });
+  if (!grant) return null;
+  if (isImage) {
+    return {
+      kind: "image",
+      sha256: file.sha256,
+      mime,
+      gated: grant.kind === "granted" && grant.gated,
+    };
   }
-  return null;
+  // 非图片必然经附件行放行（public 只会出现在图片分支）
+  if (grant.kind !== "granted") return null;
+  return {
+    kind: "attachment",
+    sha256: file.sha256,
+    mime,
+    attachmentId: grant.attachmentId,
+    originalName: grant.originalName,
+  };
 }
 
 const notFound = () => new Response("not found", { status: 404 });
@@ -134,6 +113,10 @@ export function fileHeaders(access: FileAccess, size: number): Record<string, st
     "content-security-policy": "default-src 'none'; sandbox",
   };
   if (access.kind === "image") {
+    if (access.gated) {
+      // 门控图片的放行依赖会话：不带 ETag，不进共享缓存
+      return { ...base, "content-disposition": "inline", "cache-control": "private, no-store" };
+    }
     return {
       ...base,
       "content-disposition": "inline",
@@ -160,7 +143,11 @@ export async function handleFileRequest(
   const access = await resolveFileAccess(viewer, key);
   if (!access) return notFound();
 
-  if (access.kind === "image" && req.headers.get("if-none-match") === `"${access.sha256}"`) {
+  if (
+    access.kind === "image" &&
+    !access.gated &&
+    req.headers.get("if-none-match") === `"${access.sha256}"`
+  ) {
     return new Response(null, { status: 304, headers: { etag: `"${access.sha256}"` } });
   }
 
@@ -178,10 +165,7 @@ export async function handleFileRequest(
 
   // 下载计数：只在真正取内容的 GET 上累加，一次请求一次
   if (access.kind === "attachment" && req.method === "GET") {
-    await getWebDb()
-      .update(attachments)
-      .set({ downloads: sql`${attachments.downloads} + 1` })
-      .where(eq(attachments.id, access.attachmentId));
+    await recordDownload(access.attachmentId);
   }
 
   const body = Readable.toWeb(createReadStream(full)) as ReadableStream;

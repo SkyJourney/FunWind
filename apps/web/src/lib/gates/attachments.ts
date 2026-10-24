@@ -1,0 +1,199 @@
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { attachments, files, getWebDb, postGates, posts, threads } from "@funwind/db";
+import { checkPermission } from "@/lib/authz/service";
+import type { Subject } from "@/lib/authz/types";
+import { buildViewerScope, visiblePredicate } from "@/lib/queries/visibility";
+import { openGateIds } from "./service";
+
+/**
+ * 门控附件的**唯一读取出口**（docs/ATTACHMENT-GATES.md，硬约定 3d）。
+ * 附件与隐藏正文同权：`attachments.gate_id` 非空时，只有该门控对观众开放才能看到 / 取到它。
+ * 判定复用 service.ts 的 `openGateIds`（与隐藏正文同一份判定，两条链路不会分叉）。
+ *
+ * 安全约定：
+ *  · fail-closed——`gate_id` 指向不存在的门控、属于别的帖子的门控，一律锁定（含作者与版主；
+ *    这类数据由保存校验与 `db:verify` 的 `integrity:附件门控归属` 保证不会出现）。
+ *  · 锁定项在类型上就没有文件名、存储键、大小、下载数，不可能被页面误下发。
+ *  · 其他文件不得直接读取 attachments 表（守卫测试 attachments-guard.test.ts）。
+ */
+
+/** 观众可取的附件（含展示所需的全部元数据） */
+export interface OpenAttachment {
+  status: "open";
+  id: number;
+  postId: number;
+  originalName: string;
+  downloads: number;
+  storageKey: string;
+  mime: string;
+  sizeBytes: number;
+}
+
+/** 被门控锁住的附件：只暴露「存在一个」与它归属的门控 key（门控卡片本来就对观众可见），不含任何文件元数据 */
+export interface LockedAttachment {
+  status: "locked";
+  postId: number;
+  /** 归属门控在帖内的 key；门控已不存在（悬空）时为 null */
+  gateKey: string | null;
+}
+
+export type AttachmentView = OpenAttachment | LockedAttachment;
+
+/**
+ * 按帖批量取附件视图（一页的全部帖子一次附件查询 + 至多一次门控判定，无 N+1）。
+ * 调用方须已确认 `postList` 内的帖子对观众可见（页面经 getThreadView / listReplies）。
+ * 注意 `postList` 不要按 hasGate 预过滤：带 gate_id 的附件落在 has_gate=0 的帖子上也应交给门控判定。
+ */
+export async function listAttachments(
+  viewer: Subject,
+  thread: { id: number; forumId: number },
+  postList: readonly { id: number; authorId: number }[],
+): Promise<Map<number, AttachmentView[]>> {
+  const out = new Map<number, AttachmentView[]>();
+  if (postList.length === 0) return out;
+  const rows = await getWebDb()
+    .select({
+      id: attachments.id,
+      postId: attachments.postId,
+      gateId: attachments.gateId,
+      gateKey: postGates.gateKey,
+      originalName: attachments.originalName,
+      downloads: attachments.downloads,
+      storageKey: files.storageKey,
+      mime: files.mime,
+      sizeBytes: files.sizeBytes,
+    })
+    .from(attachments)
+    .innerJoin(files, eq(files.id, attachments.fileId))
+    // 只取 gate_key（不涉及隐藏正文列）；门控不存在时为 NULL
+    .leftJoin(
+      postGates,
+      and(eq(postGates.id, attachments.gateId), eq(postGates.postId, attachments.postId)),
+    )
+    .where(
+      inArray(
+        attachments.postId,
+        postList.map((p) => p.id),
+      ),
+    )
+    .orderBy(asc(attachments.id));
+
+  const gateIds = new Set(rows.flatMap((r) => (r.gateId === null ? [] : [r.gateId])));
+  const open = await openGateIds(viewer, thread, postList, gateIds);
+
+  for (const r of rows) {
+    const view: AttachmentView =
+      r.gateId === null || open.has(r.gateId)
+        ? {
+            status: "open",
+            id: r.id,
+            postId: r.postId,
+            originalName: r.originalName,
+            downloads: r.downloads,
+            storageKey: r.storageKey,
+            mime: r.mime,
+            sizeBytes: r.sizeBytes,
+          }
+        : { status: "locked", postId: r.postId, gateKey: r.gateKey };
+    const list = out.get(r.postId) ?? [];
+    list.push(view);
+    out.set(r.postId, list);
+  }
+  return out;
+}
+
+/** /files 对某个文件的放行结论 */
+export type FileGrant =
+  /** 图片公开快路径：没有附件行，或有任何一条未绑定门控的引用（内容本来就已公开） */
+  | { kind: "public" }
+  /** 经某条附件行放行；gated=true 表示是经由门控放行的（响应不得进共享缓存） */
+  | { kind: "granted"; attachmentId: number; originalName: string; gated: boolean };
+
+/**
+ * 解析观众对某个文件的访问权（/files 用）。无权 → null（调用方一律 404）。
+ *
+ * 规则（docs/ATTACHMENT-GATES.md §5）：
+ *  · 图片：没有任何附件行，或存在**未绑定门控**的引用 → 公开（与此前一致）；
+ *    所有引用都绑定了门控 → 必须经某条附件行放行。图片本身不要求 attachment.download。
+ *  · 非图片：必须经某条附件行放行——所在帖子与主题对观众可见、版块持有 attachment.download。
+ *  · 附件行绑定了门控的，还要求该门控对观众开放。同一文件被多行引用时，任意一行放行即可。
+ */
+export async function resolveFileGrant(
+  viewer: Subject,
+  file: { id: number; isImage: boolean },
+): Promise<FileGrant | null> {
+  const db = getWebDb();
+  if (file.isImage) {
+    const refs = await db
+      .select({ gateId: attachments.gateId })
+      .from(attachments)
+      .where(eq(attachments.fileId, file.id));
+    if (refs.length === 0 || refs.some((r) => r.gateId === null)) return { kind: "public" };
+  }
+
+  const scope = await buildViewerScope(viewer);
+  const candidates = await db
+    .select({
+      attachmentId: attachments.id,
+      originalName: attachments.originalName,
+      gateId: attachments.gateId,
+      postId: posts.id,
+      postAuthorId: posts.authorId,
+      threadId: threads.id,
+      forumId: threads.forumId,
+    })
+    .from(attachments)
+    .innerJoin(posts, eq(posts.id, attachments.postId))
+    .innerJoin(threads, eq(threads.id, posts.threadId))
+    .where(
+      and(
+        eq(attachments.fileId, file.id),
+        visiblePredicate(
+          { forumId: threads.forumId, state: threads.state, authorId: threads.authorId },
+          scope,
+        ),
+        visiblePredicate(
+          { forumId: threads.forumId, state: posts.state, authorId: posts.authorId },
+          scope,
+        ),
+      ),
+    )
+    .orderBy(attachments.id);
+
+  const downloadAllowed = new Map<number, boolean>();
+  for (const c of candidates) {
+    if (!file.isImage) {
+      if (!downloadAllowed.has(c.forumId)) {
+        downloadAllowed.set(
+          c.forumId,
+          (await checkPermission(viewer, "attachment.download", { forumId: c.forumId })).allowed,
+        );
+      }
+      if (!downloadAllowed.get(c.forumId)) continue;
+    }
+    if (c.gateId !== null) {
+      const open = await openGateIds(
+        viewer,
+        { id: c.threadId, forumId: c.forumId },
+        [{ id: c.postId, authorId: c.postAuthorId }],
+        new Set([c.gateId]),
+      );
+      if (!open.has(c.gateId)) continue;
+    }
+    return {
+      kind: "granted",
+      attachmentId: c.attachmentId,
+      originalName: c.originalName,
+      gated: c.gateId !== null,
+    };
+  }
+  return null;
+}
+
+/** 下载计数 +1：只能在鉴权通过、真正取内容的 GET 之后调用 */
+export async function recordDownload(attachmentId: number): Promise<void> {
+  await getWebDb()
+    .update(attachments)
+    .set({ downloads: sql`${attachments.downloads} + 1` })
+    .where(eq(attachments.id, attachmentId));
+}

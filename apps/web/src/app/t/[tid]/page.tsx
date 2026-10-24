@@ -10,10 +10,11 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { getPointsName } from "@/lib/auth/settings";
 import { checkPermission } from "@/lib/authz/service";
 import { getCurrentSubject } from "@/lib/authz/subject";
+import { listAttachments } from "@/lib/gates/attachments";
 import { loadGateViews } from "@/lib/gates/service";
 import { fileUrl } from "@/lib/files";
 import { getForumView } from "@/lib/queries/forums";
-import { getAttachments, getParentFloors, listReplies, pageOfFloor } from "@/lib/queries/posts";
+import { getParentFloors, listReplies, pageOfFloor } from "@/lib/queries/posts";
 import { getCurrentThreadView } from "@/lib/queries/threads";
 
 export const dynamic = "force-dynamic";
@@ -67,7 +68,8 @@ export default async function ThreadPage({ params, searchParams }: Params) {
     await checkPermission(viewer, "attachment.download", { forumId: thread.forumId })
   ).allowed;
   const [attachments, parents, gates, pointsName] = await Promise.all([
-    getAttachments([thread.first.id, ...replies.items.map((r) => r.id)]),
+    // 门控附件与隐藏正文同权：锁定项只带「存在一个」，不含文件名 / 存储键 / 大小（lib/gates/attachments.ts）
+    listAttachments(viewer, thread, gatePosts),
     getParentFloors(
       thread.id,
       replies.items.flatMap((r) => (r.replyToPostId ? [r.replyToPostId] : [])),
@@ -79,10 +81,12 @@ export default async function ThreadPage({ params, searchParams }: Params) {
   const attachmentList = (postId: number) => {
     const list = attachments.get(postId) ?? [];
     if (list.length === 0) return null;
+    const open = list.filter((a) => a.status === "open");
+    const lockedCount = list.length - open.length;
     return (
       <div className="mt-4 flex flex-wrap gap-2 border-t pt-3">
         <Paperclip className="size-4 text-muted-foreground" />
-        {list.map((a) =>
+        {open.map((a) =>
           canDownload ? (
             <a
               key={a.id}
@@ -101,6 +105,14 @@ export default async function ThreadPage({ params, searchParams }: Params) {
               <span>（{viewer.userId === null ? "登录后下载" : "无下载权限"}）</span>
             </span>
           ),
+        )}
+        {lockedCount > 0 && (
+          <span
+            data-testid="locked-attachments"
+            className="inline-flex items-center gap-1 rounded-md border border-dashed px-2 py-1 text-xs text-muted-foreground"
+          >
+            🔒 本帖有 {lockedCount} 个附件需解锁后下载
+          </span>
         )}
       </div>
     );

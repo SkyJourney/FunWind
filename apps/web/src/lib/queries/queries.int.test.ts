@@ -7,7 +7,6 @@
 import { eq, sql } from "drizzle-orm";
 import {
   DEMO,
-  attachments,
   files,
   forumPrefixes,
   forums,
@@ -24,13 +23,7 @@ import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { getDirectory, getForumView } from "./forums";
-import {
-  REPLIES_PER_PAGE,
-  getAttachments,
-  getParentFloors,
-  listReplies,
-  pageOfFloor,
-} from "./posts";
+import { REPLIES_PER_PAGE, getParentFloors, listReplies, pageOfFloor } from "./posts";
 import { getLatestThreads, getThreadView, listThreads } from "./threads";
 import { getProfile } from "./users";
 import { buildViewerScope, visiblePredicate } from "./visibility";
@@ -353,39 +346,6 @@ describe.skipIf(skipDb)("查询层 · 真实 MySQL", () => {
       expect(m.has(900103)).toBe(false); // 属于主题 900003
       expect(m.get(900101)).toBe(1);
       expect((await getParentFloors(900001, [])).size).toBe(0);
-    });
-
-    it("附件：按帖批量取，带原名/下载数/存储键", async () => {
-      const [{ insertId }] = (await db()
-        .insert(files)
-        .values({
-          sha256: "a".repeat(64),
-          storageKey: `aa/aa/${"a".repeat(64)}.zip`,
-          sizeBytes: 123,
-          mime: "application/zip",
-          createdAt: "2026-10-01 00:00:00",
-        })) as unknown as [{ insertId: number }];
-      await db()
-        .insert(attachments)
-        .values({
-          postId: 900101,
-          fileId: Number(insertId),
-          uploaderId: DEMO.alice,
-          originalName: "字幕.zip",
-          downloads: 7,
-          createdAt: "2026-10-01 00:00:00",
-        });
-      const m = await getAttachments([900101, 900102]);
-      expect(m.get(900101)).toEqual([
-        expect.objectContaining({
-          originalName: "字幕.zip",
-          downloads: 7,
-          mime: "application/zip",
-          sizeBytes: 123,
-        }),
-      ]);
-      expect(m.has(900102)).toBe(false);
-      expect((await getAttachments([])).size).toBe(0);
     });
   });
 
