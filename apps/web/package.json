@@ -13,7 +13,9 @@
     "test:e2e": "playwright test",
     "test:e2e:prod": "playwright test -c playwright.prod.config.ts",
     "modules:toggle": "tsx scripts/modules-toggle.ts",
-    "perf:lcp": "tsx scripts/lcp.ts"
+    "perf:lcp": "tsx scripts/lcp.ts",
+    "verify:render": "tsx scripts/verify-render.ts",
+    "verify:fidelity": "tsx scripts/verify-fidelity.ts"
   },
   "dependencies": {
     "@funwind/content": "workspace:*",

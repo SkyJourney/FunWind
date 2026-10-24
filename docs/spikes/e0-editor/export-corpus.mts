@@ -13,7 +13,7 @@ const env = Object.fromEntries(
 );
 const mask = (s: string) =>
   s
-    .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, "user@example.invalid")
+    .replace(/[\w.+-]+\u0040[\w-]+\.[\w.-]+/g, "user@example.com")
     .replace(/\b1[3-9]\d{9}\b/g, "13800000000");
 const c = await mysql.createConnection({
   host: env.NEW_DB_HOST ?? "127.0.0.1",

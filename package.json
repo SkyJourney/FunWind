@@ -24,7 +24,7 @@
     "db:e2e-fixtures": "pnpm --filter @funwind/db e2e-fixtures",
     "db:verify": "pnpm --filter @funwind/db verify",
     "migrate": "pnpm --filter @funwind/db build && pnpm --filter @funwind/content build && pnpm --filter @funwind/migration migrate",
-    "verify:migration": "pnpm --filter @funwind/db build && pnpm --filter @funwind/content build && pnpm --filter @funwind/migration verify",
+    "verify:migration": "pnpm --filter @funwind/db build && pnpm --filter @funwind/content build && pnpm --filter @funwind/migration verify && pnpm --filter @funwind/web verify:render && pnpm --filter @funwind/web verify:fidelity",
     "check:secrets": "node scripts/check-secrets.mjs",
     "test:scripts": "node --test scripts/*.test.mjs",
     "verify:all": "pnpm check:secrets && pnpm test:scripts && pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm build"
