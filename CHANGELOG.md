@@ -5,6 +5,22 @@
 
 ## [Unreleased]
 
+### Changed（M5.5 · S4-2/S4-3：应用适配，权限内核与内容查询层）
+
+- **权限内核（S4-2）**：`ForumTree`（祖先链/子树/沿链解析 read·write·review 策略）、纯函数评估器（显式 `Subject`，词汇表 25 个权限点显式归类写类/非写类）、
+  规则快照常驻内存、授权管理校验 + 同事务写 `audit_log`、提权护栏与 admin 防自锁；会话/登录改按 `username_key`/`email_key`，封禁读 `user_restrictions`；
+  注册事务化（自增 id，建用户/资料/核销邀请码同一事务）；邮件令牌消费即记邮箱已验证；`normalizeKey` 上移到 `packages/db`。
+- **客户端 IP 与频控**：按 `TRUSTED_PROXY_HOPS` 取 IP；取不到可信 IP 时**跳过 IP 级限额**（共享桶会被占满成全站登录的拒绝服务），生产漏配直接报错；
+  找回密码改按账号冷却（2 分钟 1 封 + 每小时 6 封，只对真实账号计数），开放注册在 IP 未知时退回全局兜底桶。
+- **查询层与页面（S4-3）**：`/`、`/f/[fid]`、`/t/[tid]`、`/u/[uid]` 与 `lib/queries/*` 全部重写为统一 post 模型，所有查询显式接收 viewer，
+  可见性在**取数前**翻译成 SQL 谓词（修 P0：受限版块的标题/计数/置顶/最新动态不再泄露；`is_listed=0` 不进聚合但直达可读）；
+  置顶三档（版块/分区/全站，跨版块置顶同样过权限）；`pending`/`rejected` 仅作者与版主可见（带驳回理由），`hidden`/`deleted` 仅版主，其余 404；
+  `generateMetadata` 与页面共用同一份带权限的加载结果，标题不再经 `<title>` 泄露；回复指针父帖在别的页时链接带页码；附件按帖批量取。
+- **门控占位**：`packages/content` 新增 `splitByGatePlaceholders`（围栏代码块内不识别，往返无损，300 组随机用例）；正文里的门控暂渲染为中性卡片
+  「此处有隐藏内容」，不读 `post_gates`，S4-4 换成真正的 `GateBlock`。
+- 删除旧 `lib/auth/avatar.ts`（`/attachment` 头像路径）；头像与正文图片改用 `/files/<storage_key>`，**`/files` 路由在 S4-4 落地前图片会 404**。
+- `apps/web` 类型检查转绿（M5.5 开工以来首次）；web 测试 203 项（含真实 MySQL 临时库集成测试），覆盖率 93%。
+
 ### Changed（M5.5 · R3：迁移适配层重做，代码）
 
 - **映射层与框架**：旧站键/gid/路径知识集中在 `migration/src/mapping/`；运行时 schema 不再认识旧站，`migration_state` 与迁移 id 公式全部移除。

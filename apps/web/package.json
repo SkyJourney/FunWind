@@ -15,6 +15,7 @@
     "perf:lcp": "tsx scripts/lcp.ts"
   },
   "dependencies": {
+    "@funwind/content": "workspace:*",
     "@funwind/db": "workspace:*",
     "@node-rs/argon2": "^2.2.2",
     "class-variance-authority": "^0.7.1",

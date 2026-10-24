@@ -1,92 +1,137 @@
-import { and, asc, count, eq } from "drizzle-orm";
-import { forums, getWebDb, threads } from "@funwind/db";
+import { eq, inArray } from "drizzle-orm";
+import { forumPrefixes, forums, getWebDb } from "@funwind/db";
+import { getReadableForumIds } from "@/lib/authz/service";
+import { getAuthzSnapshot } from "@/lib/authz/snapshot";
+import type { Subject } from "@/lib/authz/types";
+import type { ForumNode } from "@/lib/forums/forum-tree";
 
-/** 版块查询：目录树 / 单版块 / 真实主题计数（剔除 spam，不信旧统计列） */
+/**
+ * 版块查询：首页目录与版块页头部。所有函数显式接收 viewer——
+ * 读不到的版块（受限版块、会员版块对游客）不会出现在任何结果里，包括计数。
+ */
 
-export interface ForumRow {
+export interface DirectoryForum {
   id: number;
-  parentId: number;
-  type: "category" | "forum" | "sub" | "sub2";
   name: string;
-  nameStyle: string;
   description: string | null;
-  vieworder: number;
+  threadCount: number;
+  postCount: number;
+  /** 直接子版块（同样只含读得到且上目录的） */
+  subs: { id: number; name: string }[];
 }
 
-export interface ForumWithSubs {
-  forum: ForumRow;
-  subs: ForumRow[];
+export interface DirectoryGroup {
+  /** 分区；null = 不属于任何分区的顶层版块 */
+  section: { id: number; name: string } | null;
+  forums: DirectoryForum[];
 }
 
-export interface ForumCategory {
-  category: ForumRow;
-  forums: ForumWithSubs[];
+export interface Directory {
+  groups: DirectoryGroup[];
+  /** 访客可见的版块数 / 主题数（首页统计；同样不得暴露受限版块的存在） */
+  forumCount: number;
+  threadCount: number;
 }
 
-export async function getAllForums(): Promise<ForumRow[]> {
-  const db = getWebDb();
-  const rows = await db
-    .select({
-      id: forums.id,
-      parentId: forums.parentId,
-      type: forums.type,
-      name: forums.name,
-      nameStyle: forums.nameStyle,
-      description: forums.description,
-      vieworder: forums.vieworder,
-    })
+async function loadCounts(ids: number[]): Promise<Map<number, { threads: number; posts: number }>> {
+  if (ids.length === 0) return new Map();
+  const rows = await getWebDb()
+    .select({ id: forums.id, threads: forums.threadCount, posts: forums.postCount })
     .from(forums)
-    .where(eq(forums.isShow, true))
-    .orderBy(asc(forums.vieworder), asc(forums.id));
-  return rows.map((r) => ({ ...r, type: r.type as ForumRow["type"] }));
+    .where(inArray(forums.id, ids));
+  return new Map(rows.map((r) => [r.id, { threads: r.threads, posts: r.posts }]));
 }
 
-/** 分类 → 版块（含子版块）树；排序沿用旧站 vieworder */
-export function buildForumTree(rows: ForumRow[]): ForumCategory[] {
-  const categories = rows.filter((r) => r.type === "category");
-  const forumsOf = new Map<number, ForumRow[]>();
-  for (const r of rows) {
-    if (r.type !== "category") {
-      const list = forumsOf.get(r.parentId) ?? [];
-      list.push(r);
-      forumsOf.set(r.parentId, list);
+/** 首页目录：分区 → 版块（含子版块链接）。只含读得到且 is_listed=1 的版块；计数取 forums 缓存列 */
+export async function getDirectory(viewer: Subject): Promise<Directory> {
+  const [{ tree }, readable] = await Promise.all([getAuthzSnapshot(), getReadableForumIds(viewer)]);
+  const ok = new Set(readable);
+  const shown = (n: ForumNode) => ok.has(n.id) && n.isListed;
+  const counts = await loadCounts(
+    tree
+      .all()
+      .filter(shown)
+      .map((n) => n.id),
+  );
+
+  const card = (n: ForumNode): DirectoryForum => ({
+    id: n.id,
+    name: n.name,
+    description: n.description,
+    threadCount: counts.get(n.id)?.threads ?? 0,
+    postCount: counts.get(n.id)?.posts ?? 0,
+    subs: tree
+      .children(n.id)
+      .filter((c) => c.kind === "forum" && shown(c))
+      .map((c) => ({ id: c.id, name: c.name })),
+  });
+
+  const groups: DirectoryGroup[] = [];
+  const loose: DirectoryForum[] = [];
+  for (const root of tree.roots()) {
+    if (root.kind === "section") {
+      const cards = tree
+        .children(root.id)
+        .filter((c) => c.kind === "forum" && shown(c))
+        .map(card);
+      if (cards.length > 0) {
+        groups.push({ section: { id: root.id, name: root.name }, forums: cards });
+      }
+    } else if (shown(root)) {
+      loose.push(card(root));
     }
   }
-  return categories.map((category) => ({
-    category,
-    forums: (forumsOf.get(category.id) ?? []).map((forum) => ({
-      forum,
-      subs: forumsOf.get(forum.id) ?? [],
-    })),
-  }));
+  if (loose.length > 0) groups.push({ section: null, forums: loose });
+
+  const listedForums = tree.all().filter((n) => n.kind === "forum" && shown(n));
+  return {
+    groups,
+    forumCount: listedForums.length,
+    threadCount: listedForums.reduce((sum, n) => sum + (counts.get(n.id)?.threads ?? 0), 0),
+  };
 }
 
-export async function getForum(id: number): Promise<ForumRow | null> {
-  const db = getWebDb();
-  const rows = await db
-    .select({
-      id: forums.id,
-      parentId: forums.parentId,
-      type: forums.type,
-      name: forums.name,
-      nameStyle: forums.nameStyle,
-      description: forums.description,
-      vieworder: forums.vieworder,
-    })
-    .from(forums)
-    .where(eq(forums.id, id))
-    .limit(1);
-  const row = rows[0];
-  return row ? { ...row, type: row.type as ForumRow["type"] } : null;
+export interface ForumView {
+  id: number;
+  kind: "section" | "forum";
+  name: string;
+  description: string | null;
+  /** 面包屑：从根到父级（不含自身），只含读得到的祖先 */
+  trail: { id: number; name: string; kind: "section" | "forum" }[];
+  threadCount: number;
+  postCount: number;
+  prefixes: { id: number; name: string }[];
 }
 
-/** 各版块可见主题数（is_spam=0 且 status=0），供目录展示 */
-export async function getForumThreadCounts(): Promise<Map<number, number>> {
-  const db = getWebDb();
-  const rows = await db
-    .select({ fid: threads.forumId, n: count() })
-    .from(threads)
-    .where(and(eq(threads.isSpam, false), eq(threads.status, 0)))
-    .groupBy(threads.forumId);
-  return new Map(rows.map((r) => [Number(r.fid), Number(r.n)]));
+/** 版块页头部；不存在或读不到返回 null（调用方一律按 404，不暴露存在性） */
+export async function getForumView(viewer: Subject, fid: number): Promise<ForumView | null> {
+  const [{ tree }, readable] = await Promise.all([getAuthzSnapshot(), getReadableForumIds(viewer)]);
+  const node = tree.get(fid);
+  if (!node || !readable.includes(fid)) return null;
+  const ok = new Set(readable);
+
+  const [counts, prefixRows] = await Promise.all([
+    loadCounts([fid]),
+    getWebDb()
+      .select({ id: forumPrefixes.id, name: forumPrefixes.name })
+      .from(forumPrefixes)
+      .where(eq(forumPrefixes.forumId, fid))
+      .orderBy(forumPrefixes.sortOrder, forumPrefixes.id),
+  ]);
+
+  return {
+    id: node.id,
+    kind: node.kind,
+    name: node.name,
+    description: node.description,
+    trail: tree
+      .chain(fid)
+      .slice(1)
+      .reverse()
+      .filter((id) => ok.has(id))
+      .map((id) => ({ id, name: tree.get(id)!.name, kind: tree.get(id)!.kind })),
+    threadCount: counts.get(fid)?.threads ?? 0,
+    postCount: counts.get(fid)?.posts ?? 0,
+    prefixes: prefixRows,
+  };
 }

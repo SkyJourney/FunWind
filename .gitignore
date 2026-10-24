@@ -28,3 +28,6 @@ drizzle/meta/_journal.json.bak
 
 # 文件存储根目录（内容寻址的上传文件，体积大，不入库）
 /storage/
+
+# next dev 自动生成的 AI 工具提示文件（每次起开发服务器都会重写，不入库）
+apps/web/AGENTS.md

@@ -8,11 +8,11 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "pnpm --filter @funwind/db build && pnpm --filter @funwind/web build",
-    "dev": "pnpm --filter @funwind/db build && pnpm --filter @funwind/web dev",
+    "build": "pnpm --filter @funwind/db build && pnpm --filter @funwind/content build && pnpm --filter @funwind/web build",
+    "dev": "pnpm --filter @funwind/db build && pnpm --filter @funwind/content build && pnpm --filter @funwind/web dev",
     "lint": "pnpm -r --if-present lint",
     "typecheck": "pnpm -r --if-present typecheck",
-    "db:build": "pnpm --filter @funwind/db build",
+    "db:build": "pnpm --filter @funwind/db build && pnpm --filter @funwind/content build",
     "test": "pnpm -r --if-present test",
     "test:e2e": "pnpm db:build && docker compose -f docker/dev/compose.yaml up -d mailpit && NEW_DB_NAME=qysub_next_e2e pnpm --filter @funwind/db exec tsx scripts/e2e-reset.ts && NEW_DB_NAME=qysub_next_e2e pnpm migrate && NEW_DB_NAME=qysub_next_e2e pnpm db:seed && NEW_DB_NAME=qysub_next_e2e pnpm --filter @funwind/web test:e2e",
     "format": "prettier --write .",

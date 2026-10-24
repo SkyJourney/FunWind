@@ -181,6 +181,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@funwind/content':
+        specifier: workspace:*
+        version: link:../../packages/content
       '@funwind/db':
         specifier: workspace:*
         version: link:../../packages/db
