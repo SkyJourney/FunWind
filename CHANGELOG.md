@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+### Fixed（M5.5 之后审查 · P2 小批 1/6：小数页码 500）
+
+- `?page=2.5` 曾让游客触发 500：页码变成 `OFFSET 37.5`，MySQL 报语法错误。新增 `lib/queries/paging.ts` 的 `clampPage`（小数向零取整、NaN 回第 1 页、±Infinity 与越界收束到两端），`listThreads` 与 `listReplies` 共用。
+- 回归：`clampPage` 单测；`queries.int.test` 在真实多页数据上覆盖 1.5 / 2.5 / NaN / Infinity；E2E 水区 `?page=2.5|1e3|abc|-4` 均 200 且落在正确页（E2E 共 60 + 冒烟 7）。还原修复后单测与集成测试共 4 项变红。
+
 ### Added（附件与门控 · 第 5 步：E2E 与收尾）
 
 - E2E 夹具 `gateAttach` 帖（`packages/db/src/e2e-fixtures.ts`，镜像常量见 `e2e/support/fixtures.ts`）：付费 10 / 回复可见两个门控，四个附件（公开 / 付费 txt / 付费图 / 回复 txt），门控图同时嵌在付费门控的隐藏正文里；demo_member 已购买付费门控。夹具集成测试覆盖归属与完整性。

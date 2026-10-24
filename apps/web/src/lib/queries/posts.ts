@@ -2,6 +2,7 @@ import { and, asc, count, eq, gt, inArray } from "drizzle-orm";
 import { getWebDb, posts, threads, users } from "@funwind/db";
 import type { Subject } from "@/lib/authz/types";
 import type { ThreadListItem } from "./threads";
+import { clampPage } from "./paging";
 import { buildViewerScope, visiblePredicate } from "./visibility";
 
 /** 回帖楼层查询：分页（20/页）+ 作者 join + 父帖楼层 + 按帖批量取附件 */
@@ -55,7 +56,7 @@ export async function listReplies(
     .where(where);
   const total = Number(nRow?.n ?? 0);
   const totalPages = Math.max(1, Math.ceil(total / REPLIES_PER_PAGE));
-  const safePage = Math.min(Math.max(1, page), totalPages);
+  const safePage = clampPage(page, totalPages);
 
   const rows = await db
     .select({

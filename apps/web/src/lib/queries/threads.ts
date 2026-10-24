@@ -4,6 +4,7 @@ import { contentReviews, forumPrefixes, getWebDb, posts, threads, users } from "
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
+import { clampPage } from "./paging";
 import { buildViewerScope, visiblePredicate, type ViewerScope } from "./visibility";
 
 /**
@@ -109,7 +110,7 @@ export async function listThreads(
   const [nRow] = await getWebDb().select({ n: count() }).from(threads).where(where);
   const total = Number(nRow?.n ?? 0);
   const totalPages = Math.max(1, Math.ceil(total / THREADS_PER_PAGE));
-  const page = Math.min(Math.max(1, opts.page), totalPages);
+  const page = clampPage(opts.page, totalPages);
 
   const rows = await selectList(where)
     .orderBy(

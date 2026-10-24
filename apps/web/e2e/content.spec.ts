@@ -84,6 +84,20 @@ test.describe("内容只读渲染", () => {
     await expect(page.getByText(new RegExp(`第 ${last}/${last} 页`))).toBeVisible();
   });
 
+  test("畸形页码不会让游客触发 500：小数取整、非数字回第 1 页（审查 P2-1）", async ({ page }) => {
+    const last = Math.ceil(FIX.water.total / FIX.water.perPage);
+    for (const [raw, expected] of [
+      ["2.5", 2],
+      ["1e3", last],
+      ["abc", 1],
+      ["-4", 1],
+    ] as const) {
+      const res = await page.goto(`/f/${FIX.water.id}?page=${raw}`);
+      expect(res?.status(), `page=${raw}`).toBe(200);
+      await expect(page.getByText(new RegExp(`第 ${expected}/${last} 页`))).toBeVisible();
+    }
+  });
+
   test("置顶块：只在第 1 页，全站置顶 3 个（跨版块）+ 本版块置顶，不重复进入普通列表", async ({
     page,
   }) => {

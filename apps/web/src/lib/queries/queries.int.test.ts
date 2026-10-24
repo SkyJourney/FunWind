@@ -248,6 +248,11 @@ describe.skipIf(skipDb)("查询层 · 真实 MySQL", () => {
       expect(p1.items[0]?.id).toBe(910029); // 最后回复时间倒序
       expect(await listThreads(guest, 903, { page: 2 }).then((r) => r.items)).toHaveLength(5);
       expect((await listThreads(guest, 903, { page: -3 })).page).toBe(1);
+      // 小数 / NaN / Infinity 不得变成非法 OFFSET（审查 P2-1：?page=1.5 曾让游客触发 500）
+      expect((await listThreads(guest, 903, { page: 1.5 })).page).toBe(1);
+      expect((await listThreads(guest, 903, { page: 1.5 })).items).toHaveLength(25);
+      expect((await listThreads(guest, 903, { page: Number.NaN })).page).toBe(1);
+      expect((await listThreads(guest, 903, { page: Number.POSITIVE_INFINITY })).page).toBe(2);
     });
   });
 
@@ -316,6 +321,11 @@ describe.skipIf(skipDb)("查询层 · 真实 MySQL", () => {
       expect(p1.items.map((r) => r.floor)).toEqual(
         Array.from({ length: REPLIES_PER_PAGE }, (_, i) => i + 2),
       );
+      // 小数页码（审查 P2-1）：取整后正常返回，不抛 SQL 错误
+      const frac = await listReplies(guest, t, 2.5);
+      expect(frac.page).toBe(2);
+      expect(frac.items).toHaveLength(REPLIES_PER_PAGE);
+      expect((await listReplies(guest, t, Number.NaN)).page).toBe(1);
       const p3 = await listReplies(guest, t, 3);
       expect(p3.items.map((r) => r.floor)).toEqual(Array.from({ length: 7 }, (_, i) => i + 42));
       expect(pageOfFloor(2)).toBe(1);
