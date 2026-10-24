@@ -19,10 +19,22 @@ import { parseConditions } from "./parse";
  * 账户按 user_id 升序加锁以避免死锁；仍遇死锁则整体重试。
  * 幂等键：读者 gate_unlock:{gateId}:{userId}，作者 gate_sale:{gateId}:{userId}（解锁记录的主键与台账唯一键是最后兜底）。
  *
+ * 价格核对（expectedPrice）：买家点击时看到的价格可能在提交前被作者改掉。调用方传入「买家看到的价格」，
+ * 事务内锁住门控行后与当前价比对，不符返回 price_changed、不扣费；这样扣款金额永远是买家确认过的金额。
+ * 已解锁者不受影响（不扣费，直接返回已解锁）。省略 expectedPrice 表示不核对，仅限内部调用；
+ * 面向用户的入口（Server Action）必须传。
+ *
  * 结果用固定的错误码而不是自由文本：页面只据此映射文案，重定向 URL 里不带任何用户可控内容。
  */
 
-export type UnlockCode = "login" | "not_found" | "own_content" | "insufficient" | "unavailable";
+export type UnlockCode =
+  | "login"
+  | "not_found"
+  | "own_content"
+  | "insufficient"
+  | "unavailable"
+  /** 门控的当前价格与买家确认的价格（expectedPrice）不符 */
+  | "price_changed";
 
 export type UnlockResult =
   | { ok: true; alreadyUnlocked: boolean; pricePaid: number; target: GateLocation }
@@ -31,6 +43,11 @@ export type UnlockResult =
 export interface UnlockDeps {
   /** 覆盖事件派发（单测注入；缺省走内核总线） */
   emitter?: <K extends EventName>(name: K, payload: EventPayloads[K]) => Promise<unknown>;
+}
+
+export interface UnlockOptions extends UnlockDeps {
+  /** 买家确认过的价格（整数）；与事务内锁到的当前价不符则拒绝。省略 = 不核对（仅限内部调用） */
+  expectedPrice?: number;
 }
 
 const defaultEmitter: NonNullable<UnlockDeps["emitter"]> = (name, payload) =>
@@ -53,7 +70,7 @@ export const feeOf = (price: number, rate: number): number => Math.floor(price *
 export async function unlockGate(
   viewer: Subject,
   gateId: number,
-  deps: UnlockDeps = {},
+  deps: UnlockOptions = {},
 ): Promise<UnlockResult> {
   const viewerId = viewer.userId;
   if (viewerId === null) return { ok: false, code: "login" };
@@ -111,6 +128,12 @@ export async function unlockGate(
           .for("update");
         if (existing) {
           return { ok: true, alreadyUnlocked: true, pricePaid: existing.pricePaid, events: [] };
+        }
+
+        // 价格核对放在「已解锁」判断之后：已买过的人不会因为后来改价而看到错误；
+        // 此处门控行已被排他锁住，比对用的价格与随后扣款的价格是同一个值，中间不可能再被改动
+        if (deps.expectedPrice !== undefined && deps.expectedPrice !== price) {
+          return { ok: false, code: "price_changed" };
         }
 
         const events: PendingEvent[] = [];

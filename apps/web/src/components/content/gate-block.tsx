@@ -50,6 +50,8 @@ function PromptLine({
           <form action={unlockGateAction}>
             <input type="hidden" name="gateId" value={gateId} />
             <input type="hidden" name="page" value={returnPage} />
+            {/* 买家看到的价格随表单提交，服务端按它核对，避免作者在点击前改价而被按新价扣款 */}
+            <input type="hidden" name="expectedPrice" value={prompt.price} />
             <button
               type="submit"
               disabled={prompt.balance < prompt.price}

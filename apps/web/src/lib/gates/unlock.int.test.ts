@@ -258,6 +258,60 @@ describe.skipIf(skipDb)("unlockGate · 真实 MySQL", () => {
     });
   });
 
+  describe("价格核对（expectedPrice，审查 P2-4）", () => {
+    const withPrice = (s: Subject, g: number, expectedPrice: number) =>
+      unlockGate(s, g, { ...deps, expectedPrice } as never);
+    const setPrice = (g: number, price: number) =>
+      db()
+        .update(postGates)
+        .set({ conditions: [{ type: "points", price }] })
+        .where(eq(postGates.id, g));
+
+    it("价格相符：照常购买，按确认过的价格扣款", async () => {
+      const g = await mkGate(900101, [{ type: "points", price: 4 }]);
+      const before = await balance(DEMO.member);
+      const r = await withPrice(member, g, 4);
+      expect(r).toMatchObject({ ok: true, alreadyUnlocked: false, pricePaid: 4 });
+      expect(await balance(DEMO.member)).toBe((before ?? 0) - 4);
+    });
+
+    it("作者在买家点击前改价：price_changed，不扣费、不记账、不解锁、不派发事件", async () => {
+      const g = await mkGate(900101, [{ type: "points", price: 10 }]);
+      await setPrice(g, 30); // 买家页面上看到的是 10，提交时已是 30
+      emitted.length = 0;
+      const before = await balance(DEMO.member);
+      const ledgerBefore = (await ledger(DEMO.member)).length;
+      const r = await withPrice(member, g, 10);
+      expect(r).toMatchObject({ ok: false, code: "price_changed" });
+      expect(r.ok === false && r.target?.gateId).toBe(g);
+      expect(await balance(DEMO.member)).toBe(before);
+      expect((await ledger(DEMO.member)).length).toBe(ledgerBefore);
+      expect(await unlockRow(g, DEMO.member)).toBeUndefined();
+      expect(await unlockCount(g)).toBe(0);
+      expect(emitted).toEqual([]);
+      // 买家按新价格重新确认后可以成功
+      expect(await withPrice(member, g, 30)).toMatchObject({ ok: true, pricePaid: 30 });
+    });
+
+    it("免费门控被改成付费：期望价 0 不会被当作免费放行", async () => {
+      const g = await mkGate(900101, [{ type: "points", price: 0 }]);
+      await setPrice(g, 5);
+      const r = await withPrice(member, g, 0);
+      expect(r).toMatchObject({ ok: false, code: "price_changed" });
+      expect(await unlockRow(g, DEMO.member)).toBeUndefined();
+    });
+
+    it("已解锁者不受改价影响：返回已解锁、不扣费，也不报 price_changed", async () => {
+      const g = await mkGate(900101, [{ type: "points", price: 5 }]);
+      expect(await withPrice(member, g, 5)).toMatchObject({ ok: true, alreadyUnlocked: false });
+      await setPrice(g, 50);
+      const before = await balance(DEMO.member);
+      const r = await withPrice(member, g, 5);
+      expect(r).toMatchObject({ ok: true, alreadyUnlocked: true, pricePaid: 5 });
+      expect(await balance(DEMO.member)).toBe(before);
+    });
+  });
+
   describe("并发", () => {
     it("同一读者对同一门控并发点击 12 次：恰扣一次、恰一条解锁、台账恰两条", async () => {
       const g = await mkGate(900101, [{ type: "points", price: 5 }]);

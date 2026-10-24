@@ -26,6 +26,12 @@ function backUrl(t: GateLocation, formPage: number, notice?: string): string {
   return `/t/${t.threadId}${qs ? `?${qs}` : ""}#p${t.postId}`;
 }
 
+/** 买家确认的价格：非负整数且不超过门控语法允许的上限（9999999）；缺失 / 畸形一律视为「价格不符」 */
+function parseExpectedPrice(raw: FormDataEntryValue | null): number | null {
+  if (typeof raw !== "string" || !/^\d{1,7}$/.test(raw)) return null;
+  return Number(raw);
+}
+
 export async function unlockGateAction(formData: FormData): Promise<void> {
   const gateId = Number(formData.get("gateId"));
   if (!Number.isInteger(gateId) || gateId <= 0) notFound();
@@ -42,7 +48,15 @@ export async function unlockGateAction(formData: FormData): Promise<void> {
     redirect(backUrl(t, formPage, "rate"));
   }
 
-  const r = await unlockGate(viewer, gateId);
+  // 没带价格的请求（旧页面缓存 / 手工构造）不能按「当前价」扣款，回到原帖让买家重新确认
+  const expectedPrice = parseExpectedPrice(formData.get("expectedPrice"));
+  if (expectedPrice === null) {
+    const t = await locateGate(viewer, gateId);
+    if (!t) notFound();
+    redirect(backUrl(t, formPage, "price_changed"));
+  }
+
+  const r = await unlockGate(viewer, gateId, { expectedPrice });
   if (!r.ok) {
     if (r.code === "login") redirect("/login");
     if (r.code === "not_found" || !r.target) notFound();

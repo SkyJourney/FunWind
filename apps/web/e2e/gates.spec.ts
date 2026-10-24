@@ -16,6 +16,7 @@ const PAID_TEXT = "这里是需要 10 积分才能解锁的隐藏正文";
 const REPLY_TEXT = "回复本帖后才能看到这段内容";
 const HIGH_THREAD = 991001; // 高价门控（500）
 const FREE_THREAD = 991002; // 免费门控（0）
+const REPRICE_THREAD = 991003; // 页面加载后被作者改价的门控（价格核对）
 
 const locked = (page: Page) => page.locator('[data-gate-state="locked"]');
 const open = (page: Page) => page.locator('[data-gate-state="open"]');
@@ -63,7 +64,7 @@ test.beforeAll(async () => {
     );
     await q.exec("UPDATE post_gates SET unlock_count = 1 WHERE id = 9001");
     await q.exec("DELETE FROM posts WHERE thread_id = ? AND floor > 1", [THREAD]);
-    for (const tid of [HIGH_THREAD, FREE_THREAD]) {
+    for (const tid of [HIGH_THREAD, FREE_THREAD, REPRICE_THREAD]) {
       await q.exec("DELETE FROM gate_unlocks WHERE gate_id = ?", [tid]);
       await q.exec("DELETE FROM post_gates WHERE id = ?", [tid]);
       await q.exec("DELETE FROM posts WHERE thread_id = ?", [tid]);
@@ -71,6 +72,7 @@ test.beforeAll(async () => {
     }
     await addGatedThread(q, HIGH_THREAD, 500);
     await addGatedThread(q, FREE_THREAD, 0);
+    await addGatedThread(q, REPRICE_THREAD, 7);
   });
 });
 
@@ -229,4 +231,37 @@ test("回复可见：待审核回帖不解锁，可见回帖才解锁", async ({
   await page.reload();
   await expect(page.getByText("已回复，内容已解锁")).toBeVisible();
   await expect(page.getByText(REPLY_TEXT)).toBeVisible();
+});
+
+test("价格核对：页面加载后作者改价，点击购买得到「价格已变化」且不扣费；按新价格重新确认才成功", async ({
+  page,
+  context,
+}) => {
+  await loginAs(context, USERS.team);
+  const before = await balanceOf(page, USERS.team);
+
+  await page.goto(`/t/${REPRICE_THREAD}`);
+  const card = locked(page);
+  await expect(card.getByText("付费内容 · 7 青翼币")).toBeVisible();
+
+  // 买家还停留在旧页面时，作者把价格改成 20
+  await withE2eDb((q) =>
+    q.exec("UPDATE post_gates SET conditions = ? WHERE id = ?", [
+      JSON.stringify([{ type: "points", price: 20 }]),
+      REPRICE_THREAD,
+    ]),
+  );
+  await card.getByRole("button", { name: "7 青翼币 解锁" }).click();
+
+  // 回到原帖并带固定提示码；没有被按新价扣款，也没有解锁
+  await expect(page).toHaveURL(new RegExp(`/t/${REPRICE_THREAD}\\?gate=price_changed#p`));
+  await expect(page.getByText("价格已变化，请确认新价格后重试。")).toBeVisible();
+  expect(await page.content()).not.toContain(`隐藏内容-价格7`);
+  expect(await balanceOf(page, USERS.team)).toBe(before);
+
+  // 重新加载后看到的是新价格，按它确认才会扣款
+  await page.goto(`/t/${REPRICE_THREAD}`);
+  await page.getByRole("button", { name: "20 青翼币 解锁" }).click();
+  await expect(open(page).getByText(/已购买 · 20 青翼币/)).toBeVisible();
+  expect(await balanceOf(page, USERS.team)).toBe(before - 20);
 });
