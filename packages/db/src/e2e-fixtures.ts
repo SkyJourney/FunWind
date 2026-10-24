@@ -52,6 +52,8 @@ export const E2E_FIX = {
     staffSecret: 950007,
     /** 门控附件帖（docs/ATTACHMENT-GATES.md）：门控 a1 付费 10、a2 回复可见 */
     gateAttach: 950008,
+    /** GFM 渲染帖（表格 / 删除线 / 语气词单波浪线） */
+    gfm: 950009,
     globalPins: [950011, 950012, 950013],
     waterPin: 950021,
   },
@@ -289,6 +291,23 @@ export async function seedE2eFixtures(db: Db, alice = E2E_FIX.alice): Promise<vo
       title: "[内部] E2E 站务议程",
       body: "仅管理员可见。",
       at: minute(7),
+    },
+    {
+      id: F.thread.gfm,
+      forumId: F.anime,
+      authorId: alice,
+      title: "E2E GFM 渲染帖",
+      body: [
+        "表格：",
+        "",
+        "| 名称 | 数量 |",
+        "| --- | ---: |",
+        "| 苹果 | 3 |",
+        "| 梨 | 5 |",
+        "",
+        "~~已划掉~~ 与语气词~我也是~好在，更新到第1~12集。",
+      ].join("\n"),
+      at: minute(9),
     },
     {
       id: F.thread.gateAttach,

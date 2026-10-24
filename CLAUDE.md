@@ -34,7 +34,7 @@ docker/          qysub-next（MySQL 8.4 @33621）、dev（web 容器 + MailPit�
 ```bash
 pnpm dev                      # http://127.0.0.1:3100
 pnpm verify:all               # lint + format:check + typecheck + test(覆盖率) + build
-pnpm test:e2e                 # 重置并重建 qysub_next_e2e（bootstrap + 种子 + E2E 夹具，无迁移）→ dev 服务器 3200 的 E2E（69 项）→ 生产构建冒烟 3201（7 项）；需要 MailPit(8025)；约 40s
+pnpm test:e2e                 # 重置并重建 qysub_next_e2e（bootstrap + 种子 + E2E 夹具，无迁移）→ dev 服务器 3200 的 E2E（70 项）→ 生产构建冒烟 3201（7 项）；需要 MailPit(8025)；约 40s
 pnpm db:bootstrap | db:seed | db:e2e-fixtures | db:verify   # 零数据路径：建表+系统种子 / 演示夹具 / E2E 专用夹具 / schema 对账（13 项）
 pnpm --filter @funwind/db test              # db 包单测 + 真实 MySQL 临时库集成测试（SKIP_DB_TESTS=1 可跳过）
 pnpm --filter @funwind/web test             # web 单测 + 真实 MySQL 临时库集成测试（同样认 SKIP_DB_TESTS=1）；git push 前由 .husky/pre-push 自动跑类型检查 + 全部测试
@@ -64,7 +64,7 @@ pnpm --filter @funwind/web perf:lcp                       # 生产构建 LCP 门
 3d. **附件表只能经 `lib/gates/attachments.ts` 读写**：`attachments.gate_id` 非空的附件与门控隐藏正文同权，锁定项不得下发文件名 / 存储键 / 大小；`/files` 与帖子页共用同一出口（`docs/ATTACHMENT-GATES.md`，守卫测试 `attachments-guard.test.ts`）。
 4. **时区**：库内 DATETIME 一律北京墙面时间；连接层 `+08:00` + `dateStrings`，**且每条新连接必须 `SET time_zone='+08:00'`**（mysql2 的 `timezone` 选项不改服务器会话时区，`NOW()` 会是容器的 UTC；`createPool` 已处理，任何绕过它的裸连接须自行设置；`db:verify` 与 `client.int.test.ts` 守护）；解析只走 `lib/datetime.ts`，禁止裸 `new Date(字符串)`。
 5. **DB 连接**：web 运行时只用 `getWebDb()` 单例；`withDb` 仅限一次性脚本。
-6. **渲染**：用户内容必须经 `lib/markdown.ts` + `lib/sanitize.ts` 管线，禁止 `dangerouslySetInnerHTML` 直出原文。
+6. **渲染**：用户内容必须经 `lib/markdown.ts` + `lib/sanitize.ts` 管线，禁止 `dangerouslySetInnerHTML` 直出原文。管线启用的是**精简 GFM（只有表格与删除线，`singleTilde:false`，见 `lib/gfm-lite.ts`）**：不要换成完整 `remark-gfm`——它的自动链接会把紧跟 URL 的中文吞进链接，单波浪线删除线会误伤 1328 篇「语气词~」。
 7. **权限**：一律走 `lib/authz` 的 `checkPermission`；越权对外表现为 **404**（不暴露存在性）；不允许硬编码身份判断。
 8. **URL 已冻结**：`/f/{fid}`、`/t/{tid}`、`?page=`、`#p{pid}`（M13 的 301 依赖）。文件统一走 `/files/<storage_key>`（已取代 `/attachment/**`，S4-4 落地）；表情为 `/emoji/{id}.gif`。
 9. **模块**：扩事件/槽位 = 改 `modules/kernel/types.ts` + 同步 `docs/MODULES.md`；使用内核的 route handler 与 Server Action 必须自行 `import "@/modules"`——凡（传递）引用会触及内核的代码（派发事件 / 读写注册表）都算，`modules-import-guard.test.ts` 静态分析并守护，新增入口漏写会直接变红。

@@ -64,6 +64,29 @@ test.describe("内容只读渲染", () => {
     expect(res?.status()).toBe(404);
   });
 
+  test("GFM：表格渲染成真正的 <table>，~~删除线~~ 变成 <del>，单个波浪线（语气词、集数区间）原样保留", async ({
+    page,
+  }) => {
+    await page.goto(`/t/${FIX.thread.gfm}`);
+    const body = page.locator(".content-md").first();
+    const table = body.locator("table");
+    await expect(table).toHaveCount(1);
+    await expect(table.locator("th")).toHaveText(["名称", "数量"]);
+    await expect(table.locator("tbody tr")).toHaveCount(2);
+    await expect(table.locator("tbody tr").first().locator("td").nth(1)).toHaveAttribute(
+      "align",
+      "right",
+    );
+    // 竖线原文不应再出现
+    await expect(body).not.toContainText("| ---");
+    // 删除线只作用在 ~~ 包裹的部分
+    await expect(body.locator("del")).toHaveCount(1);
+    await expect(body.locator("del")).toHaveText("已划掉");
+    // 单波浪线：语气词和 1~12 区间都原样在，且没有被划掉
+    await expect(body).toContainText("语气词~我也是~好在");
+    await expect(body).toContainText("第1~12集");
+  });
+
   test("投票帖徽标", async ({ page }) => {
     await page.goto(`/t/${FIX.thread.poll}`);
     // 标题里也有“投票帖”三个字，徽标要精确匹配

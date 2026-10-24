@@ -202,6 +202,16 @@ const CORPUS: string[] = [
   "> <img src=x onerror=alert(1)>",
   "- <img src=x onerror=alert(1)>\n- ok",
   "| a | b |\n|---|---|\n| <img src=x onerror=alert(1)> | <script>alert(1)</script> |",
+  // —— 表格与删除线（M5.6 S1 启用 GFM 后才真正走到白名单的新路径）——
+  "| a | b |\n|---|---|\n| [x](javascript:alert(1)) | ![y](javascript:alert(1)) |",
+  "| a | b |\n|:--|--:|\n| <img src=x onerror=alert(1)> | <iframe src=javascript:alert(1)> |",
+  '| a |\n|---|\n| <td align="center" onclick=alert(1)>x</td> |',
+  "| a |\n|---|\n| ~~<script>alert(1)</script>~~ |",
+  "~~<img src=x onerror=alert(1)>~~",
+  "~~[x](javascript:alert(1))~~",
+  '<table align="center" onclick=alert(1) style="position:fixed;inset:0"><tr><td align="x onmouseover=alert(1)" style="position:fixed">x</td></tr></table>',
+  "| a | b |\n|---|---|\n| `<script>alert(1)</script>` | **<img src=x onerror=alert(1)>** |",
+  "| <style>*{display:none}</style> | <svg onload=alert(1)> |\n|---|---|\n| x | y |",
   // —— 超长与嵌套 ——
   "<div>".repeat(300) + "<img src=x onerror=alert(1)>" + "</div>".repeat(300),
   "<b>".repeat(500) + "<script>alert(1)</script>",
@@ -222,5 +232,27 @@ describe(`净化管线 · ${CORPUS.length} 条语料（输出须通过 audit 的
       /<script|onerror|javascript:|<iframe|onload/i.test(p),
     );
     expect(dangerousInput.length).toBeGreaterThan(30);
+  });
+});
+
+describe("表格的资源上限（GFM 启用后新增的输入形态）", () => {
+  it("大表格渲染在合理时间内完成（防止构造病态表格拖垮服务端渲染）", () => {
+    const cols = 40;
+    const rows = 300;
+    const head = "|" + " h |".repeat(cols);
+    const sep = "|" + " - |".repeat(cols);
+    const row = "|" + " c |".repeat(cols);
+    const md = [head, sep, ...Array.from({ length: rows }, () => row)].join("\n");
+    const t0 = Date.now();
+    const html = renderMarkdown(md);
+    expect(Date.now() - t0).toBeLessThan(3000);
+    expect(audit(html)).toEqual([]);
+    expect(html).toContain("<table>");
+  });
+
+  it("成千上万个未闭合的 ~~ 不会造成灾难性回溯", () => {
+    const t0 = Date.now();
+    renderMarkdown("~~ a ".repeat(20000));
+    expect(Date.now() - t0).toBeLessThan(3000);
   });
 });

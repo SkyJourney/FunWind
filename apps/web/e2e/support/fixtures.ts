@@ -18,6 +18,7 @@ export const FIX = {
     deletedState: 950006,
     staffSecret: 950007,
     gateAttach: 950008,
+    gfm: 950009,
     waterPin: 950021,
   },
   /** 门控附件帖（付费 10 / 回复可见两个门控）里的附件名与门控图；demo_member(90005) 已购买付费门控 */
