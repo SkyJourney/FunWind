@@ -127,4 +127,38 @@ test.describe("M4 · 用户与认证", () => {
     await expect(page.getByText(/账号已被封禁/)).toBeVisible();
     await expect(page.getByText(/E2E 封禁夹具/)).toBeVisible();
   });
+
+  // M5.6 S2（审查 C2）。放在最后：这里会让 USERNAME 的 (IP, 标识符) 桶满，它之后不能再被其他用例用到。
+  // 失败只占 IP 桶 12 个名额（上限 20，见 lib/auth/login.ts），成功登录不占额度，不会挤爆其他用例
+  test("登录频控：存在与不存在的账号在同一次数后同样提示“过于频繁”（不泄露存在性），别的账号不受牵连", async ({
+    page,
+  }) => {
+    const attempt = async (ident: string, pw: string) => {
+      await page.goto("/login");
+      await page.getByLabel("用户名或邮箱").fill(ident);
+      await page.getByLabel("密码").fill(pw);
+      await page.getByRole("button", { name: "登录" }).click();
+      const throttled = page.getByText("尝试过于频繁");
+      const invalid = page.getByText("用户名或密码错误");
+      await expect(throttled.or(invalid)).toBeVisible();
+      return (await throttled.isVisible()) ? "throttled" : "invalid";
+    };
+    const run = async (ident: string) => {
+      const seq: string[] = [];
+      for (let i = 0; i < 6; i++) seq.push(await attempt(ident, "wrong-pass-xyz"));
+      return seq;
+    };
+    const existing = await run(USERNAME);
+    const missing = await run(`nobody_${Date.now() % 100000}`);
+    expect(existing).toEqual(["invalid", "invalid", "invalid", "invalid", "invalid", "throttled"]);
+    expect(missing).toEqual(existing);
+
+    // 对照：USERNAME 已被挡，但另一个账号（封禁夹具，密码正确）不受牵连，走到的是封禁提示而不是“过于频繁”
+    await page.goto("/login");
+    await page.getByLabel("用户名或邮箱").fill("demo_banned");
+    await page.getByLabel("密码").fill("e2e-banned-pass");
+    await page.getByRole("button", { name: "登录" }).click();
+    await expect(page.getByText(/账号已被封禁/)).toBeVisible();
+    await expect(page.getByText("尝试过于频繁")).toHaveCount(0);
+  });
 });

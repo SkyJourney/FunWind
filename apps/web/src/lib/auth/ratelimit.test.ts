@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { rateLimit, resetRateLimiter } from "./ratelimit";
+import { rateLimit, rateLimitRefund, resetRateLimiter } from "./ratelimit";
 
 beforeEach(() => resetRateLimiter());
 
@@ -40,5 +40,38 @@ describe("rateLimit（滑动窗口）", () => {
     // 过期桶已被清掉：同一个键重新计数，不会受旧记录影响
     expect(rateLimit("stale:0", 1, 1000, T0 + 10_001).allowed).toBe(true);
     expect(rateLimit("stale:0", 1, 1000, T0 + 10_002).allowed).toBe(false);
+  });
+});
+
+describe("rateLimitRefund（先占后退）", () => {
+  it("退还后额度恢复；对照：不退还则被挡", () => {
+    expect(rateLimit("r", 2, 60_000, 1_000).allowed).toBe(true);
+    expect(rateLimit("r", 2, 60_000, 1_100).allowed).toBe(true);
+    expect(rateLimit("r", 2, 60_000, 1_200).allowed).toBe(false);
+    rateLimitRefund("r");
+    expect(rateLimit("r", 2, 60_000, 1_300).allowed).toBe(true);
+    expect(rateLimit("r", 2, 60_000, 1_400).allowed).toBe(false);
+  });
+
+  it("每占一次退一次：成功登录反复占与退，永远不会被挡", () => {
+    for (let i = 0; i < 50; i++) {
+      expect(rateLimit("ok", 1, 60_000, 1_000 + i).allowed).toBe(true);
+      rateLimitRefund("ok");
+    }
+  });
+
+  it("不存在的键、已空的桶：静默无副作用；桶退空后被删除（不留空桶）", () => {
+    expect(() => rateLimitRefund("never")).not.toThrow();
+    rateLimit("one", 3, 60_000, 1_000);
+    rateLimitRefund("one");
+    rateLimitRefund("one");
+    expect(rateLimit("one", 1, 60_000, 1_100).allowed).toBe(true);
+  });
+
+  it("不影响其他键", () => {
+    rateLimit("a", 1, 60_000, 1_000);
+    rateLimit("b", 1, 60_000, 1_000);
+    rateLimitRefund("a");
+    expect(rateLimit("b", 1, 60_000, 1_100).allowed).toBe(false);
   });
 });

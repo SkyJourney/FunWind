@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, or, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 // 使用内核的 Server Action 须自行求值模块注册表（硬约定 9）
 import "@/modules";
 import { redirect } from "next/navigation";
@@ -10,7 +10,8 @@ import { findActiveGlobalBan } from "@/lib/authz/restrictions";
 import { clientIpFrom } from "@/lib/net/client-ip";
 import { emit } from "@/modules/kernel/bus";
 import type { EventName, EventPayloads } from "@/modules/kernel/types";
-import { hashPassword, verifyPassword } from "@/lib/auth/password";
+import { attemptLogin } from "@/lib/auth/login";
+import { hashPassword } from "@/lib/auth/password";
 import { RegisterError, registerUser } from "@/lib/auth/register";
 import { createSession, destroyCurrentSession, revokeAllForUser } from "@/lib/auth/session";
 import { rateLimit } from "@/lib/auth/ratelimit";
@@ -50,33 +51,24 @@ async function ipRateKey(prefix: string): Promise<string | null> {
 const ipAllowed = (key: string | null, max: number, windowMs: number): boolean =>
   key === null || rateLimit(key, max, windowMs).allowed;
 
-/** 用归一化键（username_key / email_key）查找；已注销账号不可登录 */
-async function findUserByIdentifier(identifier: string) {
-  const key = normalizeKey(identifier);
-  const rows = await getWebDb()
-    .select()
-    .from(users)
-    .where(and(eq(users.state, "active"), or(eq(users.usernameKey, key), eq(users.emailKey, key))))
-    .limit(1);
-  return rows[0] ?? null;
-}
-
 export async function loginAction(formData: FormData): Promise<void> {
-  const identifier = String(formData.get("identifier") ?? "").trim();
+  const identifier = String(formData.get("identifier") ?? "");
   const password = String(formData.get("password") ?? "");
-  // 双层频控：IP 级（防撞库）+ 账号级（防定向爆破）
-  const accountKey = `login-account:${normalizeKey(identifier)}`;
-  if (
-    !ipAllowed(await ipRateKey("login-ip"), 20, 10 * 60_000) ||
-    !rateLimit(accountKey, 5, 10 * 60_000).allowed
-  ) {
-    redirect("/login?error=" + encodeURIComponent("尝试过于频繁，请 10 分钟后再试"));
+  // 判定（含恒定工作量的校验与三层频控）见 lib/auth/login.ts
+  const outcome = await attemptLogin({
+    identifier,
+    password,
+    ip: clientIpFrom(await headers()),
+  });
+  if (!outcome.ok) {
+    redirect(
+      "/login?error=" +
+        encodeURIComponent(
+          outcome.reason === "throttled" ? "尝试过于频繁，请 10 分钟后再试" : "用户名或密码错误",
+        ),
+    );
   }
-
-  const user = await findUserByIdentifier(identifier);
-  if (!user || !user.passwordHash || !(await verifyPassword(user.passwordHash, password))) {
-    redirect("/login?error=" + encodeURIComponent("用户名或密码错误"));
-  }
+  const user = { id: outcome.userId };
 
   // 全站封禁拦截（含理由与期限）
   const ban = await findActiveGlobalBan(user.id);

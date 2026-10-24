@@ -46,7 +46,24 @@ export function rateLimit(
   return { allowed: true, remaining: max - bucket.hits.length, retryAfterSec: 0 };
 }
 
+/**
+ * 退还 key 最近一次占用的额度（"先占后退"：登录成功时把为这次尝试占的额度还回去，只有失败才累计）。
+ * 为什么不是"先检查、失败后再记"：argon2 校验是异步的，并发的猜测会在任何一次失败被记下之前全部通过检查，等于没有限额。
+ * 先占额度再退还，并发下也严格。退还的是窗口里最新的一条，对计数而言与退还自己占的那条等价。
+ */
+export function rateLimitRefund(key: string): void {
+  const bucket = buckets.get(key);
+  if (!bucket) return;
+  bucket.hits.pop();
+  if (bucket.hits.length === 0) buckets.delete(key);
+}
+
 /** 仅测试使用 */
 export function resetRateLimiter(): void {
   buckets.clear();
+}
+
+/** 仅测试使用：当前桶数量（验证攻击者构造的标识符不会撑大桶表） */
+export function rateLimiterSize(): number {
+  return buckets.size;
 }
