@@ -9,7 +9,7 @@
   **M5.5 重构（设计先行）已完成，已合并 `main`**。站长思路：**先定目标模型（`docs/DESIGN-MODEL.md`，schema v2.1 共 43 表，含通知中心），旧数据向它靠拢，迁移只是适配层**。
   进度：R1 文档 ✅ → R2 `packages/db` 与 `packages/content` 重做 ✅ → R3 迁移适配层重做并重建开发库 ✅ → S4 应用适配 ✅ → **S5 E2E 与全量门禁 ✅（2026-10-24）**；之后进入 M6 发帖。
 - **分支**：M5.5 已合入 `main`（`feat/m5.5-schema-v2` 仅本地保留，不推送）。类型检查 / lint / 单测 / 构建 / E2E 全部真实通过（`pnpm verify:all` 与 `pnpm test:e2e` 均已连续多次实测）。
-  2026-10-24 已重写 git 历史（清除口令、真实邮箱、第三方用户名与 `Claude-Session:` 行），为推送 GitHub 公开仓库做准备；重写前的完整备份在站长本机 `~/FunWind-pre-rewrite.bundle`（含旧口令，**不得上传**）。
+  2026-10-24 已重写 git 历史（清除口令、真实邮箱、第三方用户名与 `Claude-Session:` 行），随后已把 `main` 推送到 GitHub 公开仓库 `SkyJourney/FunWind`（CI：`.github/workflows/ci.yml`，`verify` + 自包含 `e2e` 两个作业，首轮修复构建产物步骤后全绿）；重写前的完整备份在站长本机 `~/FunWind-pre-rewrite.bundle`（含旧口令，**不得上传**）。
 - 开发库：`qysub_next` = v2 **纯导入**（`verify:migration` 106 项对账只对它有意义）；`qysub_next_e2e` = 空库 + 演示种子（`db:seed`，id ≥ 90000）+ E2E 夹具（`db:e2e-fixtures`，id ≥ 950000），**不含迁移数据**（CI 同样如此），`pnpm test:e2e` 每次自动重建它。
 - **M5.5 是破坏性重构**：站长已确认任何破坏性变更均可接受（重新迁移即可）。
 - 开工前先读：`docs/ROADMAP.md`（里程碑与 DoD）→ 对应 `docs/milestones/Mx-*.md`（范围/边界/测试/门禁）；M5.5 另读 `docs/DESIGN-MODEL.md`（数据模型依据）、`docs/NOTIFICATIONS.md`、`docs/GATES.md`、`docs/POINTS.md`、`docs/AUTHZ.md` §4/§8。

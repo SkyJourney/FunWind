@@ -12,6 +12,7 @@
   - `e2e`：MySQL 8.4 + MailPit 服务 → 安装 Playwright Chromium → `pnpm test:e2e:run`（dev E2E + 生产构建冒烟）；失败时上传 `apps/web/test-results`。
 - `test:e2e` 拆成 `test:e2e`（启动本机 MailPit 容器后调用）与 `test:e2e:run`（纯编排，CI 直接用）。
 - 推送前在本机用「移走 `.env`、只给环境变量」的方式模拟 CI：verify 全流程与 E2E（55 + 7）均通过，确认代码不隐性依赖 `.env`。
+- **已推送并验证**：`main` 推送到 `SkyJourney/FunWind`（公开）；`pre-push` 钩子经本地裸仓库（拦截 + 放行各一次）与真实推送验证。首轮 CI：`e2e` 一次通过，`verify` 因 CI 无 `db`/`content` 构建产物在类型检查处失败，加 `pnpm db:build` 步骤后第二轮全绿。
 
 ### Security（推送准备 · C：重写 git 历史）
 
