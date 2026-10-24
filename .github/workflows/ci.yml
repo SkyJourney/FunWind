@@ -49,6 +49,8 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: 构建工作区包（db / content 的 dist 被 gitignore，其他包依赖的是构建产物）
+        run: pnpm db:build
       - name: 秘密扫描与脚本测试
         run: pnpm check:secrets && pnpm test:scripts
       - run: pnpm lint
