@@ -121,19 +121,13 @@ export async function grantRolePermission(
   }
 
   await getWebDb().transaction(async (tx) => {
-    const exists = await tx
-      .select({ id: roleGrants.id })
-      .from(roleGrants)
-      .where(
-        and(
-          eq(roleGrants.roleKey, roleKey),
-          eq(roleGrants.permissionKey, permissionKey),
-          eq(roleGrants.scopeId, scopeId),
-        ),
-      )
-      .limit(1);
-    if (exists[0]) return; // 幂等：已存在不重复写、不重复审计
-    await tx.insert(roleGrants).values({ roleKey, permissionKey, scopeId });
+    // 幂等：先查后插在并发（双击 / 重复提交）下两边都看不到对方，第二个 INSERT 会撞唯一键抛原始错误（复查 B5）。
+    // 改为 INSERT IGNORE，用 affectedRows 判断是否真的写入了——已存在则不重复写、不重复审计
+    const [res] = (await tx
+      .insert(roleGrants)
+      .ignore()
+      .values({ roleKey, permissionKey, scopeId })) as unknown as [{ affectedRows: number }];
+    if (res.affectedRows === 0) return;
     await writeAudit(tx, {
       actorId: actor.userId,
       action: "grant.add",
@@ -262,29 +256,18 @@ export async function assignUserRole(
     throw new AdminError(`用户不存在或已注销: ${userId}`);
 
   await getWebDb().transaction(async (tx) => {
-    const exists = await tx
-      .select({ id: userRoles.id })
-      .from(userRoles)
-      .where(
-        and(
-          eq(userRoles.userId, userId),
-          eq(userRoles.roleKey, roleKey),
-          eq(userRoles.scopeId, scopeId),
-        ),
-      )
-      .limit(1);
-    if (exists[0]) {
-      await tx.update(userRoles).set({ expiresAt }).where(eq(userRoles.id, exists[0].id));
-    } else {
-      await tx.insert(userRoles).values({
+    // upsert：已存在则只更新到期时间。先查后插/改在并发下会撞 uq_ur_assignment 抛原始错误（复查 B5，同 grantRolePermission）
+    await tx
+      .insert(userRoles)
+      .values({
         userId,
         roleKey,
         scopeId,
         expiresAt,
         grantedBy: actor.userId,
         grantedAt: sql`NOW()`,
-      });
-    }
+      })
+      .onDuplicateKeyUpdate({ set: { expiresAt } });
     await writeAudit(tx, {
       actorId: actor.userId,
       action: "user_role.assign",

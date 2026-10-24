@@ -341,4 +341,63 @@ describe.skipIf(skipDb)("权限内核 · 真实 MySQL", () => {
       expect(rows).toHaveLength(1);
     });
   });
+
+  describe("并发（放在最后：其他用例按审计总条数断言）", () => {
+    it("并发重复绑定同一用户角色：全部成功，只有一行绑定；到期时间以最后写入为准（复查 B5）", async () => {
+      await createCustomRole(admin, "team-conc2", "并发绑定", "");
+      const results = await Promise.allSettled(
+        Array.from({ length: 10 }, () => assignUserRole(admin, DEMO.xiaoyi, "team-conc2", 0)),
+      );
+      expect(
+        results
+          .filter((r) => r.status === "rejected")
+          .map((r) => String((r as PromiseRejectedResult).reason).slice(0, 90)),
+      ).toEqual([]);
+      const rows = await getWebDb()
+        .select()
+        .from(userRoles)
+        .where(and(eq(userRoles.userId, DEMO.xiaoyi), eq(userRoles.roleKey, "team-conc2")));
+      expect(rows).toHaveLength(1);
+      await getWebDb().delete(userRoles).where(eq(userRoles.roleKey, "team-conc2"));
+      invalidateAuthzSnapshot();
+    });
+
+    it("并发重复授权（双击 / 重复提交）：全部视为成功的幂等操作，只写一次库、一条审计，不抛原始唯一键错误（复查 B5）", async () => {
+      await createCustomRole(admin, "team-conc", "并发测试", "");
+      const before = (await audits("grant.add")).length;
+      const results = await Promise.allSettled(
+        Array.from({ length: 10 }, () =>
+          grantRolePermission(admin, "team-conc", "forum.report", DEMO.restrictedForum),
+        ),
+      );
+      expect(
+        results
+          .filter((r) => r.status === "rejected")
+          .map((r) => String((r as PromiseRejectedResult).reason).slice(0, 90)),
+      ).toEqual([]);
+      expect((await audits("grant.add")).length).toBe(before + 1);
+      const rows = await getWebDb()
+        .select()
+        .from(roleGrants)
+        .where(
+          and(
+            eq(roleGrants.roleKey, "team-conc"),
+            eq(roleGrants.permissionKey, "forum.report"),
+            eq(roleGrants.scopeId, DEMO.restrictedForum),
+          ),
+        );
+      expect(rows).toHaveLength(1);
+      // 收尾：直接删库行（不走带审计的撤销，免得影响其他用例对审计条数的断言）
+      await getWebDb()
+        .delete(roleGrants)
+        .where(
+          and(
+            eq(roleGrants.roleKey, "team-conc"),
+            eq(roleGrants.permissionKey, "forum.report"),
+            eq(roleGrants.scopeId, DEMO.restrictedForum),
+          ),
+        );
+      invalidateAuthzSnapshot();
+    });
+  });
 });

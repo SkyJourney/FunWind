@@ -34,8 +34,8 @@ docker/          qysub-next（MySQL 8.4 @33621）、dev（web 容器 + MailPit�
 ```bash
 pnpm dev                      # http://127.0.0.1:3100
 pnpm verify:all               # lint + format:check + typecheck + test(覆盖率) + build
-pnpm test:e2e                 # 重置并重建 qysub_next_e2e（bootstrap + 种子 + E2E 夹具，无迁移）→ dev 服务器 3200 的 E2E（62 项）→ 生产构建冒烟 3201（7 项）；需要 MailPit(8025)；约 40s
-pnpm db:bootstrap | db:seed | db:e2e-fixtures | db:verify   # 零数据路径：建表+系统种子 / 演示夹具 / E2E 专用夹具 / schema 对账（12 项）
+pnpm test:e2e                 # 重置并重建 qysub_next_e2e（bootstrap + 种子 + E2E 夹具，无迁移）→ dev 服务器 3200 的 E2E（69 项）→ 生产构建冒烟 3201（7 项）；需要 MailPit(8025)；约 40s
+pnpm db:bootstrap | db:seed | db:e2e-fixtures | db:verify   # 零数据路径：建表+系统种子 / 演示夹具 / E2E 专用夹具 / schema 对账（13 项）
 pnpm --filter @funwind/db test              # db 包单测 + 真实 MySQL 临时库集成测试（SKIP_DB_TESTS=1 可跳过）
 pnpm --filter @funwind/web test             # web 单测 + 真实 MySQL 临时库集成测试（同样认 SKIP_DB_TESTS=1）；git push 前由 .husky/pre-push 自动跑类型检查 + 全部测试
 pnpm --filter @funwind/content test         # 门控语法 + UBB 转换器 v2（含泄露不变量性质测试）
@@ -82,9 +82,11 @@ pnpm --filter @funwind/web perf:lcp                       # 生产构建 LCP 门
   查询层用 `readableForumIds`/`moderatedForumIds` 在**取数前**过滤，不取出来再逐行判断。
 - **积分与门控的并发约定**（`lib/points`、`lib/gates`，教训来自真实复现的死锁/连接池饥饿）：① 事务内不得再借第二条连接（连接池仅 8 条）——渠道解析、权限检查等一律在开事务前完成；
   ② 加锁顺序固定「门控行 → 账户行（user_id 升序）」；③ 账户行用 `SELECT … FOR UPDATE` 加锁（不存在才 `INSERT IGNORE`），**禁止**用 `INSERT … ON DUPLICATE KEY UPDATE` 当加锁手段（共享锁升级死锁）；
-  ④ 先拿账户锁再查幂等/已解锁。积分表只能经 `lib/points` 写，隐藏正文只能经 `lib/gates/service.ts` 读，附件表只能经 `lib/gates/attachments.ts` 读写，均有守卫测试。
+  ④ 先拿账户锁再查幂等/已解锁。⑤ **积分与解锁事务一律 READ COMMITTED**（`POINTS_TX_OPTIONS`）：默认 REPEATABLE READ 下对「不存在的键」`FOR UPDATE` 会加间隙锁，不同新用户并发首次建账户互相死锁（实测 640 次并发 139 次失败）；任何包含 `lockAccount` / `applyPointsInTx` 的新事务都必须以它开启。积分表只能经 `lib/points` 写，隐藏正文只能经 `lib/gates/service.ts` 读，附件表只能经 `lib/gates/attachments.ts` 读写，均有守卫测试。
 
 ## 已知坑
+
+- **部署在反向代理后**：Server Action 比对 Origin 与 Host / X-Forwarded-Host，代理必须正确透传，否则同源提交也会被误拒（M13 上线核对项；复查 A3 已验证跨站被拒、同源放行）。
 
 - **E2E 写法**：用例以 `e2e/support/session.ts` 的 `loginAs()` 直接往库里写会话并注入 cookie，**不要在多个用例里走界面登录**——登录有账号级频控（每账号 10 分钟 5 次），共用账号会互相挤爆；界面登录只在 `auth.spec` 与 `modules.spec` 各测一次。
   E2E 用例**不得引用真实迁移数据**（fid/tid 写死会让 CI 变红）：稳定场景用 `support/fixtures.ts`（镜像 `packages/db/src/e2e-fixtures.ts`，两处同步）；

@@ -95,6 +95,27 @@ describe.skipIf(skip)("bootstrap / seed 集成（临时库）", () => {
     }
   });
 
+  it("门控 key 区分大小写：A1 与 a1 是两个门控，同名才冲突（复查 B1）", async () => {
+    // 应用层的 KEY_RE 允许大小写字母，数据库必须与之同口径；否则 M6 保存含 A1 / a1 的帖子会撞唯一键报 500
+    await withTestDb(async (db) => {
+      const gate = (key: string) => ({
+        postId: 777001,
+        gateKey: key,
+        conditions: [{ type: "reply" }],
+        hiddenMd: "x",
+        createdAt: "2026-10-24 00:00:00",
+        updatedAt: "2026-10-24 00:00:00",
+      });
+      await db.insert(postGates).values([gate("A1"), gate("a1"), gate("B-2")]);
+      const keys = (await db.select().from(postGates).where(eq(postGates.postId, 777001))).map(
+        (g) => g.gateKey,
+      );
+      expect(keys.sort()).toEqual(["A1", "B-2", "a1"].sort());
+      // 完全相同的 key 仍然冲突
+      await expect(db.insert(postGates).values(gate("A1"))).rejects.toThrow();
+    });
+  });
+
   it("系统种子：角色、权限词汇表、内置角色基线授权、站点设置默认值", async () => {
     await withTestDb(async (db) => {
       expect((await db.select().from(roles)).length).toBe(ROLE_DEFINITIONS.length);

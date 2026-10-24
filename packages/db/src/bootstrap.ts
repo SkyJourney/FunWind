@@ -1,7 +1,7 @@
 /**
  * bootstrapDb —— 空库建表管线（零数据部署与青翼导入共用，决策 #10）
  * 1. drizzle 版本化迁移（drizzle/ 下的版本化迁移，journal 断点续跑，幂等）
- * 2. PATCHES：drizzle-kit 不支持的列级 COLLATE（username_key / email_key 需 utf8mb4_bin），按需执行、幂等
+ * 2. PATCHES：drizzle-kit 不支持的列级 COLLATE（username_key / email_key / post_gates.gate_key 需 utf8mb4_bin），按需执行、幂等
  * 3. seedSystemData：内置角色、权限词汇表、基线授权、站点设置默认值——零数据站点开箱即有可用的权限体系
  */
 import { eq, sql } from "drizzle-orm";
@@ -37,6 +37,13 @@ export const PATCHES = [
     column: "email_key",
     collation: "utf8mb4_bin",
     ddl: "varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL",
+  },
+  {
+    // 门控 key 在应用层区分大小写（KEY_RE 允许 A-Za-z），库里必须同口径：默认的 _ai_ci 下 A1 与 a1 会撞唯一键
+    table: "post_gates",
+    column: "gate_key",
+    collation: "utf8mb4_bin",
+    ddl: "varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL",
   },
 ] as const;
 

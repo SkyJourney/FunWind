@@ -5,6 +5,20 @@
 
 ## [Unreleased]
 
+### Fixed / Security（审查复查 A1–A6、B1–B5）
+
+做法：对审查报告里证据偏弱的结论逐条复现；回归测试必须带对照组并做变异验证。详见审查报告 §8。
+
+- **A6 间隙锁死锁（影响最大）**：640 次「不同新用户并发首次入账」，139 次（21.7%）重试耗尽后失败，InnoDB 统计死锁 1044 次。积分与解锁事务统一改用 READ COMMITTED（`POINTS_TX_OPTIONS`）后 0 失败、0 死锁。M7 的签到 / 发帖奖励会直接撞上这条。回归：`points/gap-lock.int.test.ts`（去掉修复 2/2 次变红）。
+- **A5 `any` 模式重复收费**：门控已因回帖开放的读者构造请求仍被扣款。现扣款前先判定，返回新错误码 `already_open`（页面文案「你已经可以查看这段内容，无需购买」）；先买后回帖仍走幂等路径。
+- **B1 `gate_key` 大小写**：`A1` / `a1` 在默认 `_ai_ci` 下撞 `uq_pg_post_key`，而应用层 `KEY_RE` 允许大小写。加 `utf8mb4_bin` 列补丁（`PATCHES`），`db:verify` 对账随之变为 13 项。
+- **B2 积分越界**：此前抛 MySQL 原始错误（500）。新增 `PointsOverflowError` 与单笔 ±2147483647 上限；作者账户到余额上限时整笔购买回滚，读者看到 `unavailable` 而不是 500。
+- **B3 模块启停 fail-open**：读 `module_state` 失败时此前把所有模块重新打开（停用开关在连接池耗尽等压力时刻失效）。改为沿用上一次成功状态，冷启动读不到则全部视为停用（`resolveEnablement`，可单测）。
+- **B5 并发重复授权**：`grantRolePermission` / `assignUserRole` 先查后插，并发下抛原始唯一键错误。改为 `INSERT IGNORE` + `affectedRows` / upsert，仍只写一次库、一条审计。
+- **A4 净化器**：`img` 降级为 `span` 时清空残留的 `alt/title/width/height`，alt 作为可见文字（原注释写「alt 文本保留」但实际不可见）。新增 96 条语料的结构化检查（`sanitize-corpus.test.ts`），检查器自身有反例验证；第一版语料无检测力，已补并两次变异确认。
+- **A1–A3 确认无问题（新增永久回归）**：`rsc-leaf.spec`（其余页面对 RSC 叶子请求，带对照组）、`csrf-action.spec`（跨站 Origin 被拒、同源放行）、`tokens.int.test`（令牌并发单次消费）。顺带记录：不带 Origin 头的 Server Action 提交会被 Next 接受，兜底是 `SameSite=Lax`；反向代理须透传 Host。
+- **B4 已复现、未修（需设计）**：升级版本新增的基线授权不会下发给已部署站点。已列为 M6 §6c 前置项。
+
 ### Security（M5.5 之后审查 · P2-15 → 升为 P0：`/admin/**` 页面未授权可读，已修复）
 
 - **漏洞**：`/admin/**` 的鉴权只在 `layout.tsx`，页面与数据读取函数自己不鉴权。Next 的 RSC 局部渲染按路由状态树做差、只渲染变化的叶子，已持有的 layout 不再执行；伪造「客户端已持有 `/admin` 的 layout，只导航到子页面」的请求，**未登录的游客**就能拿到后台页面内容：角色列表、授权矩阵、版块权限视角（含版主用户名）。只读泄露——改授权的 Server Action 自带 `admin.roles` 校验，未受影响。
