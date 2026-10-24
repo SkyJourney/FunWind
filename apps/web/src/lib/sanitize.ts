@@ -134,7 +134,7 @@ export function harden(tree: Root): Root {
     }
     if (el.tagName === "img") {
       const src = typeof props.src === "string" ? props.src : "";
-      if (!/^(https?:\/\/|\/(emotion|attachment)\/)/i.test(src)) {
+      if (!/^(https?:\/\/|\/(emoji|files)\/)/i.test(src)) {
         el.tagName = "span"; // 非白名单来源：降级，alt 文本保留
         delete props.src;
       } else {

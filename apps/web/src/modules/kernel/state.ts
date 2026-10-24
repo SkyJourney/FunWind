@@ -1,5 +1,7 @@
 import { cache } from "react";
+import { eq } from "drizzle-orm";
 import { getWebDb, moduleState } from "@funwind/db";
+import { CLI_ACTOR, writeAudit, type ConfigActor } from "@/lib/audit";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import { getModules } from "./registry";
 
@@ -42,11 +44,37 @@ export async function getEnabledModuleIds(): Promise<ReadonlySet<string>> {
   return (await getEnablement()).enabledIds;
 }
 
-/** 装卸写入口（modules:toggle 脚本 / dev API / M9 管理后台共用） */
-export async function setModuleEnabled(moduleId: string, enabled: boolean): Promise<void> {
-  const db = getWebDb();
-  await db
-    .insert(moduleState)
-    .values({ moduleId, enabled, updatedAt: nowBeijingWallTime() })
-    .onDuplicateKeyUpdate({ set: { enabled, updatedAt: nowBeijingWallTime() } });
+/**
+ * 装卸写入口（modules:toggle 脚本 / dev API / M9 管理后台共用）。
+ * 启停是管理动作：状态真正变化时同事务写 audit_log（谁/何时/哪个模块/前后状态）；
+ * 重复设置为当前状态是幂等空操作，不写审计。没有 module_state 行时默认启用。
+ */
+export async function setModuleEnabled(
+  moduleId: string,
+  enabled: boolean,
+  actor: ConfigActor = CLI_ACTOR,
+): Promise<void> {
+  await getWebDb().transaction(async (tx) => {
+    const [prev] = await tx
+      .select({ enabled: moduleState.enabled })
+      .from(moduleState)
+      .where(eq(moduleState.moduleId, moduleId))
+      .for("update");
+    const was = prev?.enabled ?? true;
+    await tx
+      .insert(moduleState)
+      .values({ moduleId, enabled, updatedAt: nowBeijingWallTime() })
+      .onDuplicateKeyUpdate({ set: { enabled, updatedAt: nowBeijingWallTime() } });
+    if (was !== enabled) {
+      await writeAudit(tx, {
+        actorId: actor.userId,
+        action: enabled ? "module.enable" : "module.disable",
+        targetType: "module",
+        targetId: moduleId,
+        before: { enabled: was },
+        after: { enabled, via: actor.via },
+        ip: actor.ip,
+      });
+    }
+  });
 }

@@ -5,6 +5,217 @@
 
 ## [Unreleased]
 
+### Changed（M5.5 · S5：E2E 重建与收官）
+
+- **E2E 重写并扩展（原 26 项 → 62 项）**：dev 服务器 E2E 55 项 + 生产构建冒烟 7 项，`pnpm test:e2e` 一条命令完成「重置库 → 迁移 → 种子 → 两轮测试」，约 40 秒，连续两轮结果一致。
+  - 摸底发现旧用例**一部分是假绿**：“受限版块游客/会员 → 404”用的 fid 53 是已不迁移的回收站版块，访问任何人都是 404，P0 泄露防线实际缺失；现改用真实受限版块 121/123/130/152 与演示 904，并新增“游客首页/版块页 HTML 里搜不到任何受限版块名与受限主题标题”的回归。
+  - 新增 `visibility`（待审核/已驳回/隐藏/回帖隐藏的完整状态矩阵）、`gates`（**浏览器里真实点击购买**：扣费/到账/已购买标签/作者收益统计/余额不足/免费解锁/回复可见）、`files`（图片公开与响应头、304、附件鉴权、受限版块附件 404、下载计数）；
+    `modules` 增加“界面真实登录 → `user.logged_in` 事件 → 横幅”（行为人与来源可断言，登录失败不派发）；`content`/`authz` 对齐 v2 语义。
+  - 新增生产构建冒烟（`playwright.prod.config.ts`，真实 `next build` + `next start`）：开发入口 404 且 POST 不产生副作用、受限内容仍 404、门控零泄露、`/files` 安全头、生产下真实登录路径可用。
+  - 基础设施：用例以会话注入代替界面登录（避开账号级频控），`withE2eDb()` 直连 e2e 库造夹具；gates/files 用例可在未重置的库上重复运行。
+- **基础设施竞态修复**：`pnpm -r test` 并行时 content 与 db 的 vitest 同时清理共享缓存目录 → 间歇性 `ENOTEMPTY`（`verify:all` 偶发失败）；根 `test` 改为串行各包，`verify:all` 连续 3 次通过。
+- 文档：M5.5 门禁全部勾选并附实测数据；BLUEPRINT §4 中 6 处把 `/attachment` 当现行路由的描述改为 `/files` / 已退役；`CLAUDE.md`、`ROADMAP` 更新；遗留事项如实记录（旧库口令仍在 git 历史、分支未合并、E2E 仅本地）。
+
+### Changed（M5.5 · S4-6：收口）
+
+- **开发入口收口**：`lib/dev-only.ts` 统一守卫 `/api/dev/*` 与 `/design`，`dev-only-guard.test.ts` 保证每个开发路由的每个处理器都接入（新增漏守卫即红）；首页的设计令牌链接仅开发环境显示；
+  **生产构建实测**这些路径全部 404。
+- **审计补全**：模块启停（`setModuleEnabled`）与站点设置（`setSetting`）同事务写 `audit_log`，状态/值真正变化才记，行为人为空时 `via` 标明来源（cli / dev-api / admin）。
+- **覆盖率门禁恢复真绿**：去掉对 queries / session / tokens / settings / state 的整块排除（仅余 `slot.tsx`、`mailer.ts` 两个宿主壳，原因写在配置里），门槛未降；
+  补会话真实 MySQL 集成测试（令牌只存哈希、过期/注销/封禁失效、滑动续期、登出与全部吊销）及 parse / storage / site / Markdown 缓存淘汰 / 频控清理测试。
+- `tsconfig.tsbuildinfo` 出库；新增 `.husky/pre-push`（类型检查 + 全部测试；确无数据库可 `SKIP_DB_TESTS=1` 显式跳过集成测试）。
+- 主题页：无 `attachment.download` 权限者看到附件名与「登录后下载 / 无下载权限」，不再渲染点进去只会 404 的链接。
+- **`pnpm verify:all` 真实通过**（lint、format:check、typecheck、582 项测试、next build）；`CLAUDE.md` 的缺口清单改为处置状态，并补充权限/并发约定。
+
+### Changed（M5.5 · S4-5：内核升级、积分核心与门控购买）
+
+- **内核**：事件 10→21 个（`credit.changed`→`points.changed`、`medal.awarded`→`badge.awarded`，新增 11 个），actor 映射按 MODULES.md §3；注册边界 6→10 类（新增
+  `pointChannels` / `gateConditions` / `notificationTypes` / `notificationChannels`），**注册期校验**（键格式、方向与前缀一致、全站唯一、不得与内置冲突），非法声明启动即失败；
+  停用模块 = 其积分渠道被拒、其门控条件失败即封闭。
+- **积分核心 `lib/points`**：`applyPoints` / `applyPointsInTx`——渠道注册、幂等（重放返回既有结果、冲突报错）、余额在行锁内检查永不为负、提交后派发 `points.changed`；
+  守卫测试保证积分表只能经此写入（硬约定 3c）。
+- **门控购买 `unlockGate`**：单事务完成扣款、作者收益（手续费 floor 取整、已注销作者收益销毁）、解锁记录与计数；“先锁账户再查已解锁”保证并发双击只扣一次；
+  固定错误码；`GateBlock` 购买按钮接 Server Action，返回地址服务端计算。
+- **并发缺陷（测试中真实复现并修复）**：① 渠道解析在事务内读 `module_state`，并发事务占满连接池后互相等待（连接池饥饿）；② 账户行用 `INSERT … ON DUPLICATE KEY UPDATE` 加锁，
+  先共享后升级导致热门作者账户死锁；③ 门控行先 `FOR SHARE` 后更新计数，同门控多购买者升级死锁。现固定「门控行 → 账户行升序」排他加锁，56 个并发购买压在两位作者账户上连续多轮通过。
+- **开始派发事件**：`user.logged_in` / `user.registered`（认证）、`role.changed`（授权管理）、`points.changed`、`gate.unlocked`；`demo-checkin` 的横幅从此由真实登录驱动。
+- web 测试 296 项，覆盖率 94.9%。真实库（e2e 库）端到端：购买 −5/+5、解锁计数、台账幂等键、事件落库、重放不变、8 位读者各双击共 16 请求恰扣 8 次，全库对账 0 不一致。
+
+### Changed（M5.5 · S4-4：门控读取与 /files 文件路由）
+
+- **门控读取（`lib/gates`）**：纯函数 `evaluateGate`（作者/版主 → 登录 → 逐条件，`all`/`any`，未知条件与脏数据失败即封闭）+ 服务层 `loadGateViews`/`getGateContent`
+  ——隐藏正文分两步读取，只对判定开放的门控才取 `hidden_md`；守卫测试保证其他源文件不得引用该列。`GateBlock` 渲染五种状态（含“已购买”标签），取代过渡的占位卡片。
+- **`/files/<storage_key>` 路由**：只按数据库查 key（不探测文件系统）；图片公开（能力 URL，mime 取自 `files.mime`，`nosniff` + CSP sandbox + immutable + ETag/304）；
+  非图片附件须“所属帖子对观众可见 + 该版块持有 `attachment.download`”，越权一律 404，下载计数仅 GET 累加，文件名防头部注入。
+- **退役**：`/attachment/**`、`/emotion/**` 路由，以及把 `svg` 标为 inline 的扩展名映射（`contentDispositionFor`）；`next.config` 不再内联 `ATTACHMENT_DIR`/`EMOTION_DIR`，改为 `STORAGE_DIR`。
+- **修复（真实数据验证前发现）**：净化白名单仍只放行 `/emotion/`、`/attachment/` 的图片，迁移后的 `/files/…` 图片与 `/emoji/…` 表情会被剥掉——改为放行 `/emoji/`、`/files/`。
+- web 测试 244 项（含门控服务与 `/files` 的真实 MySQL 集成测试），覆盖率 93.5%；真实库端到端验证：游客锁卡片零泄露、真实购买者看到“已购买 · 14 青翼币”与完整隐藏内容、作者看到解锁人数与收益、附件游客 404 / 会员 200 / 受限版块附件 404、头像与正文图片 200。
+
+### Changed（M5.5 · S4-2/S4-3：应用适配，权限内核与内容查询层）
+
+- **权限内核（S4-2）**：`ForumTree`（祖先链/子树/沿链解析 read·write·review 策略）、纯函数评估器（显式 `Subject`，词汇表 25 个权限点显式归类写类/非写类）、
+  规则快照常驻内存、授权管理校验 + 同事务写 `audit_log`、提权护栏与 admin 防自锁；会话/登录改按 `username_key`/`email_key`，封禁读 `user_restrictions`；
+  注册事务化（自增 id，建用户/资料/核销邀请码同一事务）；邮件令牌消费即记邮箱已验证；`normalizeKey` 上移到 `packages/db`。
+- **客户端 IP 与频控**：按 `TRUSTED_PROXY_HOPS` 取 IP；取不到可信 IP 时**跳过 IP 级限额**（共享桶会被占满成全站登录的拒绝服务），生产漏配直接报错；
+  找回密码改按账号冷却（2 分钟 1 封 + 每小时 6 封，只对真实账号计数），开放注册在 IP 未知时退回全局兜底桶。
+- **查询层与页面（S4-3）**：`/`、`/f/[fid]`、`/t/[tid]`、`/u/[uid]` 与 `lib/queries/*` 全部重写为统一 post 模型，所有查询显式接收 viewer，
+  可见性在**取数前**翻译成 SQL 谓词（修 P0：受限版块的标题/计数/置顶/最新动态不再泄露；`is_listed=0` 不进聚合但直达可读）；
+  置顶三档（版块/分区/全站，跨版块置顶同样过权限）；`pending`/`rejected` 仅作者与版主可见（带驳回理由），`hidden`/`deleted` 仅版主，其余 404；
+  `generateMetadata` 与页面共用同一份带权限的加载结果，标题不再经 `<title>` 泄露；回复指针父帖在别的页时链接带页码；附件按帖批量取。
+- **门控占位**：`packages/content` 新增 `splitByGatePlaceholders`（围栏代码块内不识别，往返无损，300 组随机用例）；正文里的门控暂渲染为中性卡片
+  「此处有隐藏内容」，不读 `post_gates`，S4-4 换成真正的 `GateBlock`。
+- 删除旧 `lib/auth/avatar.ts`（`/attachment` 头像路径）；头像与正文图片改用 `/files/<storage_key>`，**`/files` 路由在 S4-4 落地前图片会 404**。
+- `apps/web` 类型检查转绿（M5.5 开工以来首次）；web 测试 203 项（含真实 MySQL 临时库集成测试），覆盖率 93%。
+
+### Changed（M5.5 · R3：迁移适配层重做，代码）
+
+- **映射层与框架**：旧站键/gid/路径知识集中在 `migration/src/mapping/`；运行时 schema 不再认识旧站，`migration_state` 与迁移 id 公式全部移除。
+- **身份与结构**：spam 账号不迁；回收站版块子树不迁；内容作者/附件上传者缺失时建「已注销用户#uid」占位账号（保留原 uid，`state=deleted`，不持有任何资产）。
+- **内容只迁 `visible`**：回收站/屏蔽/空壳的主题与回帖不迁（旧库即归档）；楼层连续；首帖 id 接在旧站全部帖子最大 pid 之后按 tid 升序自增，
+  门控 id 按（帖子 id, 序号）自增、`gate_key=g{序号}`；`topped→pin_level`、`digest→is_featured`；回复指针分三类计数置空。
+- **文件管线**：内容寻址 `files` 注册表（sha256 去重，`/files/<ab>/<cd>/<sha256>.<ext>`），头像/勋章图/附件/正文图统一入库，存储目录 `STORAGE_DIR`（默认 `<repo>/storage/`，已 gitignore）；
+  源路径一律经 `confinedPath` 收束（防 `..`/绝对路径/符号链接穿越）；存储扩展名只认 MIME 白名单（防存储型 XSS），`/files` 路由的响应头要求写入 S4 范围。
+- **积分与社交**：期初余额不变；签到每人只留最近一段连续区间；私信整链路移除；计数重算对齐 v2.1（`featured_count`）。
+- **转换器补强**（对账暴露）：没有开标签的样式闭合标签丢弃；`[p_w_upload=N]` 同义 `[attachment=N]`；`attachment/` 与镜像域名 `qingyisub.gotoip1.com` 的上传路径同样改写；原始 `<img>` 走统一图片改写。
+- **对账重写**（`verify.ts`，106 项）：期望值全部由独立 SQL/代码推导，新增文件哈希重算、占位账号不变量、首帖/门控 id 次序、签到连续段、私信为空等；`docs/reports/` 已重新生成。
+- 开发库 `qysub_next`（纯导入）与 `qysub_next_e2e`（导入 + 演示夹具）已重建；`db:verify` 两库 10/10。`apps/web` 仍是 v1 代码，S4 适配。
+
+### Changed（M5.5 · R2：schema v2.1 与内容包重做，代码）
+
+- **`packages/db` 重做为 43 表**（已提交 R2-A）：详见 [DESIGN-MODEL.md](docs/DESIGN-MODEL.md)；旧迁移 SQL 以 `git rm` 删除，重新生成单一基线 `0000_init_v2_1`；
+  权限词汇表与角色定义不再携带旧站信息；`schema-rules` 新增 `no-legacy` 断言；演示夹具补审核/通知/公告。
+- **`packages/content`（R2-B）**：门控以帖内稳定 `key` 为身份（`:::gate{key="a1"}`），取代 id 公式与 seq；新门控缺省分配 `g{n}`，key 形态与重复有校验；
+  内容只有 Markdown——`color/size/backcolor/align/font` 降级为纯文本并记 `style-degraded` 告警，删除线改为 `~~`；
+  文件引用改由调用方注入的 `resolveAttachment` / `resolveUpload` 解析为 `/files/…`，转换器不再写死 `/attachment/`。
+- **暂时破坏**：`migration/` 引用了被删除的导出与旧字段，类型检查为红，R3 修复；`apps/web` 仍是 v1 代码，S4 适配。
+
+### Changed（M5.5 · R1：设计先行，文档重定）
+
+站长在 S4 开工前调整思路：**以新系统设计为原则，旧数据向它靠拢，迁移只是适配层**。第一轮 v2（S1–S3，38 表）中沿袭旧结构的部分将经 R2/R3 重做；
+本次 R1 仅改文档，未动代码。
+
+- 新增 [DESIGN-MODEL.md](docs/DESIGN-MODEL.md)：设计原则与 **schema v2.1（43 表）**——新增 `files`、`notifications`、`notification_preferences`、`announcements`、`announcement_reads`、`content_reviews`，删除 `migration_state`；
+  `topped→pin_level`、`digest→is_featured`；内容状态 `visible|pending|rejected|hidden|deleted`（去 `spam`）；`forums.review_policy`；门控 `gate_key`；运行时 schema 不含任何 `legacy_*`/迁移标记/id 公式。
+- 新增 [NOTIFICATIONS.md](docs/NOTIFICATIONS.md)：通知中心（互动/私信/审核与管理/账号与安全 + 公告），内核注册边界扩为十类（+`notificationTypes`、`notificationChannels`，仅实现 `in_app`），顶栏铃铛在 M8，完整页面后续独立里程碑。
+- 数据取舍：spam 空壳、回收站与屏蔽内容、私信、旧通知/公告**不迁**（旧库即归档）；附件迁入 `files` 内容寻址存储，`/files/**` 取代 `/attachment/**`；签到只迁最近连续段；正文内联样式降级为纯 Markdown。
+- 同步更新：BLUEPRINT（决策 #19–25、§3.2/§4.2/§5）、AUTHZ（`review_policy`、去 `legacy_key`）、GATES（`gate_key`）、MODULES（十类边界、事件清单 21 个）、ROADMAP，以及 M5.5、M6、M8、M9、M10 里程碑范围。
+- 计划：R2 重做 `packages/db` 与 `packages/content` → R3 迁移适配层重做并重建开发库 → S4 应用适配 → S5 收口。
+
+### Changed（M5.5 · S3-B / B3：开发库重建为 v2）
+
+- **开发库 `qysub_next` 重建为 schema v2 并全量导入**（原 v1 结构、30 张表，已删除）：迁移对账 83/83、`db:verify` 10/10，
+  连跑两次导入后两份报告逐字节一致，且与临时库逐项相同（用户 10,701 / 帖子 36,630 / 门控 664 / 解锁 2,943 / 台账之和 528,473）。
+- **E2E 库 `qysub_next_e2e` 重建**：全量导入 + `db:seed` 演示夹具（流程 reset → migrate → seed，`test:e2e` 将沿用）。
+- 根脚本 `migrate` / `verify:migration` 先构建 `@funwind/content`（迁移依赖它）。
+- `verify:migration` 识别到演示夹具（id ≥ 90000）时明确拒绝并提示，不再报一堆让人困惑的数量差异。
+- 修正夹具：已购买的演示门控 `unlock_count` 与解锁记录一致。
+- **注意**：`apps/web` 仍是 v1 代码，在 S4 适配前无法在 v2 库上运行。
+
+### Added（M5.5 · S3-B / B2 迁移 v2：内容、积分、社交）
+
+- 统一 post 模型迁入：主题 4,505（spam 空壳 3,033）、帖子 36,630 = 首帖 1,472 + 回帖 35,158；门控 664 个、积分解锁 2,943 条、附件 406、标签 12。
+- 积分：期初余额 528,473（旧 credit1 431,823 + 银行本金 96,650），6,660 个账户；**不迁旧流水**。签到 72,914 次。徽章 31 枚。
+- 社交：关注 3,828（用户 + 加入版块）、点赞 1,638、投票 133、真实私信 1,462 条 → 788 个会话（含未读状态）。
+- 表情 50 枚复制为 `apps/web/public/emoji/{id}.gif`（1.5MB，入库）；计数（回复数/最后回复/版块/用户统计/点赞）全部由明细重算。
+- 对账 v2 扩到 83 项，含**门控零泄露**、文本保留率 101.43%、台账之和 = 余额 = 旧库独立推导值。二次运行两份报告逐字节一致。
+- 迁移独占表整体替换式加载 + 线上数据保险（`MIGRATION_FORCE=1` 才可覆盖）。
+
+### Fixed（M5.5 · B2 验证中拦截的缺陷）
+
+- **标签交叉嵌套 = 潜在泄露**：`[color][sell]…[/color]…[/sell]` 会让门控被弹出栈，之后隐藏内容落到公开区。改为门控优先。
+- **表格重复渲染**：未闭合的 `[table]` 里的门控被渲染两次，产生重复/孤立门控；表格单元格内的门控占位提升到表格之后。
+- 孤立的 `[/sell]` `[/post]` `[/hide]` 露在正文里：直接丢弃。
+- 旧回收站内容映射为 `deleted` 而非丢弃；版块已删除的主题改挂到归档版块（内容保留）。
+- 私信：uid 0 才是系统发信人；uid 1 是旧站已删除的虚拟账号（真人对话按「用户已不存在」丢弃）。
+
+### Fixed（M5.5 · 安全审查整改）
+
+- **未闭合门控标签改为失败即封闭**：此前去壳后把内容公开，会泄露已售出的付费内容（旧库 tid 2023 未闭合的 `[sell]` 有 22 条购买记录）。
+  现在到容器末尾的内容都归入隐藏内容；性质测试加入「忘记闭合」变体；真实数据复验积分门控 309 → 318，文本保留率不变。
+- **迁移报告脱敏**：入库的 `docs/reports/` 只含 uid 与脱敏邮箱（`j***@126.com`）；完整邮箱清单写入已 gitignore 的 `migration/reports/`。
+  含完整邮箱的版本已从本地提交历史中改写掉（未推送过）。
+
+### Added（M5.5 · S3-B / B0+B1 迁移 v2：身份、版块、限制、权限）
+
+- `forums.write_policy`（`inherit|members|restricted`）：旧站「只有团队组能发帖」的 6 个版块与 restricted 读版块是同一批；增量迁移 `0001_forum_write_policy`。
+- 迁移程序重构为 extract → transform（纯函数）→ load → verify 四层；`lib/php-serialize`（PHP 序列化解析器，取代 v1 的字符串匹配）；
+  `lib/report`（确定性 Markdown 报告，入库 `docs/reports/migration-v2-import.md` / `-verify.md`）。
+- 已迁入（临时库实测）：版块 43、主题前缀 91、用户 10,701（+资料）、用户限制 102、全局授权 117 + 版块作用域授权 68、用户角色 185。
+- 对账 v2 共 40 项，期望值用与实现不同的 SQL 路径独立推导；**二次运行两份报告逐字节一致**（幂等证据）。
+- `packages/db` 词汇表护栏单测；`migration` 引入 vitest，66 个测试，覆盖率 99%。
+
+### Fixed（M5.5 · B1）
+
+- **提权缺陷（开发期拦截）**：S2 词汇表曾把旧 `operate_thread` 映射为 `forum.moderate`，该键对普通会员只是设置数组（`up_time: 72`），
+  真值判断误判为开启，会让全体会员/团队组获得全局版主权。已修复：词汇表不再映射；翻译器对数组值只接受 `allow_thread_extend` 与 `panel_*` 开关数组；
+  对账新增「非 admin 无全局管理/版主权」护栏；各有回归测试。
+- 迁移每次先执行幂等 bootstrap（不再以 `migration_state` 是否存在判断初始化），保证词汇表与代码一致。
+- 迁移基线未重置：`write_policy` 以增量迁移 `0001` 追加（删除类命令被拒，改用 drizzle 标准做法）；基线合并留到 M13。
+
+### Added（M5.5 · S3-A `packages/content`）
+
+- 新包 `@funwind/content`：门控语法（`splitSource` / `assembleSource` / `validateGates`，条件规格可注入）与 UBB→Markdown 转换器 v2
+  （门控提取、表情静态化、遗留表情码删除、站内链接/旧图片改写、表格/hr/sup/sub、媒体降级）。
+- 69 个测试，覆盖率 99.7%；含 400 组随机嵌套的**泄露不变量**性质测试（隐藏内容绝不进入公开正文）。
+- 真实旧库只读验证（36,715 条正文）：零异常；门控 674 个（积分 309 = 旧 `[sell]` 帖数 / 回复可见 365）；汉字假名保留率 101.41%。
+
+### Fixed（M5.5 · S3-A，转换器相关）
+
+- **v1 转换器数据丢失缺陷**：`[attachment=N]`、`[li]`、媒体与未知标签没有闭合标签，v1 把其后全部正文当子节点吞掉
+  （约 200 个带附件的帖子的 `content_md` 在开发库中被截断）。v2 中这类标签未闭合时不再包裹后文；S3-B 全量重导后消除。
+- 样式标签（`[color]`/`[align]` 等）包住门控时，占位被塞进 HTML 标签而无法识别：改为占位提升为顶层块，两侧文本各自保留样式。
+- 颜色值白名单收紧（仅命名色/十六进制/rgb/hsl，其余函数调用整体丢弃）；媒体标签 URL 取内容优先于参数。
+
+### Changed（M5.5 · S2 schema v2：**破坏性**，分支 `feat/m5.5-schema-v2`）
+
+- **schema v2（38 张表）**：统一 post 模型、`forums` 物化路径 + `read_policy`、`user_restrictions`、`post_gates`/`gate_unlocks`、
+  `point_accounts`/`point_ledger`、`checkins`、`badges`、`audit_log`、会话模型私信等；`role_grants`/`user_roles` 改 `scope_id NOT NULL DEFAULT 0`；
+  业务表去掉全部 `raw`/`content_raw`；`groups`、`emoticon*`、`credit_logs`、`private_messages`、`message_dialogs`、`user_bans` 退出。
+- **迁移基线重置**：删除 v1 的 `0000–0005`，生成单个 `0000_init_v2.sql`；开发库须重建（S3 迁移 v2 重新导入）。
+- **权限词汇表 v2**：57 旧键 → 25 个权限点；`forum.manage` 并入 `forum.moderate`；`thread.sell/hide` → `gate.points/gate.reply`；
+  内置角色 guest/member/admin。纠正 v1 把旧 gid 23/38（实习组/策划组）映射反了的错误。
+- **bootstrap** 新增 `seedSystemData`（角色、权限点、首次基线授权、站点设置默认值；幂等、非破坏性）；列级 COLLATE 补丁泛化为 `PATCHES`。
+- `db:seed` 重写为 v2 演示夹具（受限版块、不上目录版块、门控、已购买、积分台账、封禁、团队角色）。
+
+### Added（M5.5 · S2）
+
+- `packages/db/src/schema-rules.ts`：schema 结构规则断言（唯一键无可空列 / 无 raw 归档列 / 整型 id 自增 / 有主键），`db:verify` 与单测共用。
+- `db:verify` 扩展到 10 项（含权限数据脏键零容忍、系统种子就位）。
+- `packages/db` 引入 vitest（含真实 MySQL 临时库集成测试）：29 个测试，覆盖率 98.7%。
+
+### Known（S2–S4 期间预期）
+
+- `apps/web` 与 `migration` 依赖 v1 schema，类型检查/构建为红，S3（迁移）与 S4（应用适配）恢复；main 分支不受影响。
+
+### Added（M5.5 · S1 设计定稿：重构里程碑，仅文档）
+
+- **M0–M5 深度审查**（2026-10-23）：库表逐张分类、旧站源码与旧库二次探查、M3–M5 代码复验。结论与证据见新增的
+  `docs/milestones/M5.5-schema-v2.md` 及 M3/M4/M5 里程碑文档的「复验发现」节。
+- **M5.5 里程碑文档**：数据模型 v2（统一 post、`forums` 物化路径 + `read_policy`、`user_restrictions`、`point_*`、`post_gates` 等）、
+  迁移 v2 转换规则（含丢弃清单）、S1–S5 分步、验收门禁，并把 M3–M5 的 P0/P1/P2 缺陷清账纳入 S4。
+- **`docs/GATES.md`**：门控规范——`:::gate{unlock=…}` 容器指令；隐藏内容保存时拆入 `post_gates`（`body_md` 只留占位）；
+  可插拔解锁条件注册表（`points` / `reply`，预留 `login`/`follow`/`time`）；SSR 切分渲染含「已购买」标签；`unlockGate` 单事务；
+  价格 0 = 登录后免费解锁，旧价 ≥ 9999 一律改免费，作者收益 100%（手续费默认 0）。
+- **`docs/POINTS.md`**：积分规范——单一用户积分（显示名可配），`point_accounts` + `point_ledger`，`applyPoints` 单一入口，
+  `pointChannels` 渠道注册；获取仅发帖/回帖/签到；不迁旧流水，每人一条期初余额。
+- 模块内核注册边界由六类扩为**八类**（`pointChannels`、`gateConditions`）；事件 `credit.changed` → `points.changed`，新增 `gate.unlocked`（实现随 S4）。
+- BLUEPRINT 新增重构决策 #11–#18、§3.2 schema v2 目标态、§4.2 内容转换 v2、红线 #7–#8；AUTHZ 新增 §8（v2 修订）；
+  LEGACY-FEATURE-MAP 新增「重构判定表」。
+
+### Changed
+
+- **ROADMAP**：插入 M5.5；M7 改为「积分与荣誉」并大幅收缩；M6 纳入编辑器与门控创作/购买；M10 收缩为交互层；M12 依赖 M5.5；
+  取消「M14 情怀遗珠」（银行/抽奖）、任务引擎、用户等级、`pw_*` 遗留表迁移。门禁勾选改以真实命令输出为准。
+- **M6–M13 里程碑文档**按新模型重写/修订（M6 编辑器选型推迟到开工时）。
+- 全局测试基线新增「集成（DB）」层，不得以 IO 层由 E2E 覆盖为由排除统计目录；`pre-push` 钩子运行单测。
+
+### Fixed（文档）
+
+- 清除 `docs/BLUEPRINT.md` 中的旧库 root 口令明文（改读根 `.env`；推送前仍需审计 git 历史）。
+- 订正文档漂移：权限「5 表」→ 4 表、README 进度、M3 重复「遗留事项」节、LEGACY-FEATURE-MAP 对签到机制的错误描述。
+- M3/M4/M5 里程碑文档追加「复验发现」：`pnpm test` 覆盖率门槛为红、权限翻译不幂等（`user_roles` 重复 5 倍）、
+  `role_grants` 脏键、管理动作无审计、首页权限泄露、门控内容变公开等——代码修复归 M5.5 S4。
+
 ### Added（M5 · 权限内核：现代 RBAC + 级联数据范围 + 分级权限）
 
 - **四表**：roles（builtin|custom）/permissions（resource + level + legacy_key + condition_params）/

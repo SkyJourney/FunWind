@@ -2,11 +2,12 @@ import { relations } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  char,
+  date,
   datetime,
   index,
   int,
   json,
-  mediumint,
   mediumtext,
   mysqlEnum,
   mysqlTable,
@@ -19,378 +20,114 @@ import {
 } from "drizzle-orm/mysql-core";
 
 /**
- * qysub_next 单一事实源（决策 #10）
- * 语义基线：P0 期手写 DDL（migration/schema/schema.sql，保留为历史底稿）。
- * 约定：
- *  - 不建外键（导入/迁移友好，参照完整性由应用层保证）
- *  - 保留旧主键（uid/tid/pid/fid/aid/gid），每表 raw JSON 归档旧行
- *  - 时间为 DATETIME 北京时间墙面值；utf8mb4 / InnoDB（库级默认）
- * 注意：users.username 需要列级 COLLATE utf8mb4_0900_as_cs（さくら≠サクラ）。
- * 若 drizzle-kit 不支持列级 collate，由 scripts/bootstrap.ts 的 patch 步骤幂等补齐（见 PATCHES）。
+ * qysub_next · schema v2.1（M5.5，单一事实源，决策 #10；设计依据 docs/DESIGN-MODEL.md，共 43 表）
+ *
+ * 设计原则：
+ *  - 运行时 schema 不认识旧站：不出现 legacy_* / 迁移标记 / 迁移用 id 公式 / migration_* 表（schema-rules.ts 强制）
+ *  - 只保留 URL 必须稳定的 id（uid/fid/tid/pid）；主键均为 AUTO_INCREMENT，导入后把起点推到最大值之后
+ *  - 引用诚实：每个 author_id 都指向 users 中真实存在的一行（已注销账号 = state=deleted 的占位行）
+ *  - 唯一键不得依赖 NULL 去重来表达作用域/层级：全局作用域用 scope_id = 0 哨兵
+ *    （例外：单列、且「空值 = 没有」本身就是期望语义，如 users.email_key）
+ *  - 状态是一等属性（read_policy / state / user_restrictions），不靠「有没有记录」推断
+ *  - 不建外键（导入友好，参照完整性由应用层保证）；时间为 DATETIME 北京墙面值；utf8mb4 / InnoDB
+ *
+ * 列级排序规则：username_key / email_key 需 utf8mb4_bin（さくら≠サクラ、归一化后精确比较）。
+ * drizzle-kit 不支持列级 collate，由 bootstrap 的 PATCHES 幂等补齐（见 src/bootstrap.ts）。
  */
 
-// ---------- 用户与权限 ----------
+const dt = (name: string) => datetime(name, { mode: "string" });
 
-export const groups = mysqlTable(
-  "groups",
-  {
-    // P0 手写 DDL 语义：旧 gid 为 mediumint，保持一致（见 migration/schema/schema.sql）
-    id: mediumint("id", { unsigned: true }).notNull(),
-    name: varchar("name", { length: 64 }).notNull(),
-    type: mysqlEnum("type", ["default", "member", "system", "special", "vip"])
-      .notNull()
-      .default("member"),
-    points: int("points", { unsigned: true }).notNull().default(0),
-    image: varchar("image", { length: 64 }).notNull().default(""),
-    raw: json("raw"),
-  },
-  (t) => [primaryKey({ columns: [t.id] })],
-);
+/** 内容状态机（threads / posts 共用，见 docs/DESIGN-MODEL.md §4） */
+export const CONTENT_STATES = ["visible", "pending", "rejected", "hidden", "deleted"] as const;
+export type ContentState = (typeof CONTENT_STATES)[number];
+
+/** 通知大类（公告不在其中：它走 announcements） */
+export const NOTIFICATION_CATEGORIES = ["interaction", "message", "moderation", "account"] as const;
+export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
+
+/** 通知投递渠道；当前只实现 in_app，其余为注册边界预留 */
+export const NOTIFICATION_CHANNELS = ["in_app", "email", "push"] as const;
+export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
+
+// ============================================================
+// 身份
+// ============================================================
 
 export const users = mysqlTable(
   "users",
   {
-    id: int("id", { unsigned: true }).notNull(),
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    /** 展示名（保留原大小写与假名） */
     username: varchar("username", { length: 64 }).notNull(),
-    email: varchar("email", { length: 128 }).notNull().default(""),
+    /** 归一化唯一键：trim + toLowerCase，不做 NFKC（半角 ｻｸﾗ 不得与 サクラ 碰撞） */
+    usernameKey: varchar("username_key", { length: 64 }).notNull(),
+    email: varchar("email", { length: 128 }),
+    /** 邮箱归一化唯一键（小写）；NULL = 没有邮箱，多个 NULL 不冲突 */
+    emailKey: varchar("email_key", { length: 128 }),
     passwordHash: varchar("password_hash", { length: 255 }),
-    groupId: mediumint("group_id", { unsigned: true }).notNull().default(0),
-    gender: tinyint("gender").notNull().default(0),
-    location: varchar("location", { length: 100 }).notNull().default(""),
-    homepage: varchar("homepage", { length: 200 }).notNull().default(""),
-    signatureMd: text("signature_md"),
-    profile: text("profile"),
-    emailVerifiedAt: datetime("email_verified_at", { mode: "string" }),
-    postCount: int("post_count", { unsigned: true }).notNull().default(0),
-    digestCount: int("digest_count", { unsigned: true }).notNull().default(0),
-    followers: int("followers", { unsigned: true }).notNull().default(0),
-    fans: int("fans", { unsigned: true }).notNull().default(0),
-    credits: json("credits"),
-    onlineTime: int("online_time", { unsigned: true }).notNull().default(0),
-    isSpam: boolean("is_spam").notNull().default(false),
-    status: smallint("status").notNull().default(0),
-    createdAt: datetime("created_at", { mode: "string" }),
-    lastVisitAt: datetime("last_visit_at", { mode: "string" }),
-    lastPostAt: datetime("last_post_at", { mode: "string" }),
-    raw: json("raw"),
+    emailVerifiedAt: dt("email_verified_at"),
+    /** deleted = 已注销：保留行以维持引用完整，个人信息已清除 */
+    state: mysqlEnum("state", ["active", "deleted"]).notNull().default("active"),
+    createdAt: dt("created_at").notNull(),
+    lastLoginAt: dt("last_login_at"),
   },
   (t) => [
     primaryKey({ columns: [t.id] }),
-    uniqueIndex("uq_users_username").on(t.username),
-    index("idx_users_email").on(t.email),
-    index("idx_users_group").on(t.groupId),
-    index("idx_users_spam").on(t.isSpam),
+    uniqueIndex("uq_users_username_key").on(t.usernameKey),
+    uniqueIndex("uq_users_email_key").on(t.emailKey),
+    index("idx_users_state").on(t.state),
     index("idx_users_created").on(t.createdAt),
   ],
 );
 
-export const forums = mysqlTable(
-  "forums",
+export const userProfiles = mysqlTable(
+  "user_profiles",
   {
-    id: smallint("id", { unsigned: true }).notNull(),
-    parentId: smallint("parent_id", { unsigned: true }).notNull().default(0),
-    type: mysqlEnum("type", ["category", "forum", "sub", "sub2"]).notNull().default("forum"),
-    name: varchar("name", { length: 255 }).notNull(),
-    nameStyle: varchar("name_style", { length: 255 }).notNull().default(""),
-    description: text("description"),
-    summary: text("summary"),
-    vieworder: smallint("vieworder").notNull().default(0),
-    isShow: boolean("is_show").notNull().default(true),
-    managers: json("managers"),
-    icon: varchar("icon", { length: 100 }).notNull().default(""),
-    logo: varchar("logo", { length: 100 }).notNull().default(""),
+    userId: int("user_id", { unsigned: true }).notNull(),
+    bio: text("bio"),
+    location: varchar("location", { length: 100 }).notNull().default(""),
+    website: varchar("website", { length: 200 }).notNull().default(""),
+    gender: tinyint("gender").notNull().default(0),
+    birthday: date("birthday", { mode: "string" }),
+    signatureMd: text("signature_md"),
+    /** 头像文件（files.id）；NULL = 无头像 */
+    avatarFileId: int("avatar_file_id", { unsigned: true }),
+  },
+  (t) => [primaryKey({ columns: [t.userId] })],
+);
+
+/** 可由 posts 重算的用户计数缓存 */
+export const userStats = mysqlTable(
+  "user_stats",
+  {
+    userId: int("user_id", { unsigned: true }).notNull(),
     threadCount: int("thread_count", { unsigned: true }).notNull().default(0),
     postCount: int("post_count", { unsigned: true }).notNull().default(0),
-    raw: json("raw"),
+    featuredCount: int("featured_count", { unsigned: true }).notNull().default(0),
+    followerCount: int("follower_count", { unsigned: true }).notNull().default(0),
+    lastPostAt: dt("last_post_at"),
   },
-  (t) => [
-    primaryKey({ columns: [t.id] }),
-    index("idx_forums_parent").on(t.parentId),
-    index("idx_forums_order").on(t.vieworder),
-  ],
+  (t) => [primaryKey({ columns: [t.userId] })],
 );
 
-/** 版块主题分类（M3 补迁：nw_bbs_topic_type，版块页筛选依赖） */
-export const topicTypes = mysqlTable(
-  "topic_type",
+/** 用户限制：封禁/禁言/禁头像/禁签名统一一处 */
+export const userRestrictions = mysqlTable(
+  "user_restrictions",
   {
-    id: int("id", { unsigned: true }).notNull(),
-    fid: int("fid", { unsigned: true }).notNull().default(0), // 旧 topic_type.id/所属版块（threads.type_id 引用）
-    name: varchar("name", { length: 255 }).notNull().default(""),
-    parentId: int("parent_id", { unsigned: true }).notNull().default(0),
-    logo: varchar("logo", { length: 255 }).notNull().default(""),
-    vieworder: tinyint("vieworder").notNull().default(0),
-    issys: tinyint("issys").notNull().default(0),
-    raw: json("raw"),
-  },
-  (t) => [primaryKey({ columns: [t.id] }), index("idx_tt_fid").on(t.fid)],
-);
-
-export const threads = mysqlTable(
-  "threads",
-  {
-    id: int("id", { unsigned: true }).notNull(),
-    forumId: smallint("forum_id", { unsigned: true }).notNull().default(0),
-    authorId: int("author_id", { unsigned: true }).notNull().default(0),
-    title: varchar("title", { length: 140 }).notNull().default(""),
-    typeId: int("type_id", { unsigned: true }).notNull().default(0),
-    digest: tinyint("digest").notNull().default(0),
-    topped: tinyint("topped").notNull().default(0),
-    special: varchar("special", { length: 20 }).notNull().default(""),
-    replyCount: int("reply_count", { unsigned: true }).notNull().default(0),
-    viewCount: int("view_count", { unsigned: true }).notNull().default(0),
-    likeCount: int("like_count", { unsigned: true }).notNull().default(0),
-    attachCount: smallint("attach_count", { unsigned: true }).notNull().default(0),
-    contentMd: mediumtext("content_md"),
-    contentRaw: mediumtext("content_raw"),
-    usehtml: boolean("usehtml").notNull().default(false),
-    tags: varchar("tags", { length: 255 }).notNull().default(""),
-    isSpam: boolean("is_spam").notNull().default(false),
-    status: tinyint("status").notNull().default(0),
-    createdAt: datetime("created_at", { mode: "string" }),
-    lastPostAt: datetime("last_post_at", { mode: "string" }),
-    lastPostUserId: int("last_post_user_id", { unsigned: true }).notNull().default(0),
-    raw: json("raw"),
-  },
-  (t) => [
-    primaryKey({ columns: [t.id] }),
-    index("idx_threads_forum").on(t.forumId, t.isSpam, t.lastPostAt),
-    index("idx_threads_author").on(t.authorId),
-    index("idx_threads_created").on(t.createdAt),
-    index("idx_threads_digest").on(t.digest),
-  ],
-);
-
-export const posts = mysqlTable(
-  "posts",
-  {
-    id: int("id", { unsigned: true }).notNull(),
-    threadId: int("thread_id", { unsigned: true }).notNull(),
-    authorId: int("author_id", { unsigned: true }).notNull().default(0),
-    floor: int("floor", { unsigned: true }).notNull().default(0),
-    replyToPid: int("reply_to_pid", { unsigned: true }),
-    subject: varchar("subject", { length: 100 }).notNull().default(""),
-    contentMd: mediumtext("content_md"),
-    contentRaw: mediumtext("content_raw"),
-    usehtml: boolean("usehtml").notNull().default(false),
-    likeCount: int("like_count", { unsigned: true }).notNull().default(0),
-    status: tinyint("status").notNull().default(0),
-    createdAt: datetime("created_at", { mode: "string" }),
-    modifiedAt: datetime("modified_at", { mode: "string" }),
-    raw: json("raw"),
-  },
-  (t) => [
-    primaryKey({ columns: [t.id] }),
-    index("idx_posts_thread").on(t.threadId, t.floor),
-    index("idx_posts_author").on(t.authorId),
-    index("idx_posts_reply").on(t.replyToPid),
-  ],
-);
-
-export const attachments = mysqlTable(
-  "attachments",
-  {
-    id: int("id", { unsigned: true }).notNull(),
-    threadId: int("thread_id", { unsigned: true }),
-    postId: int("post_id", { unsigned: true }),
-    uploaderId: int("uploader_id", { unsigned: true }).notNull().default(0),
-    filename: varchar("filename", { length: 255 }).notNull().default(""),
-    type: varchar("type", { length: 20 }).notNull().default(""),
-    sizeKb: int("size_kb", { unsigned: true }).notNull().default(0),
-    path: varchar("path", { length: 255 }).notNull().default(""),
-    hasThumb: boolean("has_thumb").notNull().default(false),
-    width: smallint("width", { unsigned: true }).notNull().default(0),
-    height: smallint("height", { unsigned: true }).notNull().default(0),
-    downloads: int("downloads", { unsigned: true }).notNull().default(0),
-    cost: int("cost", { unsigned: true }).notNull().default(0),
-    special: tinyint("special").notNull().default(0),
-    createdAt: datetime("created_at", { mode: "string" }),
-    raw: json("raw"),
-  },
-  (t) => [
-    primaryKey({ columns: [t.id] }),
-    index("idx_att_thread").on(t.threadId),
-    index("idx_att_post").on(t.postId),
-    index("idx_att_uploader").on(t.uploaderId),
-  ],
-);
-
-// ---------- 表情 ----------
-
-export const emoticonCategories = mysqlTable(
-  "emoticon_categories",
-  {
-    id: int("id", { unsigned: true }).notNull(),
-    name: varchar("name", { length: 64 }).notNull().default(""),
-    folder: varchar("folder", { length: 32 }).notNull().default(""),
-    apps: varchar("apps", { length: 64 }).notNull().default(""),
-    orderid: int("orderid", { unsigned: true }).notNull().default(0),
-    isOpen: boolean("is_open").notNull().default(true),
-  },
-  (t) => [primaryKey({ columns: [t.id] })],
-);
-
-export const emoticons = mysqlTable(
-  "emoticons",
-  {
-    id: int("id", { unsigned: true }).notNull(),
-    categoryId: int("category_id", { unsigned: true }).notNull().default(0),
-    folder: varchar("folder", { length: 32 }).notNull().default(""),
-    icon: varchar("icon", { length: 64 }).notNull().default(""),
-    isUsed: boolean("is_used").notNull().default(true),
-  },
-  (t) => [primaryKey({ columns: [t.id] }), index("idx_emo_cat").on(t.categoryId)],
-);
-
-// ---------- 勋章 ----------
-
-export const medals = mysqlTable(
-  "medals",
-  {
-    id: int("id", { unsigned: true }).notNull(),
-    name: varchar("name", { length: 64 }).notNull().default(""),
-    path: varchar("path", { length: 64 }).notNull().default(""),
-    image: varchar("image", { length: 64 }).notNull().default(""),
-    icon: varchar("icon", { length: 64 }).notNull().default(""),
-    description: varchar("description", { length: 255 }).notNull().default(""),
-    medalType: tinyint("medal_type").notNull().default(1),
-    receiveType: tinyint("receive_type").notNull().default(1),
-    medalGids: varchar("medal_gids", { length: 64 }).notNull().default(""),
-    awardType: tinyint("award_type").notNull().default(1),
-    awardCondition: smallint("award_condition").notNull().default(0),
-    expiredDays: smallint("expired_days").notNull().default(0),
-    isOpen: boolean("is_open").notNull().default(true),
-    vieworder: tinyint("vieworder").notNull().default(0),
-    raw: json("raw"),
-  },
-  (t) => [primaryKey({ columns: [t.id] })],
-);
-
-export const userMedals = mysqlTable(
-  "user_medals",
-  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
     userId: int("user_id", { unsigned: true }).notNull(),
-    medalId: int("medal_id", { unsigned: true }).notNull(),
-    counts: int("counts", { unsigned: true }).notNull().default(0),
-    expiredTime: datetime("expired_time", { mode: "string" }),
+    kind: mysqlEnum("kind", ["ban", "mute", "no_avatar", "no_signature"]).notNull(),
+    /** 0 = 全站；> 0 = 版块 id */
+    scopeId: int("scope_id", { unsigned: true }).notNull().default(0),
+    reason: varchar("reason", { length: 255 }).notNull().default(""),
+    startsAt: dt("starts_at").notNull(),
+    /** NULL = 永久 */
+    endsAt: dt("ends_at"),
+    createdBy: int("created_by", { unsigned: true }),
+    createdAt: dt("created_at").notNull(),
   },
-  (t) => [primaryKey({ columns: [t.userId, t.medalId] }), index("idx_um_medal").on(t.medalId)],
+  (t) => [primaryKey({ columns: [t.id] }), index("idx_ur_user_kind").on(t.userId, t.kind)],
 );
-
-// ---------- 积分 ----------
-
-export const creditLogs = mysqlTable(
-  "credit_logs",
-  {
-    id: int("id", { unsigned: true }).notNull(),
-    userId: int("user_id", { unsigned: true }).notNull().default(0),
-    creditType: varchar("credit_type", { length: 8 }).notNull().default(""),
-    delta: int("delta").notNull().default(0),
-    logType: varchar("log_type", { length: 40 }).notNull().default(""),
-    description: varchar("description", { length: 255 }).notNull().default(""),
-    createdAt: datetime("created_at", { mode: "string" }),
-  },
-  (t) => [
-    primaryKey({ columns: [t.id] }),
-    index("idx_cl_user").on(t.userId, t.creditType),
-    index("idx_cl_time").on(t.createdAt),
-  ],
-);
-
-// ---------- 投票 ----------
-
-export const polls = mysqlTable(
-  "polls",
-  {
-    id: int("id", { unsigned: true }).notNull(),
-    threadId: int("thread_id", { unsigned: true }),
-    voterNum: int("voter_num", { unsigned: true }).notNull().default(0),
-    isafterView: boolean("isafter_view").notNull().default(false),
-    isincludeImg: boolean("isinclude_img").notNull().default(false),
-    optionLimit: smallint("option_limit", { unsigned: true }).notNull().default(0),
-    expiredTime: datetime("expired_time", { mode: "string" }),
-    creatorId: int("creator_id", { unsigned: true }).notNull().default(0),
-    createdAt: datetime("created_at", { mode: "string" }),
-    raw: json("raw"),
-  },
-  (t) => [primaryKey({ columns: [t.id] }), index("idx_polls_thread").on(t.threadId)],
-);
-
-export const pollOptions = mysqlTable(
-  "poll_options",
-  {
-    id: int("id", { unsigned: true }).notNull(),
-    pollId: int("poll_id", { unsigned: true }).notNull(),
-    votedNum: int("voted_num", { unsigned: true }).notNull().default(0),
-    content: varchar("content", { length: 255 }).notNull().default(""),
-    image: varchar("image", { length: 255 }).notNull().default(""),
-  },
-  (t) => [primaryKey({ columns: [t.id] }), index("idx_po_poll").on(t.pollId)],
-);
-
-export const pollVoters = mysqlTable(
-  "poll_voters",
-  {
-    pollId: int("poll_id", { unsigned: true }).notNull(),
-    optionId: int("option_id", { unsigned: true }).notNull(),
-    userId: int("user_id", { unsigned: true }).notNull(),
-    createdAt: datetime("created_at", { mode: "string" }),
-  },
-  (t) => [
-    primaryKey({ columns: [t.pollId, t.optionId, t.userId] }),
-    index("idx_pv_user").on(t.userId),
-  ],
-);
-
-// ---------- 私信 ----------
-
-export const privateMessages = mysqlTable(
-  "private_messages",
-  {
-    id: int("id", { unsigned: true }).notNull(),
-    fromUid: int("from_uid", { unsigned: true }).notNull().default(0),
-    toUid: int("to_uid", { unsigned: true }).notNull().default(0),
-    content: mediumtext("content"),
-    createdAt: datetime("created_at", { mode: "string" }),
-    raw: json("raw"),
-  },
-  (t) => [
-    primaryKey({ columns: [t.id] }),
-    index("idx_pm_from").on(t.fromUid),
-    index("idx_pm_to").on(t.toUid),
-  ],
-);
-
-export const messageDialogs = mysqlTable(
-  "message_dialogs",
-  {
-    id: int("id", { unsigned: true }).notNull(),
-    fromUid: int("from_uid", { unsigned: true }).notNull().default(0),
-    toUid: int("to_uid", { unsigned: true }).notNull().default(0),
-    unreadCount: smallint("unread_count", { unsigned: true }).notNull().default(0),
-    messageCount: int("message_count", { unsigned: true }).notNull().default(0),
-    lastMessage: text("last_message"),
-    modifiedAt: datetime("modified_at", { mode: "string" }),
-  },
-  (t) => [primaryKey({ columns: [t.id] }), index("idx_md_to").on(t.toUid)],
-);
-
-// ---------- 基建 ----------
-
-export const migrationState = mysqlTable(
-  "migration_state",
-  {
-    entity: varchar("entity", { length: 64 }).notNull(),
-    // P0 手写 DDL 语义：计数列为 BIGINT（迁移量级不设上限）
-    rowsWritten: bigint("rows_written", { mode: "number", unsigned: true }).notNull().default(0),
-    durationMs: bigint("duration_ms", { mode: "number", unsigned: true }).notNull().default(0),
-    finishedAt: datetime("finished_at", { mode: "string" }),
-    note: varchar("note", { length: 255 }).notNull().default(""),
-  },
-  (t) => [primaryKey({ columns: [t.entity] })],
-);
-
-// ---------- 认证（M4）----------
 
 export const sessions = mysqlTable(
   "sessions",
@@ -398,13 +135,30 @@ export const sessions = mysqlTable(
     // 存 SHA-256(token)：库泄漏不等于会话劫持
     id: varchar("id", { length: 64 }).notNull(),
     userId: int("user_id", { unsigned: true }).notNull(),
-    createdAt: datetime("created_at", { mode: "string" }).notNull(),
-    expiresAt: datetime("expires_at", { mode: "string" }).notNull(),
-    lastSeenAt: datetime("last_seen_at", { mode: "string" }),
+    createdAt: dt("created_at").notNull(),
+    expiresAt: dt("expires_at").notNull(),
+    lastSeenAt: dt("last_seen_at"),
     ip: varchar("ip", { length: 64 }),
     userAgent: varchar("user_agent", { length: 255 }),
   },
-  (t) => [primaryKey({ columns: [t.id] }), index("idx_sessions_user").on(t.userId)],
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    index("idx_sessions_user").on(t.userId),
+    index("idx_sessions_expires").on(t.expiresAt),
+  ],
+);
+
+export const emailTokens = mysqlTable(
+  "email_tokens",
+  {
+    id: varchar("id", { length: 64 }).notNull(), // 存 SHA-256(token)
+    purpose: mysqlEnum("purpose", ["reset", "verify", "claim"]).notNull(),
+    userId: int("user_id", { unsigned: true }).notNull(),
+    createdAt: dt("created_at").notNull(),
+    expiresAt: dt("expires_at").notNull(),
+    usedAt: dt("used_at"),
+  },
+  (t) => [primaryKey({ columns: [t.id] }), index("idx_et_user").on(t.userId, t.purpose)],
 );
 
 export const inviteCodes = mysqlTable(
@@ -413,10 +167,10 @@ export const inviteCodes = mysqlTable(
     code: varchar("code", { length: 32 }).notNull(),
     createdBy: int("created_by", { unsigned: true }),
     usedBy: int("used_by", { unsigned: true }),
-    usedAt: datetime("used_at", { mode: "string" }),
-    expiresAt: datetime("expires_at", { mode: "string" }),
+    usedAt: dt("used_at"),
+    expiresAt: dt("expires_at"),
     batch: varchar("batch", { length: 64 }).notNull().default(""),
-    createdAt: datetime("created_at", { mode: "string" }).notNull(),
+    createdAt: dt("created_at").notNull(),
   },
   (t) => [primaryKey({ columns: [t.code] }), index("idx_ic_batch").on(t.batch)],
 );
@@ -426,85 +180,525 @@ export const siteSettings = mysqlTable(
   {
     key: varchar("key", { length: 64 }).notNull(),
     value: json("value"),
-    updatedAt: datetime("updated_at", { mode: "string" }).notNull(),
+    updatedAt: dt("updated_at").notNull(),
   },
   (t) => [primaryKey({ columns: [t.key] })],
 );
 
-export const emailTokens = mysqlTable(
-  "email_tokens",
-  {
-    id: varchar("id", { length: 64 }).notNull(), // 存 SHA-256(token)：库泄漏不等于会话劫持
-    purpose: mysqlEnum("purpose", ["reset", "verify", "claim"]).notNull(),
-    userId: int("user_id", { unsigned: true }).notNull(),
-    createdAt: datetime("created_at", { mode: "string" }).notNull(),
-    expiresAt: datetime("expires_at", { mode: "string" }).notNull(),
-    usedAt: datetime("used_at", { mode: "string" }),
-  },
-  (t) => [primaryKey({ columns: [t.id] }), index("idx_et_user").on(t.userId, t.purpose)],
-);
+// ============================================================
+// 版块
+// ============================================================
 
-/** 封禁（补迁 nw_user_ban）：fid=0 全局，end_time 为空=永久；版块级封禁由 M5 authz 消费 */
-export const userBans = mysqlTable(
-  "user_bans",
-  {
-    id: int("id", { unsigned: true }).notNull(),
-    userId: int("user_id", { unsigned: true }).notNull(),
-    typeId: varchar("type_id", { length: 20 }).notNull().default(""),
-    fid: int("fid", { unsigned: true }).notNull().default(0), // 0=全局
-    endTime: datetime("end_time", { mode: "string" }), // NULL=永久
-    reason: varchar("reason", { length: 80 }).notNull().default(""),
-    createdBy: int("created_by", { unsigned: true }).notNull().default(0),
-    createdAt: datetime("created_at", { mode: "string" }),
-    raw: json("raw"),
-  },
-  (t) => [primaryKey({ columns: [t.id] }), index("idx_ub_user").on(t.userId)],
-);
-
-// ---------- 关系声明（查询辅助；不生成外键） ----------
-
-export const threadsRelations = relations(threads, ({ one, many }) => ({
-  forum: one(forums, { fields: [threads.forumId], references: [forums.id] }),
-  author: one(users, { fields: [threads.authorId], references: [users.id] }),
-  replies: many(posts),
-}));
-
-export const postsRelations = relations(posts, ({ one }) => ({
-  thread: one(threads, { fields: [posts.threadId], references: [threads.id] }),
-  author: one(users, { fields: [posts.authorId], references: [users.id] }),
-}));
-
-// ---------- 模块内核平台表（M2；无旧键语义，自增主键） ----------
-
-export const eventLog = mysqlTable(
-  "event_log",
+/**
+ * 版块树：邻接表 parent_id + 物化路径 path + depth，应用启动加载为内存树 ForumTree。
+ * read_policy 是一等属性（inherit 取最近的非 inherit 祖先，全无则公开）。
+ */
+export const forums = mysqlTable(
+  "forums",
   {
     id: int("id", { unsigned: true }).notNull().autoincrement(),
-    eventName: varchar("event_name", { length: 64 }).notNull(),
-    payload: json("payload"),
-    actorId: int("actor_id", { unsigned: true }),
-    source: varchar("source", { length: 64 }),
-    errorJson: json("error_json"), // 消费异常摘要数组（drizzle 0.45 不支持列注释）
-    createdAt: datetime("created_at", { mode: "string" }).notNull(),
+    parentId: int("parent_id", { unsigned: true }).notNull().default(0),
+    /** 物化路径，含自身，如 /98/130/129/53/ */
+    path: varchar("path", { length: 255 }).notNull().default("/"),
+    depth: tinyint("depth", { unsigned: true }).notNull().default(1),
+    /** section = 分区（不可发帖的容器）；forum = 可发帖版块 */
+    kind: mysqlEnum("kind", ["section", "forum"]).notNull().default("forum"),
+    name: varchar("name", { length: 100 }).notNull(),
+    description: text("description"),
+    icon: varchar("icon", { length: 100 }).notNull().default(""),
+    sortOrder: int("sort_order").notNull().default(0),
+    readPolicy: mysqlEnum("read_policy", ["inherit", "public", "members", "restricted"])
+      .notNull()
+      .default("inherit"),
+    /**
+     * 写入策略（发帖/回帖）：inherit 取最近的非 inherit 祖先（全无则 members：登录用户凭全局 forum.write 即可）；
+     * restricted = 必须在该版块（或祖先版块）作用域持有 forum.write 授权，全局基线不算。
+     * 典型用途：仅团队成员可发帖的版块、只读公告版。
+     */
+    writePolicy: mysqlEnum("write_policy", ["inherit", "members", "restricted"])
+      .notNull()
+      .default("inherit"),
+    /**
+     * 审核策略：inherit 取最近的非 inherit 祖先（全无则 none）；
+     * threads = 新主题需审核；all = 所有发帖（含回帖）需审核；持有 forum.moderate 的人免审。
+     */
+    reviewPolicy: mysqlEnum("review_policy", ["inherit", "none", "threads", "all"])
+      .notNull()
+      .default("inherit"),
+    /** 是否出现在首页目录/最新动态（不上目录的版块仍可直达，不影响权限判定） */
+    isListed: boolean("is_listed").notNull().default(true),
+    isArchived: boolean("is_archived").notNull().default(false),
+    /** 以下为可由 threads/posts 重算的缓存 */
+    threadCount: int("thread_count", { unsigned: true }).notNull().default(0),
+    postCount: int("post_count", { unsigned: true }).notNull().default(0),
+    lastPostId: int("last_post_id", { unsigned: true }),
+    lastPostedAt: dt("last_posted_at"),
   },
   (t) => [
     primaryKey({ columns: [t.id] }),
-    index("idx_el_name_time").on(t.eventName, t.createdAt),
-    index("idx_el_time").on(t.createdAt),
+    index("idx_forums_parent").on(t.parentId, t.sortOrder),
+    index("idx_forums_path").on(t.path),
   ],
 );
 
-export const moduleState = mysqlTable(
-  "module_state",
+/** 版块主题前缀 */
+export const forumPrefixes = mysqlTable(
+  "forum_prefixes",
   {
-    moduleId: varchar("module_id", { length: 64 }).notNull(),
-    enabled: boolean("enabled").notNull().default(true),
-    updatedAt: datetime("updated_at", { mode: "string" }).notNull(),
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    forumId: int("forum_id", { unsigned: true }).notNull(),
+    name: varchar("name", { length: 64 }).notNull(),
+    sortOrder: smallint("sort_order").notNull().default(0),
   },
-  (t) => [primaryKey({ columns: [t.moduleId] })],
+  (t) => [primaryKey({ columns: [t.id] }), index("idx_fp_forum").on(t.forumId, t.sortOrder)],
 );
 
-// ---------- 权限内核（M5：现代 RBAC + 级联数据范围 + 分级权限）----------
+// ============================================================
+// 内容（统一 post 模型：首帖 = floor 1）
+// ============================================================
+
+export const threads = mysqlTable(
+  "threads",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    forumId: int("forum_id", { unsigned: true }).notNull(),
+    authorId: int("author_id", { unsigned: true }).notNull(),
+    title: varchar("title", { length: 255 }).notNull(),
+    prefixId: int("prefix_id", { unsigned: true }),
+    kind: mysqlEnum("kind", ["normal", "poll"]).notNull().default("normal"),
+    firstPostId: int("first_post_id", { unsigned: true }),
+    /** 状态机见 docs/DESIGN-MODEL.md §4：pending/rejected 仅作者与版主可见 */
+    state: mysqlEnum("state", CONTENT_STATES).notNull().default("visible"),
+    /** 置顶级别：0 无 / 1 版块 / 2 分区 / 3 全站 */
+    pinLevel: tinyint("pin_level", { unsigned: true }).notNull().default(0),
+    isFeatured: boolean("is_featured").notNull().default(false),
+    isLocked: boolean("is_locked").notNull().default(false),
+    /** 以下为可由 posts 重算的缓存 */
+    replyCount: int("reply_count", { unsigned: true }).notNull().default(0),
+    viewCount: int("view_count", { unsigned: true }).notNull().default(0),
+    lastPostId: int("last_post_id", { unsigned: true }),
+    lastPosterId: int("last_poster_id", { unsigned: true }),
+    lastPostedAt: dt("last_posted_at"),
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    index("idx_threads_forum").on(t.forumId, t.state, t.pinLevel, t.lastPostedAt),
+    index("idx_threads_author").on(t.authorId),
+    index("idx_threads_created").on(t.createdAt),
+    index("idx_threads_featured").on(t.isFeatured),
+    index("idx_threads_last").on(t.state, t.lastPostedAt),
+  ],
+);
+
+export const posts = mysqlTable(
+  "posts",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    threadId: int("thread_id", { unsigned: true }).notNull(),
+    /** 楼层：首帖 = 1；删除后不重排（允许空洞） */
+    floor: int("floor", { unsigned: true }).notNull(),
+    authorId: int("author_id", { unsigned: true }).notNull(),
+    /** 仅公开部分；门控隐藏内容拆在 post_gates.hidden_md（见 docs/GATES.md） */
+    bodyMd: mediumtext("body_md"),
+    replyToPostId: int("reply_to_post_id", { unsigned: true }),
+    hasGate: boolean("has_gate").notNull().default(false),
+    state: mysqlEnum("state", CONTENT_STATES).notNull().default("visible"),
+    likeCount: int("like_count", { unsigned: true }).notNull().default(0),
+    createdAt: dt("created_at").notNull(),
+    editedAt: dt("edited_at"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    uniqueIndex("uq_posts_thread_floor").on(t.threadId, t.floor),
+    index("idx_posts_author").on(t.authorId),
+    index("idx_posts_reply_to").on(t.replyToPostId),
+  ],
+);
+
+/**
+ * 门控：内容容器 + 可插拔解锁条件（conditions JSON 数组 + match_mode）。
+ * 隐藏正文只通过 getGateContent 读取；posts.body_md 永远只含占位。
+ */
+export const postGates = mysqlTable(
+  "post_gates",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    postId: int("post_id", { unsigned: true }).notNull(),
+    /** 帖内稳定身份（正文占位 :::gate{key="a1"} 引用它）；编辑时不变，解锁记录因此不丢 */
+    gateKey: varchar("gate_key", { length: 16 }).notNull(),
+    conditions: json("conditions").notNull(),
+    matchMode: mysqlEnum("match_mode", ["all", "any"]).notNull().default("all"),
+    hiddenMd: mediumtext("hidden_md").notNull(),
+    unlockCount: int("unlock_count", { unsigned: true }).notNull().default(0),
+    createdAt: dt("created_at").notNull(),
+    updatedAt: dt("updated_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.id] }), uniqueIndex("uq_pg_post_key").on(t.postId, t.gateKey)],
+);
+
+export const gateUnlocks = mysqlTable(
+  "gate_unlocks",
+  {
+    gateId: int("gate_id", { unsigned: true }).notNull(),
+    userId: int("user_id", { unsigned: true }).notNull(),
+    pricePaid: int("price_paid", { unsigned: true }).notNull().default(0),
+    authorIncome: int("author_income", { unsigned: true }).notNull().default(0),
+    /** 读者支出分录；价格 0 时为 NULL */
+    ledgerId: bigint("ledger_id", { mode: "number", unsigned: true }),
+    unlockedAt: dt("unlocked_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.gateId, t.userId] }), index("idx_gu_user").on(t.userId)],
+);
+
+/**
+ * 文件注册表：内容寻址（SHA-256）。附件、头像、正文图片、徽章图统一入库，
+ * 存储位置由哈希派生（ab/cd/<sha256>.<ext>），根目录由 STORAGE_DIR 配置，可平移到对象存储。
+ */
+export const files = mysqlTable(
+  "files",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    sha256: char("sha256", { length: 64 }).notNull(),
+    storageKey: varchar("storage_key", { length: 128 }).notNull(),
+    sizeBytes: bigint("size_bytes", { mode: "number", unsigned: true }).notNull().default(0),
+    mime: varchar("mime", { length: 100 }).notNull().default(""),
+    width: smallint("width", { unsigned: true }),
+    height: smallint("height", { unsigned: true }),
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    uniqueIndex("uq_files_sha256").on(t.sha256),
+    uniqueIndex("uq_files_storage_key").on(t.storageKey),
+  ],
+);
+
+/** 帖子的下载附件（正文内联图片不进此表，只引用 files） */
+export const attachments = mysqlTable(
+  "attachments",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    postId: int("post_id", { unsigned: true }).notNull(),
+    fileId: int("file_id", { unsigned: true }).notNull(),
+    uploaderId: int("uploader_id", { unsigned: true }).notNull(),
+    originalName: varchar("original_name", { length: 255 }).notNull().default(""),
+    downloads: int("downloads", { unsigned: true }).notNull().default(0),
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    index("idx_att_post").on(t.postId),
+    index("idx_att_file").on(t.fileId),
+    index("idx_att_uploader").on(t.uploaderId),
+  ],
+);
+
+/** 审核历史：每次通过/驳回留一行（当前状态以 posts.state 为准） */
+export const contentReviews = mysqlTable(
+  "content_reviews",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    postId: int("post_id", { unsigned: true }).notNull(),
+    reviewerId: int("reviewer_id", { unsigned: true }).notNull(),
+    decision: mysqlEnum("decision", ["approved", "rejected"]).notNull(),
+    note: varchar("note", { length: 255 }).notNull().default(""),
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.id] }), index("idx_cr_post").on(t.postId, t.id)],
+);
+
+export const tags = mysqlTable(
+  "tags",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    name: varchar("name", { length: 64 }).notNull(),
+    threadCount: int("thread_count", { unsigned: true }).notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.id] }), uniqueIndex("uq_tags_name").on(t.name)],
+);
+
+export const threadTags = mysqlTable(
+  "thread_tags",
+  {
+    threadId: int("thread_id", { unsigned: true }).notNull(),
+    tagId: int("tag_id", { unsigned: true }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.threadId, t.tagId] }), index("idx_tt_tag").on(t.tagId)],
+);
+
+// ============================================================
+// 互动
+// ============================================================
+
+export const reactions = mysqlTable(
+  "reactions",
+  {
+    userId: int("user_id", { unsigned: true }).notNull(),
+    postId: int("post_id", { unsigned: true }).notNull(),
+    kind: varchar("kind", { length: 16 }).notNull().default("like"),
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.postId, t.kind] }), index("idx_rx_post").on(t.postId)],
+);
+
+export const follows = mysqlTable(
+  "follows",
+  {
+    userId: int("user_id", { unsigned: true }).notNull(),
+    targetType: mysqlEnum("target_type", ["user", "forum"]).notNull(),
+    targetId: int("target_id", { unsigned: true }).notNull(),
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.targetType, t.targetId] }),
+    index("idx_fl_target").on(t.targetType, t.targetId),
+  ],
+);
+
+export const polls = mysqlTable(
+  "polls",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    threadId: int("thread_id", { unsigned: true }).notNull(),
+    /** 最多可选项数；1 = 单选 */
+    optionLimit: smallint("option_limit", { unsigned: true }).notNull().default(1),
+    endsAt: dt("ends_at"),
+    resultVisibility: mysqlEnum("result_visibility", ["always", "after_vote"])
+      .notNull()
+      .default("always"),
+    voterCount: int("voter_count", { unsigned: true }).notNull().default(0),
+    createdBy: int("created_by", { unsigned: true }).notNull(),
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.id] }), uniqueIndex("uq_polls_thread").on(t.threadId)],
+);
+
+export const pollOptions = mysqlTable(
+  "poll_options",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    pollId: int("poll_id", { unsigned: true }).notNull(),
+    content: varchar("content", { length: 255 }).notNull(),
+    voteCount: int("vote_count", { unsigned: true }).notNull().default(0),
+    sortOrder: smallint("sort_order").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.id] }), index("idx_po_poll").on(t.pollId, t.sortOrder)],
+);
+
+export const pollVotes = mysqlTable(
+  "poll_votes",
+  {
+    pollId: int("poll_id", { unsigned: true }).notNull(),
+    optionId: int("option_id", { unsigned: true }).notNull(),
+    userId: int("user_id", { unsigned: true }).notNull(),
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.pollId, t.optionId, t.userId] }),
+    index("idx_pv_user").on(t.userId),
+  ],
+);
+
+/** 会话模型私信：单聊 pair_key = 「小uid:大uid」，保证同一对用户只有一个会话 */
+export const conversations = mysqlTable(
+  "conversations",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    kind: mysqlEnum("kind", ["direct"]).notNull().default("direct"),
+    pairKey: varchar("pair_key", { length: 32 }).notNull(),
+    lastMessageAt: dt("last_message_at"),
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.id] }), uniqueIndex("uq_conv_pair").on(t.pairKey)],
+);
+
+export const conversationMembers = mysqlTable(
+  "conversation_members",
+  {
+    conversationId: int("conversation_id", { unsigned: true }).notNull(),
+    userId: int("user_id", { unsigned: true }).notNull(),
+    lastReadMessageId: bigint("last_read_message_id", { mode: "number", unsigned: true }),
+    deletedAt: dt("deleted_at"),
+  },
+  (t) => [primaryKey({ columns: [t.conversationId, t.userId] }), index("idx_cm_user").on(t.userId)],
+);
+
+export const messages = mysqlTable(
+  "messages",
+  {
+    id: bigint("id", { mode: "number", unsigned: true }).notNull().autoincrement(),
+    conversationId: int("conversation_id", { unsigned: true }).notNull(),
+    senderId: int("sender_id", { unsigned: true }).notNull(),
+    body: text("body").notNull(),
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.id] }), index("idx_msg_conv").on(t.conversationId, t.id)],
+);
+
+// ============================================================
+// 通知中心（docs/NOTIFICATIONS.md）
+// ============================================================
+
+/** 逐人收件箱：互动 / 私信指针 / 审核与管理 / 账号与安全；公告不逐人写行，见 announcements */
+export const notifications = mysqlTable(
+  "notifications",
+  {
+    id: bigint("id", { mode: "number", unsigned: true }).notNull().autoincrement(),
+    userId: int("user_id", { unsigned: true }).notNull(),
+    category: mysqlEnum("category", NOTIFICATION_CATEGORIES).notNull(),
+    /** 命名空间类型键，如 post.replied；由 notificationTypes 注册边界声明 */
+    type: varchar("type", { length: 48 }).notNull(),
+    /** 触发者；系统触发为 NULL */
+    actorId: int("actor_id", { unsigned: true }),
+    /** 指向对象类型（thread/post/user/conversation/forum/gate…）；无目标为空串 */
+    targetType: varchar("target_type", { length: 32 }).notNull().default(""),
+    targetId: bigint("target_id", { mode: "number", unsigned: true }).notNull().default(0),
+    /** 聚合键：同键的未读通知合并为一条；NULL = 不聚合 */
+    groupKey: varchar("group_key", { length: 96 }),
+    /** JSON 快照（标题摘录、积分数、理由、聚合计数与最近触发者），避免对象被删后通知变空 */
+    data: json("data"),
+    readAt: dt("read_at"),
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    index("idx_nf_user_read").on(t.userId, t.readAt, t.id),
+    index("idx_nf_user_category").on(t.userId, t.category, t.id),
+    index("idx_nf_user_group").on(t.userId, t.groupKey, t.readAt),
+  ],
+);
+
+/** 通知偏好：无记录 = 取注册边界里的默认值；强制类型（审核/限制/安全）不可关闭 */
+export const notificationPreferences = mysqlTable(
+  "notification_preferences",
+  {
+    userId: int("user_id", { unsigned: true }).notNull(),
+    type: varchar("type", { length: 48 }).notNull(),
+    channel: mysqlEnum("channel", NOTIFICATION_CHANNELS).notNull(),
+    enabled: boolean("enabled").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.type, t.channel] })],
+);
+
+/** 站点公告（广播）：读取时与 notifications 合并，不逐人写行 */
+export const announcements = mysqlTable(
+  "announcements",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    title: varchar("title", { length: 200 }).notNull(),
+    bodyMd: text("body_md").notNull(),
+    level: mysqlEnum("level", ["info", "important"]).notNull().default("info"),
+    audience: mysqlEnum("audience", ["all", "members"]).notNull().default("all"),
+    showBanner: boolean("show_banner").notNull().default(false),
+    startsAt: dt("starts_at").notNull(),
+    /** NULL = 长期有效 */
+    endsAt: dt("ends_at"),
+    createdBy: int("created_by", { unsigned: true }).notNull(),
+    createdAt: dt("created_at").notNull(),
+    updatedAt: dt("updated_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.id] }), index("idx_ann_window").on(t.startsAt, t.endsAt)],
+);
+
+export const announcementReads = mysqlTable(
+  "announcement_reads",
+  {
+    userId: int("user_id", { unsigned: true }).notNull(),
+    announcementId: int("announcement_id", { unsigned: true }).notNull(),
+    readAt: dt("read_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.announcementId] }),
+    index("idx_ar_announcement").on(t.announcementId),
+  ],
+);
+
+// ============================================================
+// 积分与荣誉（docs/POINTS.md）
+// ============================================================
+
+export const pointAccounts = mysqlTable(
+  "point_accounts",
+  {
+    userId: int("user_id", { unsigned: true }).notNull(),
+    balance: int("balance", { unsigned: true }).notNull().default(0),
+    lifetimeEarned: bigint("lifetime_earned", { mode: "number", unsigned: true })
+      .notNull()
+      .default(0),
+    lifetimeSpent: bigint("lifetime_spent", { mode: "number", unsigned: true })
+      .notNull()
+      .default(0),
+    updatedAt: dt("updated_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId] })],
+);
+
+/** 台账：只增不改不删；idempotency_key 唯一保证重试/事件重放不重复发放 */
+export const pointLedger = mysqlTable(
+  "point_ledger",
+  {
+    id: bigint("id", { mode: "number", unsigned: true }).notNull().autoincrement(),
+    userId: int("user_id", { unsigned: true }).notNull(),
+    delta: int("delta").notNull(),
+    balanceAfter: int("balance_after", { unsigned: true }).notNull(),
+    /** 命名空间渠道键，如 earn.post / spend.gate_unlock / opening（须先注册） */
+    channel: varchar("channel", { length: 48 }).notNull(),
+    refType: varchar("ref_type", { length: 32 }),
+    refId: bigint("ref_id", { mode: "number", unsigned: true }),
+    idempotencyKey: varchar("idempotency_key", { length: 96 }).notNull(),
+    note: varchar("note", { length: 255 }).notNull().default(""),
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    uniqueIndex("uq_pl_idem").on(t.idempotencyKey),
+    index("idx_pl_user").on(t.userId, t.id),
+    index("idx_pl_channel").on(t.channel, t.createdAt),
+  ],
+);
+
+export const checkins = mysqlTable(
+  "checkins",
+  {
+    userId: int("user_id", { unsigned: true }).notNull(),
+    checkinDate: date("checkin_date", { mode: "string" }).notNull(),
+    reward: int("reward", { unsigned: true }).notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.checkinDate] })],
+);
+
+/** 荣誉徽章：纯展示、零权限语义（团队徽章 + 荣誉徽章） */
+export const badges = mysqlTable(
+  "badges",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    key: varchar("key", { length: 48 }).notNull(),
+    name: varchar("name", { length: 64 }).notNull(),
+    description: varchar("description", { length: 255 }).notNull().default(""),
+    iconFileId: int("icon_file_id", { unsigned: true }),
+    kind: mysqlEnum("kind", ["team", "honor"]).notNull().default("honor"),
+    sortOrder: smallint("sort_order").notNull().default(0),
+    isActive: boolean("is_active").notNull().default(true),
+  },
+  (t) => [primaryKey({ columns: [t.id] }), uniqueIndex("uq_badges_key").on(t.key)],
+);
+
+export const userBadges = mysqlTable(
+  "user_badges",
+  {
+    userId: int("user_id", { unsigned: true }).notNull(),
+    badgeId: int("badge_id", { unsigned: true }).notNull(),
+    awardedAt: dt("awarded_at").notNull(),
+    awardedBy: int("awarded_by", { unsigned: true }),
+    expiresAt: dt("expires_at"),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.badgeId] }), index("idx_ub_badge").on(t.badgeId)],
+);
+
+// ============================================================
+// 权限内核（docs/AUTHZ.md §8）
+// ============================================================
 
 export const roles = mysqlTable(
   "roles",
@@ -525,25 +719,23 @@ export const permissions = mysqlTable(
     // 分级域权限点带 read/write/manage（manage ⊃ write ⊃ read）；动作型为 NULL
     level: mysqlEnum("level", ["read", "write", "manage"]),
     description: varchar("description", { length: 255 }).notNull().default(""),
-    legacyKey: varchar("legacy_key", { length: 64 }),
-    conditionParams: json("condition_params"),
   },
   (t) => [primaryKey({ columns: [t.key] })],
 );
 
+/** 角色授权：scope_id = 0 全局，> 0 为版块 id（唯一键无 NULL，幂等可靠） */
 export const roleGrants = mysqlTable(
   "role_grants",
   {
     id: int("id", { unsigned: true }).notNull().autoincrement(),
     roleKey: varchar("role_key", { length: 64 }).notNull(),
     permissionKey: varchar("permission_key", { length: 64 }).notNull(),
-    scopeType: mysqlEnum("scope_type", ["global", "forum"]).notNull(),
-    forumId: int("forum_id", { unsigned: true }),
+    scopeId: int("scope_id", { unsigned: true }).notNull().default(0),
   },
   (t) => [
     primaryKey({ columns: [t.id] }),
-    uniqueIndex("uq_rg_grant").on(t.roleKey, t.permissionKey, t.scopeType, t.forumId),
-    index("idx_rg_perm_scope").on(t.permissionKey, t.scopeType, t.forumId),
+    uniqueIndex("uq_rg_grant").on(t.roleKey, t.permissionKey, t.scopeId),
+    index("idx_rg_perm_scope").on(t.permissionKey, t.scopeId),
   ],
 );
 
@@ -553,16 +745,88 @@ export const userRoles = mysqlTable(
     id: int("id", { unsigned: true }).notNull().autoincrement(),
     userId: int("user_id", { unsigned: true }).notNull(),
     roleKey: varchar("role_key", { length: 64 }).notNull(),
-    scopeType: mysqlEnum("scope_type", ["global", "forum"]).notNull(),
-    forumId: int("forum_id", { unsigned: true }),
-    expiresAt: datetime("expires_at", { mode: "string" }),
+    scopeId: int("scope_id", { unsigned: true }).notNull().default(0),
+    expiresAt: dt("expires_at"),
     grantedBy: int("granted_by", { unsigned: true }),
-    grantedAt: datetime("granted_at", { mode: "string" }).notNull(),
+    grantedAt: dt("granted_at").notNull(),
   },
   (t) => [
     primaryKey({ columns: [t.id] }),
-    // NULL 语义唯一性由应用层保证（MySQL UNIQUE 不去重 NULL）
-    uniqueIndex("uq_ur_assignment").on(t.userId, t.roleKey, t.scopeType, t.forumId),
+    uniqueIndex("uq_ur_assignment").on(t.userId, t.roleKey, t.scopeId),
     index("idx_ur_user").on(t.userId),
   ],
 );
+
+// ============================================================
+// 平台
+// ============================================================
+
+export const eventLog = mysqlTable(
+  "event_log",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    eventName: varchar("event_name", { length: 64 }).notNull(),
+    payload: json("payload"),
+    actorId: int("actor_id", { unsigned: true }),
+    source: varchar("source", { length: 64 }),
+    errorJson: json("error_json"), // 消费异常摘要数组
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    index("idx_el_name_time").on(t.eventName, t.createdAt),
+    index("idx_el_time").on(t.createdAt),
+  ],
+);
+
+export const moduleState = mysqlTable(
+  "module_state",
+  {
+    moduleId: varchar("module_id", { length: 64 }).notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    updatedAt: dt("updated_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.moduleId] })],
+);
+
+/** 管理动作统一审计：谁/何时/做了什么/对谁/前后值 */
+export const auditLog = mysqlTable(
+  "audit_log",
+  {
+    id: bigint("id", { mode: "number", unsigned: true }).notNull().autoincrement(),
+    actorId: int("actor_id", { unsigned: true }),
+    action: varchar("action", { length: 64 }).notNull(),
+    targetType: varchar("target_type", { length: 32 }).notNull().default(""),
+    targetId: varchar("target_id", { length: 64 }).notNull().default(""),
+    beforeJson: json("before_json"),
+    afterJson: json("after_json"),
+    ip: varchar("ip", { length: 64 }),
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    index("idx_audit_actor").on(t.actorId, t.createdAt),
+    index("idx_audit_target").on(t.targetType, t.targetId),
+    index("idx_audit_time").on(t.createdAt),
+  ],
+);
+
+// ============================================================
+// 关系声明（查询辅助；不生成外键）
+// ============================================================
+
+export const threadsRelations = relations(threads, ({ one, many }) => ({
+  forum: one(forums, { fields: [threads.forumId], references: [forums.id] }),
+  author: one(users, { fields: [threads.authorId], references: [users.id] }),
+  posts: many(posts),
+}));
+
+export const postsRelations = relations(posts, ({ one, many }) => ({
+  thread: one(threads, { fields: [posts.threadId], references: [threads.id] }),
+  author: one(users, { fields: [posts.authorId], references: [users.id] }),
+  gates: many(postGates),
+}));
+
+export const postGatesRelations = relations(postGates, ({ one }) => ({
+  post: one(posts, { fields: [postGates.postId], references: [posts.id] }),
+}));

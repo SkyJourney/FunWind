@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { grantAction, revokeAction } from "@/app/admin/actions";
-import { listPermissions, getRoleGrants, listRoles } from "@/lib/authz/service";
-import { getAllForums } from "@/lib/queries/forums";
+import { getRoleGrants, listPermissions, listRoles } from "@/lib/authz/admin";
+import { getForumTree } from "@/lib/authz/snapshot";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "授权矩阵" };
@@ -21,24 +21,15 @@ export default async function RoleMatrixPage({
   const role = roles.find((r) => r.key === roleKey);
   if (!role) notFound();
 
-  const [perms, grants, forums] = await Promise.all([
-    listPermissions(),
-    getRoleGrants(roleKey),
-    getAllForums(),
-  ]);
+  const perms = listPermissions();
+  const [grants, tree] = await Promise.all([getRoleGrants(roleKey), getForumTree()]);
+  const forums = tree.all();
 
-  // 作用域：global 或指定 forum（编辑器一次只看一个作用域）
-  const scopeForumId = scopeForum ? Number(scopeForum) : null;
-  const scopeIsForum = scopeForumId !== null && Number.isInteger(scopeForumId);
-  const grantSet = new Set(
-    grants
-      .filter((g) =>
-        scopeIsForum
-          ? g.scopeType === "forum" && g.forumId === scopeForumId
-          : g.scopeType === "global",
-      )
-      .map((g) => g.permissionKey),
-  );
+  // 作用域：0 = 全局，>0 = 版块（编辑器一次只看一个作用域）
+  const scopeForumId = scopeForum ? Number(scopeForum) : 0;
+  const scopeIsForum = Number.isInteger(scopeForumId) && scopeForumId > 0 && tree.has(scopeForumId);
+  const scopeId = scopeIsForum ? scopeForumId : 0;
+  const grantSet = new Set(grants.filter((g) => g.scopeId === scopeId).map((g) => g.permissionKey));
 
   // 按资源分组；分级域（read/write/manage）展示为级别行
   const byResource = new Map<string, typeof perms>();
@@ -48,9 +39,7 @@ export default async function RoleMatrixPage({
     byResource.set(p.resource, list);
   }
 
-  const scopeLabel = scopeIsForum
-    ? (forums.find((f) => f.id === scopeForumId)?.name ?? `版块 ${scopeForumId}`)
-    : "全局";
+  const scopeLabel = scopeIsForum ? (tree.get(scopeId)?.name ?? `版块 ${scopeId}`) : "全局";
 
   return (
     <div className="space-y-6">
@@ -76,14 +65,15 @@ export default async function RoleMatrixPage({
           <span className="text-muted-foreground">作用域：</span>
           <select
             name="scopeForum"
-            defaultValue={scopeIsForum ? String(scopeForumId) : ""}
+            defaultValue={scopeIsForum ? String(scopeId) : ""}
             className="rounded-lg border border-input bg-background px-2 py-1.5"
           >
             <option value="">全局</option>
             {forums
-              .filter((f) => f.type !== "category")
+              .filter((f) => f.kind === "forum")
               .map((f) => (
                 <option key={f.id} value={f.id}>
+                  {"　".repeat(Math.max(0, f.depth - 1))}
                   {f.name}
                 </option>
               ))}
@@ -109,16 +99,7 @@ export default async function RoleMatrixPage({
                   >
                     <input type="hidden" name="roleKey" value={roleKey} />
                     <input type="hidden" name="permissionKey" value={p.key} />
-                    <input
-                      type="hidden"
-                      name="scopeType"
-                      value={scopeIsForum ? "forum" : "global"}
-                    />
-                    <input
-                      type="hidden"
-                      name="forumId"
-                      value={scopeIsForum ? String(scopeForumId) : ""}
-                    />
+                    <input type="hidden" name="scopeId" value={String(scopeId)} />
                     <div className="min-w-0">
                       <code className="text-xs text-muted-foreground">{p.key}</code>
                       <span className="ml-2 text-sm">{p.description}</span>
@@ -149,7 +130,7 @@ export default async function RoleMatrixPage({
           <h2 className="mb-2 font-semibold">当前作用域已授权项</h2>
           <div className="space-y-1">
             {grants
-              .filter((g) => g.scopeType === "forum" && g.forumId === scopeForumId)
+              .filter((g) => g.scopeId === scopeId)
               .map((g) => (
                 <form
                   key={g.permissionKey}
@@ -158,8 +139,7 @@ export default async function RoleMatrixPage({
                 >
                   <input type="hidden" name="roleKey" value={roleKey} />
                   <input type="hidden" name="permissionKey" value={g.permissionKey} />
-                  <input type="hidden" name="scopeType" value="forum" />
-                  <input type="hidden" name="forumId" value={String(scopeForumId)} />
+                  <input type="hidden" name="scopeId" value={String(scopeId)} />
                   <code className="text-xs">{g.permissionKey}</code>
                   <button type="submit" className="text-xs text-destructive hover:underline">
                     撤销

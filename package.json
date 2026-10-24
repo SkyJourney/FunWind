@@ -8,21 +8,21 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "pnpm --filter @funwind/db build && pnpm --filter @funwind/web build",
-    "dev": "pnpm --filter @funwind/db build && pnpm --filter @funwind/web dev",
+    "build": "pnpm --filter @funwind/db build && pnpm --filter @funwind/content build && pnpm --filter @funwind/web build",
+    "dev": "pnpm --filter @funwind/db build && pnpm --filter @funwind/content build && pnpm --filter @funwind/web dev",
     "lint": "pnpm -r --if-present lint",
     "typecheck": "pnpm -r --if-present typecheck",
-    "db:build": "pnpm --filter @funwind/db build",
-    "test": "pnpm -r --if-present test",
-    "test:e2e": "pnpm db:build && docker compose -f docker/dev/compose.yaml up -d mailpit && NEW_DB_NAME=qysub_next_e2e pnpm --filter @funwind/db exec tsx scripts/e2e-reset.ts && NEW_DB_NAME=qysub_next_e2e pnpm migrate && NEW_DB_NAME=qysub_next_e2e pnpm db:seed && NEW_DB_NAME=qysub_next_e2e pnpm --filter @funwind/web test:e2e",
+    "db:build": "pnpm --filter @funwind/db build && pnpm --filter @funwind/content build",
+    "test": "pnpm -r --workspace-concurrency=1 --if-present test",
+    "test:e2e": "pnpm db:build && docker compose -f docker/dev/compose.yaml up -d mailpit && NEW_DB_NAME=qysub_next_e2e pnpm --filter @funwind/db exec tsx scripts/e2e-reset.ts && NEW_DB_NAME=qysub_next_e2e pnpm migrate && NEW_DB_NAME=qysub_next_e2e pnpm db:seed && NEW_DB_NAME=qysub_next_e2e pnpm --filter @funwind/web test:e2e && NEW_DB_NAME=qysub_next_e2e pnpm --filter @funwind/web test:e2e:prod",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "husky",
     "db:bootstrap": "pnpm --filter @funwind/db bootstrap",
     "db:seed": "pnpm --filter @funwind/db seed",
     "db:verify": "pnpm --filter @funwind/db verify",
-    "migrate": "pnpm --filter @funwind/db build && pnpm --filter @funwind/migration migrate",
-    "verify:migration": "pnpm --filter @funwind/db build && pnpm --filter @funwind/migration verify",
+    "migrate": "pnpm --filter @funwind/db build && pnpm --filter @funwind/content build && pnpm --filter @funwind/migration migrate",
+    "verify:migration": "pnpm --filter @funwind/db build && pnpm --filter @funwind/content build && pnpm --filter @funwind/migration verify",
     "verify:all": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm build"
   },
   "lint-staged": {

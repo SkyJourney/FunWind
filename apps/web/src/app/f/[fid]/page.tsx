@@ -1,13 +1,13 @@
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Trophy } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ThreadRow } from "@/components/content/thread-row";
 import { Pagination } from "@/components/content/pagination";
-import { getAllForums, getForum, getForumThreadCounts } from "@/lib/queries/forums";
-import { getLatestThreads, getTopicTypes, listThreads } from "@/lib/queries/threads";
-import { getCurrentUser } from "@/lib/auth/session";
-import { checkPermission } from "@/lib/authz/service";
+import { getCurrentSubject } from "@/lib/authz/subject";
+import { getForumTree } from "@/lib/authz/snapshot";
+import { getForumView } from "@/lib/queries/forums";
+import { getLatestThreads, listThreads } from "@/lib/queries/threads";
 
 export const dynamic = "force-dynamic";
 
@@ -16,49 +16,35 @@ type Params = {
   searchParams: Promise<{ page?: string; type?: string }>;
 };
 
+const parseFid = (raw: string): number | null => {
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : null;
+};
+
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
-  const { fid } = await params;
-  const forum = await getForum(Number(fid));
+  const fid = parseFid((await params).fid);
+  // 与页面同一套权限：读不到的版块给通用标题，名称不经 <title> 泄露
+  const forum = fid ? await getForumView(await getCurrentSubject(), fid) : null;
   return { title: forum?.name ?? "版块" };
 }
 
 export default async function ForumPage({ params, searchParams }: Params) {
-  const { fid: fidRaw } = await params;
+  const fid = parseFid((await params).fid);
+  if (!fid) notFound();
   const { page: pageRaw, type: typeRaw } = await searchParams;
-  const fid = Number(fidRaw);
-  if (!Number.isInteger(fid) || fid <= 0) notFound();
 
-  const forum = await getForum(fid);
-  if (!forum) notFound();
-  if (forum.type === "category") {
-    // 分类版块无主题：跳回首页目录
-    notFound();
-  }
+  const viewer = await getCurrentSubject();
+  const forum = await getForumView(viewer, fid);
+  // 不存在 / 读不到 / 是分区（无主题）→ 一律 404，不暴露受限版块的存在
+  if (!forum || forum.kind === "section") notFound();
 
-  // 版块读取权限（M5）：DENY → 404（不暴露受限版块存在性）
-  const user = await getCurrentUser();
-  const read = await checkPermission(user?.id ?? null, "forum.read", { forumId: fid });
-  if (!read.allowed) notFound();
-
-  const page = Math.max(1, Number(pageRaw ?? "1") || 1);
-  const typeId = Number(typeRaw ?? "0") || 0;
-
-  const [types, { items, total, page: safePage, totalPages }] = await Promise.all([
-    getTopicTypes(fid),
-    listThreads(fid, { page, typeId }),
+  const prefixId = Number(typeRaw ?? "0") || 0;
+  const [list, latest, tree] = await Promise.all([
+    listThreads(viewer, fid, { page: Math.max(1, Number(pageRaw ?? "1") || 1), prefixId }),
+    getLatestThreads(viewer, 5),
+    getForumTree(),
   ]);
-  const [allForums, counts, latest] = await Promise.all([
-    getAllForums(),
-    getForumThreadCounts(),
-    getLatestThreads(5), // 侧栏：全站最新（后续里程碑替换为本版统计）
-  ]);
-  const parent = forum.parentId > 0 ? allForums.find((r) => r.id === forum.parentId) : undefined;
-  const category =
-    parent?.type === "category"
-      ? parent
-      : allForums.find((r) => r.type === "category" && r.id === forum.parentId);
-
-  const basePath = `/f/${fid}${typeId > 0 ? `?type=${typeId}` : ""}`;
+  const basePath = `/f/${fid}${prefixId > 0 ? `?type=${prefixId}` : ""}`;
 
   return (
     <main className="mx-auto max-w-5xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
@@ -66,64 +52,81 @@ export default async function ForumPage({ params, searchParams }: Params) {
         <Link href="/" className="inline-flex items-center gap-1 hover:text-primary">
           <ArrowLeft className="size-3.5" /> 首页
         </Link>
-        {category && <span>/</span>}
-        {category && <span>{category.name}</span>}
+        {forum.trail.map((t) => (
+          <span key={t.id} className="inline-flex items-center gap-1.5">
+            <span>/</span>
+            {t.kind === "section" ? (
+              <span>{t.name}</span>
+            ) : (
+              <Link href={`/f/${t.id}`} className="hover:text-primary">
+                {t.name}
+              </Link>
+            )}
+          </span>
+        ))}
         <span>/</span>
         <span className="text-foreground">{forum.name}</span>
       </nav>
 
       <header>
-        <h1
-          className="text-2xl font-bold tracking-tight"
-          style={
-            forum.nameStyle.match(/color:\s*([^;"]+)/)?.[1]
-              ? { color: forum.nameStyle.match(/color:\s*([^;"]+)/)![1] }
-              : undefined
-          }
-        >
-          {forum.name}
-        </h1>
+        <h1 className="text-2xl font-bold tracking-tight">{forum.name}</h1>
         {forum.description && (
           <p className="mt-1 text-sm text-muted-foreground">{forum.description}</p>
         )}
-        <p className="mt-1 text-xs text-muted-foreground">主题 {counts.get(forum.id) ?? 0}</p>
+        <p className="mt-1 text-xs text-muted-foreground">主题 {forum.threadCount}</p>
       </header>
 
-      {types.length > 0 && (
+      {forum.prefixes.length > 0 && (
         <nav className="flex flex-wrap gap-1.5" aria-label="主题分类">
           <Link
             href={`/f/${fid}`}
-            className={`rounded-full border px-3 py-1 text-xs ${typeId === 0 ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
+            className={`rounded-full border px-3 py-1 text-xs ${prefixId === 0 ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
           >
             全部
           </Link>
-          {types.map((t) => (
+          {forum.prefixes.map((p) => (
             <Link
-              key={t.id}
-              href={`/f/${fid}?type=${t.id}`}
-              className={`rounded-full border px-3 py-1 text-xs ${typeId === t.id ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
+              key={p.id}
+              href={`/f/${fid}?type=${p.id}`}
+              className={`rounded-full border px-3 py-1 text-xs ${prefixId === p.id ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
             >
-              {t.name}
+              {p.name}
             </Link>
           ))}
         </nav>
       )}
 
+      {list.pinned.length > 0 && (
+        <section aria-label="置顶主题" className="rounded-xl border bg-muted/30 px-4">
+          <h2 className="flex items-center gap-1 pt-2 text-xs font-semibold text-muted-foreground">
+            <Trophy className="size-3.5" /> 置顶
+          </h2>
+          {list.pinned.map((t) => (
+            <ThreadRow
+              key={t.id}
+              thread={t}
+              showForum={t.forumId !== fid}
+              forumName={tree.get(t.forumId)?.name}
+            />
+          ))}
+        </section>
+      )}
+
       <section>
         <div className="border-b pb-2 text-xs text-muted-foreground">
-          共 {total} 个主题 · 第 {safePage}/{totalPages} 页
+          共 {list.total} 个主题 · 第 {list.page}/{list.totalPages} 页
         </div>
-        {items.map((t) => (
+        {list.items.map((t) => (
           <ThreadRow key={t.id} thread={t} />
         ))}
-        {items.length === 0 && (
+        {list.items.length === 0 && list.pinned.length === 0 && (
           <p className="py-10 text-center text-sm text-muted-foreground">
             该版块暂无主题（或筛选条件下无结果）。
           </p>
         )}
       </section>
 
-      <Pagination basePath={basePath} page={safePage} totalPages={totalPages} />
+      <Pagination basePath={basePath} page={list.page} totalPages={list.totalPages} />
 
       <aside className="border-t pt-4">
         <h2 className="mb-2 text-sm font-semibold text-muted-foreground">全站最新</h2>

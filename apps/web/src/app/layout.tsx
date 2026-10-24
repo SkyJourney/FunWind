@@ -58,11 +58,6 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               </div>
             </div>
           </header>
-          {user?.globalBanReason && (
-            <div className="bg-destructive/10 px-4 py-2 text-center text-sm text-destructive">
-              账号处于封禁状态：{user.globalBanReason}（只读模式）
-            </div>
-          )}
           {children}
           <Toaster position="top-center" />
         </ThemeProvider>

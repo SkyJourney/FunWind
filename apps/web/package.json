@@ -11,10 +11,12 @@
     "test": "vitest run --coverage",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:prod": "playwright test -c playwright.prod.config.ts",
     "modules:toggle": "tsx scripts/modules-toggle.ts",
     "perf:lcp": "tsx scripts/lcp.ts"
   },
   "dependencies": {
+    "@funwind/content": "workspace:*",
     "@funwind/db": "workspace:*",
     "@node-rs/argon2": "^2.2.2",
     "class-variance-authority": "^0.7.1",
@@ -39,6 +41,7 @@
     "unified": "^11.0.5"
   },
   "devDependencies": {
+    "mysql2": "^3.24.6",
     "@eslint/eslintrc": "^3.3.7",
     "@playwright/test": "^1.64.1",
     "@tailwindcss/postcss": "^4.3.3",

@@ -10,8 +10,7 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ["127.0.0.1"],
   // 非密钥常量内联进服务端 bundle（密钥类变量禁止走此通道，M5 另行处理）
   env: {
-    ATTACHMENT_DIR: process.env.ATTACHMENT_DIR ?? "",
-    EMOTION_DIR: process.env.EMOTION_DIR ?? "",
+    STORAGE_DIR: process.env.STORAGE_DIR ?? "",
     APP_URL: process.env.APP_URL ?? "",
   },
 };

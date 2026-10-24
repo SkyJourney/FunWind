@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { withE2eDb } from "./support/db";
 
 // 装卸状态共享同一 dev 服务器与 module_state 表：两用例必须串行
 test.describe.configure({ mode: "serial" });
@@ -38,5 +39,44 @@ test.describe("M2 · 模块装卸闭环（demo-checkin）", () => {
 
     // 恢复启用（默认态），避免污染后续用例
     await request.post("/api/dev/modules/toggle", { data: { id: "demo-checkin", enabled: true } });
+  });
+});
+
+test.describe("M2 · 真实登录驱动事件（不再靠 dev 接口伪造）", () => {
+  const loggedInEvents = () =>
+    withE2eDb((q) =>
+      q.query<{ actor_id: number | null; source: string | null }>(
+        "SELECT actor_id, source FROM event_log WHERE event_name = 'user.logged_in' ORDER BY id",
+      ),
+    );
+
+  test("界面登录成功 → 派发 user.logged_in（行为人=登录者，来源=auth）→ 槽位横幅出现；登录失败不派发", async ({
+    request,
+    page,
+  }) => {
+    await request.post("/api/dev/modules/toggle", { data: { id: "demo-checkin", enabled: true } });
+    await withE2eDb((q) => q.exec("DELETE FROM event_log WHERE event_name = 'user.logged_in'"));
+
+    await page.goto("/");
+    await expect(page.getByText(/demo-checkin/)).toHaveCount(0); // 没有任何登录事件，横幅不存在
+
+    // 密码错误：不得派发事件
+    await page.goto("/login");
+    await page.getByLabel("用户名或邮箱").fill("demo_member");
+    await page.getByLabel("密码").fill("definitely-wrong-password");
+    await page.getByRole("button", { name: "登录" }).click();
+    await expect(page.getByText("用户名或密码错误")).toBeVisible();
+    expect(await loggedInEvents()).toEqual([]);
+
+    // 真实登录
+    await page.goto("/login");
+    await page.getByLabel("用户名或邮箱").fill("demo_admin");
+    await page.getByLabel("密码").fill("e2e-admin-pass");
+    await page.getByRole("button", { name: "登录" }).click();
+    await expect(page.getByRole("link", { name: "demo_admin" })).toBeVisible();
+
+    expect(await loggedInEvents()).toEqual([{ actor_id: 90004, source: "auth" }]);
+    await page.goto("/");
+    await expect(page.getByText(/demo-checkin/)).toBeVisible();
   });
 });

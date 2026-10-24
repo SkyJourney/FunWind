@@ -64,11 +64,11 @@ describe("getEventConsumers / getSlotRenderers", () => {
   });
 
   it("消费者收到正确的事件载荷类型（运行时透传）", async () => {
-    const seen: EventPayloads["credit.changed"][] = [];
-    registerModule(mod("watch", { events: { "credit.changed": (p) => void seen.push(p) } }));
-    const [c] = getEventConsumers("credit.changed");
-    await c.consume({ userId: 1, creditType: "1", delta: 5 });
-    expect(seen).toEqual([{ userId: 1, creditType: "1", delta: 5 }]);
+    const seen: EventPayloads["points.changed"][] = [];
+    registerModule(mod("watch", { events: { "points.changed": (p) => void seen.push(p) } }));
+    const [c] = getEventConsumers("points.changed");
+    await c.consume({ userId: 1, channel: "earn.post", delta: 5 });
+    expect(seen).toEqual([{ userId: 1, channel: "earn.post", delta: 5 }]);
   });
 });
 

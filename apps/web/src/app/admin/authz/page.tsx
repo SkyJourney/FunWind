@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createRoleAction, deleteRoleAction } from "@/app/admin/actions";
-import { listRoles } from "@/lib/authz/service";
+import { listRoles } from "@/lib/authz/admin";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "角色与授权" };

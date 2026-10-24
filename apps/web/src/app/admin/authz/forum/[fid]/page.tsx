@@ -1,34 +1,37 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-
-import { getForum } from "@/lib/queries/forums";
-import { getForumModerators, getScopeChain } from "@/lib/authz/service";
-import { and, eq, inArray } from "drizzle-orm";
-import { getWebDb, roleGrants } from "@funwind/db";
+import { getForumModerators } from "@/lib/authz/service";
+import { getAuthzSnapshot } from "@/lib/authz/snapshot";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "版块权限视角" };
+
+const READ_LABEL = { public: "公开", members: "仅登录会员", restricted: "仅授权角色" } as const;
+const WRITE_LABEL = { members: "登录会员（凭全局发帖权）", restricted: "仅授权角色" } as const;
+const REVIEW_LABEL = { none: "无需审核", threads: "新主题需审核", all: "所有发帖需审核" } as const;
 
 export default async function ForumAuthzPage({ params }: { params: Promise<{ fid: string }> }) {
   const { fid: fidRaw } = await params;
   const fid = Number(fidRaw);
   if (!Number.isInteger(fid)) notFound();
-  const forum = await getForum(fid);
+
+  const snap = await getAuthzSnapshot();
+  const forum = snap.tree.get(fid);
   if (!forum) notFound();
 
-  const chain = await getScopeChain(fid);
-  const db = getWebDb();
-
-  const grants = await db
-    .select({
-      roleKey: roleGrants.roleKey,
-      permissionKey: roleGrants.permissionKey,
-      forumId: roleGrants.forumId,
-    })
-    .from(roleGrants)
-    .where(and(eq(roleGrants.scopeType, "forum"), inArray(roleGrants.forumId, chain)));
-
+  const chain = snap.tree.chain(fid);
+  // 版块作用域授权（含祖先继承）；全局基线另表展示，不混入
+  const grants = snap.grants.filter((g) => g.scopeId > 0 && chain.includes(g.scopeId));
   const moderators = await getForumModerators(fid);
+  const read = snap.tree.readPolicy(fid);
+  const write = snap.tree.writePolicy(fid);
+  const review = snap.tree.reviewPolicy(fid);
+  const from = (holderId: number | null) =>
+    holderId === null
+      ? "全链未声明，取默认"
+      : holderId === fid
+        ? "本版块声明"
+        : `继承自版块 ${holderId}`;
 
   return (
     <div className="space-y-6">
@@ -42,14 +45,37 @@ export default async function ForumAuthzPage({ params }: { params: Promise<{ fid
       <header>
         <h1 className="text-xl font-bold">{forum.name} · 权限视角</h1>
         <p className="text-xs text-muted-foreground">
-          作用域链：{chain.join(" ← ")}（子版块继承父级授权）
+          作用域链：{chain.join(" ← ")}（授权与策略沿此链向子版块继承）
         </p>
       </header>
 
       <section className="rounded-xl border bg-card p-4">
-        <h2 className="mb-2 font-semibold">派生版主（持有可编辑/可管理授权的用户，含父链继承）</h2>
+        <h2 className="mb-2 font-semibold">有效策略</h2>
+        <dl className="grid gap-1 text-sm sm:grid-cols-[6rem_1fr]">
+          <dt className="text-muted-foreground">读取</dt>
+          <dd>
+            {READ_LABEL[read.value]}
+            <span className="ml-2 text-xs text-muted-foreground">{from(read.holderId)}</span>
+          </dd>
+          <dt className="text-muted-foreground">发帖</dt>
+          <dd>
+            {WRITE_LABEL[write.value]}
+            <span className="ml-2 text-xs text-muted-foreground">{from(write.holderId)}</span>
+          </dd>
+          <dt className="text-muted-foreground">审核</dt>
+          <dd>
+            {REVIEW_LABEL[review.value]}
+            <span className="ml-2 text-xs text-muted-foreground">{from(review.holderId)}</span>
+          </dd>
+        </dl>
+      </section>
+
+      <section className="rounded-xl border bg-card p-4">
+        <h2 className="mb-2 font-semibold">版主（持有 forum.moderate 授权的角色的持有人）</h2>
         {moderators.length === 0 ? (
-          <p className="text-sm text-muted-foreground">无（该版块链上暂无 write/manage 授权）</p>
+          <p className="text-sm text-muted-foreground">
+            无（该版块链上没有角色被授予 forum.moderate）
+          </p>
         ) : (
           <div className="flex flex-wrap gap-2">
             {moderators.map((m) => (
@@ -79,14 +105,17 @@ export default async function ForumAuthzPage({ params }: { params: Promise<{ fid
             </tr>
           </thead>
           <tbody>
-            {grants.map((g, i) => (
-              <tr key={i} className="border-b last:border-b-0">
+            {grants.map((g) => (
+              <tr
+                key={`${g.roleKey}:${g.permissionKey}:${g.scopeId}`}
+                className="border-b last:border-b-0"
+              >
                 <td className="py-1.5">{g.roleKey}</td>
                 <td className="py-1.5">
                   <code className="text-xs">{g.permissionKey}</code>
                 </td>
                 <td className="py-1.5 text-xs text-muted-foreground">
-                  {g.forumId === fid ? "本版块" : `继承自 /f/${g.forumId}`}
+                  {g.scopeId === fid ? "本版块" : `继承自 /f/${g.scopeId}`}
                 </td>
               </tr>
             ))}

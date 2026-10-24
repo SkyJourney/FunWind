@@ -11,18 +11,12 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],
-      // 覆盖率范围：纯逻辑 + 内核（目录策略，新文件自动纳入）；
-      // IO 边界层（DB/cookie/SMTP/RSC 宿主）由 E2E 覆盖，显式排除
+      // 覆盖率范围：lib 全部 + 模块内核。服务层/查询层/会话/令牌等 IO 代码以真实 MySQL 临时库集成测试纳入统计（不再整块排除）。
+      // 仍排除的只有两类“宿主壳”，原因逐条写明：
+      //   · slot.tsx   —— RSC 宿主组件（异步服务端组件），无法在 jsdom 渲染，由 E2E 覆盖
+      //   · mailer.ts  —— nodemailer SMTP 传输薄封装，真实投递由 E2E + MailPit 覆盖
       include: ["src/lib/**", "src/modules/kernel/**"],
-      exclude: [
-        "src/modules/kernel/state.ts",
-        "src/modules/kernel/slot.tsx",
-        "src/lib/queries/**",
-        "src/lib/auth/session.ts",
-        "src/lib/auth/tokens.ts",
-        "src/lib/auth/settings.ts",
-        "src/lib/auth/mailer.ts",
-      ],
+      exclude: ["src/modules/kernel/slot.tsx", "src/lib/auth/mailer.ts"],
       thresholds: { lines: 90, branches: 85, functions: 90, statements: 90 },
     },
   },

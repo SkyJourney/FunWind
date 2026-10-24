@@ -1,73 +1,30 @@
-import { newQuery, oldQuery, closePools } from "./db.js";
+import { join } from "node:path";
+import { AS_OF, config } from "./config.js";
+import { assertNoLiveData, closePools, newQuery } from "./db.js";
+import { Report } from "./lib/report.js";
 import { loadSchemaOnce } from "./schema-init.js";
-import {
-  emoticons as emoticonEnt,
-  groups,
-  forums,
-  topicTypes,
-  userBans,
-} from "./entities/basic.js";
-import { authz } from "./entities/authz.js";
-import { makeUsers } from "./entities/users.js";
-import { makeThreads, makePosts } from "./entities/threads.js";
-import { attachments, medals, credits, polls, messages } from "./entities/extra.js";
-import { upsertBatch } from "./db.js";
-import { toDatetime } from "./config.js";
+import { FILE_GROUP, STEPS } from "./pipeline.js";
+import { assertSystemSeeded, newCtx } from "./step-types.js";
 
-export interface EmoCtx {
-  emoticons: Map<number, { folder: string; icon: string }>;
-  resolveAttachment: (aid: number) => { name: string; path: string } | null;
-}
-
-export interface Migrator {
-  name: string;
-  run: () => Promise<{ rows: number; note?: string }>;
-}
-
-async function loadEmoCtx(): Promise<EmoCtx> {
-  const emoticons = new Map<number, { folder: string; icon: string }>();
-  for (const r of await oldQuery(
-    `SELECT emotion_id, emotion_folder, emotion_icon FROM nw_common_emotion`,
-  )) {
-    emoticons.set(Number(r.emotion_id), { folder: r.emotion_folder, icon: r.emotion_icon });
-  }
-  const atts = new Map<number, { name: string; path: string }>();
-  for (const r of await oldQuery(`SELECT aid, name, path FROM nw_attachs_thread`)) {
-    atts.set(Number(r.aid), { name: r.name, path: r.path });
-  }
-  return { emoticons, resolveAttachment: (aid) => atts.get(aid) ?? null };
-}
-
-const emo = await loadEmoCtx();
-
-// 执行顺序：依赖无关（UPSERT + 保留旧主键），但按可读性排列
-const ALL: Migrator[] = [
-  emoticonEnt,
-  groups,
-  forums,
-  topicTypes,
-  userBans,
-  authz,
-  makeUsers(emo),
-  makeThreads(emo),
-  makePosts(emo),
-  attachments,
-  medals,
-  credits,
-  polls,
-  messages,
-];
-
+/**
+ * 迁移入口：phpwind 9 → qysub_next（schema v2）。
+ * 用法：pnpm migrate [step …]；不带参数运行全部步骤。全部步骤幂等，可重跑。
+ */
 const only = process.argv.slice(2);
-const list = only.length > 0 ? ALL.filter((m) => only.includes(m.name)) : ALL;
+const selected = new Set(only);
+if (FILE_GROUP.some((n) => selected.has(n))) FILE_GROUP.forEach((n) => selected.add(n));
+const list = only.length > 0 ? STEPS.filter((s) => selected.has(s.name)) : STEPS;
 if (list.length === 0) {
-  console.error(`未找到实体: ${only.join(",")}。可选: ${ALL.map((m) => m.name).join(" ")}`);
+  console.error(`未找到步骤: ${only.join(",")}。可选: ${STEPS.map((s) => s.name).join(" ")}`);
   process.exit(1);
 }
 
 await loadSchemaOnce();
+await assertSystemSeeded();
 
-// 并发锁（基线审查 P3）：GET_LOCK 会话级互斥，双开即拒；进程退出（连接关闭）自动释放
+await assertNoLiveData(AS_OF);
+
+// 并发锁：GET_LOCK 会话级互斥，双开即拒；进程退出（连接关闭）自动释放
 const lockRows = await newQuery<{ got: number }>(
   "SELECT GET_LOCK('qysub_migration_run', 0) AS got",
 );
@@ -77,36 +34,40 @@ if (Number(lockRows[0]?.got) !== 1) {
   process.exit(1);
 }
 
+const report = new Report("迁移 v2 导入报告", [
+  `基准时间（过期判断用，保证重跑一致）：${AS_OF}`,
+  "本报告由迁移程序自动生成，内容确定性（不含运行时间戳）；连跑两次应得到逐字节相同的文件。",
+  "标有「待站长处理」的小节需要人工复核。",
+]);
+const privateReport = new Report("迁移 v2 待办清单（含个人信息，勿提交）", [
+  "本文件含完整邮箱等个人信息，位于已被 .gitignore 的 migration/reports/，**不得入库、不得外传**。",
+]);
+const ctx = newCtx(report, privateReport);
+
 let failed = 0;
-for (const m of list) {
+for (const step of list) {
   const t0 = Date.now();
   try {
-    const { rows, note } = await m.run();
+    const { rows, note } = await step.run(ctx);
     const ms = Date.now() - t0;
-    await upsertBatch(
-      "migration_state",
-      ["entity", "rows_written", "duration_ms", "finished_at", "note"],
-      [
-        {
-          entity: m.name,
-          rows_written: rows,
-          duration_ms: ms,
-          finished_at: toDatetime(Math.floor(Date.now() / 1000)),
-          note: note ?? "",
-        },
-      ],
-      ["entity"],
-    );
-    console.log(`✔ ${m.name.padEnd(18)} ${String(rows).padStart(7)} 行  ${ms}ms  ${note ?? ""}`);
+    console.log(`✔ ${step.name.padEnd(16)} ${String(rows).padStart(7)} 行  ${ms}ms  ${note ?? ""}`);
   } catch (e) {
     failed++;
-    console.error(`✘ ${m.name}: ${e instanceof Error ? ((e as any).cause?.query ?? e.stack) : e}`);
+    console.error(`✘ ${step.name}: ${e instanceof Error ? (e.stack ?? e.message) : e}`);
   }
+}
+
+// 只有完整运行才覆盖报告，避免局部重跑把报告写残
+if (only.length === 0 && failed === 0) {
+  report.save(join(config.reportDir, "migration-v2-import.md"));
+  console.log(`✔ 报告已写入 docs/reports/migration-v2-import.md`);
+  privateReport.save(join(config.privateReportDir, "migration-v2-todo-pii.md"));
+  console.log("✔ 含个人信息的待办清单已写入 migration/reports/（gitignore，不入库）");
 }
 
 await closePools();
 if (failed > 0) {
-  console.error(`\n${failed} 个实体失败，已完成的实体状态保留，修复后可重跑（幂等）。`);
+  console.error(`\n${failed} 个步骤失败，已完成的步骤状态保留，修复后可重跑（幂等）。`);
   process.exit(1);
 }
-console.log(`\n全部完成：${list.length} 个实体。重跑安全（UPSERT + 旧主键保留）。`);
+console.log(`\n全部完成：${list.length} 个步骤。重跑安全（自然键 UPSERT / 替换式加载）。`);

@@ -1,299 +1,119 @@
-import { cache } from "react";
 import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { getWebDb, userRoles, users } from "@funwind/db";
 import {
-  getWebDb,
-  forums,
-  roles,
-  roleGrants,
-  userRoles,
-  users,
-  PERMISSION_DEFINITIONS,
-  type PermLevel,
-} from "@funwind/db";
-import { evaluate, type EvaluateResult } from "./evaluator";
-import { getCurrentUser } from "@/lib/auth/session";
+  contentVisibleTo,
+  evaluate,
+  moderatedForumIds,
+  readableForumIds,
+  type ContentState,
+  type EvalContext,
+} from "./evaluator";
+import { getAuthzSnapshot } from "./snapshot";
+import { getCurrentSubject } from "./subject";
+import type { Decision, Subject } from "./types";
 
 /**
- * 权限服务（M5）：作用域链解析、授权装载、checkPermission、派生版主。
- * 优先级与语义见 evaluator.ts / docs/AUTHZ.md。
+ * 权限服务：评估器 + 规则快照 + 主体 的组合入口。
+ * 所有检查都**显式传入 Subject**（由 loadSubject(userId) 或 getCurrentSubject() 得到），
+ * 取代 M5 里“忽略传入 userId、偷偷读当前请求用户”的 checkPermission(userId, …)。
  */
 
-export interface AuthzUser {
-  id: number | null; // null = 未登录（guest 隐式角色）
-  roleKeys: string[];
-  mutedActive: boolean;
-}
-
-/** 当前请求的认证上下文 → 评估器入参（请求级缓存） */
-export const getAuthzContext = cache(async (): Promise<AuthzUser> => {
-  const user = await getCurrentUser();
-  if (!user) return { id: null, roleKeys: ["guest"], mutedActive: false };
-
-  const db = getWebDb();
-  const rows = await db
-    .select({
-      roleKey: userRoles.roleKey,
-      expiresAt: userRoles.expiresAt,
-      scopeType: userRoles.scopeType,
-    })
-    .from(userRoles)
-    .where(
-      and(
-        eq(userRoles.userId, user.id),
-        or(isNull(userRoles.expiresAt), sql`${userRoles.expiresAt} > NOW()`),
-      ),
-    );
-
-  const roleKeys = new Set<string>(["member", ...rows.map((r) => r.roleKey)]);
-  const mutedActive = rows.some((r) => r.roleKey === "muted" && r.scopeType === "global");
-
-  return { id: user.id, roleKeys: [...roleKeys], mutedActive };
-});
-
-/** 版块作用域链：自版块沿父链向上（含自身） */
-export const getScopeChain = cache(async (forumId: number): Promise<number[]> => {
-  const db = getWebDb();
-  const rows = await db.select({ id: forums.id, parentId: forums.parentId }).from(forums);
-  const parentOf = new Map(rows.map((r) => [r.id, r.parentId]));
-  const chain: number[] = [];
-  let cur: number | undefined = forumId;
-  const seen = new Set<number>();
-  while (cur !== undefined && cur !== 0 && !seen.has(cur)) {
-    seen.add(cur);
-    chain.push(cur);
-    cur = parentOf.get(cur);
+export class ForbiddenError extends Error {
+  constructor(
+    public readonly permissionKey: string,
+    public readonly reason: string,
+  ) {
+    super(`权限不足: ${permissionKey}（${reason}）`);
+    this.name = "ForbiddenError";
   }
-  return chain;
-});
-
-const PERM_DEF_BY_KEY = new Map(PERMISSION_DEFINITIONS.map((p) => [p.key, p]));
-
-/** 装载用户角色在作用域链上的全部有效授权行（按角色键直查 role_grants） */
-async function loadGrants(
-  authz: AuthzUser,
-  chain: number[],
-): Promise<
-  { roleKey: string; permissionKey: string; layer: number; scopeType: "forum" | "global" }[]
-> {
-  if (authz.roleKeys.length === 0) return [];
-  const db = getWebDb();
-  // 授权是「角色」的属性（role_grants），与谁绑定无关——按作用域链直查全部行，
-  // 由评估器区分「用户持有的角色行」与「显式配置层」（读权限的显式优先判定需要后者）。
-  const rows = await db
-    .select({
-      roleKey: roleGrants.roleKey,
-      permissionKey: roleGrants.permissionKey,
-      scopeType: roleGrants.scopeType,
-      forumId: roleGrants.forumId,
-    })
-    .from(roleGrants)
-    .where(
-      or(
-        eq(roleGrants.scopeType, "global"),
-        chain.length > 0
-          ? and(eq(roleGrants.scopeType, "forum"), inArray(roleGrants.forumId, chain))
-          : sql`FALSE`,
-      ),
-    );
-  // 作用域层级：0=目标版块，1=父级…；全局为末层
-  const globalLayer = chain.length;
-  return rows.map((r) => ({
-    roleKey: r.roleKey,
-    permissionKey: r.permissionKey,
-    scopeType: r.scopeType as "forum" | "global",
-    layer: r.scopeType === "global" ? globalLayer : Math.max(0, chain.indexOf(Number(r.forumId))),
-  }));
 }
 
-/** 权限检查主入口（userId=null 走 guest 隐式角色） */
 export async function checkPermission(
-  userId: number | null,
+  subject: Subject,
   permissionKey: string,
-  ctx: { forumId?: number } = {},
-): Promise<EvaluateResult> {
-  const def = PERM_DEF_BY_KEY.get(permissionKey);
-  if (!def) return { allowed: false, reason: `未知权限点: ${permissionKey}` };
-
-  const authz =
-    userId === null
-      ? { id: null, roleKeys: ["guest"], mutedActive: false }
-      : await getAuthzContext();
-
-  const chain = ctx.forumId ? await getScopeChain(ctx.forumId) : [];
-  const grants = await loadGrants(authz, chain);
-
-  return evaluate({
-    roleKeys: authz.roleKeys,
-    mutedActive: authz.mutedActive,
-    grants,
-    permissionKey,
-  });
+  ctx: EvalContext = {},
+): Promise<Decision> {
+  return evaluate(subject, permissionKey, ctx, await getAuthzSnapshot());
 }
 
-/** 便捷断言：DENY 时抛错（Server Action 入口用） */
+/** 拒绝时抛 ForbiddenError（Server Action 入口用；页面层应捕获并按 404 处理） */
 export async function requirePermission(
-  userId: number | null,
+  subject: Subject,
   permissionKey: string,
-  ctx: { forumId?: number } = {},
+  ctx: EvalContext = {},
 ): Promise<void> {
-  const r = await checkPermission(userId, permissionKey, ctx);
-  if (!r.allowed) throw new Error(`权限不足: ${permissionKey}（${r.reason}）`);
+  const d = await checkPermission(subject, permissionKey, ctx);
+  if (!d.allowed) throw new ForbiddenError(permissionKey, d.reason);
 }
 
-/** 分级便捷：需要 forum 域某级别（manage ⊃ write ⊃ read 由评估器隐含） */
-export async function requireForumLevel(
-  userId: number | null,
-  level: PermLevel,
-  forumId: number,
-): Promise<void> {
-  await requirePermission(userId, `forum.${level}`, { forumId });
+/** 当前请求用户的便捷封装 */
+export async function can(permissionKey: string, ctx: EvalContext = {}): Promise<boolean> {
+  return (await checkPermission(await getCurrentSubject(), permissionKey, ctx)).allowed;
 }
 
-/** 级别检查（不抛错，页面渲染分支用） */
-export async function hasForumLevel(
-  userId: number | null,
-  level: PermLevel,
-  forumId: number,
+export async function canSeeContent(
+  subject: Subject,
+  content: { state: ContentState; authorId: number; forumId: number },
 ): Promise<boolean> {
-  const r = await checkPermission(userId, `forum.${level}`, { forumId });
-  return r.allowed;
+  return contentVisibleTo(subject, content, await getAuthzSnapshot());
+}
+
+/** 主体可读 / 可管的版块 id 集合：查询层在取数前据此过滤 */
+export async function getReadableForumIds(subject: Subject): Promise<number[]> {
+  return readableForumIds(subject, await getAuthzSnapshot());
+}
+
+export async function getModeratedForumIds(subject: Subject): Promise<number[]> {
+  return moderatedForumIds(subject, await getAuthzSnapshot());
 }
 
 /**
- * 派生版主（M5 语义：在版块作用域链上持有 forum.manage/write 的用户，含父链继承标注）。
- * 版块级授权统一走角色——查询 = 授权角色 ∩ 持有该角色的用户。
+ * 版主 = 在该版块作用域链上持有 forum.moderate 授权的角色的持有人（版主由授权派生，不单独指派）。
+ * viaParent=true 表示授权来自祖先版块或全局，而非本版块自身。
  */
 export async function getForumModerators(
   forumId: number,
 ): Promise<{ userId: number; username: string; viaParent: boolean }[]> {
-  const db = getWebDb();
-  const chain = await getScopeChain(forumId);
+  const snap = await getAuthzSnapshot();
+  const chain = snap.tree.chain(forumId);
   if (chain.length === 0) return [];
 
-  const grants = await db
-    .select({ roleKey: roleGrants.roleKey, forumId: roleGrants.forumId })
-    .from(roleGrants)
-    .where(
-      and(
-        inArray(roleGrants.permissionKey, ["forum.manage", "forum.write"]),
-        eq(roleGrants.scopeType, "forum"),
-        inArray(roleGrants.forumId, chain),
-      ),
-    );
+  // 授予 forum.moderate 的 (角色, 授权作用域)；admin 短路放行但不属于“版主”，不列出
+  const roleScope = new Map<string, number[]>();
+  for (const g of snap.grants) {
+    // admin 的全局 forum.moderate 是基线授权，不代表“该版块的版主”，否则每个版块都会列出全体管理员
+    if (g.permissionKey !== "forum.moderate" || g.roleKey === "admin") continue;
+    if (g.scopeId !== 0 && !chain.includes(g.scopeId)) continue;
+    roleScope.set(g.roleKey, [...(roleScope.get(g.roleKey) ?? []), g.scopeId]);
+  }
+  if (roleScope.size === 0) return [];
 
-  if (grants.length === 0) return [];
-  const roleKeys = [...new Set(grants.map((g) => g.roleKey))];
-
-  const holders = await db
-    .select({ userId: userRoles.userId, roleKey: userRoles.roleKey, username: users.username })
+  const holders = await getWebDb()
+    .select({
+      userId: userRoles.userId,
+      roleKey: userRoles.roleKey,
+      bindScope: userRoles.scopeId,
+      username: users.username,
+    })
     .from(userRoles)
     .innerJoin(users, eq(users.id, userRoles.userId))
     .where(
       and(
-        inArray(userRoles.roleKey, roleKeys),
+        inArray(userRoles.roleKey, [...roleScope.keys()]),
+        eq(users.state, "active"),
         or(isNull(userRoles.expiresAt), sql`${userRoles.expiresAt} > NOW()`),
       ),
     );
 
-  const seen = new Map<number, { userId: number; username: string; viaParent: boolean }>();
+  const out = new Map<number, { userId: number; username: string; viaParent: boolean }>();
   for (const h of holders) {
-    if (!seen.has(h.userId)) {
-      seen.set(h.userId, { userId: h.userId, username: h.username, viaParent: false });
+    // 角色绑定本身的作用域也必须覆盖该版块
+    if (h.bindScope !== 0 && !chain.includes(h.bindScope)) continue;
+    const direct = (roleScope.get(h.roleKey) ?? []).includes(forumId);
+    const prev = out.get(h.userId);
+    if (!prev || (prev.viaParent && direct)) {
+      out.set(h.userId, { userId: h.userId, username: h.username, viaParent: !direct });
     }
   }
-  return [...seen.values()];
-}
-
-// ---------- 管理界面查询与操作（/admin 最小版；完整后台归 M9）----------
-
-export async function listRoles(): Promise<
-  { key: string; name: string; kind: string; description: string }[]
-> {
-  const db = getWebDb();
-  return db
-    .select({ key: roles.key, name: roles.name, kind: roles.kind, description: roles.description })
-    .from(roles)
-    .orderBy(roles.kind, roles.key);
-}
-
-export async function listPermissions() {
-  // 词汇表单一事实源（迁移与评估器同源），避免手写反引号查询
-  return PERMISSION_DEFINITIONS.map((p) => ({
-    key: p.key,
-    resource: p.resource,
-    level: p.level,
-    description: p.description,
-  }));
-}
-
-export async function getRoleGrants(
-  roleKey: string,
-): Promise<{ permissionKey: string; scopeType: string; forumId: number | null }[]> {
-  const db = getWebDb();
-  return db
-    .select({
-      permissionKey: roleGrants.permissionKey,
-      scopeType: roleGrants.scopeType,
-      forumId: roleGrants.forumId,
-    })
-    .from(roleGrants)
-    .where(eq(roleGrants.roleKey, roleKey));
-}
-
-export async function grantRolePermission(
-  roleKey: string,
-  permissionKey: string,
-  forumId: number | null,
-): Promise<void> {
-  const db = getWebDb();
-  await db
-    .insert(roleGrants)
-    .values({
-      roleKey,
-      permissionKey,
-      scopeType: forumId === null ? "global" : "forum",
-      forumId,
-    })
-    .onDuplicateKeyUpdate({ set: { forumId } });
-}
-
-export async function revokeRolePermission(
-  roleKey: string,
-  permissionKey: string,
-  forumId: number | null,
-): Promise<void> {
-  const db = getWebDb();
-  const scopeType = forumId === null ? "global" : "forum";
-  await db
-    .delete(roleGrants)
-    .where(
-      and(
-        eq(roleGrants.roleKey, roleKey),
-        eq(roleGrants.permissionKey, permissionKey),
-        eq(roleGrants.scopeType, scopeType),
-        forumId === null ? isNull(roleGrants.forumId) : eq(roleGrants.forumId, forumId),
-      ),
-    );
-}
-
-export async function createCustomRole(
-  key: string,
-  name: string,
-  description: string,
-): Promise<void> {
-  const db = getWebDb();
-  await db
-    .insert(roles)
-    .values({ key, name, kind: "custom", description })
-    .onDuplicateKeyUpdate({ set: { name, description } });
-}
-
-export async function deleteCustomRole(key: string): Promise<void> {
-  if (["guest", "member", "muted", "admin"].includes(key)) {
-    throw new Error("内置角色不可删除");
-  }
-  const db = getWebDb();
-  await db.delete(roles).where(eq(roles.key, key));
-  await db.delete(roleGrants).where(eq(roleGrants.roleKey, key));
-  await db.delete(userRoles).where(eq(userRoles.roleKey, key));
+  return [...out.values()].sort((a, b) => a.userId - b.userId);
 }

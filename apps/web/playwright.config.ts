@@ -1,5 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
+// 测试进程（含工作进程）与被测服务器指向同一个隔离库；support/db.ts 的直连夹具助手依赖它
+process.env.NEW_DB_NAME = "qysub_next_e2e";
+
 /**
  * E2E 独占 3200 端口 + 隔离库（qysub_next_e2e）：
  * - 与用户 dev 服务（3100）完全隔离，杜绝 env 错配（基线审查教训）
@@ -8,6 +11,7 @@ import { defineConfig, devices } from "@playwright/test";
  */
 export default defineConfig({
   testDir: "./e2e",
+  // 单个用例 30s 上限；整套串行（共享一个库与一个 dev 服务器）
   fullyParallel: false,
   workers: 1,
   retries: 0,
