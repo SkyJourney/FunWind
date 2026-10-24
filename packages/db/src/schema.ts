@@ -374,12 +374,17 @@ export const files = mysqlTable(
   ],
 );
 
-/** 帖子的下载附件（正文内联图片不进此表，只引用 files） */
+/**
+ * 帖子的下载附件（正文内联图片不进此表，只引用 files；门控块内的内联图例外，见 docs/ATTACHMENT-GATES.md Q5）。
+ * gate_id：归属的门控（post_gates.id），NULL = 公开；一个附件至多属于一个门控。
+ * 非空时访问权与该门控的隐藏正文同权（docs/ATTACHMENT-GATES.md）；指向不存在门控一律按锁定处理（fail-closed）。
+ */
 export const attachments = mysqlTable(
   "attachments",
   {
     id: int("id", { unsigned: true }).notNull().autoincrement(),
     postId: int("post_id", { unsigned: true }).notNull(),
+    gateId: int("gate_id", { unsigned: true }),
     fileId: int("file_id", { unsigned: true }).notNull(),
     uploaderId: int("uploader_id", { unsigned: true }).notNull(),
     originalName: varchar("original_name", { length: 255 }).notNull().default(""),
@@ -389,6 +394,7 @@ export const attachments = mysqlTable(
   (t) => [
     primaryKey({ columns: [t.id] }),
     index("idx_att_post").on(t.postId),
+    index("idx_att_gate").on(t.gateId),
     index("idx_att_file").on(t.fileId),
     index("idx_att_uploader").on(t.uploaderId),
   ],

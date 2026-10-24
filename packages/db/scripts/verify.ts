@@ -6,6 +6,8 @@
  *  2. 每表列名集合一致、列类型族一致（getSQLType() ⇄ COLUMN_TYPE 归一化对比）
  *  3. 引擎 InnoDB、表级字符集 utf8mb4
  *  4. 专项：列级 COLLATE 补丁（username_key / email_key 须为 utf8mb4_bin，さくら≠サクラ）
+ *  4b. 连接层会话时区为 +08:00（NOW() 与库内北京墙面时间同口径）
+ *  4c. 附件↔门控归属完整性（无悬空 / 无跨帖 / 无挂在无门控帖上的）
  *  5. 权限数据健康：role_grants / user_roles 中的角色键与权限点必须在 roles / 词汇表内（脏键零容忍）；
  *     系统种子已就位（内置角色 + 词汇表）
  */
@@ -15,6 +17,7 @@ import { PERMISSION_DEFINITIONS } from "../src/authz-vocab.js";
 import { PATCHES } from "../src/bootstrap.js";
 import { createPool } from "../src/client.js";
 import { newDbConfig } from "../src/env.js";
+import { findAttachmentGateAnomalies } from "../src/integrity.js";
 import * as schema from "../src/schema.js";
 import { checkSchemaRules, collectTables } from "../src/schema-rules.js";
 
@@ -171,6 +174,14 @@ try {
     "conn:会话时区",
     tz.tz === "+08:00",
     `session=${tz.tz}（服务器 global=${tz.gtz} / system=${tz.stz}；运行时靠连接层 SET 锁定）`,
+  );
+
+  // 4c. 附件↔门控归属完整性（docs/ATTACHMENT-GATES.md §4.1）：无外键，靠对账守住
+  const ag = await findAttachmentGateAnomalies(pool);
+  add(
+    "integrity:附件门控归属",
+    ag.dangling + ag.crossPost + ag.onUngatedPost === 0,
+    `悬空 ${ag.dangling} / 跨帖 ${ag.crossPost} / 所属帖无门控 ${ag.onUngatedPost}`,
   );
 
   // 5. 权限数据健康 + 系统种子

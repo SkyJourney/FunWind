@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### Added（附件与门控 · 第 1 步：数据模型）
+
+- 设计稿 `docs/ATTACHMENT-GATES.md`（已确认）：门控帖的附件与隐藏正文同权，`attachments.gate_id` 归属门控，锁定项不下发任何元数据。
+- `attachments.gate_id`（可空，`NULL` = 公开）+ 索引 `idx_att_gate`，版本化迁移 `0001_attachments_gate_id.sql`；无外键，一致性靠检查守住。
+- 新增 `packages/db/src/integrity.ts` 的 `findAttachmentGateAnomalies`（悬空 / 跨帖 / 所属帖无门控三类），接入 `db:verify` 的 `integrity:附件门控归属`（共 12 项），并有临时库集成测试逐类造异常验证。
+- **此步只改数据模型，行为不变**：读取侧（帖子页、`/files`）与迁移映射在后续步骤接入；在此之前开发库附件的 `gate_id` 全为 `NULL`，**门控附件仍未受保护**，P1-2 尚未修复。
+
 ### Fixed（M5.5 之后审查 · P1-1 数据库会话时区）
 
 - **`NOW()` 与「库内 DATETIME 为北京墙面时间」不同口径**：mysql2 的 `timezone:"+08:00"` 只管客户端 `Date` 序列化，服务器会话时区仍是容器的 UTC，

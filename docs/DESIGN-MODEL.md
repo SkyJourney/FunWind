@@ -46,7 +46,7 @@
 | `gate_unlocks` | `(gate_id, user_id)` 主键、`price_paid`、`author_income`、`ledger_id`、`unlocked_at` |
 | `content_reviews` | 审核历史：`post_id`、`reviewer_id`、`decision(approved\|rejected)`、`note`、`created_at` |
 | `files` | **文件注册表**：`sha256`（唯一）、`storage_key`（由哈希派生）、`size_bytes`、`mime`、`width`、`height`、`created_at` |
-| `attachments` | 帖子的下载附件：`post_id`、`file_id`、`uploader_id`、`original_name`、`downloads`、`created_at` |
+| `attachments` | 帖子的下载附件：`post_id`、`gate_id`（可空，NULL=公开；归属门控，见 `ATTACHMENT-GATES.md`）、`file_id`、`uploader_id`、`original_name`、`downloads`、`created_at` |
 | `tags`、`thread_tags` | 主题标签 |
 
 ### 互动（8）
