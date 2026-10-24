@@ -19,17 +19,17 @@ const DETECTORS: Record<
   { allowed: number; why: string; hit: (md: string, html: string) => boolean }
 > = {
   quoteLazy: {
-    allowed: 2168,
-    why: "引用后紧跟的非引用行被 Markdown 的懒续行吞进引用（转换器缺空行）",
+    allowed: 0,
+    why: "引用后紧跟的非引用行被 Markdown 的懒续行吞进引用（转换器缺空行；S1b-3 已修）",
     hit: (md) => /^>[^\n]*\n(?!>|\s*$)/m.test(withoutFences(md)),
   },
   tableSwallow: {
-    allowed: 4,
+    allowed: 0,
     why: "表格后紧跟的文字被当成表格的一行（转换器缺空行）",
     hit: (md) => /^\|[^\n]*\|[ \t]*\n(?!\||\s*$)/m.test(withoutFences(md)),
   },
   listSwallow: {
-    allowed: 1,
+    allowed: 0,
     why: "列表后紧跟的文字被吞进最后一个列表项（转换器缺空行）",
     hit: (md) => /^- [^\n]*\n(?!- |\s*$|\s{2,})/m.test(withoutFences(md)),
   },

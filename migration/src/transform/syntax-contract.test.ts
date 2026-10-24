@@ -22,27 +22,8 @@ const ctx: UbbContext = {
   gateKey: (seq) => `k${seq}`,
 };
 
-/** S1b-3 修转换器时逐条删除（引用 / 表格 / 列表块前后补空行；纯文本转义；行首空白与行尾空格清理） */
-const KNOWN_BROKEN = new Set<string>([
-  "quote-then-text",
-  "text-then-quote",
-  "quote-nested-continuation",
-  "list-then-text-inline",
-  "table-then-text",
-  "text-then-table",
-  "trailing-spaces",
-  "text-asterisk",
-  "text-underscore",
-  "text-tilde-pair",
-  "text-tilde-run",
-  "text-backslash",
-  "text-backtick",
-  "text-line-start-markers",
-  "text-setext-lines",
-  "text-link-like",
-  "text-leading-indent",
-  "text-fake-gate",
-]);
+/** 转换器尚未修好的条目（S1b-3 已清空；以后发现新缺陷先登记在这里，再修） */
+const KNOWN_BROKEN = new Set<string>();
 
 describe("迁移语法契约 · 转换器一侧", () => {
   it("已知缺陷登记里的 id 都真实存在（防止登记写错而一直不生效）", () => {

@@ -15,7 +15,7 @@ import { ubbToMarkdown } from "../../../migration/src/transform/ubb";
 import { renderMarkdown } from "../src/lib/markdown";
 
 /** 允许「被吃掉特殊字符」的文档数上限（棘轮，目标 0）；按字符分项，便于看清修复进度 */
-const ALLOWED_TOTAL = 1901;
+const ALLOWED_TOTAL = 0;
 const SPECIALS = "*_~#>-=\\`|[]!()+<";
 
 const ctx = {
@@ -24,6 +24,11 @@ const ctx = {
   resolveAttachment: () => null,
   gateKey: (n: number) => `k${n}`,
 };
+
+const KNOWN_TAG_RE = new RegExp(
+  "\\[/?(?:b|strong|i|em|u|s|strike|del|sup|sub|hr|br|color|backcolor|size|font|align|quote|code|url|img|email|attachment|p_w_upload|sell|post|hide|level|list|table|tr|td|th|li|\\*|fly|blockquote|wmv|rm|rmvb|flash|media|mp3|avi)(?:=[^\\]]*)?\\]",
+  "gi",
+);
 
 const decode = (s: string) =>
   s
@@ -39,6 +44,11 @@ const decode = (s: string) =>
 function sourceVisible(ubb: string): string {
   return decode(
     ubb
+      // [img] 里不是可用地址（如 file:///C:/…）：转换器按文字保留，所以它是可见文字
+      .replace(
+        /\[img\]\s*(?!https?:\/\/|ftp:\/\/|\/|\.\.?\/|#|attachment|p_w_|[\w.-]+\.[a-z]{2,}(?:\/|$))([^[]*?)\[\/img\]/gi,
+        "$1",
+      )
       .replace(/\[(sell|post|hide)[^\]]*\][\s\S]*?\[\/\1\]/gi, "")
       .replace(
         /\[(img|attachment|flash|media|video|audio|mp3|wmv|rm|swf)(=[^\]]*)?\][\s\S]*?\[\/\1\]/gi,
@@ -47,7 +57,8 @@ function sourceVisible(ubb: string): string {
       .replace(/\[attachment=\d+\]/gi, "")
       .replace(/\[s:\d+\]/g, "")
       .replace(/\[(url|email)(=[^\]]*)?\]([\s\S]*?)\[\/\1\]/gi, "$3")
-      .replace(/\[\/?[a-zA-Z*]+(=[^\]]*)?\]/g, ""),
+      // 只剥转换器认识的标签；未知的方括号词（[QYsub] [DVDRip]）旧站字面显示，必须算进可见文字
+      .replace(KNOWN_TAG_RE, ""),
   );
 }
 const htmlVisible = (html: string) => decode(html.replace(/<[^>]+>/g, ""));
@@ -60,6 +71,8 @@ const counts = (s: string) => {
 
 /** 本检查无法判定的文档（转换器会改写其中的链接 / HTML、或含门控），排除以免误报 */
 const excluded = (ubb: string) =>
+  // 以 <标签 开头 = 管理员贴的整篇原生 HTML，标签按设计保持为 HTML，字符数不可比
+  /^\s*<[a-z]/i.test(ubb) ||
   /\[(sell|post|hide)\b/i.test(ubb) ||
   /job\.php\?action=topost|read\.php\?/i.test(ubb) ||
   /<(img|a)\s/i.test(ubb);
@@ -81,6 +94,8 @@ async function main() {
   const byChar = new Map<string, string[]>();
   let compared = 0;
   let eaten = 0;
+  /** 渲染后反而多出来的强调记号（`*` `~`）：= 没被解析掉的 `**` / `~~`，同样是转换器 ⇄ 渲染器没接上 */
+  const gained: string[] = [];
   for (const d of docs) {
     if (excluded(d.ubb)) continue;
     compared++;
@@ -94,6 +109,7 @@ async function main() {
       }
     }
     if (bad) eaten++;
+    if ("*~".split("").some((c) => (out.get(c) ?? 0) > (src.get(c) ?? 0))) gained.push(d.k);
   }
 
   console.log(
@@ -107,8 +123,12 @@ async function main() {
   console.log(
     `${String(eaten).padStart(6)}  特殊字符被吃掉的文档数（上限 ${ALLOWED_TOTAL}） ${over ? "✘ 超出" : eaten < ALLOWED_TOTAL ? `✔（可把上限收紧到 ${eaten}）` : eaten === 0 ? "✔" : "✔（等于上限）"}`,
   );
+  const gainedOver = gained.length > 0;
+  console.log(
+    `${String(gained.length).padStart(6)}  渲染后多出 * / ~ 的文档数（上限 0） ${gainedOver ? `✘ 超出   例: ${gained.slice(0, 5).join(", ")}` : "✔"}`,
+  );
   console.log("====================================================");
-  process.exitCode = over ? 1 : 0;
+  process.exitCode = over || gainedOver ? 1 : 0;
 }
 
 main().catch((e) => {
