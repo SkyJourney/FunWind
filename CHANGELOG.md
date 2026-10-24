@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### Security（推送准备 · C：重写 git 历史）
+
+- 为推送公开仓库重写全部 44 个提交：清除旧库与本机开发库口令（原出现在 BLUEPRINT / README / compose 的历史里）、3 个真实用户邮箱、4 个第三方论坛用户名，并去掉提交信息里的 `Claude-Session:` 行（保留 `Co-Authored-By`）。
+  重写前后最终文件树哈希完全一致；全部 808 个 blob 与历史中旧值命中 0。所有提交 hash 随之改变，`CLAUDE.md` 里引用的 5 个旧 hash 已按映射表更新。
+- 站长决定**不轮换**旧库口令；口令只放根 `.env`，由 `pnpm check:secrets`（pre-push / CI）防回流。重写前备份在站长本机，含旧口令，不得上传。
+
 ### Changed（推送准备 · B：E2E 自包含）
 
 - **E2E 不再依赖真实迁移数据**：`pnpm test:e2e` 的编排改为「重置库 → `db:bootstrap` → `db:seed` → `db:e2e-fixtures` → dev E2E → 生产冒烟」，去掉 `migrate`。

@@ -6,10 +6,10 @@
 ## 当前阶段
 
 - 阶段一·骨架 M1–M5 已交付，但 2026-10-23 审查发现其数据模型与多项门禁勾选需重做/更正。
-  **M5.5 重构（设计先行）已完成，分支待合并**。站长思路：**先定目标模型（`docs/DESIGN-MODEL.md`，schema v2.1 共 43 表，含通知中心），旧数据向它靠拢，迁移只是适配层**。
+  **M5.5 重构（设计先行）已完成，已合并 `main`**。站长思路：**先定目标模型（`docs/DESIGN-MODEL.md`，schema v2.1 共 43 表，含通知中心），旧数据向它靠拢，迁移只是适配层**。
   进度：R1 文档 ✅ → R2 `packages/db` 与 `packages/content` 重做 ✅ → R3 迁移适配层重做并重建开发库 ✅ → S4 应用适配 ✅ → **S5 E2E 与全量门禁 ✅（2026-10-24）**；之后进入 M6 发帖。
-- **工作分支 `feat/m5.5-schema-v2`**（无 remote）：类型检查 / lint / 单测 / 构建 / E2E 全部真实通过（`pnpm verify:all` 与 `pnpm test:e2e` 均已连续多次实测）。
-  **合并回 main 的时机由站长决定**；合并前须做：重写 git 历史清除旧库口令并轮换口令（见下文安全事项）。
+- **分支**：M5.5 已合入 `main`（`feat/m5.5-schema-v2` 仅本地保留，不推送）。类型检查 / lint / 单测 / 构建 / E2E 全部真实通过（`pnpm verify:all` 与 `pnpm test:e2e` 均已连续多次实测）。
+  2026-10-24 已重写 git 历史（清除口令、真实邮箱、第三方用户名与 `Claude-Session:` 行），为推送 GitHub 公开仓库做准备；重写前的完整备份在站长本机 `~/FunWind-pre-rewrite.bundle`（含旧口令，**不得上传**）。
 - 开发库：`qysub_next` = v2 **纯导入**（`verify:migration` 106 项对账只对它有意义）；`qysub_next_e2e` = 空库 + 演示种子（`db:seed`，id ≥ 90000）+ E2E 夹具（`db:e2e-fixtures`，id ≥ 950000），**不含迁移数据**（CI 同样如此），`pnpm test:e2e` 每次自动重建它。
 - **M5.5 是破坏性重构**：站长已确认任何破坏性变更均可接受（重新迁移即可）。
 - 开工前先读：`docs/ROADMAP.md`（里程碑与 DoD）→ 对应 `docs/milestones/Mx-*.md`（范围/边界/测试/门禁）；M5.5 另读 `docs/DESIGN-MODEL.md`（数据模型依据）、`docs/NOTIFICATIONS.md`、`docs/GATES.md`、`docs/POINTS.md`、`docs/AUTHZ.md` §4/§8。
@@ -100,17 +100,17 @@ pnpm --filter @funwind/web perf:lcp                       # 生产构建 LCP 门
 
 ## M0–M5 审查缺口的处置状态（2026-10-23 审查 → M5.5 修复）
 
-全部在 `feat/m5.5-schema-v2` 上修复并带回归用例；括号内为提交。**仍未做的只有最后一条安全事项。**
+全部在 `feat/m5.5-schema-v2` 上修复并带回归用例；括号内为提交。**安全事项已处置，见最后一条。**
 
-- ✅ **P0** 首页目录/最新动态泄露受限版块、`is_listed=0` 进聚合 —— 可见性在取数前翻译成 SQL 谓词（S4-3 `9cfc9e4`），游客在真实数据上 4 个受限版块全 404、标题/计数/置顶均无泄露。
+- ✅ **P0** 首页目录/最新动态泄露受限版块、`is_listed=0` 进聚合 —— 可见性在取数前翻译成 SQL 谓词（S4-3 `eb32c3f`），游客在真实数据上 4 个受限版块全 404、标题/计数/置顶均无泄露。
 - ✅ **P0（数据）** 权限翻译不幂等、脏键 —— R3 迁移重写（`user_roles`/`role_grants` 由旧数据整体推导，`verify:migration` 零容忍断言）。
-- ✅ **P0（数据）** 门控内容变公开 —— R2/R3 转换器重写 + 门控读取唯一出口（S4-4 `41ce53b`，守卫测试禁止别处引用 `hidden_md`）。
+- ✅ **P0（数据）** 门控内容变公开 —— R2/R3 转换器重写 + 门控读取唯一出口（S4-4 `bba315b`，守卫测试禁止别处引用 `hidden_md`）。
 - ✅ **P1** 覆盖率门槛为红 —— S4-6：去掉对 queries/session/tokens/settings/state 的整块排除，仅余 `slot.tsx`、`mailer.ts` 两个有明文原因的宿主壳，门槛未降（实测 96.9/91.5/96.5/98.2 vs 90/85/90/90）。
-- ✅ **P1** `/admin` 动作未写审计 —— 授权管理（S4-2 `293b630`）、模块启停与站点设置（S4-6）均同事务写 `audit_log`。
+- ✅ **P1** `/admin` 动作未写审计 —— 授权管理（S4-2 `f69427a`）、模块启停与站点设置（S4-6）均同事务写 `audit_log`。
 - ✅ **P1** 开放注册邮箱未验证限制、派生版主误用 `forum.write` —— S4-2（评估器写类权限拦截；版主=持有 `forum.moderate`）。
-- ✅ **P1** 频控信任 `x-forwarded-for`、`checkPermission(userId)` 忽略入参、注册 `MAX(id)+1` 竞态与邀请码先核销 —— S4-2（`TRUSTED_PROXY_HOPS`、显式 `Subject`、自增 id + 同事务核销）及两次安全补丁（`4a050d7`、`3df7394`）。
+- ✅ **P1** 频控信任 `x-forwarded-for`、`checkPermission(userId)` 忽略入参、注册 `MAX(id)+1` 竞态与邀请码先核销 —— S4-2（`TRUSTED_PROXY_HOPS`、显式 `Subject`、自增 id + 同事务核销）及两次安全补丁（`6741138`、`8cc53ae`）。
 - ✅ **P2** `createCustomRole` 可改写内置角色、grant/revoke 不校验 —— S4-2。`/api/dev/*` 与 `/design` 生产可达 —— S4-6：统一守卫 `lib/dev-only.ts` + 守卫测试，生产构建实测 404。`tsconfig.tsbuildinfo` 误入库 —— S4-6 出库并加入 `.gitignore`。
-- ⏳ **安全事项（推送前必须做）**：BLUEPRINT 的旧库口令已清除，但 **git 历史里仍有**；仓库当前无 remote，推送前必须重写历史并轮换口令。
+- ✅ **安全事项**：2026-10-24 已重写历史，口令 / 真实邮箱 / 第三方用户名在全部提交（808 个 blob）中命中为 0；口令只放根 `.env`，`pnpm check:secrets` 在 pre-push 与 CI 拦截回流。站长决定**不轮换**旧库口令（旧库仅本机只读使用）。
 
 ## 工作流
 
