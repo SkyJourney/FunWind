@@ -19,6 +19,7 @@
     "seed": "tsx scripts/seed.ts",
     "e2e-fixtures": "tsx scripts/e2e-fixtures.ts",
     "verify": "tsx scripts/verify.ts",
+    "recount": "tsx scripts/recount.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --coverage",

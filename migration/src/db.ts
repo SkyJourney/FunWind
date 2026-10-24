@@ -21,7 +21,7 @@ export async function oldQuery<T = any>(sql: string, params: unknown[] = []): Pr
   return rows as T[];
 }
 
-const newPool = createPool(config.newDb);
+export const newPool = createPool(config.newDb);
 
 export async function newQuery<T = any>(sql: string, params: unknown[] = []): Promise<T[]> {
   const [rows] = await newPool.query(sql, params as any[]);

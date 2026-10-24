@@ -33,6 +33,8 @@ let guest: Subject, member: Subject, alice: Subject, xiaoyi: Subject, team: Subj
 
 const ids = (xs: { id: number }[]) => xs.map((x) => x.id);
 const db = () => getWebDb();
+/** 演示种子按明细重算后，版块 902（茶话会）的可见主题数：900002、900003 */
+const DEMO_FORUM_902_VISIBLE_THREADS = 2;
 
 describe.skipIf(skipDb)("查询层 · 真实 MySQL", () => {
   beforeAll(async () => {
@@ -77,8 +79,8 @@ describe.skipIf(skipDb)("查询层 · 真实 MySQL", () => {
       expect(shown).not.toContain(DEMO.unlistedForum);
       expect(all.find((f) => f.id === 902)?.subs).toEqual([{ id: 903, name: "『考古分舵』" }]);
       expect(dir.groups[0]?.section).toEqual({ id: 900, name: "『演示区』" });
-      // 受限版块的计数不会漏进首页统计
-      expect(dir.threadCount).toBe(5);
+      // 受限版块的计数不会漏进首页统计；演示种子按明细重算后，版块 902 有 2 个可见主题（900002、900003）
+      expect(dir.threadCount).toBe(5 + DEMO_FORUM_902_VISIBLE_THREADS);
       expect(JSON.stringify(dir)).not.toContain("字幕组内部区");
     });
 
@@ -87,7 +89,7 @@ describe.skipIf(skipDb)("查询层 · 真实 MySQL", () => {
       const shown = dir.groups.flatMap((g) => g.forums).map((f) => f.id);
       expect(shown).toContain(DEMO.restrictedForum);
       expect(shown).not.toContain(DEMO.unlistedForum);
-      expect(dir.threadCount).toBe(5 + 777);
+      expect(dir.threadCount).toBe(5 + DEMO_FORUM_902_VISIBLE_THREADS + 777);
       expect(
         (await getDirectory(admin)).groups.flatMap((g) => g.forums).map((f) => f.id),
       ).not.toContain(DEMO.unlistedForum);

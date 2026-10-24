@@ -5,6 +5,24 @@
 
 ## [Unreleased]
 
+### Added / Changed（M6.1 第 4 步：写路径底座——重算、对账、预言机并发测试）
+
+- **共享重算 `recountAll`**（`packages/db/src/recount.ts`）：计数列（`threads` 回复数与最后回复指针、`forums` 计数与最后发表、`user_stats`、`posts.like_count`、`tags.thread_count`）由明细整体推导，口径与写路径预言机逐条一致。单事务，按 `user_stats → threads → posts → tags → forums` 的加锁顺序执行；每组先建临时快照，执行后比对，给出每表、每列的修正行数。干跑时比对后回滚。迁移的 `countersStep` 改为调用它；对已迁移的开发库做干跑，全部表、全部列零漂移，说明新口径与迁移产出一致。
+- **`db:recount`**（`packages/db/scripts/recount.ts`）：默认直接修正（幂等，第二次零修正）；`--check` 只读，有漂移时非零退出，供巡检或 CI 使用。
+- **`db:verify` 由 13 项扩到 18 项**（`packages/db/src/integrity.ts` 的 `findStructuralAnomalies`）：孤儿引用（帖→主题、主题→版块、门控→帖、附件→帖）；楼层唯一（`uq_posts_thread_floor` 为 `(thread_id, floor)` 唯一索引且无重复）；首帖指针指向本主题楼层 1；主题状态与首帖状态一致；缓存计数与明细一致（复用 `recountAll` 干跑，零漂移才过）。
+- **演示数据的计数改为统一重算**：`seedDemoData` 与 `seedE2eFixtures` 末尾调用 `recountAll`，不再手工设值。原先的手工版块计数同步只覆盖 3 个版块，且用 `MAX(first_post_id)` 作最后回复，口径有误，已删除。新增 `client.ts` 的 `poolOf(db)` 收口 drizzle 的连接池类型。
+- **随机操作序列的预言机测试**（`apps/web/src/lib/posting/oracle-random.int.test.ts`）：发主题、回帖、编辑、删除、恢复、隐藏、驳回、审核通过，三个版块（不审 / 审主题 / 全审）、三位作者加版主，固定种子。单线程 300 步，每 20 步设一个检查点；另有 6 轮并发，每轮 8 路，其中偶数路的回帖全部打到同一热点主题。每个检查点做三重核对：全库 `recountAll` 干跑零漂移、结构完整性为零、预言机逐版块 / 主题 / 作者比对。测试还断言每类操作至少成功一次（防空转），以及并发阶段的楼层撞键重试为零。耗时约 10 秒。
+- **`postingRetryStats`**（`lib/posting/service.ts`，仅供测试观测）：`withPostingRetry` 每次重试时累加死锁与撞键次数。正确的加锁与隔离下，楼层撞键重试本不应发生；它一旦出现，说明楼层分配依赖重试兜底。
+- **变异验证 5 项各自变红**：去掉主题与版块行锁（随机测试与 `service.int` 并发楼层用例抓到）；隔离级别改为 REPEATABLE READ（随机测试的撞键重试断言抓到）；楼层 `MAX` 只统计可见帖（随机测试与 `mutate.int` 抓到）；回帖隐藏少减一次（8 项抓到）；去掉 60 秒幂等（幂等与并发双击用例抓到）。
+- **测试期望修正**：`queries.int.test.ts` 中首页目录合计的期望，原先假定其他版块计数为 0；种子重算后版块 902 有 2 个可见主题，期望改为显式常量并注明来源。
+
+### 测试与门禁（M6.1 第 4 步）
+
+- `pnpm verify:all` 通过：脚本测试 40 项、db 包 63 项、web 包 902 项（覆盖率：语句 96.26% / 分支 91.40% / 函数 97.16% / 行 97.89%，门槛 90 / 85 / 90 / 90 满足）、content / migration 251 项、构建与秘密扫描通过。
+- `pnpm verify:migration` 通过：110 项对账、渲染硬门禁、保真硬门禁。
+- `pnpm test:e2e` 通过：dev 89 项、生产冒烟 10 项。
+- 开发库 `qysub_next` 的 `db:verify` 18/18；演示库 `qysub_next_e2e` 按编排重建后 18/18。
+
 ### Added / Fixed（M6.1 第 3 步·任务 6：`locatePost` 与 `/p/{pid}`）
 
 - **`lib/queries/locate-post.ts`**：`locatePost(viewer, postId)` 按**观众**可见的回帖数算页码（楼层 ≤ 目标、对该观众可见），不再假定楼层连续。隐藏 / 待审 / 已删的中间楼层不计入，不同观众看到的页码可以不同。目标帖或所在主题对观众不可见返回 `null`。`postPath` 拼出 `/t/{tid}?page=N#p{pid}`（第一页不写 page）。

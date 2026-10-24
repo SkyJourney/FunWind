@@ -51,6 +51,15 @@ export function createDb(pool: mysql.Pool): Db {
   return drizzle(pool, { schema, mode: "default" });
 }
 
+/**
+ * 取出 createDb 所用的 promise 连接池（供需要原生连接的批量重算等场景）。
+ * drizzle 把 $client 标成了回调风格的 Pool 类型，运行时实际就是 createPool 建的 promise 池；
+ * 与 createDb 的豁免同理，在此边界显式收口。仅用于由 createDb 产生的 db。
+ */
+export function poolOf(db: Db): mysql.Pool {
+  return db.$client as unknown as mysql.Pool;
+}
+
 /** web 运行时单例池：进程内复用（globalThis 守卫，next dev HMR 下不会重复建池） */
 export function getWebPool(config = newDbConfig()): mysql.Pool {
   const g = globalThis as unknown as { __funwindPool?: mysql.Pool };

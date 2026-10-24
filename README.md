@@ -50,10 +50,11 @@ pnpm db:bootstrap           # 空库建表（Drizzle 版本化迁移，幂等）
 pnpm db:seed                # 演示数据（90000+ 号段，幂等，仅开发用；生产环境或库里有真实用户时拒绝，须 --force）
 # B. 青翼导入路径（可选）：phpwind 旧库 → qysub_next
 pnpm migrate                # 全量导入（幂等，可重跑）
-pnpm verify:migration       # 23 项对账（行数/MD5/转换完整性/垃圾标记/附件/楼层）
+pnpm verify:migration       # 110 项对账（行数/MD5/转换完整性/垃圾标记/附件/楼层/计数）+ 渲染与保真硬门禁
 
-# 4. schema 对账（information_schema 逐表比对，任何路径后都建议跑）
+# 4. schema 对账（information_schema 逐表比对 + 结构完整性 + 缓存计数，任何路径后都建议跑）
 pnpm db:verify
+pnpm db:recount             # 重算全部缓存计数（幂等）；--check 只读，有漂移时非零退出
 
 # 5. 应用
 pnpm dev                    # http://127.0.0.1:3100（令牌演示页 + 明暗切换）

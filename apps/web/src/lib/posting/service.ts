@@ -107,6 +107,12 @@ export class Rollback extends Error {
 }
 
 /**
+ * 发帖重试的累计次数（仅供测试观测）。正确的加锁与隔离下，楼层撞键重试本不应发生：
+ * 撞键一旦出现，说明楼层分配依赖了重试兜底，而非锁与快照的正确性（随机预言机测试据此断言为零）。
+ */
+export const postingRetryStats = { deadlock: 0, duplicate: 0 };
+
+/**
  * 发帖事务的重试：死锁（整体回滚后重放是安全的）与唯一键撞车（uq_posts_thread_floor，楼层并发分配的最后一道防线）各重试一次。
  * 正常情况下加锁已经避免了撞车，所以重试很少发生；它存在是为了让一次偶发的竞争不变成 500（设计稿 §4）。
  */
@@ -116,6 +122,8 @@ export async function withPostingRetry<T>(fn: () => Promise<T>): Promise<T> {
       return await fn();
     } catch (e) {
       if (attempt >= 2 || !(isDeadlock(e) || isDuplicateKey(e))) throw e;
+      if (isDeadlock(e)) postingRetryStats.deadlock++;
+      else postingRetryStats.duplicate++;
     }
   }
 }

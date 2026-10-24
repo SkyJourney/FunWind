@@ -5,7 +5,8 @@
  * 积分台账、封禁、通知与公告。
  */
 import { sql } from "drizzle-orm";
-import type { Db } from "./client.js";
+import { type Db, poolOf } from "./client.js";
+import { recountAll } from "./recount.js";
 import {
   announcements,
   badges,
@@ -594,4 +595,6 @@ export async function seedDemoData(db: Db): Promise<void> {
   await seedBadges(db);
   await seedAuthFixtures(db);
   await seedReviewsAndNotifications(db);
+  // 计数缓存由明细统一重算（种子不手工设值，避免与写路径口径不一致）
+  await recountAll(poolOf(db));
 }

@@ -14,8 +14,9 @@ import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { sql } from "drizzle-orm";
-import type { Db } from "./client.js";
+import { type Db, poolOf } from "./client.js";
 import { repoRoot } from "./env.js";
+import { recountAll } from "./recount.js";
 import {
   attachments,
   files,
@@ -523,14 +524,6 @@ export async function seedE2eFixtures(db: Db, alice = E2E_FIX.alice): Promise<vo
     .values({ key: "points.name", value: { name: "青翼币" }, updatedAt: sql`NOW()` })
     .onDuplicateKeyUpdate({ set: { value: incoming("value") } });
 
-  // ---------- 版块计数缓存（可由 threads 重算，这里按夹具实际数据对齐） ----------
-  for (const fid of [F.anime, F.water, F.staff]) {
-    await db.execute(sql`
-      UPDATE forums f SET
-        thread_count = (SELECT COUNT(*) FROM threads t WHERE t.forum_id = f.id AND t.state = 'visible'),
-        post_count = (SELECT COUNT(*) FROM posts p JOIN threads t ON t.id = p.thread_id WHERE t.forum_id = f.id AND p.state = 'visible'),
-        last_post_id = (SELECT MAX(first_post_id) FROM threads t WHERE t.forum_id = f.id AND t.state = 'visible'),
-        last_posted_at = (SELECT MAX(last_posted_at) FROM threads t WHERE t.forum_id = f.id AND t.state = 'visible')
-      WHERE f.id = ${fid}`);
-  }
+  // ---------- 缓存计数：夹具直接插入了回帖等明细，计数统一由明细重算（与 db:recount、预言机同一口径） ----------
+  await recountAll(poolOf(db));
 }

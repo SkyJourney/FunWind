@@ -8,6 +8,10 @@
  *  4. 专项：列级 COLLATE 补丁（username_key / email_key 须为 utf8mb4_bin，さくら≠サクラ）
  *  4b. 连接层会话时区为 +08:00（NOW() 与库内北京墙面时间同口径）
  *  4c. 附件↔门控归属完整性（无悬空 / 无跨帖 / 无挂在无门控帖上的）
+ *  4d. 结构完整性（integrity.ts）：孤儿引用（帖→主题、主题→版块、门控→帖、附件→帖）；
+ *      楼层唯一（uq_posts_thread_floor 为 (thread_id, floor) 唯一索引且无重复）；
+ *      首帖指针指向本主题楼层 1；主题状态与首帖状态一致
+ *  4e. 缓存计数与明细一致（recount.ts 干跑：零漂移才过；漂移时用 pnpm db:recount 修正）
  *  5. 权限数据健康：role_grants / user_roles 中的角色键与权限点必须在 roles / 词汇表内（脏键零容忍）；
  *     系统种子已就位（内置角色 + 词汇表）
  */
@@ -17,7 +21,8 @@ import { PERMISSION_DEFINITIONS } from "../src/authz-vocab.js";
 import { PATCHES } from "../src/bootstrap.js";
 import { createPool } from "../src/client.js";
 import { newDbConfig } from "../src/env.js";
-import { findAttachmentGateAnomalies } from "../src/integrity.js";
+import { findAttachmentGateAnomalies, findStructuralAnomalies } from "../src/integrity.js";
+import { recountAll, recountDriftTotal } from "../src/recount.js";
 import * as schema from "../src/schema.js";
 import { checkSchemaRules, collectTables } from "../src/schema-rules.js";
 
@@ -182,6 +187,44 @@ try {
     "integrity:附件门控归属",
     ag.dangling + ag.crossPost + ag.onUngatedPost === 0,
     `悬空 ${ag.dangling} / 跨帖 ${ag.crossPost} / 所属帖无门控 ${ag.onUngatedPost}`,
+  );
+
+  // 4d. 结构完整性：库内无外键，孤儿引用 / 楼层唯一 / 首帖指针 / 主题与首帖状态靠对账守住
+  const st = await findStructuralAnomalies(pool);
+  const orphanTotal = st.orphanPosts + st.orphanThreads + st.orphanPostGates + st.orphanAttachments;
+  add(
+    "integrity:孤儿引用",
+    orphanTotal === 0,
+    `帖→主题 ${st.orphanPosts} / 主题→版块 ${st.orphanThreads} / 门控→帖 ${st.orphanPostGates} / 附件→帖 ${st.orphanAttachments}`,
+  );
+  add(
+    "integrity:楼层唯一",
+    st.floorIndexOk && st.floorDuplicates === 0,
+    `uq_posts_thread_floor ${st.floorIndexOk ? "为 (thread_id, floor) 唯一索引" : "缺失或列不对"}；重复组 ${st.floorDuplicates}`,
+  );
+  add(
+    "integrity:首帖指针",
+    st.firstPostMissing === 0,
+    `指向本主题楼层 1 的首帖缺失 ${st.firstPostMissing} 个主题`,
+  );
+  add(
+    "integrity:主题与首帖状态",
+    st.stateMismatch === 0,
+    `状态与首帖不一致 ${st.stateMismatch} 个主题`,
+  );
+
+  // 4e. 缓存计数：复用 recount 的干跑结果（只读，回滚），零漂移才过
+  const drift = await recountAll(pool, { dryRun: true });
+  const driftTotal = recountDriftTotal(drift);
+  const driftTables = drift.tables
+    .filter((t) => t.rows + t.created > 0)
+    .map((t) => `${t.table} ${t.rows + t.created}`);
+  add(
+    "counts:缓存计数与明细一致",
+    driftTotal === 0,
+    driftTotal === 0
+      ? "全部计数与明细推导一致（重算干跑零修正）"
+      : `漂移 ${driftTotal} 行：${driftTables.join("，")}（用 pnpm db:recount 修正）`,
   );
 
   // 5. 权限数据健康 + 系统种子

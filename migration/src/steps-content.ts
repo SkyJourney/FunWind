@@ -4,8 +4,9 @@
  */
 import { copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { recountAll } from "@funwind/db";
 import { config } from "./config.js";
-import { bumpAutoIncrement, load, newQuery, oldQuery, upsert } from "./db.js";
+import { bumpAutoIncrement, load, newPool, newQuery, oldQuery, upsert } from "./db.js";
 import {
   extractAttachments,
   extractAttention,
@@ -701,59 +702,8 @@ export const pollsStep: Step = {
 export const countersStep: Step = {
   name: "counters",
   async run(ctx) {
-    const q = (sql: string) => newQuery(sql);
-    // 点赞数、标签数以明细为准
-    await q(`UPDATE posts SET like_count = 0`);
-    await q(
-      `UPDATE posts p JOIN (SELECT post_id, COUNT(*) c FROM reactions GROUP BY post_id) r ON r.post_id = p.id
-       SET p.like_count = r.c`,
-    );
-    await q(
-      `UPDATE tags t SET thread_count =
-         (SELECT COUNT(*) FROM thread_tags tt JOIN threads th ON th.id = tt.thread_id
-           WHERE tt.tag_id = t.id AND th.state = 'visible')`,
-    );
-
-    // 主题：回复数 = 可见回帖数；最后回复 = 可见帖子中楼层最大者（楼层按时间序分配，首帖 = 1）
-    await q(
-      `UPDATE threads t SET reply_count = (
-         SELECT COUNT(*) FROM posts p WHERE p.thread_id = t.id AND p.floor > 1 AND p.state = 'visible')`,
-    );
-    await q(
-      `UPDATE threads t JOIN posts p ON p.thread_id = t.id
-       JOIN (SELECT thread_id, MAX(floor) mf FROM posts WHERE state = 'visible' GROUP BY thread_id) m
-         ON m.thread_id = p.thread_id AND m.mf = p.floor
-       SET t.last_post_id = p.id, t.last_poster_id = p.author_id, t.last_posted_at = p.created_at`,
-    );
-    await q(`UPDATE threads SET last_posted_at = created_at WHERE last_posted_at IS NULL`);
-
-    // 版块：只统计可见主题/帖子；最后发表 = 可见主题里最近活跃者
-    await q(
-      `UPDATE forums f SET
-         thread_count = (SELECT COUNT(*) FROM threads t WHERE t.forum_id = f.id AND t.state = 'visible'),
-         post_count = (SELECT COUNT(*) FROM posts p JOIN threads t ON t.id = p.thread_id
-                        WHERE t.forum_id = f.id AND t.state = 'visible' AND p.state = 'visible'),
-         last_post_id = (SELECT t.last_post_id FROM threads t WHERE t.forum_id = f.id AND t.state = 'visible'
-                          ORDER BY t.last_posted_at DESC, t.id DESC LIMIT 1),
-         last_posted_at = (SELECT t.last_posted_at FROM threads t WHERE t.forum_id = f.id AND t.state = 'visible'
-                            ORDER BY t.last_posted_at DESC, t.id DESC LIMIT 1)`,
-    );
-
-    // 用户统计：为全部用户（含占位账号）建行；精华数 = 被设为精华的可见主题
-    await q(
-      `INSERT INTO user_stats (user_id, thread_count, post_count, featured_count, follower_count, last_post_at)
-       SELECT u.id, COALESCE(t.c, 0), COALESCE(p.c, 0), COALESCE(t.f, 0), COALESCE(f.c, 0), p.last
-       FROM users u
-       LEFT JOIN (SELECT author_id, COUNT(*) c, SUM(is_featured) f FROM threads
-                   WHERE state = 'visible' GROUP BY author_id) t ON t.author_id = u.id
-       LEFT JOIN (SELECT author_id, COUNT(*) c, MAX(created_at) last FROM posts
-                   WHERE state = 'visible' GROUP BY author_id) p ON p.author_id = u.id
-       LEFT JOIN (SELECT target_id, COUNT(*) c FROM follows
-                   WHERE target_type = 'user' GROUP BY target_id) f ON f.target_id = u.id
-       ON DUPLICATE KEY UPDATE thread_count = VALUES(thread_count), post_count = VALUES(post_count),
-         featured_count = VALUES(featured_count), follower_count = VALUES(follower_count),
-         last_post_at = VALUES(last_post_at)`,
-    );
+    // 全部缓存计数由明细整体重算；口径与 db:recount / 写路径预言机共用（packages/db/src/recount.ts）
+    await recountAll(newPool);
 
     const [row] = await newQuery<Record<string, number>>(
       `SELECT (SELECT COUNT(*) FROM user_stats) stats,
