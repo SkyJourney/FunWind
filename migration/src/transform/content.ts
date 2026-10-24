@@ -91,8 +91,10 @@ export interface ContentContext {
   prefixIds: ReadonlySet<number>;
   spamTids: ReadonlySet<number>;
   emojiIds: ReadonlySet<number>;
-  attachmentExists: (rel: string) => boolean;
-  resolveAttachment: (aid: number) => { name: string; path: string } | null;
+  /** 旧站内部上传路径（p_w_upload/ 之后）→ 已登记文件的 /files 地址；文件不存在返回 null */
+  resolveUpload: (rel: string) => string | null;
+  /** [attachment=N] → 已登记文件的 /files 地址；image 表示内联为图片 */
+  resolveAttachment: (aid: number) => { name: string; url: string; image?: boolean } | null;
   asOf: string;
   /** 版块已被删除的主题改挂到该归档版块（回收站，仅管理员可读）；缺省则丢弃 */
   fallbackForumId?: number;
@@ -168,12 +170,8 @@ export function transformContent(
   const convert = (src: string | null, postId: number): { md: string; gateCount: number } => {
     const r = ubbToMarkdown(src, {
       emojiIds: ctx.emojiIds,
-      // 临时适配（R3-3 起改为 resolveUpload / resolveAttachment 返回 /files 地址）
-      resolveUpload: (rel) => (ctx.attachmentExists(rel) ? `/attachment/${rel}` : null),
-      resolveAttachment: (aid) => {
-        const a = ctx.resolveAttachment(aid);
-        return a ? { name: a.name, url: `/attachment/${a.path}` } : null;
-      },
+      resolveUpload: ctx.resolveUpload,
+      resolveAttachment: ctx.resolveAttachment,
     });
     for (const w of r.warnings) collectWarning(stats, postId, w);
     for (const g of r.gates) {
@@ -425,47 +423,25 @@ export interface OldAttachment {
   created_time: number;
 }
 
-export interface AttachmentRow {
-  id: number;
+/** 附件草稿：文件本体由文件管线登记（得到 file_id 后才能写 attachments 行） */
+export interface AttachmentDraft {
   postId: number;
   uploaderId: number;
   originalName: string;
-  storageKey: string;
-  mime: string;
-  sizeBytes: number;
-  width: number | null;
-  height: number | null;
+  /** 旧站磁盘上的相对路径（attachment/ 之下） */
+  sourcePath: string;
   downloads: number;
   createdAt: string;
 }
-
-const MIME_BY_EXT: Record<string, string> = {
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  png: "image/png",
-  gif: "image/gif",
-  bmp: "image/bmp",
-  webp: "image/webp",
-  txt: "text/plain",
-  zip: "application/zip",
-  rar: "application/vnd.rar",
-  "7z": "application/x-7z-compressed",
-  torrent: "application/x-bittorrent",
-};
-
-export const mimeOf = (name: string, path: string): string => {
-  const ext = (name.split(".").pop() || path.split(".").pop() || "").toLowerCase();
-  return MIME_BY_EXT[ext] ?? "application/octet-stream";
-};
 
 /** 附件挂到所属回帖；pid=0 或回帖已不存在时挂到该主题的首帖；主题不存在则丢弃 */
 export function transformAttachments(
   rows: readonly OldAttachment[],
   postIds: ReadonlySet<number>,
   asOf: string,
-): { rows: AttachmentRow[]; stats: { orphan: number; reattachedToFirstPost: number } } {
+): { rows: AttachmentDraft[]; stats: { orphan: number; reattachedToFirstPost: number } } {
   const stats = { orphan: 0, reattachedToFirstPost: 0 };
-  const out: AttachmentRow[] = [];
+  const out: AttachmentDraft[] = [];
   for (const a of [...rows].sort((x, y) => Number(x.aid) - Number(y.aid))) {
     let target = Number(a.pid) > 0 && postIds.has(Number(a.pid)) ? Number(a.pid) : 0;
     if (!target) {
@@ -480,15 +456,10 @@ export function transformAttachments(
       continue;
     }
     out.push({
-      id: Number(a.aid),
       postId: target,
       uploaderId: Number(a.created_userid) || 0,
       originalName: String(a.name ?? "").slice(0, 255),
-      storageKey: String(a.path ?? "").slice(0, 255),
-      mime: mimeOf(String(a.name ?? ""), String(a.path ?? "")),
-      sizeBytes: Math.max(0, Number(a.size) || 0) * 1024, // 旧 size 单位为 KB
-      width: Number(a.width) > 0 ? Number(a.width) : null,
-      height: Number(a.height) > 0 ? Number(a.height) : null,
+      sourcePath: String(a.path ?? "").slice(0, 255),
       downloads: Number(a.hits) || 0,
       createdAt: toDatetime(Number(a.created_time)) ?? asOf,
     });

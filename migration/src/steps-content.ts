@@ -29,6 +29,7 @@ import {
   extractTags,
   extractThreads,
 } from "./extract.js";
+import { confinedPath, fileUrl } from "./lib/files.js";
 import { head, idSet, loadUserIds, mapRows, type Step } from "./step-types.js";
 import { transformBadges } from "./transform/badges.js";
 import {
@@ -63,7 +64,12 @@ export const emojiStep: Step = {
     const missing: string[] = [];
     let bytes = 0;
     for (const r of rows.sort((x, y) => Number(x.id) - Number(y.id))) {
-      const src = join(config.emotionDir, r.folder, r.icon);
+      // 表情的 folder/icon 来自旧库配置表，同样按不可信输入处理：必须落在表情目录之内
+      const src = confinedPath(config.emotionDir, join(r.folder, r.icon));
+      if (!src) {
+        missing.push(`${r.id}(路径越界，已拒绝)`);
+        continue;
+      }
       const dest = join(config.emojiOutDir, `${r.id}.gif`);
       if (!existsSync(src)) {
         missing.push(`${r.id}(${r.folder}/${r.icon})`);
@@ -121,8 +127,18 @@ export const contentStep: Step = {
       prefixIds,
       spamTids,
       emojiIds,
-      attachmentExists: (rel) => existsSync(join(config.attachmentDir, rel)),
-      resolveAttachment: (aid) => attMap.get(aid) ?? null,
+      resolveUpload: (rel) => {
+        const f = ctx.files.addUnder(config.attachmentDir, rel);
+        return f ? fileUrl(f.storageKey) : null;
+      },
+      resolveAttachment: (aid) => {
+        const a = attMap.get(aid);
+        if (!a) return null;
+        const f = ctx.files.addUnder(config.attachmentDir, a.path);
+        return f
+          ? { name: a.name, url: fileUrl(f.storageKey), image: f.mime.startsWith("image/") }
+          : null;
+      },
       asOf: ctx.asOf,
       fallbackForumId,
     });
@@ -231,36 +247,24 @@ export const contentStep: Step = {
       `UPDATE post_gates g SET unlock_count =
          (SELECT COUNT(*) FROM gate_unlocks u WHERE u.gate_id = g.id)`,
     );
-    await load(
-      "attachments",
-      [
-        "id",
-        "post_id",
-        "uploader_id",
-        "original_name",
-        "storage_key",
-        "mime",
-        "size_bytes",
-        "width",
-        "height",
-        "downloads",
-        "created_at",
-      ],
-      atts.rows.map((a) => ({
-        id: a.id,
-        post_id: a.postId,
-        uploader_id: a.uploaderId,
-        original_name: a.originalName,
-        storage_key: a.storageKey,
-        mime: a.mime,
-        size_bytes: a.sizeBytes,
-        width: a.width,
-        height: a.height,
-        downloads: a.downloads,
-        created_at: a.createdAt,
-      })),
-      ["id"],
-    );
+    // 附件：先解析到文件；本体缺失的附件没有意义，丢弃并记入报告。写表由 files 步骤完成（需要 file_id）
+    const missingAtts: string[] = [];
+    ctx.attachments = [];
+    for (const d of atts.rows) {
+      const f = ctx.files.addUnder(config.attachmentDir, d.sourcePath);
+      if (!f) {
+        missingAtts.push(d.sourcePath);
+        continue;
+      }
+      ctx.attachments.push({
+        postId: d.postId,
+        uploaderId: d.uploaderId,
+        originalName: d.originalName,
+        downloads: d.downloads,
+        createdAt: d.createdAt,
+        sha256: f.sha256,
+      });
+    }
     await load(
       "tags",
       ["id", "name"],
@@ -273,7 +277,7 @@ export const contentStep: Step = {
       tags.threadTags.map((t) => ({ thread_id: t.threadId, tag_id: t.tagId })),
       ["thread_id", "tag_id"],
     );
-    for (const t of ["threads", "posts", "post_gates", "attachments", "tags"]) {
+    for (const t of ["threads", "posts", "post_gates", "tags"]) {
       await bumpAutoIncrement(t);
     }
 
@@ -326,7 +330,7 @@ export const contentStep: Step = {
     s.table(["代码", "次数"], mapRows(st.warnings));
     s.line("### 附件与标签");
     s.bullets([
-      `附件 ${atts.rows.length}（孤儿丢弃 ${atts.stats.orphan}；回帖已不存在、改挂首帖 ${atts.stats.reattachedToFirstPost}）；文件本体不复制，/attachment/** 直指原目录`,
+      `附件 ${ctx.attachments.length}（孤儿丢弃 ${atts.stats.orphan}；回帖已不存在、改挂首帖 ${atts.stats.reattachedToFirstPost}；文件缺失丢弃 ${missingAtts.length}${missingAtts.length ? "：" + head(missingAtts, 10) : ""}）；文件本体由文件管线复制进内容寻址存储`,
       `标签 ${tags.tags.length}（空名/重复丢弃 ${tags.stats.emptyOrDuplicate}）；主题标签关联 ${tags.threadTags.length}（孤儿 ${tags.stats.orphanRelations}）`,
     ]);
     return {
@@ -423,13 +427,12 @@ export const badgesStep: Step = {
     );
     await load(
       "badges",
-      ["id", "key", "name", "description", "icon", "kind", "sort_order", "is_active"],
+      ["id", "key", "name", "description", "kind", "sort_order", "is_active"],
       res.badges.map((x) => ({
         id: x.id,
         key: x.key,
         name: x.name,
         description: x.description,
-        icon: x.icon,
         kind: x.kind,
         sort_order: x.sortOrder,
         is_active: b(x.isActive),
@@ -448,6 +451,10 @@ export const badgesStep: Step = {
       ["user_id", "badge_id"],
     );
     await bumpAutoIncrement("badges");
+    // 勋章图交给文件管线登记（files 步骤回填 icon_file_id）
+    ctx.badgeIcons = new Map(
+      res.badges.flatMap((x) => (x.iconSource ? [[x.id, x.iconSource] as const] : [])),
+    );
     const st = res.stats;
     ctx.report
       .section("徽章")

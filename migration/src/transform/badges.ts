@@ -6,7 +6,8 @@ export interface BadgeRow {
   key: string;
   name: string;
   description: string;
-  icon: string;
+  /** 勋章图相对路径（旧站 res/images/medal/ 之下）；团队徽章无图 */
+  iconSource: string | null;
   kind: "team" | "honor";
   sortOrder: number;
   isActive: boolean;
@@ -77,7 +78,7 @@ export function transformBadges(
           .trim()
           .slice(0, 64) || `勋章${id}`,
       description: String(m.descrip ?? "").slice(0, 255),
-      icon: String(m.image || m.icon || "").slice(0, 100),
+      iconSource: String(m.image || m.icon || "").trim() || null,
       kind: "honor",
       sortOrder: Number(m.vieworder) || 0,
       isActive: Number(m.isopen) > 0,
@@ -128,7 +129,7 @@ export function transformBadges(
       key: r.key,
       name: r.name,
       description: `${r.name}成员`,
-      icon: "",
+      iconSource: null,
       kind: "team",
       sortOrder: i,
       isActive: true,

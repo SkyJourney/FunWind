@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   firstPostId,
-  mimeOf,
   stateOf,
   transformAttachments,
   transformContent,
@@ -50,7 +49,7 @@ const ctx = (over: Partial<ContentContext> = {}): ContentContext => ({
   prefixIds: new Set([7]),
   spamTids: new Set(),
   emojiIds: new Set([130]),
-  attachmentExists: () => false,
+  resolveUpload: () => null,
   resolveAttachment: () => null,
   asOf: ASOF,
   ...over,
@@ -346,26 +345,23 @@ describe("transformAttachments", () => {
   const run = (rows: ReturnType<typeof att>[]) =>
     transformAttachments(rows as never, new Set([firstPostId(1), 50]), ASOF);
 
-  it("挂到所属回帖；pid=0 挂首帖；KB → 字节；零宽高为 null；MIME 由扩展名推导", () => {
-    const r = run([att({}), att({ aid: 2, pid: 50, name: "a.JPG", width: 800, height: 600 })]);
-    expect(r.rows[0]).toMatchObject({
+  it("挂到所属回帖；pid=0 挂首帖；记下旧站路径与下载数（文件本体交文件管线）", () => {
+    const r = run([att({}), att({ aid: 2, pid: 50, name: "a.JPG", path: "Mon_1/a.jpg" })]);
+    expect(r.rows[0]).toEqual({
       postId: firstPostId(1),
-      sizeBytes: 26 * 1024,
-      width: null,
-      mime: "application/zip",
+      uploaderId: 1,
+      originalName: "字幕.zip",
+      sourcePath: "1302/thread/a.zip",
+      downloads: 3,
+      createdAt: expect.any(String),
     });
-    expect(r.rows[1]).toMatchObject({ postId: 50, width: 800, height: 600, mime: "image/jpeg" });
+    expect(r.rows[1]).toMatchObject({ postId: 50, sourcePath: "Mon_1/a.jpg" });
   });
 
   it("回帖已不存在改挂首帖；主题不存在则丢弃", () => {
     const r = run([att({ aid: 3, pid: 777 }), att({ aid: 4, tid: 404 })]);
     expect(r.rows.map((x) => x.postId)).toEqual([firstPostId(1)]);
     expect(r.stats).toEqual({ orphan: 1, reattachedToFirstPost: 1 });
-  });
-
-  it("mimeOf 未知扩展名回退 octet-stream", () => {
-    expect(mimeOf("x.unknown", "")).toBe("application/octet-stream");
-    expect(mimeOf("", "a/b.png")).toBe("image/png");
   });
 });
 

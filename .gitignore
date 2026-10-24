@@ -25,3 +25,6 @@ apps/web/next-env.d.ts
 .zcode/
 drizzle/meta/_journal.json.bak
 /migration/reports/
+
+# 文件存储根目录（内容寻址的上传文件，体积大，不入库）
+/storage/

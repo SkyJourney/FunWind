@@ -136,6 +136,7 @@ export const OWNED_TABLES: ReadonlySet<string> = new Set([
   "checkins",
   "badges",
   "user_badges",
+  "files",
   "follows",
   "reactions",
   "polls",
@@ -163,8 +164,9 @@ export async function assertNoLiveData(asOf: string): Promise<void> {
     `SELECT (SELECT COUNT(*) FROM point_ledger WHERE channel <> 'opening') AS ledger,
             (SELECT COUNT(*) FROM gate_unlocks WHERE unlocked_at > ?) AS purchases,
             (SELECT COUNT(*) FROM posts WHERE created_at > ?) AS newer_posts,
+            (SELECT COUNT(*) FROM files WHERE created_at > ?) AS newer_files,
             (SELECT COUNT(*) FROM audit_log) AS audits`,
-    [asOf, asOf],
+    [asOf, asOf, asOf],
   );
   const live = Object.entries(row ?? {}).filter(([, n]) => Number(n) > 0);
   if (live.length > 0) {

@@ -27,6 +27,11 @@ export const config = {
   reportDir: join(repoRoot, "docs/reports"),
   /** 含个人信息（完整邮箱等）的待办清单：写入已被 .gitignore 的目录，绝不入库 */
   privateReportDir: join(repoRoot, "migration/reports"),
+  /** 勋章图所在目录（medal_info.image 的相对路径基准） */
+  medalDir:
+    env.MEDAL_DIR ?? "/Volumes/Docker/data/qingyisub/wwwroot/www.qingyisub.top/res/images/medal",
+  /** 新存储根目录：文件按内容哈希寻址写入此处（`ab/cd/<sha256>.<ext>`），可整体平移到对象存储 */
+  storageDir: env.STORAGE_DIR ?? join(repoRoot, "storage"),
   /** 表情静态资源落点（随应用发布） */
   emojiOutDir: join(repoRoot, "apps/web/public/emoji"),
   batchSize: Number(env.BATCH_SIZE ?? 2000),
