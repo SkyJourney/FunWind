@@ -1,5 +1,8 @@
 "use server";
 
+// 授权管理会派发 role.changed：使用内核的 Server Action 须自行求值模块注册表（硬约定 9），
+// 否则事件只落 event_log、消费者不会被调用（modules-import-guard.test.ts 守护）
+import "@/modules";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";

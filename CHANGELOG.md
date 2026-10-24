@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### Fixed（M5.5 之后审查 · P2 小批 5/6：硬约定 9 的守卫）
+
+- `app/admin/actions.ts` 经 `lib/authz/admin.ts` 派发 `role.changed`，自己却没有 `import "@/modules"`：注册表不在该服务端上下文求值时，事件只落 `event_log`、消费者不会被调用。目前没有消费者所以无感，M8 通知订阅后会静默丢通知。已补上引入。
+- 新增 `modules/kernel/modules-import-guard.test.ts`：静态分析 import 图（含传递引用与相对路径，忽略 `import type`），凡 Server Action（文件头 `"use server"`）与 `route.ts`，只要（传递）引用到会触及内核的文件（非 `modules/` 目录下运行时引入 `@/modules/kernel/*` 者，自动发现、无需维护清单），就必须直接 `import "@/modules"`。真实仓库当前 8 个入口，修复前只有 `admin/actions.ts` 违规，无误报。
+- 分析函数是纯函数，附 5 组合成样例验证守卫本身（直接 / 传递 / 补引入 / 只引类型 / 页面不算入口）；对真实仓库做变异（删掉 `admin/actions.ts` 与 `actions/gates.ts` 的引入）时守卫逐个点名。局限已写进测试注释：只看静态 import，动态 `import()` 看不到；页面只读，不在检查范围。
+
 ### Security（M5.5 之后审查 · P2 小批 4/6：解锁核对价格）
 
 - 购买表单此前只传 `gateId`，按事务内锁到的**当前价**扣款：作者在买家点击前改价，买家会被按新价扣款。现在表单带 `expectedPrice`（买家看到的价格），`unlockGate` 在锁住门控行后与当前价比对，不符返回新错误码 `price_changed`（不扣费、不记账、不解锁、不派发事件），页面提示「价格已变化，请确认新价格后重试」。
