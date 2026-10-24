@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### Added（附件与门控 · 第 5 步：E2E 与收尾）
+
+- E2E 夹具 `gateAttach` 帖（`packages/db/src/e2e-fixtures.ts`，镜像常量见 `e2e/support/fixtures.ts`）：付费 10 / 回复可见两个门控，四个附件（公开 / 付费 txt / 付费图 / 回复 txt），门控图同时嵌在付费门控的隐藏正文里；demo_member 已购买付费门控。夹具集成测试覆盖归属与完整性。
+- 新增 `e2e/gate-attachments.spec.ts`（4 项，E2E 共 59 + 冒烟 7）：游客与未解锁者的页面里没有被锁附件的名字 / 存储键 / 隐藏正文，直接请求 `/files` 全部 404；已购买者可取付费附件与门控图（`private, no-store`、无 ETag、带 If-None-Match 也是完整 200），回复门控的仍锁；作者全部可取。变异验证：让两处门控判定失效，3 项变红。
+- 文档：`GATES.md` 新增 §5a；M6 里程碑新增 §6b（写入侧约束：作者选归属、保存事务校验、门控内联图登记、`gateConditions` 的决定）；审查报告 P1-2 标记已修复。
+
 ### Changed（附件与门控 · 第 4 步：迁移映射）
 
 - UBB 转换器记录每个 `[attachment=N]` 引用所在的门控（`ConvertResult.attachmentRefs`；被丢弃的门控内的引用不记）；`bindAttachmentGates` 按设计稿 §7 的 R1~R5 给附件定 `gate_id`，歧义（R4）按「付费价高 > 回复可见 > 免费解锁，并列取最后一个」归属并列入导入报告待复核。`attachments` 写入带上 `gate_id`。

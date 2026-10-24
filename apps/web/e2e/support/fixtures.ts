@@ -17,7 +17,17 @@ export const FIX = {
     attach: 950005,
     deletedState: 950006,
     staffSecret: 950007,
+    gateAttach: 950008,
     waterPin: 950021,
+  },
+  /** 门控附件帖（付费 10 / 回复可见两个门控）里的附件名与门控图；demo_member(90005) 已购买付费门控 */
+  gateAttach: {
+    publicName: "公开附件.txt",
+    paidName: "付费附件.txt",
+    paidImageName: "门控图.png",
+    replyName: "回复可见附件.txt",
+    paidText: "E2E 付费可见正文。",
+    replyText: "E2E 回复可见正文。",
   },
   /** 水区第一个普通主题的标题（用来断言“置顶帖不会重复进入普通列表”） */
   placeholderUserId: 95001,

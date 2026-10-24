@@ -25,6 +25,11 @@
    正文图片与下载附件同一上传管线（图片内联为 `/files/…`，其余写 `attachments`）；图片缩略；
    **非图片附件下载走带权限校验的路由**（按所属帖子的版块读权限，M5.5 遗留）；孤儿附件在 post 末尾自动列出。
    头像上传同管线（写 `user_profiles.avatar_file_id`）。
+6b. **门控附件创作约束**（M5.5 之后审查 P1-2；设计与读取侧已就绪，见 [ATTACHMENT-GATES.md](../ATTACHMENT-GATES.md)，**写入侧归本里程碑**）：
+    · 上传 / 编辑时作者为每个附件选择归属：公开或某个门控，落 `attachments.gate_id`；读取一律走 `lib/gates/attachments.ts`（硬约定 3d），不得另写查询。
+    · **保存事务内校验**：该帖每个附件的 `gate_id` 必须指向该帖现存的门控；删除带附件的门控块时拒绝保存并提示重新指派，**不得**静默把附件变公开（读取侧对悬空归属一律锁定，`db:verify` 也会报错）。
+    · 门控块内**内联**的图片（隐藏正文里引用的 `/files/<key>`）：拆分门控时若无附件行，自动登记一条 `gate_id` = 该门控的附件行，否则图片会按「无附件行 = 公开」被任何人取到；交互细节（是否在帖尾附件列表里展示）在 M6 设计稿定。
+    · 门控条件校验：`gateConditions` 的「可插拔」目前是名义上的（求值器按 `points` / `reply` 硬编码，详见审查报告 P2），M6 引入新增条件前须先决定接入注册表或删除该边界。
 6a. **审核提交**：版块 `review_policy` 要求审核时，提交的主题/回帖进入 `pending`，作者看到「待审核」提示；被驳回后可编辑重新提交；发 `content.submitted`（审核队列在 M9）。
 7. **频控落地**：`threads_perday` / `post_pertime` / `post_url_num` 等 ABAC 条件的计数实现（M5 仅留了接口）。
 8. **事件接入**：`thread.created/replied/edited/deleted`、`content.submitted`、`post.mentioned`、`attachment.uploaded` 真实派发（写 `event_log`），

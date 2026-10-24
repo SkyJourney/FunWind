@@ -7,7 +7,8 @@
  * （Playwright 以 CJS 加载，无法直接 import 本 ESM 模块，改动时两处同步）。
  *
  * 场景：公开版块（带主题前缀）、水区分页（60 个普通主题 + 1 个版块置顶）、全站置顶 ×3、
- * 历史表情、正文内联图、已注销作者、投票帖、带附件的帖、已删除主题、仅管理员可读的受限版块、头像。
+ * 历史表情、正文内联图、已注销作者、投票帖、带附件的帖、已删除主题、仅管理员可读的受限版块、头像、
+ * 门控附件帖（付费 + 回复两个门控，附件分别绑定门控 / 公开，付费门控内另嵌一张门控图；demo_member 已购买付费门控）。
  */
 import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -20,8 +21,10 @@ import {
   files,
   forumPrefixes,
   forums,
+  gateUnlocks,
   pollOptions,
   polls,
+  postGates,
   posts,
   siteSettings,
   threads,
@@ -38,6 +41,7 @@ export const E2E_FIX = {
   prefixAiring: 9501,
   placeholderUser: 95001, // state=deleted 的「已注销用户」占位账号
   alice: 90001, // 演示种子里的用户（头像挂在她身上）
+  member: 90005, // 演示种子里的用户：已购买门控附件帖的付费门控
   thread: {
     emoji: 950001,
     image: 950002,
@@ -46,9 +50,12 @@ export const E2E_FIX = {
     attach: 950005,
     deletedState: 950006,
     staffSecret: 950007,
+    /** 门控附件帖（docs/ATTACHMENT-GATES.md）：门控 a1 付费 10、a2 回复可见 */
+    gateAttach: 950008,
     globalPins: [950011, 950012, 950013],
     waterPin: 950021,
   },
+  gate: { paid: 950081, reply: 950082 }, // post_gates.id
   waterFirst: 951001, // 水区普通主题 id 起点
   waterCount: 60,
 } as const;
@@ -83,6 +90,9 @@ function toStored(body: Buffer, ext: string, mime: string): StoredFile {
   };
 }
 
+/** 门控图片：合法 PNG 末尾追加标记字节（解码器忽略 IEND 之后的数据），哈希因此与普通图片不同 */
+const PNG_GATED = Buffer.concat([PNG_1X1, Buffer.from("e2e-gated-image")]);
+
 const AT = "2026-10-20 12:00:00";
 /** 第 n 分钟的时间戳，保证列表排序确定 */
 const minute = (n: number) =>
@@ -95,7 +105,12 @@ export async function seedE2eFixtures(db: Db, alice = E2E_FIX.alice): Promise<vo
   const png = toStored(PNG_1X1, "png", "image/png");
   const txtA = toStored(Buffer.from("E2E 附件 A：字幕时间轴\n"), "txt", "text/plain");
   const txtB = toStored(Buffer.from("E2E 附件 B：术语表\n"), "txt", "text/plain");
-  const stored = [png, txtA, txtB];
+  // 门控附件帖用的文件：内容各不相同，避免与其他帖按哈希去重后互相「放行」
+  const gPaidZip = toStored(Buffer.from("E2E 付费附件：完整字幕包\n"), "txt", "text/plain");
+  const gReplyZip = toStored(Buffer.from("E2E 回复可见附件\n"), "txt", "text/plain");
+  const gPublicTxt = toStored(Buffer.from("E2E 门控帖里的公开附件\n"), "txt", "text/plain");
+  const gImage = toStored(PNG_GATED, "png", "image/png");
+  const stored = [png, txtA, txtB, gPaidZip, gReplyZip, gPublicTxt, gImage];
   for (const f of stored) {
     const dest = join(storageRoot(), f.storageKey);
     mkdirSync(dirname(dest), { recursive: true });
@@ -123,6 +138,12 @@ export async function seedE2eFixtures(db: Db, alice = E2E_FIX.alice): Promise<vo
     return row!.id;
   };
   const [pngId, txtAId, txtBId] = [await idOf(png), await idOf(txtA), await idOf(txtB)];
+  const [paidZipId, replyZipId, publicTxtId, gImageId] = [
+    await idOf(gPaidZip),
+    await idOf(gReplyZip),
+    await idOf(gPublicTxt),
+    await idOf(gImage),
+  ];
 
   // ---------- 用户：已注销占位账号 + 头像 ----------
   await db
@@ -207,6 +228,7 @@ export async function seedE2eFixtures(db: Db, alice = E2E_FIX.alice): Promise<vo
     kind?: "normal" | "poll";
     state?: "visible" | "deleted";
     prefixId?: number;
+    hasGate?: boolean;
   }
   const specials: T[] = [
     {
@@ -267,6 +289,16 @@ export async function seedE2eFixtures(db: Db, alice = E2E_FIX.alice): Promise<vo
       title: "[内部] E2E 站务议程",
       body: "仅管理员可见。",
       at: minute(7),
+    },
+    {
+      id: F.thread.gateAttach,
+      forumId: F.anime,
+      authorId: alice,
+      title: "E2E 门控附件帖",
+      // 门控处只留占位；隐藏正文在下方 post_gates
+      body: '公开说明。\n\n:::gate{key="a1"}\n:::\n\n:::gate{key="a2"}\n:::',
+      at: minute(8),
+      hasGate: true,
     },
     ...F.thread.globalPins.map((id, i) => ({
       id,
@@ -329,11 +361,14 @@ export async function seedE2eFixtures(db: Db, alice = E2E_FIX.alice): Promise<vo
         floor: 1,
         authorId: t.authorId,
         bodyMd: t.body,
+        hasGate: t.hasGate ?? false,
         state: t.state ?? ("visible" as const),
         createdAt: t.at,
       })),
     )
-    .onDuplicateKeyUpdate({ set: { bodyMd: incoming("body_md"), state: incoming("state") } });
+    .onDuplicateKeyUpdate({
+      set: { bodyMd: incoming("body_md"), hasGate: incoming("has_gate"), state: incoming("state") },
+    });
 
   // ---------- 投票 ----------
   await db
@@ -376,6 +411,90 @@ export async function seedE2eFixtures(db: Db, alice = E2E_FIX.alice): Promise<vo
       },
     ])
     .onDuplicateKeyUpdate({ set: { originalName: incoming("original_name") } });
+
+  // ---------- 门控附件帖：两个门控 + 绑定门控 / 公开的附件 ----------
+  const gatePost = postIdOf(F.thread.gateAttach);
+  await db
+    .insert(postGates)
+    .values([
+      {
+        id: F.gate.paid,
+        postId: gatePost,
+        gateKey: "a1",
+        conditions: [{ type: "points", price: 10 }],
+        // 隐藏块里内嵌一张门控图（与迁移数据里「门控内引用的图片附件」同形）
+        hiddenMd: `E2E 付费可见正文。\n\n![门控图](/files/${gImage.storageKey})`,
+        unlockCount: 1,
+        createdAt: minute(8),
+        updatedAt: minute(8),
+      },
+      {
+        id: F.gate.reply,
+        postId: gatePost,
+        gateKey: "a2",
+        conditions: [{ type: "reply" }],
+        hiddenMd: "E2E 回复可见正文。",
+        createdAt: minute(8),
+        updatedAt: minute(8),
+      },
+    ])
+    .onDuplicateKeyUpdate({
+      set: { hiddenMd: incoming("hidden_md"), unlockCount: incoming("unlock_count") },
+    });
+  await db
+    .insert(gateUnlocks)
+    .values({
+      gateId: F.gate.paid,
+      userId: F.member,
+      pricePaid: 10,
+      authorIncome: 10,
+      unlockedAt: minute(9),
+    })
+    .onDuplicateKeyUpdate({ set: { pricePaid: incoming("price_paid") } });
+  const attId = F.thread.gateAttach * 10;
+  await db
+    .insert(attachments)
+    .values([
+      {
+        id: attId + 1,
+        postId: gatePost,
+        gateId: null,
+        fileId: publicTxtId,
+        uploaderId: alice,
+        originalName: "公开附件.txt",
+        createdAt: minute(8),
+      },
+      {
+        id: attId + 2,
+        postId: gatePost,
+        gateId: F.gate.paid,
+        fileId: paidZipId,
+        uploaderId: alice,
+        originalName: "付费附件.txt",
+        createdAt: minute(8),
+      },
+      {
+        id: attId + 3,
+        postId: gatePost,
+        gateId: F.gate.paid,
+        fileId: gImageId,
+        uploaderId: alice,
+        originalName: "门控图.png",
+        createdAt: minute(8),
+      },
+      {
+        id: attId + 4,
+        postId: gatePost,
+        gateId: F.gate.reply,
+        fileId: replyZipId,
+        uploaderId: alice,
+        originalName: "回复可见附件.txt",
+        createdAt: minute(8),
+      },
+    ])
+    .onDuplicateKeyUpdate({
+      set: { originalName: incoming("original_name"), gateId: incoming("gate_id") },
+    });
 
   // ---------- 站点设置：积分显示名 ----------
   // 门控 E2E 的文案断言（“已购买 · 10 青翼币”）依赖它；原来由迁移写入，自包含后改由夹具负责。

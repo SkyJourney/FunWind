@@ -14,12 +14,16 @@ import { bootstrapDb } from "./bootstrap.js";
 import { createDb, createPool } from "./client.js";
 import { newDbConfig } from "./env.js";
 import { E2E_FIX, seedE2eFixtures } from "./e2e-fixtures.js";
+import { findAttachmentGateAnomalies } from "./integrity.js";
 import { seedDemoData } from "./seed-data.js";
 import {
   attachments,
   files,
   forums,
+  gateUnlocks,
   pollOptions,
+  postGates,
+  posts,
   roleGrants,
   threads,
   userProfiles,
@@ -110,6 +114,49 @@ describe.skipIf(skip)("E2E 夹具集成（临时库）", () => {
     });
   });
 
+  it("门控附件帖：两个门控、四个附件（1 公开 / 2 付费 / 1 回复），归属完整、已购买者有解锁记录", async () => {
+    await withTestDb(async (db) => {
+      const F = E2E_FIX;
+      const gatePost = 9_000_000 + F.thread.gateAttach;
+      const [post] = await db.select().from(posts).where(eq(posts.id, gatePost));
+      expect(post?.hasGate).toBe(true);
+      expect(post?.bodyMd).not.toContain("E2E 付费可见正文"); // 隐藏正文不在公开正文里
+      const gates = await db.select().from(postGates).where(eq(postGates.postId, gatePost));
+      expect(gates.map((g) => g.id).sort()).toEqual([F.gate.paid, F.gate.reply].sort());
+      const atts = await db.select().from(attachments).where(eq(attachments.postId, gatePost));
+      const byName = Object.fromEntries(atts.map((a) => [a.originalName, a.gateId]));
+      expect(byName).toEqual({
+        "公开附件.txt": null,
+        "付费附件.txt": F.gate.paid,
+        "门控图.png": F.gate.paid,
+        "回复可见附件.txt": F.gate.reply,
+      });
+      // 完整性：没有悬空 / 跨帖 / 挂在非门控帖上的附件
+      const pool = createPool(config);
+      try {
+        expect(await findAttachmentGateAnomalies(pool)).toEqual({
+          dangling: 0,
+          crossPost: 0,
+          onUngatedPost: 0,
+        });
+      } finally {
+        await pool.end();
+      }
+      const unlocks = await db.select().from(gateUnlocks);
+      expect(unlocks.filter((u) => u.gateId === F.gate.paid).map((u) => u.userId)).toEqual([
+        F.member,
+      ]);
+      // 付费门控的隐藏块里嵌着门控图的 /files 地址
+      const paid = gates.find((g) => g.id === F.gate.paid)!;
+      const img = await db
+        .select()
+        .from(files)
+        .innerJoin(attachments, eq(attachments.fileId, files.id))
+        .where(eq(attachments.originalName, "门控图.png"));
+      expect(paid.hiddenMd).toContain(img[0]!.files.storageKey);
+    });
+  });
+
   it("文件真实落盘、哈希与登记一致；头像与附件指向这些文件", async () => {
     await withTestDb(async (db) => {
       const rows = await db.select().from(files);
@@ -123,12 +170,27 @@ describe.skipIf(skip)("E2E 夹具集成（临时库）", () => {
         .select()
         .from(userProfiles)
         .where(eq(userProfiles.userId, E2E_FIX.alice));
-      const png = rows.find((f) => f.mime === "image/png");
-      expect(profile?.avatarFileId).toBe(png?.id);
-      const atts = await db.select().from(attachments);
-      expect(atts).toHaveLength(2);
+      // 头像是普通 PNG（不是门控图那张带标记字节的变体）
+      const avatar = rows.find((f) => f.id === profile?.avatarFileId);
+      expect(avatar?.mime).toBe("image/png");
+      expect(avatar?.sizeBytes).toBe(
+        Buffer.from(
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+          "base64",
+        ).length,
+      );
+      // 普通附件帖：两个 txt，均公开
+      const plain = await db
+        .select()
+        .from(attachments)
+        .innerJoin(posts, eq(posts.id, attachments.postId))
+        .where(eq(posts.threadId, E2E_FIX.thread.attach));
+      expect(plain).toHaveLength(2);
+      expect(plain.every((r) => r.attachments.gateId === null)).toBe(true);
       expect(
-        atts.every((a) => rows.some((f) => f.id === a.fileId && f.mime === "text/plain")),
+        plain.every((r) =>
+          rows.some((f) => f.id === r.attachments.fileId && f.mime === "text/plain"),
+        ),
       ).toBe(true);
     });
   });
