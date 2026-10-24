@@ -117,6 +117,13 @@ describe("harden（HTML 级净化）", () => {
     expect(out).toContain('target="_blank"');
   });
 
+  it("img 降级：来源不合法时变成纯文本 span——不留任何属性，alt 作为可见文字（复查 A4）", () => {
+    expect(renderMarkdown("![替代文字](javascript:alert(1))")).toBe("<p><span>替代文字</span></p>");
+    const out = renderHtml('<img src="/etc/passwd" alt="a" title="t" width="9" height="9">');
+    expect(out).toBe("<span>a</span>");
+    expect(renderHtml('<img src="/etc/passwd">')).toBe("<span></span>");
+  });
+
   it("img 站内路由保留并加 lazy；外站 http 保留；其他来源降级", () => {
     const out = renderHtml(
       '<img src="/emoji/130.gif"><img src="/files/ab/cd/x.png"><img src="https://x/a.png"><img src="/etc/passwd"><img src="/emotion/01/17.gif"><img src="/attachment/a.jpg">',

@@ -148,8 +148,12 @@ export function harden(tree: Root): Root {
     if (el.tagName === "img") {
       const src = typeof props.src === "string" ? props.src : "";
       if (!/^(https?:\/\/|\/(emoji|files)\/)/i.test(src)) {
-        el.tagName = "span"; // 非白名单来源：降级，alt 文本保留
-        delete props.src;
+        // 非白名单来源：降级为纯文本的 span。属性一律清空（alt / title / width / height 留在 span 上既无意义也不整洁，
+        // 复查 A4 语料发现），alt 作为可见文字放进去——这才是「alt 文本保留」的本意
+        const alt = typeof props.alt === "string" ? props.alt : "";
+        el.tagName = "span";
+        el.properties = {};
+        el.children = alt ? [{ type: "text", value: alt }] : [];
       } else {
         props.loading = "lazy";
         props.referrerPolicy = "no-referrer";
