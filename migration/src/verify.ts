@@ -5,13 +5,15 @@
  * 输出：控制台 + docs/reports/migration-v2-verify.md（确定性，入库）。
  */
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { extname, join } from "node:path";
 import { PERMISSION_DEFINITIONS } from "@funwind/db";
 import { BUILTIN_GIDS, TEAM_ROLES } from "./mapping/legacy-roles.js";
 import { AS_OF, config } from "./config.js";
 import { closePools, newQuery, oldQuery } from "./db.js";
+import { auditStored, confinedPath, safeExt } from "./lib/files.js";
 import { Report } from "./lib/report.js";
 import { MEMBER_GIDS } from "./transform/legacy-groups.js";
+import { legacyAvatarKey } from "./transform/users.js";
 
 interface Check {
   group: string;
@@ -43,29 +45,67 @@ const asOfUnix = Math.floor(new Date(`${AS_OF.replace(" ", "T")}+08:00`).getTime
   }
 }
 
+// ---------- 共享的独立推导（全部直接对旧库写 SQL / 独立代码，不复用迁移的转换函数） ----------
+
+/** 回收站版块子树（名称含「回收站」的版块及其全部后代）——不迁移 */
+const oldForums = await oldQuery<{ fid: number; parentid: number; name: string }>(
+  "SELECT fid, parentid, name FROM nw_bbs_forum",
+);
+const recycled = new Set<number>(
+  oldForums.filter((f) => String(f.name).includes("回收站")).map((f) => Number(f.fid)),
+);
+for (let grew = true; grew;) {
+  grew = false;
+  for (const f of oldForums) {
+    if (!recycled.has(Number(f.fid)) && recycled.has(Number(f.parentid))) {
+      recycled.add(Number(f.fid));
+      grew = true;
+    }
+  }
+}
+const keepFids = oldForums.map((f) => Number(f.fid)).filter((f) => !recycled.has(f));
+const keepFidSql = keepFids.join(",");
+
+/** 垃圾空壳主题：无首帖正文且无回帖（别名 t 指向 nw_bbs_threads） */
+const SHELL = `NOT EXISTS (SELECT 1 FROM nw_bbs_threads_content c WHERE c.tid = t.tid)
+   AND NOT EXISTS (SELECT 1 FROM nw_bbs_posts p WHERE p.tid = t.tid)`;
+/** 应迁移的主题：可见、版块仍在、有作者、非空壳 */
+const EXP_THREAD = `t.disabled = 0 AND t.ifshield = 0 AND t.fid IN (${keepFidSql})
+   AND t.created_userid > 0 AND NOT (${SHELL})`;
+/** 应迁移的回帖（别名 p，所属主题别名 t 必须满足 EXP_THREAD） */
+const EXP_POST = `p.disabled = 0 AND p.ifshield = 0 AND p.created_userid > 0`;
+
+/** 只发过垃圾空壳主题的账号（不迁移） */
+const spamUids = (
+  await oldQuery<{ uid: number }>(`
+    SELECT t.created_userid uid FROM nw_bbs_threads t
+    LEFT JOIN nw_bbs_threads_content c ON c.tid = t.tid
+    WHERE c.tid IS NULL AND NOT EXISTS (SELECT 1 FROM nw_bbs_posts p WHERE p.tid = t.tid)
+      AND EXISTS (SELECT 1 FROM nw_user u WHERE u.uid = t.created_userid)
+      AND NOT EXISTS (SELECT 1 FROM nw_bbs_posts p2 WHERE p2.created_userid = t.created_userid)
+      AND NOT EXISTS (SELECT 1 FROM nw_bbs_threads t2 JOIN nw_bbs_threads_content c2 ON c2.tid = t2.tid
+                      WHERE t2.created_userid = t.created_userid)
+    GROUP BY t.created_userid`)
+).map((r) => Number(r.uid));
+const NOT_SPAM = spamUids.length ? `NOT IN (${spamUids.join(",")})` : "IS NOT NULL";
+
 // ---------- 用户 ----------
 group = "用户";
 {
+  const realUsers = (await num("SELECT COUNT(*) n FROM nw_user")) - spamUids.length;
   eq(
-    "行数 users",
-    await num("SELECT COUNT(*) n FROM nw_user"),
-    await num("SELECT COUNT(*) n FROM users", newQuery),
+    "真实用户数（旧用户 − spam 账号）",
+    realUsers,
+    await num("SELECT COUNT(*) n FROM users WHERE state = 'active'", newQuery),
   );
   eq(
-    "行数 user_profiles",
-    await num("SELECT COUNT(*) n FROM nw_user"),
+    "行数 user_profiles（真实用户 + 占位账号）",
+    await num("SELECT COUNT(*) n FROM users", newQuery),
     await num("SELECT COUNT(*) n FROM user_profiles", newQuery),
   );
-  const [u] = await newQuery<{
-    n: number;
-    uk: number;
-    ek: number;
-    nopw: number;
-    nodate: number;
-  }>(
+  const [u] = await newQuery<{ n: number; uk: number; ek: number; nopw: number; nodate: number }>(
     `SELECT COUNT(*) n, COUNT(DISTINCT username_key) uk, COUNT(email_key) ek,
-            COUNT(DISTINCT email_key) dek, SUM(password_hash IS NOT NULL) nopw,
-            SUM(created_at IS NULL) nodate FROM users`,
+            SUM(password_hash IS NOT NULL) nopw, SUM(created_at IS NULL) nodate FROM users`,
   );
   add("用户名归一化键唯一", Number(u!.uk) === Number(u!.n), `${u!.uk}/${u!.n}`);
   const dek = await num("SELECT COUNT(DISTINCT email_key) n FROM users", newQuery);
@@ -74,40 +114,81 @@ group = "用户";
   add("注册时间无空值", Number(u!.nodate) === 0, `空 ${u!.nodate}`);
 
   // 平假名/片假名账号都在（旧站 EUC-JP 实测红线：さくら≠サクラ）
-  const kana = await num(
-    "SELECT COUNT(*) n FROM users WHERE username IN ('さくら','サクラ')",
+  eq(
+    "假名用户名不碰撞",
+    await num("SELECT COUNT(*) n FROM nw_user WHERE username IN ('さくら','サクラ')"),
+    await num("SELECT COUNT(*) n FROM users WHERE username IN ('さくら','サクラ')", newQuery),
+  );
+
+  // spam 账号不迁：它们的 uid 不得以真实用户身份出现
+  const spamLeak = spamUids.length
+    ? await num(
+        `SELECT COUNT(*) n FROM users WHERE state = 'active' AND id IN (${spamUids.join(",")})`,
+        newQuery,
+      )
+    : 0;
+  add("spam 账号未作为真实用户迁入", spamLeak === 0, `${spamUids.length} 个，泄入 ${spamLeak}`);
+
+  // 头像：旧站磁盘上有主图的真实用户数 = 带 avatar_file_id 的用户数
+  const olds = await oldQuery<{ uid: number }>(`SELECT uid FROM nw_user WHERE uid ${NOT_SPAM}`);
+  const expAvatars = olds.filter((r) =>
+    existsSync(join(config.attachmentDir, legacyAvatarKey(Number(r.uid)))),
+  ).length;
+  eq(
+    "有头像的用户数（旧站磁盘上有主图）",
+    expAvatars,
+    await num("SELECT COUNT(*) n FROM user_profiles WHERE avatar_file_id IS NOT NULL", newQuery),
+  );
+
+  // 占位账号：引用诚实——内容作者都在 users；占位账号都有内容且不带身份信息、不持有资产
+  const orphanAuthors = await num(
+    `SELECT (SELECT COUNT(*) FROM threads t LEFT JOIN users u ON u.id = t.author_id WHERE u.id IS NULL)
+          + (SELECT COUNT(*) FROM posts p LEFT JOIN users u ON u.id = p.author_id WHERE u.id IS NULL)
+          + (SELECT COUNT(*) FROM attachments a LEFT JOIN users u ON u.id = a.uploader_id WHERE u.id IS NULL) AS n`,
     newQuery,
   );
-  const kanaOld = await num("SELECT COUNT(*) n FROM nw_user WHERE username IN ('さくら','サクラ')");
-  eq("假名用户名不碰撞", kanaOld, kana);
-
-  // 头像：avatar_key 非空的文件必须真实存在；旧站有主图文件的用户都要带上
-  const withAvatar = await newQuery<{ id: number; avatar_key: string }>(
-    "SELECT user_id AS id, avatar_key FROM user_profiles WHERE avatar_key IS NOT NULL",
+  add("内容作者/上传者都指向存在的用户", orphanAuthors === 0, `悬空 ${orphanAuthors}`);
+  const useless = await num(
+    `SELECT COUNT(*) n FROM users u WHERE u.state = 'deleted'
+       AND NOT EXISTS (SELECT 1 FROM threads t WHERE t.author_id = u.id)
+       AND NOT EXISTS (SELECT 1 FROM posts p WHERE p.author_id = u.id)
+       AND NOT EXISTS (SELECT 1 FROM attachments a WHERE a.uploader_id = u.id)`,
+    newQuery,
   );
-  const missing = withAvatar.filter((r) => !existsSync(join(config.attachmentDir, r.avatar_key)));
-  add("头像文件均存在", missing.length === 0, `${withAvatar.length} 个，缺失 ${missing.length}`);
-
-  const spamNew = await num("SELECT COUNT(*) n FROM users WHERE state = 'spam'", newQuery);
-  const spamOld = await num(`SELECT COUNT(*) n FROM (
-      SELECT t.created_userid uid FROM nw_bbs_threads t
-      LEFT JOIN nw_bbs_threads_content c ON c.tid = t.tid
-      WHERE c.tid IS NULL AND NOT EXISTS (SELECT 1 FROM nw_bbs_posts p WHERE p.tid = t.tid)
-        AND EXISTS (SELECT 1 FROM nw_user u WHERE u.uid = t.created_userid)
-        AND NOT EXISTS (SELECT 1 FROM nw_bbs_posts p2 WHERE p2.created_userid = t.created_userid)
-        AND NOT EXISTS (SELECT 1 FROM nw_bbs_threads t2 JOIN nw_bbs_threads_content c2 ON c2.tid = t2.tid
-                        WHERE t2.created_userid = t.created_userid)
-      GROUP BY t.created_userid) x`);
-  eq("spam 用户数（独立 SQL 推导）", spamOld, spamNew);
+  add("占位账号都有内容（无多余占位）", useless === 0, `多余 ${useless}`);
+  const phBad = await num(
+    `SELECT COUNT(*) n FROM users WHERE state = 'deleted'
+       AND (email IS NOT NULL OR password_hash IS NOT NULL OR username <> CONCAT('已注销用户#', id))`,
+    newQuery,
+  );
+  add("占位账号无邮箱/密码且命名规范", phBad === 0, `异常 ${phBad}`);
+  const phAssets = await num(
+    `SELECT (SELECT COUNT(*) FROM point_accounts a JOIN users u ON u.id = a.user_id WHERE u.state = 'deleted')
+          + (SELECT COUNT(*) FROM user_roles r JOIN users u ON u.id = r.user_id WHERE u.state = 'deleted')
+          + (SELECT COUNT(*) FROM user_badges b JOIN users u ON u.id = b.user_id WHERE u.state = 'deleted')
+          + (SELECT COUNT(*) FROM follows f JOIN users u ON u.id = f.user_id WHERE u.state = 'deleted')
+          + (SELECT COUNT(*) FROM reactions r JOIN users u ON u.id = r.user_id WHERE u.state = 'deleted')
+          + (SELECT COUNT(*) FROM gate_unlocks g JOIN users u ON u.id = g.user_id WHERE u.state = 'deleted') AS n`,
+    newQuery,
+  );
+  add("占位账号不持有积分/角色/徽章/关注/点赞/解锁", phAssets === 0, `持有 ${phAssets}`);
 }
 
 // ---------- 版块 ----------
 group = "版块";
 {
   eq(
-    "行数 forums",
-    await num("SELECT COUNT(*) n FROM nw_bbs_forum"),
+    "行数 forums（旧版块 − 回收站子树）",
+    keepFids.length,
     await num("SELECT COUNT(*) n FROM forums", newQuery),
+  );
+  const recycledLeak = recycled.size
+    ? await num(`SELECT COUNT(*) n FROM forums WHERE id IN (${[...recycled].join(",")})`, newQuery)
+    : 0;
+  add(
+    "回收站子树未迁入",
+    recycledLeak === 0,
+    `回收站版块 ${[...recycled].join("、")}，泄入 ${recycledLeak}`,
   );
 
   const bad = await newQuery<{ id: number }>(
@@ -126,13 +207,13 @@ group = "版块";
   // 读策略：独立用 FIND_IN_SET 推导期望的 public/members/restricted 数量
   const memberAny = [...MEMBER_GIDS].map((g) => `FIND_IN_SET(${g}, allow_read)`).join(" OR ");
   const expPublic = await num(
-    `SELECT COUNT(*) n FROM nw_bbs_forum WHERE allow_read <> '' AND FIND_IN_SET(2, allow_read)`,
+    `SELECT COUNT(*) n FROM nw_bbs_forum WHERE fid IN (${keepFidSql}) AND allow_read <> '' AND FIND_IN_SET(2, allow_read)`,
   );
   const expMembers = await num(
-    `SELECT COUNT(*) n FROM nw_bbs_forum WHERE allow_read <> '' AND NOT FIND_IN_SET(2, allow_read) AND (${memberAny})`,
+    `SELECT COUNT(*) n FROM nw_bbs_forum WHERE fid IN (${keepFidSql}) AND allow_read <> '' AND NOT FIND_IN_SET(2, allow_read) AND (${memberAny})`,
   );
   const expRestricted = await num(
-    `SELECT COUNT(*) n FROM nw_bbs_forum WHERE allow_read <> '' AND NOT FIND_IN_SET(2, allow_read) AND NOT (${memberAny})`,
+    `SELECT COUNT(*) n FROM nw_bbs_forum WHERE fid IN (${keepFidSql}) AND allow_read <> '' AND NOT FIND_IN_SET(2, allow_read) AND NOT (${memberAny})`,
   );
   for (const [policy, exp] of [
     ["public", expPublic],
@@ -167,7 +248,7 @@ group = "版块";
 
   eq(
     "is_listed=0 的版块数",
-    await num("SELECT COUNT(*) n FROM nw_bbs_forum WHERE isshow = 0"),
+    await num(`SELECT COUNT(*) n FROM nw_bbs_forum WHERE isshow = 0 AND fid IN (${keepFidSql})`),
     await num("SELECT COUNT(*) n FROM forums WHERE is_listed = 0", newQuery),
   );
   eq(
@@ -186,12 +267,12 @@ group = "用户限制";
   const expMute = await num(
     `SELECT COUNT(*) n FROM (
        SELECT b.uid FROM nw_user_ban b JOIN nw_user u ON u.uid = b.uid
-        WHERE b.typeid = 1 AND (b.end_time = 0 OR b.end_time > ?)
+        WHERE b.typeid = 1 AND (b.end_time = 0 OR b.end_time > ?) AND b.uid ${NOT_SPAM}
        UNION
-       SELECT uid FROM nw_user WHERE groupid = 6
+       SELECT uid FROM nw_user WHERE groupid = 6 AND uid ${NOT_SPAM}
        UNION
        SELECT bl.uid FROM nw_user_belong bl JOIN nw_user u ON u.uid = bl.uid
-        WHERE bl.gid = 6 AND (bl.endtime = 0 OR bl.endtime > ?)
+        WHERE bl.gid = 6 AND (bl.endtime = 0 OR bl.endtime > ?) AND bl.uid ${NOT_SPAM}
      ) x`,
     oldQuery,
     [asOfUnix, asOfUnix],
@@ -212,7 +293,7 @@ group = "用户限制";
       `${kind} 条数`,
       await num(
         `SELECT COUNT(*) n FROM nw_user_ban b JOIN nw_user u ON u.uid = b.uid
-          WHERE b.typeid = ? AND (b.end_time = 0 OR b.end_time > ?)`,
+          WHERE b.typeid = ? AND (b.end_time = 0 OR b.end_time > ?) AND b.uid ${NOT_SPAM}`,
         oldQuery,
         [typeid, asOfUnix],
       ),
@@ -342,32 +423,59 @@ group = "站点设置";
 // ---------- 内容（统一 post 模型） ----------
 group = "内容";
 {
-  const shellSql = `NOT EXISTS (SELECT 1 FROM nw_bbs_threads_content c WHERE c.tid = t.tid)
-     AND NOT EXISTS (SELECT 1 FROM nw_bbs_posts p WHERE p.tid = t.tid)`;
-  const oldThreads = await num("SELECT COUNT(*) n FROM nw_bbs_threads");
+  const expThreads = await num(`SELECT COUNT(*) n FROM nw_bbs_threads t WHERE ${EXP_THREAD}`);
   eq(
-    "行数 threads（含改挂归档版块的主题）",
-    oldThreads,
+    "行数 threads（只迁可见主题，独立 SQL）",
+    expThreads,
     await num("SELECT COUNT(*) n FROM threads", newQuery),
   );
   eq(
-    "spam 空壳主题",
-    await num(`SELECT COUNT(*) n FROM nw_bbs_threads t WHERE ${shellSql}`),
-    await num("SELECT COUNT(*) n FROM threads WHERE state = 'spam'", newQuery),
-  );
-  eq(
-    "首帖数 = 非 spam 主题数",
-    await num("SELECT COUNT(*) n FROM threads WHERE state <> 'spam'", newQuery),
-    await num("SELECT COUNT(*) n FROM posts WHERE floor = 1", newQuery),
-  );
-  eq(
-    "回帖数（旧回帖 − 孤儿/空壳下的回帖）",
+    "回帖数（可见回帖 ∩ 迁移的主题，独立 SQL）",
     await num(
       `SELECT COUNT(*) n FROM nw_bbs_posts p JOIN nw_bbs_threads t ON t.tid = p.tid
-        WHERE NOT (${shellSql})`,
+        WHERE ${EXP_THREAD} AND ${EXP_POST}`,
     ),
     await num("SELECT COUNT(*) n FROM posts WHERE floor > 1", newQuery),
   );
+  eq(
+    "首帖数 = 主题数",
+    await num("SELECT COUNT(*) n FROM threads", newQuery),
+    await num("SELECT COUNT(*) n FROM posts WHERE floor = 1", newQuery),
+  );
+  const notVisible = await num(
+    "SELECT (SELECT COUNT(*) FROM threads WHERE state <> 'visible') + (SELECT COUNT(*) FROM posts WHERE state <> 'visible') AS n",
+    newQuery,
+  );
+  add("迁入的内容全部是 visible", notVisible === 0, `非 visible ${notVisible}`);
+
+  // 回帖保留旧 pid 且仍在原主题
+  const oldPid = new Map(
+    (await oldQuery<{ pid: number; tid: number }>("SELECT pid, tid FROM nw_bbs_posts")).map((r) => [
+      Number(r.pid),
+      Number(r.tid),
+    ]),
+  );
+  const replies = await newQuery<{ id: number; thread_id: number }>(
+    "SELECT id, thread_id FROM posts WHERE floor > 1",
+  );
+  const movedReplies = replies.filter((r) => oldPid.get(Number(r.id)) !== Number(r.thread_id));
+  add("回帖保留旧 pid 且仍属原主题", movedReplies.length === 0, `异常 ${movedReplies.length}`);
+
+  // 首帖 id：全部大于旧站最大 pid（不复用任何旧 pid），且随 tid 升序自增
+  const maxOld = await num("SELECT MAX(pid) n FROM nw_bbs_posts");
+  const minFirst = await num("SELECT MIN(id) n FROM posts WHERE floor = 1", newQuery);
+  add("首帖 id 全部大于旧站最大 pid", minFirst > maxOld, `最小首帖 ${minFirst} > 旧最大 ${maxOld}`);
+  const unordered = await num(
+    "SELECT COUNT(*) n FROM threads a JOIN threads b ON a.id < b.id AND a.first_post_id > b.first_post_id",
+    newQuery,
+  );
+  add("首帖 id 随 tid 升序", unordered === 0, `逆序对 ${unordered}`);
+  const firstGap = await num(
+    "SELECT MAX(first_post_id) - MIN(first_post_id) + 1 - COUNT(*) n FROM threads",
+    newQuery,
+  );
+  add("首帖 id 连续自增（无空洞）", firstGap === 0, `空洞 ${firstGap}`);
+
   const gaps = await num(
     "SELECT COUNT(*) n FROM (SELECT thread_id FROM posts GROUP BY thread_id HAVING COUNT(*) <> MAX(floor)) x",
     newQuery,
@@ -375,48 +483,47 @@ group = "内容";
   add("楼层连续（无断层、无重复）", gaps === 0, `断层主题 ${gaps}`);
   const badFirst = await num(
     `SELECT COUNT(*) n FROM threads t LEFT JOIN posts p ON p.id = t.first_post_id AND p.floor = 1 AND p.thread_id = t.id
-      WHERE t.state <> 'spam' AND p.id IS NULL`,
+      WHERE p.id IS NULL`,
     newQuery,
   );
-  add("非 spam 主题都有 floor=1 的首帖", badFirst === 0, `缺首帖 ${badFirst}`);
+  add("每个主题都有 floor=1 的首帖", badFirst === 0, `缺首帖 ${badFirst}`);
+
+  // 置顶 / 精华（独立 SQL）
   eq(
-    "回收站(disabled>0)主题 → deleted",
-    await num(`SELECT COUNT(*) n FROM nw_bbs_threads t WHERE t.disabled > 0 AND NOT (${shellSql})`),
-    await num("SELECT COUNT(*) n FROM threads WHERE state = 'deleted'", newQuery),
+    "置顶主题数（pin_level>0）",
+    await num(`SELECT COUNT(*) n FROM nw_bbs_threads t WHERE ${EXP_THREAD} AND t.topped > 0`),
+    await num("SELECT COUNT(*) n FROM threads WHERE pin_level > 0", newQuery),
   );
   eq(
-    "回收站/屏蔽回帖状态",
-    await num(
-      `SELECT COUNT(*) n FROM nw_bbs_posts p JOIN nw_bbs_threads t ON t.tid = p.tid
-        WHERE (p.disabled > 0 OR p.ifshield > 0) AND NOT (${shellSql})`,
-    ),
-    await num(
-      "SELECT COUNT(*) n FROM posts WHERE floor > 1 AND state IN ('deleted','hidden')",
-      newQuery,
-    ),
+    "精华主题数（is_featured）",
+    await num(`SELECT COUNT(*) n FROM nw_bbs_threads t WHERE ${EXP_THREAD} AND t.digest > 0`),
+    await num("SELECT COUNT(*) n FROM threads WHERE is_featured = 1", newQuery),
   );
-  const orphanFk = await num(
+
+  const dangling = await num(
     `SELECT (SELECT COUNT(*) FROM posts p LEFT JOIN threads t ON t.id = p.thread_id WHERE t.id IS NULL)
           + (SELECT COUNT(*) FROM threads t LEFT JOIN forums f ON f.id = t.forum_id WHERE f.id IS NULL)
-          + (SELECT COUNT(*) FROM attachments a LEFT JOIN posts p ON p.id = a.post_id WHERE p.id IS NULL) AS n`,
+          + (SELECT COUNT(*) FROM attachments a LEFT JOIN posts p ON p.id = a.post_id WHERE p.id IS NULL)
+          + (SELECT COUNT(*) FROM posts p JOIN posts r ON r.id = p.reply_to_post_id WHERE r.thread_id <> p.thread_id)
+          + (SELECT COUNT(*) FROM posts p LEFT JOIN posts r ON r.id = p.reply_to_post_id
+              WHERE p.reply_to_post_id IS NOT NULL AND r.id IS NULL) AS n`,
     newQuery,
   );
-  add("引用完整（帖→主题、主题→版块、附件→帖）", orphanFk === 0, `悬空 ${orphanFk}`);
-
-  // 附件：主题存在且非空壳
-  eq(
-    "附件数",
-    await num(
-      `SELECT COUNT(*) n FROM nw_attachs_thread a JOIN nw_bbs_threads t ON t.tid = a.tid WHERE NOT (${shellSql})`,
-    ),
-    await num("SELECT COUNT(*) n FROM attachments", newQuery),
-  );
-  const atts = await newQuery<{ storage_key: string }>("SELECT storage_key FROM attachments");
-  const attMissing = atts.filter((a) => !existsSync(join(config.attachmentDir, a.storage_key)));
   add(
-    "附件文件在磁盘上",
-    attMissing.length <= 1,
-    `缺失 ${attMissing.length}/${atts.length}（旧站源盘本就缺 1 个）`,
+    "引用完整（帖→主题、主题→版块、附件→帖、回复指针同主题）",
+    dangling === 0,
+    `悬空 ${dangling}`,
+  );
+
+  // 附件：所属主题被迁移、且文件在旧站磁盘上存在（独立用 existsSync 推导）
+  const oldAtts = await oldQuery<{ tid: number; path: string }>(
+    `SELECT a.tid, a.path FROM nw_attachs_thread a JOIN nw_bbs_threads t ON t.tid = a.tid WHERE ${EXP_THREAD}`,
+  );
+  const expAtts = oldAtts.filter((a) => existsSync(join(config.attachmentDir, a.path))).length;
+  eq(
+    "附件数（主题已迁移且源文件存在）",
+    expAtts,
+    await num("SELECT COUNT(*) n FROM attachments", newQuery),
   );
 }
 
@@ -446,44 +553,65 @@ group = "门控";
   );
   add("has_gate 与 post_gates 一致", flagBad === 0, `不一致 ${flagBad}`);
 
-  // 占位 ⇄ 门控一一对应
+  // 占位 ⇄ 门控一一对应：正文里的 :::gate{key="…"} 集合 = 该帖 post_gates 的 gate_key 集合
   const withGate = await newQuery<{ id: number; body_md: string }>(
     "SELECT id, body_md FROM posts WHERE has_gate = 1",
   );
-  const gatesOf = new Map<number, Set<number>>();
-  for (const g of await newQuery<{ id: number; post_id: number }>(
-    "SELECT id, post_id FROM post_gates",
+  const keysOf = new Map<number, Set<string>>();
+  for (const g of await newQuery<{ post_id: number; gate_key: string }>(
+    "SELECT post_id, gate_key FROM post_gates",
   )) {
-    const set = gatesOf.get(Number(g.post_id)) ?? new Set<number>();
-    set.add(Number(g.id));
-    gatesOf.set(Number(g.post_id), set);
+    const set = keysOf.get(Number(g.post_id)) ?? new Set<string>();
+    set.add(g.gate_key);
+    keysOf.set(Number(g.post_id), set);
   }
   let badPlaceholders = 0;
   const examples: number[] = [];
   for (const p of withGate) {
     const inBody = new Set(
-      [...p.body_md.matchAll(/:::gate\{id="(\d+)"\}/g)].map((m) => Number(m[1])),
+      [...p.body_md.matchAll(/:::gate\{key="([A-Za-z0-9_-]{1,16})"\}/g)].map((m) => m[1]!),
     );
-    const inDb = gatesOf.get(Number(p.id)) ?? new Set<number>();
-    const same = inBody.size === inDb.size && [...inBody].every((id) => inDb.has(id));
+    const inDb = keysOf.get(Number(p.id)) ?? new Set<string>();
+    const same = inBody.size === inDb.size && [...inBody].every((k) => inDb.has(k));
     if (!same) {
       badPlaceholders++;
       if (examples.length < 5) examples.push(Number(p.id));
     }
   }
   add(
-    "正文占位与 post_gates 一一对应",
+    "正文占位与 post_gates 一一对应（按 gate_key）",
     badPlaceholders === 0,
     badPlaceholders ? `不一致 ${badPlaceholders} 帖: ${examples}` : `${withGate.length} 帖全部一致`,
   );
 
+  // gate id：1..n 连续，且按 (post_id, 帖内序号) 升序
+  const gateIds = await newQuery<{ lo: number; hi: number; n: number }>(
+    "SELECT MIN(id) lo, MAX(id) hi, COUNT(*) n FROM post_gates",
+  );
+  const gi = gateIds[0]!;
+  add(
+    "门控 id 为 1..n 连续自增",
+    Number(gi.n) === 0 || (Number(gi.lo) === 1 && Number(gi.hi) === Number(gi.n)),
+    `${gi.lo}..${gi.hi}，共 ${gi.n}`,
+  );
+  const gateUnordered = await num(
+    "SELECT COUNT(*) n FROM post_gates a JOIN post_gates b ON a.id < b.id AND a.post_id > b.post_id",
+    newQuery,
+  );
+  add("门控 id 随 post_id 升序", gateUnordered === 0, `逆序对 ${gateUnordered}`);
+  const badKey = await num(
+    "SELECT COUNT(*) n FROM post_gates WHERE gate_key NOT REGEXP '^g[0-9]+$'",
+    newQuery,
+  );
+  add("迁入门控的 gate_key 形如 g{序号}", badKey === 0, `异常 ${badKey}`);
+
   const badUnlock = await num(
     `SELECT COUNT(*) n FROM gate_unlocks u
       LEFT JOIN post_gates g ON g.id = u.gate_id LEFT JOIN users x ON x.id = u.user_id
-      WHERE g.id IS NULL OR x.id IS NULL`,
+      WHERE g.id IS NULL OR x.id IS NULL OR x.state <> 'active'`,
     newQuery,
   );
-  add("解锁记录引用完整", badUnlock === 0, `悬空 ${badUnlock}`);
+  add("解锁记录引用完整（解锁者是真实用户）", badUnlock === 0, `悬空 ${badUnlock}`);
   const cnt = await num(
     `SELECT COUNT(*) n FROM post_gates g WHERE g.unlock_count <> (SELECT COUNT(*) FROM gate_unlocks u WHERE u.gate_id = g.id)`,
     newQuery,
@@ -510,10 +638,13 @@ group = "文本保留";
   const stripUbb = (x: string) =>
     x.replace(/\[\/?[a-zA-Z]+(?:=[^\]\n]*)?\]/g, "").replace(/\[s:\d+\]/gi, "");
   let src = 0;
-  for (const r of await oldQuery<{ c: string }>("SELECT content AS c FROM nw_bbs_threads_content"))
+  for (const r of await oldQuery<{ c: string }>(
+    `SELECT c.content AS c FROM nw_bbs_threads_content c JOIN nw_bbs_threads t ON t.tid = c.tid WHERE ${EXP_THREAD}`,
+  ))
     src += cjk(stripUbb(r.c ?? ""));
   for (const r of await oldQuery<{ c: string }>(
-    `SELECT p.content AS c FROM nw_bbs_posts p JOIN nw_bbs_threads t ON t.tid = p.tid`,
+    `SELECT p.content AS c FROM nw_bbs_posts p JOIN nw_bbs_threads t ON t.tid = p.tid
+      WHERE ${EXP_THREAD} AND ${EXP_POST}`,
   )) {
     src += cjk(stripUbb(r.c ?? ""));
   }
@@ -547,6 +678,118 @@ group = "文本保留";
     missingEmoji.length === 0,
     `引用 ${refs.size} 种，缺失 ${missingEmoji.length}`,
   );
+
+  // 内联样式降级：不得残留旧站颜色/字号等标签
+  const styled = await num(
+    `SELECT COUNT(*) n FROM posts WHERE LOWER(body_md) REGEXP '\\\\[/?(color|size|backcolor|align|font)[=\\\\]]'`,
+    newQuery,
+  );
+  add("内联样式标签已降级（正文无残留）", styled === 0, `残留 ${styled} 帖`);
+}
+
+// ---------- 文件（内容寻址） ----------
+group = "文件";
+{
+  const rows = await newQuery<{
+    id: number;
+    sha256: string;
+    storage_key: string;
+    mime: string;
+  }>("SELECT id, sha256, storage_key, mime FROM files ORDER BY id");
+  add("文件表非空", rows.length > 0, `${rows.length} 个文件`);
+
+  // id 按 sha256 升序分配 → 重跑一致
+  const sorted = [...rows].sort((a, b) => (a.sha256 < b.sha256 ? -1 : 1));
+  const idsByHash = sorted.every((r, i) => Number(r.id) === i + 1);
+  add("files.id 为 1..n 且按 sha256 升序", idsByHash, `${rows.length} 行`);
+
+  // 存储键只取决于内容；扩展名限白名单（防止 .html/.svg 等可脚本化类型进入公开路径）
+  const badKey = rows.filter((r) => {
+    const ext = extname(r.storage_key).slice(1);
+    return (
+      r.storage_key !== `${r.sha256.slice(0, 2)}/${r.sha256.slice(2, 4)}/${r.sha256}.${ext}` ||
+      safeExt(r.storage_key) !== ext
+    );
+  });
+  add("存储键 = 哈希派生且扩展名在白名单内", badKey.length === 0, `异常 ${badKey.length}`);
+  const badMime = rows.filter(
+    (r) => safeExt(r.storage_key) === "bin" && r.mime !== "application/octet-stream",
+  );
+  add("白名单外的文件 mime 为 octet-stream", badMime.length === 0, `异常 ${badMime.length}`);
+
+  // 存储里的文件逐个重算 SHA-256
+  const bad = auditStored(
+    rows.map((r) => ({ sha256: r.sha256, storageKey: r.storage_key })),
+    config.storageDir,
+  );
+  add(
+    "存储内文件均存在且 SHA-256 与登记一致",
+    bad.length === 0,
+    bad.length ? `异常 ${bad.length}: ${bad.slice(0, 3)}` : `${rows.length} 个已重算`,
+  );
+
+  // 引用闭合：被引用的文件都已登记；已登记的文件都被引用（无孤儿文件）
+  const idByKey = new Map(rows.map((r) => [r.storage_key, Number(r.id)]));
+  const used = new Set<number>();
+  const unregistered = new Set<string>();
+  for (const col of ["posts.body_md", "post_gates.hidden_md"]) {
+    const [table, field] = col.split(".");
+    for (const r of await newQuery<{ c: string }>(
+      `SELECT ${field} AS c FROM ${table} WHERE ${field} LIKE '%/files/%'`,
+    )) {
+      // 只认站内相对地址：前一个字符不能是主机名/路径字符（排除 https://x.com/files/… 这类外链）
+      for (const m of (r.c ?? "").matchAll(/(?<![\w.:/-])\/files\/([A-Za-z0-9/._-]+)/g)) {
+        const key = m[1]!.replace(/[.)]+$/, "");
+        const id = idByKey.get(key);
+        if (id === undefined) unregistered.add(key);
+        else used.add(id);
+      }
+    }
+  }
+  add("正文引用的 /files/ 地址都已登记", unregistered.size === 0, `未登记 ${unregistered.size}`);
+  for (const sql of [
+    "SELECT file_id AS id FROM attachments",
+    "SELECT avatar_file_id AS id FROM user_profiles WHERE avatar_file_id IS NOT NULL",
+    "SELECT icon_file_id AS id FROM badges WHERE icon_file_id IS NOT NULL",
+  ]) {
+    for (const r of await newQuery<{ id: number }>(sql)) used.add(Number(r.id));
+  }
+  const orphanFiles = rows.filter((r) => !used.has(Number(r.id)));
+  add("没有孤儿文件（登记的文件都被引用）", orphanFiles.length === 0, `孤儿 ${orphanFiles.length}`);
+  const danglingFile = await num(
+    `SELECT (SELECT COUNT(*) FROM attachments a LEFT JOIN files f ON f.id = a.file_id WHERE f.id IS NULL)
+          + (SELECT COUNT(*) FROM user_profiles p LEFT JOIN files f ON f.id = p.avatar_file_id
+              WHERE p.avatar_file_id IS NOT NULL AND f.id IS NULL)
+          + (SELECT COUNT(*) FROM badges b LEFT JOIN files f ON f.id = b.icon_file_id
+              WHERE b.icon_file_id IS NOT NULL AND f.id IS NULL) AS n`,
+    newQuery,
+  );
+  add("附件/头像/徽章图的 file_id 都存在", danglingFile === 0, `悬空 ${danglingFile}`);
+
+  // 旧站上传路径只允许残留在「源文件本来就不存在」的图片上（保留原地址，页面上与旧站一样打不开）；
+  // 源文件存在却没被改写成 /files/ 地址 = 转换漏网
+  let missed = 0;
+  let unresolvedRefs = 0;
+  for (const r of await newQuery<{ c: string }>(
+    "SELECT body_md AS c FROM posts WHERE body_md LIKE '%p_w_upload%' OR body_md LIKE '%/attachment/%'",
+  )) {
+    for (const m of (r.c ?? "").matchAll(/(?:p_w_upload|attachment)\/([^\s)"'\]]+)/g)) {
+      unresolvedRefs++;
+      const rel = decodeURIComponent(m[1]!.split(/[?#]/)[0]!);
+      const abs = confinedPath(config.attachmentDir, rel);
+      if (abs && existsSync(abs)) missed++;
+    }
+  }
+  add(
+    "旧站上传路径只残留在源文件不存在的图片上",
+    missed === 0,
+    `残留引用 ${unresolvedRefs} 处，其中源文件存在却未改写 ${missed}`,
+  );
+  const tagLeft = await num(
+    "SELECT COUNT(*) n FROM posts WHERE body_md LIKE '%[p_w_upload=%' OR body_md LIKE '%[attachment=%'",
+    newQuery,
+  );
+  add("附件标签已全部转换（无 [attachment=N] 字面量）", tagLeft === 0, `残留 ${tagLeft} 帖`);
 }
 
 // ---------- 积分与徽章 ----------
@@ -564,32 +807,63 @@ group = "积分";
   );
   add("每个账户余额 = 其台账之和", mismatch === 0, `不一致 ${mismatch}`);
 
-  // 独立推导：旧 credit1（非负，仅已迁用户）+ 银行存款本金（仅已迁用户）
+  // 独立推导：旧 credit1（非负，仅真实用户）+ 银行存款本金（仅真实用户）
   const expected = await num(
-    `SELECT (SELECT COALESCE(SUM(GREATEST(d.credit1, 0)), 0) FROM nw_user_data d JOIN nw_user u ON u.uid = d.uid)
-          + (SELECT COALESCE(SUM(GREATEST(b.deposit, 0) + GREATEST(b.ddeposit, 0)), 0) FROM nw_app_bank b JOIN nw_user u ON u.uid = b.uid) AS n`,
+    `SELECT (SELECT COALESCE(SUM(GREATEST(d.credit1, 0)), 0) FROM nw_user_data d JOIN nw_user u ON u.uid = d.uid WHERE u.uid ${NOT_SPAM})
+          + (SELECT COALESCE(SUM(GREATEST(b.deposit, 0) + GREATEST(b.ddeposit, 0)), 0) FROM nw_app_bank b JOIN nw_user u ON u.uid = b.uid WHERE u.uid ${NOT_SPAM}) AS n`,
   );
   eq("期初余额总额（旧 credit1 + 银行本金，独立 SQL）", expected, Number(sums[0]!.accounts));
   const neg = await num("SELECT COUNT(*) n FROM point_accounts WHERE balance < 0", newQuery);
   add("没有负余额", neg === 0, `负余额 ${neg}`);
-
-  eq(
-    "签到次数（用户×北京时间自然日，独立 SQL）",
-    await num(
-      `SELECT COUNT(*) n FROM (
-         SELECT l.created_userid, DATE(DATE_ADD('1970-01-01', INTERVAL l.created_time + 28800 SECOND)) d
-         FROM nw_credit_log l JOIN nw_user u ON u.uid = l.created_userid
-         WHERE l.logtype = 'punch' GROUP BY l.created_userid, d) x`,
-    ),
-    await num("SELECT COUNT(*) n FROM checkins", newQuery),
+  const notOpening = await num(
+    "SELECT COUNT(*) n FROM point_ledger WHERE channel <> 'opening'",
+    newQuery,
   );
+  add("台账只有期初分录（不迁旧流水）", notOpening === 0, `其他渠道 ${notOpening}`);
+
+  // 签到：每个真实用户只保留最近一段连续签到——这里用另一种写法独立推导
+  const days = await oldQuery<{ uid: number; d: string }>(
+    `SELECT l.created_userid uid, DATE(DATE_ADD('1970-01-01', INTERVAL l.created_time + 28800 SECOND)) d
+       FROM nw_credit_log l JOIN nw_user u ON u.uid = l.created_userid
+      WHERE l.logtype = 'punch' AND u.uid ${NOT_SPAM}
+      GROUP BY l.created_userid, d ORDER BY l.created_userid, d`,
+  );
+  const dayNo = (d: unknown) =>
+    Math.round(Date.parse(`${String(d).slice(0, 10)}T00:00:00Z`) / 86_400_000);
+  const expectedChecks = new Set<string>();
+  let run: { uid: number; d: string; no: number }[] = [];
+  const flush = () => {
+    for (const x of run) expectedChecks.add(`${x.uid}:${x.d}`);
+    run = [];
+  };
+  for (const r of days) {
+    const cur = { uid: Number(r.uid), d: String(r.d).slice(0, 10), no: dayNo(r.d) };
+    const last = run[run.length - 1];
+    if (last && (last.uid !== cur.uid || cur.no - last.no !== 1)) {
+      // 用户换人：上一段就是该用户最近一段，保留；同一用户断档：上一段是更早历史，丢弃
+      if (last.uid !== cur.uid) flush();
+      else run = [];
+    }
+    run.push(cur);
+  }
+  flush();
+  const actualChecks = new Set(
+    (
+      await newQuery<{ uid: number; d: string }>(
+        "SELECT user_id uid, DATE_FORMAT(checkin_date, '%Y-%m-%d') d FROM checkins",
+      )
+    ).map((r) => `${r.uid}:${r.d}`),
+  );
+  eq("签到日数（每人最近一段连续，独立推导）", expectedChecks.size, actualChecks.size);
+  const diff = [...expectedChecks].filter((k) => !actualChecks.has(k)).length;
+  add("签到日集合与独立推导逐项一致", diff === 0, `缺 ${diff}`);
 }
 
 group = "徽章";
 {
   eq(
     "徽章数 = 旧勋章 + 团队徽章",
-    (await num("SELECT COUNT(*) n FROM nw_medal_info")) + 6,
+    (await num("SELECT COUNT(*) n FROM nw_medal_info")) + TEAM_ROLES.length,
     await num("SELECT COUNT(*) n FROM badges", newQuery),
   );
   const orphan = await num(
@@ -615,14 +889,16 @@ group = "社交";
   eq(
     "关注用户",
     await num(
-      `SELECT COUNT(*) n FROM nw_attention a JOIN nw_user x ON x.uid = a.uid JOIN nw_user y ON y.uid = a.touid WHERE a.uid <> a.touid`,
+      `SELECT COUNT(*) n FROM nw_attention a JOIN nw_user x ON x.uid = a.uid JOIN nw_user y ON y.uid = a.touid
+        WHERE a.uid <> a.touid AND a.uid ${NOT_SPAM} AND a.touid ${NOT_SPAM}`,
     ),
     await num("SELECT COUNT(*) n FROM follows WHERE target_type = 'user'", newQuery),
   );
   eq(
     "加入版块",
     await num(
-      `SELECT COUNT(*) n FROM nw_bbs_forum_user j JOIN nw_user x ON x.uid = j.uid JOIN nw_bbs_forum f ON f.fid = j.fid`,
+      `SELECT COUNT(*) n FROM nw_bbs_forum_user j JOIN nw_user x ON x.uid = j.uid JOIN nw_bbs_forum f ON f.fid = j.fid
+        WHERE j.uid ${NOT_SPAM} AND j.fid IN (${keepFidSql})`,
     ),
     await num("SELECT COUNT(*) n FROM follows WHERE target_type = 'forum'", newQuery),
   );
@@ -640,11 +916,11 @@ group = "社交";
   );
 
   eq(
-    "投票主题数（对应主题存在且非空壳）",
+    "投票数（对应主题已迁移）",
     await num(
       `SELECT COUNT(DISTINCT pt.poll_id) n FROM nw_app_poll_thread pt
         JOIN nw_app_poll p ON p.poll_id = pt.poll_id JOIN nw_bbs_threads t ON t.tid = pt.tid
-        WHERE NOT (${shellSql2()})`,
+        WHERE ${EXP_THREAD}`,
     ),
     await num("SELECT COUNT(*) n FROM polls", newQuery),
   );
@@ -659,33 +935,19 @@ group = "社交";
   );
   add("选项票数 = 实际票数", optSum === 0, `不一致 ${optSum}`);
 
-  eq(
-    "真实用户私信条数（独立 SQL）",
-    await num(
-      `SELECT COUNT(*) n FROM nw_windid_message m JOIN nw_user a ON a.uid = m.from_uid JOIN nw_user b ON b.uid = m.to_uid
-        WHERE m.from_uid <> m.to_uid AND TRIM(m.content) <> ''`,
-    ),
-    await num("SELECT COUNT(*) n FROM messages", newQuery),
-  );
-  const badConv = await num(
-    `SELECT COUNT(*) n FROM messages m JOIN conversations c ON c.id = m.conversation_id
-      WHERE c.pair_key NOT REGEXP CONCAT('(^|:)', m.sender_id, '(:|$)')`,
+  const pm = await num(
+    "SELECT (SELECT COUNT(*) FROM messages) + (SELECT COUNT(*) FROM conversations) AS n",
     newQuery,
   );
-  add("消息发送者属于所在会话", badConv === 0, `异常 ${badConv}`);
-  const members = await num(
-    `SELECT COUNT(*) n FROM conversations c WHERE (SELECT COUNT(*) FROM conversation_members m WHERE m.conversation_id = c.id) <> 2`,
-    newQuery,
-  );
-  add("每个会话恰有 2 名成员", members === 0, `异常 ${members}`);
+  add("私信不迁（会话与消息表为空）", pm === 0, `残留 ${pm}`);
 }
 
 // ---------- 计数 ----------
 group = "计数";
 {
   const t = await num(
-    `SELECT COUNT(*) n FROM threads t WHERE t.state <> 'spam'
-       AND t.reply_count <> (SELECT COUNT(*) FROM posts p WHERE p.thread_id = t.id AND p.floor > 1 AND p.state = 'visible')`,
+    `SELECT COUNT(*) n FROM threads t
+      WHERE t.reply_count <> (SELECT COUNT(*) FROM posts p WHERE p.thread_id = t.id AND p.floor > 1 AND p.state = 'visible')`,
     newQuery,
   );
   add("主题 reply_count = 可见回帖数", t === 0, `不一致 ${t}`);
@@ -699,11 +961,11 @@ group = "计数";
     await num("SELECT COUNT(*) n FROM users", newQuery),
     await num("SELECT COUNT(*) n FROM user_stats", newQuery),
   );
-}
-
-/** 空壳主题条件（别名 t 指向 nw_bbs_threads） */
-function shellSql2() {
-  return `NOT EXISTS (SELECT 1 FROM nw_bbs_threads_content c WHERE c.tid = t.tid) AND NOT EXISTS (SELECT 1 FROM nw_bbs_posts p WHERE p.tid = t.tid)`;
+  eq(
+    "user_stats.featured_count 之和 = 精华主题数",
+    await num("SELECT COUNT(*) n FROM threads WHERE is_featured = 1", newQuery),
+    await num("SELECT COALESCE(SUM(featured_count), 0) n FROM user_stats", newQuery),
+  );
 }
 
 // ---------- 输出 ----------

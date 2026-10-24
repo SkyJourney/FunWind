@@ -137,6 +137,26 @@ describe("链接与图片改写", () => {
     expect(miss.warnings.map((w) => w.code)).toEqual(["image-unresolved"]);
   });
 
+  it("phpwind 9 的 attachment/ 路径与 p_w_upload/ 同样改写；外站同名路径不动", () => {
+    const own = conv("[img]http://www.qingyisub.com/attachment/photo/Mon_1003/3_abc.jpg[/img]");
+    expect(own.md).toBe("![img](/files/aa/bb/aabb-3.jpg)");
+    const rel = conv("[img]attachment/photo/Mon_1003/3_abc.jpg[/img]");
+    expect(rel.md).toBe("![img](/files/aa/bb/aabb-3.jpg)");
+    const other = conv("[img]http://example.com/attachment/photo/Mon_1003/3_abc.jpg[/img]");
+    expect(other.md).toBe("![img](http://example.com/attachment/photo/Mon_1003/3_abc.jpg)");
+  });
+
+  it("原始 HTML 图片：<img src> 走统一图片改写，只包一张图的 <a> 去掉外层链接；镜像域名视为站内", () => {
+    const html = conv(
+      '<a href="http://www.qingyisub.com/attachment/photo/Mon_1003/3_abc.jpg"><img src="http://www.qingyisub.com/attachment/photo/Mon_1003/3_abc.jpg" alt=""></a>',
+    );
+    expect(html.md).toBe("![img](/files/aa/bb/aabb-3.jpg)");
+    const mirror = conv(
+      "[img]http://qingyisub.gotoip1.com/attachment/photo/Mon_1003/3_abc.jpg[/img]",
+    );
+    expect(mirror.md).toBe("![img](/files/aa/bb/aabb-3.jpg)");
+  });
+
   it("p_w_picpath 内置图（非 back.gif）丢弃", () => {
     const r = conv("a[img]p_w_picpath/smile.gif[/img]b");
     expect(r.md).toBe("ab");
@@ -369,6 +389,20 @@ describe("标签交叉嵌套：门控优先（失败即封闭）", () => {
     const r = conv("前[/sell]后[/post]");
     expect(r.md).toBe("前后");
     expect(r.warnings.filter((w) => w.code === "gate-stray-close")).toHaveLength(2);
+  });
+
+  it("没有对应开标签的样式闭合标签被丢弃（不露出 [/color]），记样式降级告警", () => {
+    const r = conv("前[/color]中[/font]后");
+    expect(r.md).toBe("前中后");
+    expect(r.warnings.filter((w) => w.code === "style-degraded")).toHaveLength(2);
+    // 跨过门控的样式闭合标签同样丢弃，门控边界不受影响
+    const g = conv("[color=red][sell=5,]秘密[/color]尾[/sell]公开");
+    expect(g.gates[0]?.hiddenMd).not.toContain("[/color]");
+    expect(g.md).not.toContain("秘密");
+  });
+
+  it("旧站别名 [p_w_upload=N] 等同 [attachment=N]", () => {
+    expect(conv("前[p_w_upload=7]后").md).toBe("前[📎 字幕.zip](/files/ee/ff/eeff.zip)后");
   });
 
   it("门控内被交叉的非门控闭合标签留作隐藏内容里的字面量，不影响门控边界", () => {

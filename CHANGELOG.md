@@ -5,6 +5,19 @@
 
 ## [Unreleased]
 
+### Changed（M5.5 · R3：迁移适配层重做，代码）
+
+- **映射层与框架**：旧站键/gid/路径知识集中在 `migration/src/mapping/`；运行时 schema 不再认识旧站，`migration_state` 与迁移 id 公式全部移除。
+- **身份与结构**：spam 账号不迁；回收站版块子树不迁；内容作者/附件上传者缺失时建「已注销用户#uid」占位账号（保留原 uid，`state=deleted`，不持有任何资产）。
+- **内容只迁 `visible`**：回收站/屏蔽/空壳的主题与回帖不迁（旧库即归档）；楼层连续；首帖 id 接在旧站全部帖子最大 pid 之后按 tid 升序自增，
+  门控 id 按（帖子 id, 序号）自增、`gate_key=g{序号}`；`topped→pin_level`、`digest→is_featured`；回复指针分三类计数置空。
+- **文件管线**：内容寻址 `files` 注册表（sha256 去重，`/files/<ab>/<cd>/<sha256>.<ext>`），头像/勋章图/附件/正文图统一入库，存储目录 `STORAGE_DIR`（默认 `<repo>/storage/`，已 gitignore）；
+  源路径一律经 `confinedPath` 收束（防 `..`/绝对路径/符号链接穿越）；存储扩展名只认 MIME 白名单（防存储型 XSS），`/files` 路由的响应头要求写入 S4 范围。
+- **积分与社交**：期初余额不变；签到每人只留最近一段连续区间；私信整链路移除；计数重算对齐 v2.1（`featured_count`）。
+- **转换器补强**（对账暴露）：没有开标签的样式闭合标签丢弃；`[p_w_upload=N]` 同义 `[attachment=N]`；`attachment/` 与镜像域名 `qingyisub.gotoip1.com` 的上传路径同样改写；原始 `<img>` 走统一图片改写。
+- **对账重写**（`verify.ts`，106 项）：期望值全部由独立 SQL/代码推导，新增文件哈希重算、占位账号不变量、首帖/门控 id 次序、签到连续段、私信为空等；`docs/reports/` 已重新生成。
+- 开发库 `qysub_next`（纯导入）与 `qysub_next_e2e`（导入 + 演示夹具）已重建；`db:verify` 两库 10/10。`apps/web` 仍是 v1 代码，S4 适配。
+
 ### Changed（M5.5 · R2：schema v2.1 与内容包重做，代码）
 
 - **`packages/db` 重做为 43 表**（已提交 R2-A）：详见 [DESIGN-MODEL.md](docs/DESIGN-MODEL.md)；旧迁移 SQL 以 `git rm` 删除，重新生成单一基线 `0000_init_v2_1`；

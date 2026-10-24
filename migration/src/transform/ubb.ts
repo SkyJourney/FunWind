@@ -66,6 +66,8 @@ export interface ConvertResult {
 interface Node {
   /** 仅根节点：没有对应开标签而被丢弃的门控闭合标签数 */
   strayGateClosers?: number;
+  /** 仅根节点：没有对应开标签而被丢弃的样式闭合标签数 */
+  strayStyleClosers?: number;
   tag?: string;
   arg?: string;
   text?: string;
@@ -74,9 +76,13 @@ interface Node {
   closed?: boolean;
 }
 
-const TAG_RE = /\[(\/?)([a-zA-Z]+)(?:=([^\][\n]*))?\]/g;
+const TAG_RE = /\[(\/?)([a-zA-Z][a-zA-Z_]*)(?:=([^\][\n]*))?\]/g;
 const EMO_RE = /\[s:(\d+)\]/gi;
 const GATE_TAGS = new Set(["SELL", "POST", "HIDE"]);
+/** 旧站（windwind 时代）的别名标签：[p_w_upload=N] 与 [attachment=N] 同义 */
+const TAG_ALIAS: Record<string, string> = { P_W_UPLOAD: "ATTACHMENT" };
+/** 内联样式标签：降级为纯文本；没有开标签的闭合标签直接丢弃，不留字面量 */
+const STYLE_TAGS = new Set(["COLOR", "BACKCOLOR", "SIZE", "ALIGN", "FONT"]);
 /** 没有闭合标签的标签：不入栈，避免吞掉后续内容 */
 const VOID_TAGS = new Set(["HR", "BR"]);
 
@@ -88,7 +94,7 @@ function parse(src: string): Node {
   let m: RegExpExecArray | null;
   while ((m = TAG_RE.exec(src)) !== null) {
     const [full, slash, rawTag, rawArg] = m;
-    const tag = rawTag!.toUpperCase();
+    const tag = TAG_ALIAS[rawTag!.toUpperCase()] ?? rawTag!.toUpperCase();
     const top = stack[stack.length - 1]!;
     if (m.index > last) top.children.push({ text: src.slice(last, m.index), children: [] });
     last = m.index + full.length;
@@ -111,6 +117,10 @@ function parse(src: string): Node {
           root.strayGateClosers = (root.strayGateClosers ?? 0) + 1;
           continue;
         }
+        if (STYLE_TAGS.has(tag)) {
+          root.strayStyleClosers = (root.strayStyleClosers ?? 0) + 1;
+          continue;
+        }
         top.children.push({ text: full, children: [] });
         continue;
       }
@@ -118,7 +128,11 @@ function parse(src: string): Node {
       // 之后本该隐藏的内容就落到公开区（交叉嵌套如 [color][sell]…[/color]…[/sell]）。
       // 此时把这个闭合标签当作字面量留在隐藏内容里。
       if (!GATE_TAGS.has(tag) && stack.slice(idx + 1).some((n) => GATE_TAGS.has(n.tag ?? ""))) {
-        top.children.push({ text: full, children: [] });
+        if (STYLE_TAGS.has(tag)) {
+          root.strayStyleClosers = (root.strayStyleClosers ?? 0) + 1; // 样式闭合标签：丢弃，不留字面量
+        } else {
+          top.children.push({ text: full, children: [] });
+        }
         continue;
       }
       stack[idx]!.closed = true;
@@ -205,7 +219,7 @@ const TRANSPARENT = new Set([
   "FONT",
   "ALIGN",
 ]);
-const DEFAULT_SITE_HOSTS = ["qingyisub.com", "qingyisub.top"];
+const DEFAULT_SITE_HOSTS = ["qingyisub.com", "qingyisub.top", "qingyisub.gotoip1.com"];
 
 function blockquote(inner: string): string {
   return (
@@ -242,7 +256,8 @@ interface Env {
 const TOPOST_RE = /job\.php\?action=topost;tid=(\d+);pid=(\d+)/i;
 const READ_RE = /read\.php\?(?:[^#\s]*&)?tid=(\d+)/i;
 const THREAD_RE = /thread\.php\?(?:[^#\s]*&)?fid=(\d+)/i;
-const UPLOAD_RE = /(?:^|\/)p_w_upload\/(.+)$/i;
+/** 旧站上传文件的两种 URL 形态：phpwind 8 的 p_w_upload/ 与 phpwind 9 的 attachment/，相对路径都落在同一磁盘目录下 */
+const UPLOAD_RE = /(?:^|\/)(?:p_w_upload|attachment)\/(.+)$/i;
 
 function normalizeUrl(raw: string): string {
   return raw.trim().replace(/[\s"']/g, "");
@@ -532,14 +547,29 @@ function render(n: Node, st: State, env: Env): string {
   }
 }
 
+/**
+ * 旧站少数主题里混有原始 HTML 图片：<img src="…"> 改写成 [img]…[/img]，走统一的图片/路径改写；
+ * 只包着一张图片的 <a href> 去掉外层链接（链接目标就是原图）。其余 HTML 不处理，保持原样（渲染期由净化管线负责）。
+ */
+function htmlImagesToUbb(src: string): string {
+  return src
+    .replace(/<img\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi, "[img]$1[/img]")
+    .replace(
+      /<a\b[^>]*?\bhref\s*=\s*["'][^"']*["'][^>]*>\s*(\[img\][^[\]]*\[\/img\])\s*<\/a>/gi,
+      "$1",
+    );
+}
+
 export function ubbToMarkdown(input: string | null | undefined, ctx: UbbContext): ConvertResult {
   const st: State = { ctx, gates: [], warnings: [], seq: 0 };
   if (!input) return { md: "", gates: [], warnings: [] };
-  const src = input.replace(/\r\n?/g, "\n");
+  const src = htmlImagesToUbb(input.replace(/\r\n?/g, "\n"));
   // 根节点没有 tag：直接渲染其子节点，保持顶层语义（不能走 render，否则会被当成非透明容器）
   const tree = parse(src);
   for (let i = 0; i < (tree.strayGateClosers ?? 0); i++)
     st.warnings.push({ code: "gate-stray-close" });
+  for (let i = 0; i < (tree.strayStyleClosers ?? 0); i++)
+    st.warnings.push({ code: "style-degraded", detail: "stray-close" });
   unwrapUnclosed(tree);
   const md = renderChildren(tree, st, { pos: "top", inGate: false, raw: false })
     .replace(/\n{3,}/g, "\n\n")
