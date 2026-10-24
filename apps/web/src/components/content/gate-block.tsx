@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BadgeCheck, Lock, ShieldCheck, Sparkles, Store } from "lucide-react";
+import { unlockGateAction } from "@/app/actions/gates";
 import { RichContent } from "@/components/content/rich-content";
 import type { GatePrompt, GateView } from "@/lib/gates/types";
 
@@ -7,12 +8,22 @@ import type { GatePrompt, GateView } from "@/lib/gates/types";
  * 门控块（服务端组件，docs/GATES.md §4）。五种状态：
  *   未登录 / 未满足 / 已满足（已购买·已解锁·已回复）/ 作者 / 版主·admin。
  * 隐藏正文只会出现在 open 的 view 里，并且走与公开正文同一套净化管线；locked 的 view 里根本没有正文。
- * 购买按钮由 S4-5 的 unlockGate 接通，此前显示为禁用态。
+ * 付费条件的购买按钮提交 Server Action（unlockGateAction → unlockGate）；余额不足时按钮禁用。
  */
 
 const lockedCard = "my-3 space-y-2 rounded-lg border border-dashed bg-muted/40 px-4 py-3 text-sm";
 
-function PromptLine({ prompt, pointsName }: { prompt: GatePrompt; pointsName: string }) {
+function PromptLine({
+  prompt,
+  pointsName,
+  gateId,
+  returnPage,
+}: {
+  prompt: GatePrompt;
+  pointsName: string;
+  gateId: number;
+  returnPage: number;
+}) {
   switch (prompt.kind) {
     case "login":
       return (
@@ -35,14 +46,18 @@ function PromptLine({ prompt, pointsName }: { prompt: GatePrompt; pointsName: st
             当前余额 {prompt.balance} {pointsName}
             {prompt.balance < prompt.price && "（余额不足）"}
           </p>
-          <button
-            type="button"
-            disabled
-            className="rounded-md border px-3 py-1 text-xs text-muted-foreground disabled:cursor-not-allowed"
-            title="购买功能即将开放"
-          >
-            {prompt.price === 0 ? "解锁" : "购买"}（即将开放）
-          </button>
+          {/* 购买走 Server Action：成功后整页重渲染（不提供任何返回隐藏内容的 JSON 接口） */}
+          <form action={unlockGateAction}>
+            <input type="hidden" name="gateId" value={gateId} />
+            <input type="hidden" name="page" value={returnPage} />
+            <button
+              type="submit"
+              disabled={prompt.balance < prompt.price}
+              className="rounded-md border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-medium text-primary hover:bg-primary/20 disabled:cursor-not-allowed disabled:border-border disabled:bg-transparent disabled:text-muted-foreground"
+            >
+              {prompt.price === 0 ? "免费解锁" : `${prompt.price} ${pointsName} 解锁`}
+            </button>
+          </form>
         </div>
       );
     case "reply":
@@ -80,10 +95,13 @@ function openLabel(view: Extract<GateView, { status: "open" }>, pointsName: stri
 export function GateBlock({
   view,
   pointsName,
+  returnPage = 1,
 }: {
   /** undefined = 正文里有占位但 post_gates 没有对应行（数据不一致）：失败即封闭，不显示任何内容 */
   view: GateView | undefined;
   pointsName: string;
+  /** 购买后回到的页码（首帖在每一页都显示，需要知道用户当前在第几页） */
+  returnPage?: number;
 }) {
   if (!view) {
     return (
@@ -102,7 +120,13 @@ export function GateBlock({
           <span>隐藏内容</span>
         </div>
         {view.prompts.map((p) => (
-          <PromptLine key={p.kind} prompt={p} pointsName={pointsName} />
+          <PromptLine
+            key={p.kind}
+            prompt={p}
+            pointsName={pointsName}
+            gateId={view.gateId}
+            returnPage={returnPage}
+          />
         ))}
       </div>
     );

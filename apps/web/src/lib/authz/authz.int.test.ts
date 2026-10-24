@@ -254,6 +254,31 @@ describe.skipIf(skipDb)("权限内核 · 真实 MySQL", () => {
       expect((await audits("user_role.revoke")).length).toBe(1);
     });
 
+    it("assign / revoke 提交后派发 role.changed；重复撤销（空操作）不派发", async () => {
+      const seen: unknown[] = [];
+      const deps = { emitter: async (_n: "role.changed", p: unknown) => void seen.push(p) };
+      await createCustomRole(admin, "team-events", "事件测试", "");
+      await assignUserRole(admin, DEMO.member, "team-events", 0, null, deps as never);
+      await revokeUserRole(admin, DEMO.member, "team-events", 0, deps as never);
+      await revokeUserRole(admin, DEMO.member, "team-events", 0, deps as never); // 已不存在
+      expect(seen).toEqual([
+        {
+          userId: DEMO.member,
+          roleKey: "team-events",
+          scopeId: 0,
+          action: "granted",
+          operatorId: DEMO.admin,
+        },
+        {
+          userId: DEMO.member,
+          roleKey: "team-events",
+          scopeId: 0,
+          action: "revoked",
+          operatorId: DEMO.admin,
+        },
+      ]);
+    });
+
     it("deleteCustomRole：内置不可删；自定义角色连带授权与绑定清除，审计记录规模", async () => {
       await expect(deleteCustomRole(admin, "admin")).rejects.toThrow(/内置/);
       await grantRolePermission(admin, "team-media", "forum.report", 0);

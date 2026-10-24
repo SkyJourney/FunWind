@@ -155,8 +155,8 @@ describe("emit", () => {
   it("无消费者时静默落审计", async () => {
     const w = fakeWriter();
     const r = await emit(
-      "medal.awarded",
-      { userId: 3, medalId: 9 },
+      "badge.awarded",
+      { userId: 3, badgeId: 9 },
       { enabledModuleIds: new Set(), writer: w.write },
     );
     expect(r.dispatched).toEqual([]);

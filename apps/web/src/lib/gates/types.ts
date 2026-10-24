@@ -53,6 +53,7 @@ export interface GateStats {
 
 export type GateView =
   | {
+      gateId: number;
       status: "open";
       reason: OpenReason;
       contentMd: string;
@@ -61,4 +62,4 @@ export type GateView =
       /** 仅作者视图 */
       stats?: GateStats;
     }
-  | { status: "locked"; prompts: GatePrompt[] };
+  | { gateId: number; status: "locked"; prompts: GatePrompt[] };

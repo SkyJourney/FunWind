@@ -1,11 +1,15 @@
 "use server";
 
 import { and, eq, or, sql } from "drizzle-orm";
+// 使用内核的 Server Action 须自行求值模块注册表（硬约定 9）
+import "@/modules";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { getWebDb, normalizeKey, users } from "@funwind/db";
 import { findActiveGlobalBan } from "@/lib/authz/restrictions";
 import { clientIpFrom } from "@/lib/net/client-ip";
+import { emit } from "@/modules/kernel/bus";
+import type { EventName, EventPayloads } from "@/modules/kernel/types";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { RegisterError, registerUser } from "@/lib/auth/register";
 import { createSession, destroyCurrentSession, revokeAllForUser } from "@/lib/auth/session";
@@ -19,6 +23,15 @@ import { getRegisterMode } from "@/lib/auth/settings";
  * 防枚举：找回永远返回中性话术；登录失败统一「用户名或密码错误」；
  * 注册占用提示保留（社区惯例权衡，记录于 M4 文档）。
  */
+
+/** 派发领域事件：失败只记日志，绝不反噬登录/注册主流程（总线本身已隔离消费者异常，这里再兜一层） */
+async function safeEmit<K extends EventName>(name: K, payload: EventPayloads[K]): Promise<void> {
+  try {
+    await emit(name, payload, { source: "auth" });
+  } catch (e) {
+    console.error(`[auth] ${name} 派发失败:`, e);
+  }
+}
 
 const USERNAME_RE = /^[a-zA-Z0-9_\u4e00-\u9fa5]{2,20}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -80,6 +93,7 @@ export async function loginAction(formData: FormData): Promise<void> {
     ip: clientIpFrom(await headers()),
     userAgent: (await headers()).get("user-agent") ?? "",
   });
+  await safeEmit("user.logged_in", { userId: user.id });
   redirect("/");
 }
 
@@ -134,6 +148,7 @@ export async function registerAction(formData: FormData): Promise<void> {
     ip: clientIpFrom(await headers()),
     userAgent: (await headers()).get("user-agent") ?? "",
   });
+  await safeEmit("user.registered", { userId: newId });
   redirect(mode === "invite" ? "/" : "/?notice=verify-email-sent");
 }
 

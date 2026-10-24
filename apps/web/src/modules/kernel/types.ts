@@ -6,17 +6,59 @@ import type { ReactNode } from "react";
  * 扩展事件/槽位清单 = 修改本文件并在 docs/MODULES.md 说明——模块不得私设插入点。
  */
 
-// ---------- 事件清单（命名承接旧 phpwind 钩子语义：after_login → user.logged_in 等） ----------
+// ---------- 事件清单（21 个，docs/MODULES.md 定稿；命名承接旧 phpwind 钩子语义） ----------
+// 派发状态：user.logged_in / user.registered / role.changed / points.changed / gate.unlocked 已有真实派发者（M5.5 S4-5），
+// 其余为契约，由各自里程碑（M6 发帖、M8 互动、M9 后台、M10 私信…）接线。
 export interface EventPayloads {
   "user.logged_in": { userId: number };
   "user.registered": { userId: number };
+  "user.followed": { userId: number; targetType: "user" | "forum"; targetId: number };
   "thread.created": { threadId: number; forumId: number; authorId: number };
-  "thread.replied": { threadId: number; postId: number; authorId: number };
+  "thread.replied": { threadId: number; postId: number; authorId: number; replyToPostId?: number };
   "thread.edited": { threadId: number; editorId: number };
   "thread.deleted": { threadId: number; operatorId: number };
-  "attachment.uploaded": { attachmentId: number; uploaderId: number };
-  "credit.changed": { userId: number; creditType: string; delta: number };
-  "medal.awarded": { userId: number; medalId: number };
+  "thread.moderated": {
+    threadId: number;
+    operatorId: number;
+    action: "lock" | "unlock" | "move" | "feature" | "pin";
+    detail?: Record<string, unknown>;
+  };
+  /** 版块需审核时 pending=true */
+  "content.submitted": { postId: number; authorId: number; forumId: number; pending: boolean };
+  "content.moderated": {
+    postId: number;
+    operatorId: number;
+    action: "approve" | "reject" | "remove" | "hide" | "restore";
+    reason?: string;
+  };
+  "post.mentioned": { postId: number; authorId: number; mentionedUserId: number };
+  "reaction.added": { userId: number; postId: number; kind: string };
+  "message.sent": {
+    conversationId: number;
+    messageId: number;
+    senderId: number;
+    recipientId: number;
+  };
+  "attachment.uploaded": { attachmentId: number; fileId: number; uploaderId: number };
+  "restriction.changed": {
+    userId: number;
+    kind: "ban" | "mute" | "no_avatar" | "no_signature";
+    action: "created" | "lifted";
+    operatorId: number;
+    reason?: string;
+    endsAt?: string | null;
+  };
+  "role.changed": {
+    userId: number;
+    roleKey: string;
+    scopeId: number;
+    action: "granted" | "revoked";
+    operatorId: number;
+  };
+  "announcement.published": { announcementId: number; createdBy: number };
+  "points.changed": { userId: number; channel: string; delta: number };
+  "gate.unlocked": { gateId: number; userId: number; authorId: number; price: number };
+  "badge.awarded": { userId: number; badgeId: number };
   "checkin.done": { userId: number; streak: number };
 }
 
@@ -36,7 +78,7 @@ export interface SlotContext {
 
 export type SlotRenderer = (ctx: SlotContext) => Promise<ReactNode> | ReactNode;
 
-// ---------- 六类注册边界（M2 最小实现；真实消费者随里程碑落地） ----------
+// ---------- 十类注册边界（M2 的六类 + M5.5 新增四类；真实消费者随里程碑落地） ----------
 
 /** 权限点：M5 authz 内核消费 */
 export interface PermissionPointDef {
@@ -65,6 +107,63 @@ export type SchemaFragment = MySqlTable;
 /** 令牌覆盖：语义层 CSS 变量 → 值（主题包之外的最小定制面） */
 export type TokenOverrides = Record<string, string>;
 
+/**
+ * 积分渠道（docs/POINTS.md §3）：积分变动只能经 applyPoints，且渠道须先注册。
+ * key 命名空间决定方向：earn.* 只能加分，spend.* 只能扣分，adjust.* 双向。
+ */
+export type PointDirection = "earn" | "spend" | "adjust";
+export interface PointChannelDef {
+  key: string;
+  direction: PointDirection;
+  label: string;
+  /** 受日上限约束（按北京时间自然日、基于台账聚合）。契约已接受，规则执行随 M7 落地 */
+  dailyCap?: boolean;
+}
+
+/**
+ * 门控解锁条件（docs/GATES.md §3）的扩展点。内置条件 points / reply 由门控核心实现，模块只能追加新类型。
+ * 目前只开放 derived（每次渲染实时判定、无需用户动作）；需要购买动作的 stateful 条件待 M6 评估。
+ * 失败即封闭：check 抛错或模块被停用，门控一律按“暂不可用”锁定，绝不放行。
+ */
+export interface GateConditionContext {
+  viewerId: number;
+  postId: number;
+  threadId: number;
+  forumId: number;
+  /** 门控 conditions 里该条件的参数（不含 type） */
+  params: Record<string, unknown>;
+}
+export interface GateConditionDef {
+  type: string;
+  kind: "derived";
+  /** 未满足时展示给观众的提示文案 */
+  prompt: (params: Record<string, unknown>) => string;
+  check: (ctx: GateConditionContext) => boolean | Promise<boolean>;
+}
+
+/** 通知类型（docs/NOTIFICATIONS.md §4）：M8 通知模块消费 */
+export type NotificationCategory = "interaction" | "message" | "moderation" | "account";
+export interface NotificationTypeDef {
+  key: string;
+  category: NotificationCategory;
+  /** 同键未读通知合并为一条 */
+  aggregate: boolean;
+  /** 不可被用户关闭（审核、限制、安全类） */
+  mandatory: boolean;
+}
+
+/** 通知投递渠道：当前仅内置 in_app；email / push 预留 */
+export interface NotificationDelivery {
+  id: number;
+  userId: number;
+  type: string;
+  data: unknown;
+}
+export interface NotificationChannelDef {
+  key: string;
+  deliver: (n: NotificationDelivery, user: { id: number }) => Promise<void>;
+}
+
 // ---------- 模块定义 ----------
 
 export interface ModuleDefinition {
@@ -79,6 +178,10 @@ export interface ModuleDefinition {
   nav?: NavItemDef[];
   cron?: CronJobDef[];
   schemaFragments?: SchemaFragment[];
+  pointChannels?: PointChannelDef[];
+  gateConditions?: GateConditionDef[];
+  notificationTypes?: NotificationTypeDef[];
+  notificationChannels?: NotificationChannelDef[];
   tokenOverrides?: TokenOverrides;
   /** 路由前缀约定：M3+ 模块自有页面按 src/app/(module-<id>)/… 组织 */
   routePrefix?: string;

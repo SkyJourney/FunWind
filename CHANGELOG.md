@@ -5,6 +5,20 @@
 
 ## [Unreleased]
 
+### Changed（M5.5 · S4-5：内核升级、积分核心与门控购买）
+
+- **内核**：事件 10→21 个（`credit.changed`→`points.changed`、`medal.awarded`→`badge.awarded`，新增 11 个），actor 映射按 MODULES.md §3；注册边界 6→10 类（新增
+  `pointChannels` / `gateConditions` / `notificationTypes` / `notificationChannels`），**注册期校验**（键格式、方向与前缀一致、全站唯一、不得与内置冲突），非法声明启动即失败；
+  停用模块 = 其积分渠道被拒、其门控条件失败即封闭。
+- **积分核心 `lib/points`**：`applyPoints` / `applyPointsInTx`——渠道注册、幂等（重放返回既有结果、冲突报错）、余额在行锁内检查永不为负、提交后派发 `points.changed`；
+  守卫测试保证积分表只能经此写入（硬约定 3c）。
+- **门控购买 `unlockGate`**：单事务完成扣款、作者收益（手续费 floor 取整、已注销作者收益销毁）、解锁记录与计数；“先锁账户再查已解锁”保证并发双击只扣一次；
+  固定错误码；`GateBlock` 购买按钮接 Server Action，返回地址服务端计算。
+- **并发缺陷（测试中真实复现并修复）**：① 渠道解析在事务内读 `module_state`，并发事务占满连接池后互相等待（连接池饥饿）；② 账户行用 `INSERT … ON DUPLICATE KEY UPDATE` 加锁，
+  先共享后升级导致热门作者账户死锁；③ 门控行先 `FOR SHARE` 后更新计数，同门控多购买者升级死锁。现固定「门控行 → 账户行升序」排他加锁，56 个并发购买压在两位作者账户上连续多轮通过。
+- **开始派发事件**：`user.logged_in` / `user.registered`（认证）、`role.changed`（授权管理）、`points.changed`、`gate.unlocked`；`demo-checkin` 的横幅从此由真实登录驱动。
+- web 测试 296 项，覆盖率 94.9%。真实库（e2e 库）端到端：购买 −5/+5、解锁计数、台账幂等键、事件落库、重放不变、8 位读者各双击共 16 请求恰扣 8 次，全库对账 0 不一致。
+
 ### Changed（M5.5 · S4-4：门控读取与 /files 文件路由）
 
 - **门控读取（`lib/gates`）**：纯函数 `evaluateGate`（作者/版主 → 登录 → 逐条件，`all`/`any`，未知条件与脏数据失败即封闭）+ 服务层 `loadGateViews`/`getGateContent`

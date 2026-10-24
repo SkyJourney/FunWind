@@ -1,10 +1,10 @@
 import { and, eq, gt, inArray, sql } from "drizzle-orm";
-import type { GateCondition } from "@funwind/content";
 import { gateUnlocks, getWebDb, pointAccounts, postGates, posts, threads } from "@funwind/db";
 import { checkPermission } from "@/lib/authz/service";
 import type { Subject } from "@/lib/authz/types";
 import { buildViewerScope, visiblePredicate } from "@/lib/queries/visibility";
 import { evaluateGate } from "./evaluate";
+import { parseConditions } from "./parse";
 import type { GateFacts, GateMeta, GateStats, GateView } from "./types";
 
 /**
@@ -16,23 +16,6 @@ import type { GateFacts, GateMeta, GateStats, GateView } from "./types";
  */
 
 export type GateViews = Map<number, Map<string, GateView>>; // postId → gateKey → view
-
-/** conditions 列是 JSON：只接受「带字符串 type 的对象」数组，其余按空处理（空条件在判定里封闭） */
-function parseConditions(raw: unknown): GateCondition[] {
-  let v = raw;
-  if (typeof v === "string") {
-    try {
-      v = JSON.parse(v);
-    } catch {
-      return [];
-    }
-  }
-  if (!Array.isArray(v)) return [];
-  return v.filter(
-    (c): c is GateCondition =>
-      typeof c === "object" && c !== null && typeof (c as { type?: unknown }).type === "string",
-  );
-}
 
 interface PostCtx {
   id: number;
@@ -170,6 +153,7 @@ async function resolveViews(
   for (const { meta, decision } of decisions) {
     const view: GateView = decision.open
       ? {
+          gateId: meta.id,
           status: "open",
           reason: decision.reason,
           contentMd: contents.get(meta.id) ?? "",
@@ -180,7 +164,7 @@ async function resolveViews(
               ? (stats.get(meta.id) ?? { buyers: 0, income: 0 })
               : undefined,
         }
-      : { status: "locked", prompts: decision.prompts };
+      : { gateId: meta.id, status: "locked", prompts: decision.prompts };
     const byKey = out.get(meta.postId) ?? new Map<string, GateView>();
     byKey.set(meta.gateKey, view);
     out.set(meta.postId, byKey);
@@ -203,16 +187,27 @@ export async function loadGateViews(
   );
 }
 
+export interface GateLocation {
+  gateId: number;
+  postId: number;
+  /** 帖子楼层：首帖为 1（用于计算购买后跳回的页码） */
+  floor: number;
+  authorId: number;
+  threadId: number;
+  forumId: number;
+}
+
 /**
- * 单门控出口（docs/GATES.md §2）：先确认该门控所在的帖子/主题对观众可见，再判定。
- * 帖子不可见（受限版块、屏蔽、别人的待审核…）或门控不存在 → null。
+ * 定位一个门控：它所在的帖子与主题必须对观众可见（版块可读 + 状态矩阵），否则 null。
+ * 不读取隐藏正文；getGateContent 与 unlockGate 共用，保证“知道门控 id 也摸不到不可见帖子里的门控”。
  */
-export async function getGateContent(viewer: Subject, gateId: number): Promise<GateView | null> {
-  const db = getWebDb();
+export async function locateGate(viewer: Subject, gateId: number): Promise<GateLocation | null> {
   const scope = await buildViewerScope(viewer);
-  const found = await db
+  const found = await getWebDb()
     .select({
+      gateId: postGates.id,
       postId: posts.id,
+      floor: posts.floor,
       authorId: posts.authorId,
       threadId: threads.id,
       forumId: threads.forumId,
@@ -235,7 +230,15 @@ export async function getGateContent(viewer: Subject, gateId: number): Promise<G
       ),
     )
     .limit(1);
-  const f = found[0];
+  return found[0] ?? null;
+}
+
+/**
+ * 单门控出口（docs/GATES.md §2）：先确认该门控所在的帖子/主题对观众可见，再判定。
+ * 帖子不可见（受限版块、屏蔽、别人的待审核…）或门控不存在 → null。
+ */
+export async function getGateContent(viewer: Subject, gateId: number): Promise<GateView | null> {
+  const f = await locateGate(viewer, gateId);
   if (!f) return null;
   const views = await resolveViews(
     viewer,

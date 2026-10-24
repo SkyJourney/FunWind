@@ -3,8 +3,12 @@ import { EVENT_NAMES, isEventName, validateEventPayload } from "./event-names";
 import type { EventPayloads } from "./types";
 
 describe("EVENT_NAMES / isEventName", () => {
-  it("清单完整（10 事件）", () => {
-    expect(EVENT_NAMES).toHaveLength(10);
+  it("清单完整（21 事件，与 docs/MODULES.md 一致）", () => {
+    expect(EVENT_NAMES).toHaveLength(21);
+    expect(new Set(EVENT_NAMES).size).toBe(21);
+    expect(EVENT_NAMES).toContain("points.changed");
+    expect(EVENT_NAMES).not.toContain("credit.changed");
+    expect(EVENT_NAMES).not.toContain("medal.awarded");
   });
 
   it("识别合法/非法事件名", () => {
@@ -24,7 +28,8 @@ describe("validateEventPayload", () => {
 
   it("缺字段报出缺失键", () => {
     expect(validateEventPayload("user.logged_in", {})).toContain("userId");
-    expect(validateEventPayload("credit.changed", { userId: 1 })).toContain("creditType");
+    expect(validateEventPayload("points.changed", { userId: 1 })).toContain("channel");
+    expect(validateEventPayload("gate.unlocked", { gateId: 1 })).toContain("authorId");
   });
 
   it("非对象 payload 拒绝", () => {

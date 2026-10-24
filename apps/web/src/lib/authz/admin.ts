@@ -9,6 +9,8 @@ import {
   type PermissionDef,
 } from "@funwind/db";
 import { writeAudit } from "@/lib/audit";
+import { emit } from "@/modules/kernel/bus";
+import type { EventPayloads } from "@/modules/kernel/types";
 import { sql } from "drizzle-orm";
 import { getAuthzSnapshot, invalidateAuthzSnapshot } from "./snapshot";
 
@@ -22,6 +24,20 @@ export class AdminError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "AdminError";
+  }
+}
+
+export interface AdminDeps {
+  /** 覆盖事件派发（单测注入；缺省走内核总线） */
+  emitter?: (name: "role.changed", payload: EventPayloads["role.changed"]) => Promise<unknown>;
+}
+
+/** 提交后派发 role.changed；失败只记日志，不影响已提交的授权变更 */
+async function emitRoleChanged(deps: AdminDeps, payload: EventPayloads["role.changed"]) {
+  try {
+    await (deps.emitter ?? ((n, p) => emit(n, p, { source: "admin" })))("role.changed", payload);
+  } catch (e) {
+    console.error("[authz] role.changed 派发失败（变更已提交）:", e);
   }
 }
 
@@ -230,6 +246,7 @@ export async function assignUserRole(
   roleKey: string,
   scopeId: number,
   expiresAt: string | null = null,
+  deps: AdminDeps = {},
 ): Promise<void> {
   if (roleKey === "guest" || roleKey === "member") {
     throw new AdminError(`${roleKey} 是隐式角色，不能绑定到用户`);
@@ -277,6 +294,13 @@ export async function assignUserRole(
       ip: actor.ip,
     });
   });
+  await emitRoleChanged(deps, {
+    userId,
+    roleKey,
+    scopeId,
+    action: "granted",
+    operatorId: actor.userId,
+  });
 }
 
 export async function revokeUserRole(
@@ -284,7 +308,9 @@ export async function revokeUserRole(
   userId: number,
   roleKey: string,
   scopeId: number,
+  deps: AdminDeps = {},
 ): Promise<void> {
+  let removed = false;
   await getWebDb().transaction(async (tx) => {
     const rows = await tx
       .select({ id: userRoles.id })
@@ -311,5 +337,16 @@ export async function revokeUserRole(
       before: { roleKey, scopeId },
       ip: actor.ip,
     });
+    removed = true;
   });
+  // 绑定本来就不存在时是幂等空操作：不写审计、不派发事件
+  if (removed) {
+    await emitRoleChanged(deps, {
+      userId,
+      roleKey,
+      scopeId,
+      action: "revoked",
+      operatorId: actor.userId,
+    });
+  }
 }

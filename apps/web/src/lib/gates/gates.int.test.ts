@@ -42,8 +42,8 @@ describe.skipIf(skipDb)("门控读取 · 真实 MySQL", () => {
 
   it("游客：两个门控都只给登录提示；序列化结果不含任何隐藏文本", async () => {
     const v = await views(guest);
-    expect(v.get("a1")).toEqual({ status: "locked", prompts: [{ kind: "login" }] });
-    expect(v.get("a2")).toEqual({ status: "locked", prompts: [{ kind: "login" }] });
+    expect(v.get("a1")).toMatchObject({ status: "locked", prompts: [{ kind: "login" }] });
+    expect(v.get("a2")).toMatchObject({ status: "locked", prompts: [{ kind: "login" }] });
     const dump = JSON.stringify([...v]);
     expect(dump).not.toContain(PAID_TEXT);
     expect(dump).not.toContain(REPLY_TEXT);
@@ -66,13 +66,13 @@ describe.skipIf(skipDb)("门控读取 · 真实 MySQL", () => {
       unlockedAt: "2026-10-13 09:00:00",
     });
     expect(open(v.get("a1"))?.contentMd).toContain(PAID_TEXT);
-    expect(v.get("a2")).toEqual({ status: "locked", prompts: [{ kind: "reply" }] });
+    expect(v.get("a2")).toMatchObject({ status: "locked", prompts: [{ kind: "reply" }] });
     expect(JSON.stringify(v.get("a2"))).not.toContain(REPLY_TEXT);
   });
 
   it("未购买的会员：付费门控锁定，提示价格与自己的余额；锁定结果不含正文", async () => {
     const v = await views(xiaoyi);
-    expect(v.get("a1")).toEqual({
+    expect(v.get("a1")).toMatchObject({
       status: "locked",
       prompts: [{ kind: "points", price: 10, balance: 20 }],
     });
@@ -142,8 +142,8 @@ describe.skipIf(skipDb)("门控读取 · 真实 MySQL", () => {
     );
     await db.execute(sql`UPDATE post_gates SET conditions = '[]' WHERE id = ${DEMO.replyGate}`);
     const v = await views(member);
-    expect(v.get("a1")).toEqual({ status: "locked", prompts: [{ kind: "unavailable" }] });
-    expect(v.get("a2")).toEqual({ status: "locked", prompts: [{ kind: "unavailable" }] });
+    expect(v.get("a1")).toMatchObject({ status: "locked", prompts: [{ kind: "unavailable" }] });
+    expect(v.get("a2")).toMatchObject({ status: "locked", prompts: [{ kind: "unavailable" }] });
     expect(JSON.stringify([...v])).not.toContain("隐藏正文");
     expect(open((await views(alice)).get("a1"))?.reason).toBe("author");
   });

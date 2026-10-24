@@ -17,7 +17,18 @@ import { getCurrentThreadView } from "@/lib/queries/threads";
 
 export const dynamic = "force-dynamic";
 
-type Params = { params: Promise<{ tid: string }>; searchParams: Promise<{ page?: string }> };
+type Params = {
+  params: Promise<{ tid: string }>;
+  searchParams: Promise<{ page?: string; gate?: string }>;
+};
+
+/** 购买失败的固定提示码（?gate=…）→ 文案。只认这几个码，URL 里的其它内容一律忽略 */
+const GATE_NOTICES: Record<string, string> = {
+  insufficient: "积分不足，无法解锁该内容。",
+  own_content: "你是该内容的作者或版主，无需购买。",
+  unavailable: "该内容暂不可购买。",
+  rate: "操作过于频繁，请稍后再试。",
+};
 
 const parseTid = (raw: string): number | null => {
   const n = Number(raw);
@@ -34,7 +45,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 export default async function ThreadPage({ params, searchParams }: Params) {
   const tid = parseTid((await params).tid);
   if (!tid) notFound();
-  const { page: pageRaw } = await searchParams;
+  const { page: pageRaw, gate: gateNotice } = await searchParams;
 
   const viewer = await getCurrentSubject();
   // 不存在 / 版块读不到 / 屏蔽或删除（非版主）/ 别人的待审核 → 一律 404，不暴露存在性
@@ -96,6 +107,15 @@ export default async function ThreadPage({ params, searchParams }: Params) {
         )}
       </nav>
 
+      {gateNotice && Object.hasOwn(GATE_NOTICES, gateNotice) && (
+        <p
+          role="alert"
+          className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
+        >
+          {GATE_NOTICES[gateNotice]}
+        </p>
+      )}
+
       {thread.state === "pending" && (
         <p className="flex items-center gap-2 rounded-lg border border-info/30 bg-info/10 px-3 py-2 text-sm text-info">
           <Clock className="size-4" /> 该主题正在审核中，目前只有你和版主能看到。
@@ -153,6 +173,7 @@ export default async function ThreadPage({ params, searchParams }: Params) {
             hasGate={thread.first.hasGate}
             gates={gates.get(thread.first.id)}
             pointsName={pointsName}
+            returnPage={replies.page}
           />
           {attachmentList(thread.first.id)}
           {thread.first.editedAt && (
@@ -208,6 +229,7 @@ export default async function ThreadPage({ params, searchParams }: Params) {
                   hasGate={f.hasGate}
                   gates={gates.get(f.id)}
                   pointsName={pointsName}
+                  returnPage={replies.page}
                 />
                 {attachmentList(f.id)}
                 <p className="text-xs text-muted-foreground">

@@ -14,11 +14,13 @@ export function PostBody({
   hasGate,
   gates,
   pointsName,
+  returnPage,
 }: {
   md: string | null;
   hasGate: boolean;
   gates?: ReadonlyMap<string, GateView>;
   pointsName: string;
+  returnPage?: number;
 }) {
   if (!hasGate || !md) return <RichContent md={md} />;
   return (
@@ -29,7 +31,12 @@ export function PostBody({
             <RichContent key={i} md={seg.text} />
           )
         ) : (
-          <GateBlock key={i} view={gates?.get(seg.key)} pointsName={pointsName} />
+          <GateBlock
+            key={i}
+            view={gates?.get(seg.key)}
+            pointsName={pointsName}
+            returnPage={returnPage}
+          />
         ),
       )}
     </>

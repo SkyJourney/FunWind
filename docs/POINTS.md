@@ -1,6 +1,6 @@
 # 积分（Points）规范
 
-> 状态：M5.5 设计定稿；核心（台账/账户/`applyPoints`/渠道注册）在 M5.5，奖励规则与签到在 M7。
+> 状态：M5.5 设计定稿；核心（台账/账户/`applyPoints`/渠道注册）已在 M5.5 S4-5 落地（`apps/web/src/lib/points/`），奖励规则与签到在 M7。
 > 方针（站长 2026-10-23）：积分抽象为「用户积分」，**显示名可配置**（默认「青翼币」）；功能弱化为**台账**，不扩展钱包/多币种；
 > 积分主要通过**发帖、回帖、签到**获取，其他获取方式砍掉；但**消费与获取的抽象必须预留**，以便将来接入新渠道。
 
@@ -25,6 +25,15 @@ applyPoints({ userId, channel, delta, ref?, idempotencyKey, note? })
 更新余额快照 → 提交后派发事件 `points.changed`（`{ userId, channel, delta }`）。
 
 **任何积分变动不得绕过此函数**（代码评审与 lint 规则约束）；管理员手工调整同样走它（`channel = adjust.admin`，并写 `audit_log`）。
+
+### 2.1 实现要点（M5.5 S4-5）
+
+- 两个入口：`applyPoints(req)` 自己开事务、提交后派发 `points.changed`；`applyPointsInTx(tx, req, channel)` 供多步原子操作（如 `unlockGate`）在调用方事务内记账，
+  不提交、不派发，把待派发事件交还最外层。**渠道由调用方在事务外解析好传入**（`resolveChannelOrThrow` / `builtinChannel`），事务内不再借用第二条连接。
+- 锁内顺序：锁账户行（`lockAccount`）→ 幂等判定（`FOR UPDATE` 当前读）→ 余额判定 → 写台账 → 更新余额与累计收支。同一幂等键重放返回既有结果；
+  同键却用于不同用户/渠道/金额报 `IdempotencyConflictError`。
+- **守卫测试** `no-direct-points-write.test.ts`：`lib/points/` 之外的运行时代码不得 insert/update/delete `point_ledger` / `point_accounts`（含手写 SQL）。
+- 模块声明的渠道随模块启停（停用即拒绝）；内置渠道 `opening` / `spend.gate_unlock` / `earn.gate_sale` 属于核心。`dailyCap` 字段契约已接受，规则执行随 M7。
 
 ## 3. 渠道注册（`pointChannels`）
 
