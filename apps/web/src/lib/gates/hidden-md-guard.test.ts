@@ -7,10 +7,13 @@ import { describe, expect, it } from "vitest";
  * 守卫：隐藏正文（post_gates.hidden_md）只能经 lib/gates/service.ts 读取（硬约定 3b）。
  * 任何其他源文件出现 hiddenMd / hidden_md 都会让这个测试变红——
  * 防止有人为了“方便”在搜索、RSS、预览、通知里直读隐藏内容。
+ * 例外：lib/gates/write.ts（M6.1 门控写入器）要写这一列，所以在白名单里；它承诺只写不读，由下面第三条断言守住。
  */
 const SRC = join(__dirname, "../..");
 const ALLOWED = new Set(
-  ["lib/gates/service.ts", "lib/gates/hidden-md-guard.test.ts"].map((p) => p.split("/").join(sep)),
+  ["lib/gates/service.ts", "lib/gates/write.ts", "lib/gates/hidden-md-guard.test.ts"].map((p) =>
+    p.split("/").join(sep),
+  ),
 );
 
 function walk(dir: string): string[] {
@@ -29,6 +32,19 @@ describe("隐藏正文唯一读取点", () => {
       .filter((rel) => !/\.test\.tsx?$/.test(rel))
       .filter((rel) => /hiddenMd|hidden_md/.test(readFileSync(join(SRC, rel), "utf8")));
     expect(offenders).toEqual([]);
+  });
+
+  it("写入器 write.ts 只写不读：不得有不带字段列表的 select()，也不得在 select({…}) 里取 hiddenMd", () => {
+    const src = readFileSync(join(SRC, "lib/gates/write.ts"), "utf8").replace(
+      /\/\*[\s\S]*?\*\/|\/\/.*$/gm,
+      "",
+    );
+    expect(src).toMatch(/hiddenMd/); // 守卫没有空转：它确实在写这一列
+    expect(src).not.toMatch(/\.select\(\s*\)/);
+    expect(src).not.toMatch(/\.selectDistinct\(\s*\)/);
+    for (const m of src.matchAll(/\.select(?:Distinct)?\(\s*\{([^}]*)\}/g)) {
+      expect(m[1], "select 字段列表").not.toMatch(/hiddenMd/);
+    }
   });
 
   it("守卫自身有效：service.ts 确实引用了 hiddenMd（防止路径写错导致空转）", () => {

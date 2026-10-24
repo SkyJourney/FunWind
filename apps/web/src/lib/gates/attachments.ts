@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { attachments, files, getWebDb, postGates, posts, threads } from "@funwind/db";
 import { checkPermission } from "@/lib/authz/service";
 import type { Subject } from "@/lib/authz/types";
+import type { DbExecutor } from "@/lib/audit";
 import { buildViewerScope, visiblePredicate } from "@/lib/queries/visibility";
 import { openGateIds } from "./service";
 
@@ -196,4 +197,21 @@ export async function recordDownload(attachmentId: number): Promise<void> {
     .update(attachments)
     .set({ downloads: sql`${attachments.downloads} + 1` })
     .where(eq(attachments.id, attachmentId));
+}
+
+/**
+ * 这些门控里，哪些还有附件挂在名下（`attachments.gate_id`）。门控写入器删除门控前用它拦截：
+ * 删掉门控却留着附件行，读取侧会把悬空归属当锁定（安全，但附件从此没人拿得到）；
+ * 若反过来把附件改成公开则是泄露。所以删除门控必须先让作者重新指派附件（M6.4 的交互），此处只负责拒绝。
+ */
+export async function gatesWithAttachments(
+  executor: DbExecutor,
+  gateIds: readonly number[],
+): Promise<Set<number>> {
+  if (gateIds.length === 0) return new Set();
+  const rows = await executor
+    .selectDistinct({ gateId: attachments.gateId })
+    .from(attachments)
+    .where(inArray(attachments.gateId, [...gateIds]));
+  return new Set(rows.map((r) => r.gateId).filter((x): x is number => x !== null));
 }
