@@ -8,16 +8,8 @@ import { renderMarkdown } from "./markdown";
  *
  * KNOWN_BROKEN：渲染器尚未修好的条目，用 it.fails 登记——修好后会因「意外通过」而报错，逼着把它从这里删掉。
  */
-/** S1b-2 修渲染器时逐条删除（软换行 → <br>；sup / sub 进白名单；CJK 加粗边界） */
-const KNOWN_BROKEN = new Set<string>([
-  "sup",
-  "sub",
-  "bold-cjk-punct",
-  "quote-multiline",
-  "newline-soft",
-  "br-tag",
-  "trailing-spaces",
-]);
+/** 渲染器尚未修好的条目。S1b-2 已修好软换行与 sup / sub；仅余 CJK 加粗边界，待数据评估（见 CHANGELOG） */
+const KNOWN_BROKEN = new Set<string>(["bold-cjk-punct"]);
 
 describe("迁移语法契约 · 渲染器一侧", () => {
   it("已知缺陷登记里的 id 都真实存在", () => {

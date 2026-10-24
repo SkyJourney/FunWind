@@ -142,9 +142,9 @@ export const MIGRATION_SYNTAX_CONTRACT: readonly SyntaxContractEntry[] = [
   e({
     id: "email",
     title: "邮箱链接",
-    ubb: "[email]a@b.com[/email]",
-    markdown: "[a@b.com](mailto:a@b.com)",
-    html: ['href="mailto:a@b.com"'],
+    ubb: "[email]a@example.com[/email]",
+    markdown: "[a@example.com](mailto:a@example.com)",
+    html: ['href="mailto:a@example.com"'],
   }),
   e({
     id: "img-external",

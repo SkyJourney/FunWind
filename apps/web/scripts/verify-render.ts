@@ -34,9 +34,10 @@ const DETECTORS: Record<
     hit: (md) => /^- [^\n]*\n(?!- |\s*$|\s{2,})/m.test(withoutFences(md)),
   },
   softBreakCollapsed: {
-    allowed: 8561,
-    why: "段落里的单个换行没有变成 <br>，浏览器里塌成空格（渲染器缺 remark-breaks）",
-    hit: (_md, html) =>
+    allowed: 0,
+    why: "段落里的单个换行没有变成 <br>，浏览器里塌成空格（渲染器缺 remark-breaks）。正文含原生 HTML 块（<div> / <p> / <table>）的帖子排除：HTML 里的换行本来就按空白折叠，与旧站显示一致（迁移库 7 篇，post:42268–42275）",
+    hit: (md, html) =>
+      !/<(div|p|table)\b/i.test(md) &&
       /<p>[^<]*\n[^<]*/.test(html.replace(/<(pre|blockquote)[\s\S]*?<\/\1>/g, "")),
   },
 };
@@ -96,7 +97,7 @@ async function main() {
           ? "✔"
           : `✔（等于上限 ${det.allowed}）`;
     console.log(
-      `${String(n).padStart(6)}  ${name.padEnd(20)} ${note}\n        ${det.why}${n ? `\n        例: ${hits[name]!.slice(0, 4).join(", ")}` : ""}`,
+      `${String(n).padStart(6)}  ${name.padEnd(20)} ${note}\n        ${det.why}${n ? `\n        例: ${hits[name]!.slice(0, 8).join(", ")}` : ""}`,
     );
   }
   console.log(

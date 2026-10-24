@@ -212,6 +212,15 @@ const CORPUS: string[] = [
   '<table align="center" onclick=alert(1) style="position:fixed;inset:0"><tr><td align="x onmouseover=alert(1)" style="position:fixed">x</td></tr></table>',
   "| a | b |\n|---|---|\n| `<script>alert(1)</script>` | **<img src=x onerror=alert(1)>** |",
   "| <style>*{display:none}</style> | <svg onload=alert(1)> |\n|---|---|\n| x | y |",
+  // —— sup / sub 进白名单后新增的输入形态（M5.6 S1b-2）：标签放行，属性与脚本仍必须被剥掉 ——
+  "<sup onclick=alert(1)>x</sup>",
+  '<sub style="position:fixed;inset:0" onmouseover=alert(1)>x</sub>',
+  '<sup class="fixed inset-0 z-50 bg-background">x</sup>',
+  "<sup><script>alert(1)</script></sup>",
+  "<sub><img src=x onerror=alert(1)></sub>",
+  "<sup><sup><sup><sub>x</sup>",
+  "x<sup",
+  "<SUP ONCLICK=alert(1)>x</SUP>",
   // —— 超长与嵌套 ——
   "<div>".repeat(300) + "<img src=x onerror=alert(1)>" + "</div>".repeat(300),
   "<b>".repeat(500) + "<script>alert(1)</script>",

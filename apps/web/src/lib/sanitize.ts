@@ -61,6 +61,8 @@ export function sanitizeSchema(): Schema {
       "b",
       "i",
       "u",
+      "sup",
+      "sub",
       "s",
       "del",
       "blockquote",
