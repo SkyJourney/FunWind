@@ -7,6 +7,10 @@ export const FIX = {
   anime: { id: 951, name: "『E2E 动画』", prefixId: 9501, prefixName: "连载中" },
   water: { id: 952, name: "『E2E 水区』", total: 60, perPage: 25, globalPins: 3 },
   staff: { id: 953, name: "『E2E 站务组』" },
+  /** 公开、不审核：发帖用例专用（其它用例不读取它的计数） */
+  compose: { id: 954, name: "『E2E 发帖区』" },
+  /** 已归档：只读，回复与发帖入口都应给出归档说明 */
+  archived: { id: 955, name: "『E2E 归档区』" },
   /** 演示种子里的受限版块（演示团队有授权） */
   teamForum: { id: 904, name: "『字幕组内部区』" },
   thread: {

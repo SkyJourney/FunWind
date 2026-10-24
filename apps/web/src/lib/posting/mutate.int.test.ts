@@ -499,4 +499,31 @@ describe.skipIf(skipDb)("编辑 / 删除 / 恢复 · 真实 MySQL", () => {
     expect([a, b].filter((x) => x.ok)).toHaveLength(1);
     expect([a, b].filter((x) => !x.ok && x.code === "conflict")).toHaveLength(1);
   });
+
+  it("同一秒内的两次编辑：edited_at 严格递增，旧版本号被判为冲突（秒级时间戳不会骗过乐观锁）", async () => {
+    const t = await mkThread(member, FORUM, "同秒编辑目标");
+    const r = await mkReply(xiaoyi, t.threadId, "同秒原文");
+    const first = await editPost(
+      xiaoyi,
+      { postId: r.postId, source: "第一次", expectedEditedAt: null },
+      deps,
+    );
+    expect(first).toMatchObject({ ok: true });
+    const t1 = (await postRow(r.postId)).editedAt;
+    // 紧接着再编辑（同一秒内），仍拿第一次的版本号：必须冲突
+    const stale = await editPost(
+      xiaoyi,
+      { postId: r.postId, source: "拿旧版本号", expectedEditedAt: null },
+      deps,
+    );
+    expect(stale).toMatchObject({ ok: false, code: "conflict" });
+    const second = await editPost(
+      xiaoyi,
+      { postId: r.postId, source: "第二次", expectedEditedAt: t1 },
+      deps,
+    );
+    expect(second).toMatchObject({ ok: true });
+    const t2 = (await postRow(r.postId)).editedAt;
+    expect(t2 !== null && t1 !== null && t2 > t1).toBe(true);
+  });
 });

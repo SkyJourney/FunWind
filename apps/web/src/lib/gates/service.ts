@@ -305,3 +305,44 @@ export async function getGateContent(viewer: Subject, gateId: number): Promise<G
   );
   return [...(views.get(f.postId)?.values() ?? [])][0] ?? null;
 }
+
+/** 编辑页用的一个门控：定义（key / 条件 / 匹配模式）加上隐藏正文，足以还原成完整门控块 */
+export interface EditableGate {
+  key: string;
+  conditions: ReturnType<typeof parseConditions>;
+  matchMode: "all" | "any";
+  hiddenMd: string;
+}
+
+/**
+ * 编辑页用：读出一帖全部门控的定义与隐藏正文，供拼装完整源码（assembleSource）。
+ * 隐藏正文只经 getGateContent 读取（硬约定 3b）。只有观众对**每一个**门控都是「已开放」时才返回，
+ * 任一门控锁定、不存在或不可见都返回 null——调用方不能拿残缺的正文去编辑，否则保存会丢掉隐藏内容。
+ */
+export async function loadEditableGates(
+  viewer: Subject,
+  postId: number,
+): Promise<EditableGate[] | null> {
+  const rows = await getWebDb()
+    .select({
+      id: postGates.id,
+      gateKey: postGates.gateKey,
+      conditions: postGates.conditions,
+      matchMode: postGates.matchMode,
+    })
+    .from(postGates)
+    .where(eq(postGates.postId, postId))
+    .orderBy(postGates.id);
+  const out: EditableGate[] = [];
+  for (const r of rows) {
+    const view = await getGateContent(viewer, r.id);
+    if (!view || view.status !== "open") return null;
+    out.push({
+      key: r.gateKey,
+      conditions: parseConditions(r.conditions),
+      matchMode: r.matchMode === "any" ? "any" : "all",
+      hiddenMd: view.contentMd,
+    });
+  }
+  return out;
+}

@@ -6,6 +6,7 @@ import { ThreadRow } from "@/components/content/thread-row";
 import { Pagination } from "@/components/content/pagination";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { getForumTree } from "@/lib/authz/snapshot";
+import { loadComposeAccess } from "@/lib/posting/compose-access";
 import { getForumView } from "@/lib/queries/forums";
 import { getLatestThreads, listThreads } from "@/lib/queries/threads";
 
@@ -39,10 +40,11 @@ export default async function ForumPage({ params, searchParams }: Params) {
   if (!forum || forum.kind === "section") notFound();
 
   const prefixId = Number(typeRaw ?? "0") || 0;
-  const [list, latest, tree] = await Promise.all([
+  const [list, latest, tree, access] = await Promise.all([
     listThreads(viewer, fid, { page: Math.max(1, Number(pageRaw ?? "1") || 1), prefixId }),
     getLatestThreads(viewer, 5),
     getForumTree(),
+    loadComposeAccess(viewer, fid, forum.kind),
   ]);
   const basePath = `/f/${fid}${prefixId > 0 ? `?type=${prefixId}` : ""}`;
 
@@ -73,7 +75,14 @@ export default async function ForumPage({ params, searchParams }: Params) {
         {forum.description && (
           <p className="mt-1 text-sm text-muted-foreground">{forum.description}</p>
         )}
-        <p className="mt-1 text-xs text-muted-foreground">主题 {forum.threadCount}</p>
+        <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+          <span>主题 {forum.threadCount}</span>
+          {access.mode === "form" && (
+            <Link href={`/f/${fid}/new`} className="font-medium text-primary hover:underline">
+              发新主题
+            </Link>
+          )}
+        </div>
       </header>
 
       {forum.prefixes.length > 0 && (

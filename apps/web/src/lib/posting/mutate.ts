@@ -1,5 +1,5 @@
-import { and, eq, ne, sql } from "drizzle-orm";
-import { getWebDb, posts, threads } from "@funwind/db";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { contentReviews, getWebDb, posts, threads } from "@funwind/db";
 import { writeAudit, type DbTx } from "@/lib/audit";
 import { evaluate } from "@/lib/authz/evaluator";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
@@ -76,6 +76,8 @@ export interface DeleteOk {
   postId: number;
   threadId: number;
   kind: "thread" | "reply";
+  /** 所属版块：删除主题后页面跳回版块列表（主题页已不可见） */
+  forumId: number;
 }
 
 export interface RestoreInput {
@@ -202,6 +204,175 @@ function facts(
   };
 }
 
+/** 只读判定所需的全部事实（不加锁；保存、删除、恢复时各自的写入口会在锁内重判） */
+interface PostFacts {
+  postId: number;
+  threadId: number;
+  forumId: number;
+  kind: "thread" | "reply";
+  authorId: number;
+  /** 帖子自身状态 */
+  state: string;
+  /** 主题标题（首帖才有意义；回帖为空串） */
+  title: string;
+  /** 公开正文（含门控占位，不含隐藏正文） */
+  bodyMd: string;
+  hasGate: boolean;
+  /** 渲染表单时看到的 edited_at，保存时作为 expectedEditedAt 回传（从未编辑为 null） */
+  editedAt: string | null;
+  actor: ActorFacts;
+  target: TargetFacts;
+}
+
+/** 取判定所需的事实。不可见 / 不存在 / 游客 → null。调用方须自行确认帖子对观众可见（或只关心版主视角） */
+async function loadPostFacts(viewer: Subject, postId: number): Promise<PostFacts | null> {
+  if (viewer.userId === null) return null;
+  const hit = await probe(postId);
+  if (!hit) return null;
+  const snap = await getAuthzSnapshot();
+  const { forumId } = hit;
+  const isModerator = evaluate(viewer, "forum.moderate", { forumId }, snap).allowed;
+  const canWrite = evaluate(viewer, "forum.write", { forumId }, snap).allowed;
+
+  const db = getWebDb();
+  const [p] = await db
+    .select({
+      id: posts.id,
+      floor: posts.floor,
+      authorId: posts.authorId,
+      state: posts.state,
+      editedAt: posts.editedAt,
+      bodyMd: posts.bodyMd,
+      hasGate: posts.hasGate,
+      ageSec: sql<number>`TIMESTAMPDIFF(SECOND, ${posts.createdAt}, NOW())`,
+    })
+    .from(posts)
+    .where(eq(posts.id, postId));
+  const [t] = await db
+    .select({
+      id: threads.id,
+      forumId: threads.forumId,
+      authorId: threads.authorId,
+      state: threads.state,
+      title: threads.title,
+      firstPostId: threads.firstPostId,
+    })
+    .from(threads)
+    .where(eq(threads.id, hit.threadId));
+  if (!p || !t) return null;
+
+  const kind: "thread" | "reply" = t.firstPostId === p.id ? "thread" : "reply";
+  const [others] = await db
+    .select({ n: sql<number>`COUNT(*)` })
+    .from(posts)
+    .where(
+      and(
+        eq(posts.threadId, t.id),
+        eq(posts.state, "visible"),
+        ne(posts.authorId, t.authorId),
+        sql`${posts.floor} > 1`,
+      ),
+    );
+  const f = facts(viewer, kind, p, t, Number(others?.n ?? 0));
+  f.actor = { ...f.actor, isModerator, canWrite };
+  return {
+    postId,
+    threadId: t.id,
+    forumId,
+    kind,
+    authorId: p.authorId,
+    state: p.state,
+    title: t.title,
+    bodyMd: p.bodyMd ?? "",
+    hasGate: p.hasGate,
+    editedAt: p.editedAt ?? null,
+    actor: f.actor,
+    target: f.target,
+  };
+}
+
+/** 最近一次驳回的理由（content_reviews）。没有理由或没有驳回记录 → null */
+async function latestRejectNote(postId: number): Promise<string | null> {
+  const [row] = await getWebDb()
+    .select({ note: contentReviews.note })
+    .from(contentReviews)
+    .where(and(eq(contentReviews.postId, postId), eq(contentReviews.decision, "rejected")))
+    .orderBy(desc(contentReviews.id))
+    .limit(1);
+  return row?.note ? row.note : null;
+}
+
+/**
+ * 编辑页用的只读视图（不加锁）：判定观众能否编辑这条帖子，并给出表单需要的事实。
+ * 保存时 editPost 仍会在锁内重新判定，这里的结论只决定页面怎么展示。调用方须已确认帖子对观众可见。
+ */
+export interface EditView {
+  postId: number;
+  threadId: number;
+  forumId: number;
+  kind: "thread" | "reply";
+  bodyMd: string;
+  hasGate: boolean;
+  editedAt: string | null;
+  title: string;
+  decision: RuleDecision;
+  /** 被驳回的帖子：最近一次驳回的理由（没有则 null） */
+  reviewNote: string | null;
+}
+
+export async function readEditView(viewer: Subject, postId: number): Promise<EditView | null> {
+  const f = await loadPostFacts(viewer, postId);
+  if (!f) return null;
+  const limits = await limitsFor(viewer, f.forumId);
+  return {
+    postId,
+    threadId: f.threadId,
+    forumId: f.forumId,
+    kind: f.kind,
+    bodyMd: f.bodyMd,
+    hasGate: f.hasGate,
+    editedAt: f.editedAt,
+    title: f.title,
+    decision: canEdit(f.actor, f.target, limits.editWindowSec),
+    reviewNote: f.state === "rejected" ? await latestRejectNote(postId) : null,
+  };
+}
+
+/**
+ * 删除 / 恢复页用的只读视图（版主视角与作者视角都能算；不加锁，动作时在锁内重判）。
+ * delete / restore 两个判定都给出，页面只展示其中一个。
+ */
+export interface ModerationView {
+  postId: number;
+  threadId: number;
+  forumId: number;
+  kind: "thread" | "reply";
+  authorId: number;
+  state: string;
+  title: string;
+  delete: RuleDecision;
+  restore: RuleDecision;
+}
+
+export async function readModerationView(
+  viewer: Subject,
+  postId: number,
+): Promise<ModerationView | null> {
+  const f = await loadPostFacts(viewer, postId);
+  if (!f) return null;
+  return {
+    postId,
+    threadId: f.threadId,
+    forumId: f.forumId,
+    kind: f.kind,
+    authorId: f.authorId,
+    state: f.state,
+    title: f.title,
+    delete: canDelete(f.actor, f.target),
+    restore: canRestore(f.actor, f.target),
+  };
+}
+
 export async function editPost(
   viewer: Subject,
   input: EditInput,
@@ -262,12 +433,15 @@ export async function editPost(
 
         const resubmit = decision.resubmit;
         const nextState = resubmit ? "pending" : (p.state as "visible" | "pending");
+        // edited_at 是秒级 DATETIME，乐观锁只靠它比对版本：同一秒内的两次编辑会得到相同的值，旧表单就“骗过”了冲突检测。
+        // 所以每次编辑都保证比上一次的 edited_at 至少晚一秒（GREATEST），每个版本的时间戳都严格递增，冲突判定精确。
+        // 代价：显示的「编辑于」时间可能比实际保存时刻晚至多一秒。
         await tx
           .update(posts)
           .set({
             bodyMd: body.publicMd,
             hasGate: gateRes.gateCount > 0,
-            editedAt: sql`NOW()`,
+            editedAt: sql`GREATEST(NOW(), COALESCE(${posts.editedAt} + INTERVAL 1 SECOND, NOW()))`,
             state: nextState,
           })
           .where(eq(posts.id, hit.postId));
@@ -379,7 +553,7 @@ export async function deletePost(
           reason: reason ?? undefined,
           audit: decision.reasonRequired,
         });
-        return { ok: true, postId: hit.postId, threadId: hit.threadId, kind };
+        return { ok: true, postId: hit.postId, threadId: hit.threadId, kind, forumId };
       }, POINTS_TX_OPTIONS),
     );
     const byModerator = viewer.userId !== hit.authorId;

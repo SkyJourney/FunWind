@@ -20,7 +20,24 @@ export default defineConfig({
     baseURL: "http://127.0.0.1:3200",
     trace: "on-first-retry",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    // 桌面：除 mobile-*.spec.ts 之外的全部用例
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+      testIgnore: /mobile-.*\.spec\.ts$/,
+    },
+    // 移动：375px 视口的版式与触达检查（M6.2 决策 4：只跑 M6.2 的用例与访客冒烟，全量移动回归留到 M6.5）
+    {
+      name: "mobile",
+      testMatch: /mobile-.*\.spec\.ts$/,
+      use: {
+        viewport: { width: 375, height: 812 },
+        isMobile: true,
+        hasTouch: true,
+      },
+    },
+  ],
   webServer: {
     command: "pnpm dev --port 3200",
     url: "http://127.0.0.1:3200",

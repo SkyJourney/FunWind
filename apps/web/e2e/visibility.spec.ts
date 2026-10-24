@@ -81,7 +81,8 @@ test.describe("待审核 / 已驳回", () => {
 
     await page.goto("/f/906");
     await expect(page.getByRole("link", { name: /待审核/ }).first()).toBeVisible();
-    await expect(page.getByText("审核中", { exact: true })).toBeVisible();
+    // 新主题 E2E（new-thread.spec）也会在 906 里提交一条待审主题，所以「审核中」可能不止一个：只断言存在
+    await expect(page.getByText("审核中", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("已驳回", { exact: true })).toBeVisible();
   });
 

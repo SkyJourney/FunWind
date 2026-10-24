@@ -39,6 +39,8 @@ export const E2E_FIX = {
   anime: 951, // 公开，带前缀「连载中」，放全站置顶与特殊帖
   water: 952, // 公开，60 个普通主题 → 3 页
   staff: 953, // restricted，且没有任何角色被授权（仅 admin 短路放行）
+  compose: 954, // 公开、不审核：发帖 E2E 专用（不被其它用例的计数断言引用）
+  archived: 955, // 已归档（isArchived=true）：只读，回复入口应给出归档说明
   prefixAiring: 9501,
   placeholderUser: 95001, // state=deleted 的「已注销用户」占位账号
   alice: 90001, // 演示种子里的用户（头像挂在她身上）
@@ -205,6 +207,27 @@ export async function seedE2eFixtures(db: Db, alice = E2E_FIX.alice): Promise<vo
         sortOrder: 3,
         readPolicy: "restricted",
         writePolicy: "restricted",
+      },
+      {
+        id: F.compose,
+        parentId: F.section,
+        path: "/950/954/",
+        depth: 2,
+        name: "『E2E 发帖区』",
+        description: "E2E：公开、不审核，发帖用例专用",
+        sortOrder: 4,
+        reviewPolicy: "none",
+      },
+      {
+        id: F.archived,
+        parentId: F.section,
+        path: "/950/955/",
+        depth: 2,
+        name: "『E2E 归档区』",
+        description: "E2E：已归档，只读",
+        sortOrder: 5,
+        isArchived: true,
+        reviewPolicy: "none",
       },
     ])
     .onDuplicateKeyUpdate({

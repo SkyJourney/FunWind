@@ -7,32 +7,37 @@ import { PostBody } from "@/components/content/post-body";
 import { UserBadge } from "@/components/content/user-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { ReplyComposer } from "@/components/posting/reply-composer";
+import { createReplyAction } from "@/app/actions/replies";
 import { getPointsName } from "@/lib/auth/settings";
 import { checkPermission } from "@/lib/authz/service";
 import { getCurrentSubject } from "@/lib/authz/subject";
+import { limitsFor } from "@/lib/limits/load";
 import { listAttachments } from "@/lib/gates/attachments";
 import { loadGateViews } from "@/lib/gates/service";
 import { fileUrl } from "@/lib/files";
+import { loadReplyAccess } from "@/lib/posting/compose-access";
+import { postingNoticeText, REPLY_REVIEW_HINT } from "@/lib/posting/compose";
 import { getForumView } from "@/lib/queries/forums";
 import { listReplies } from "@/lib/queries/posts";
-import { locateParents, postPath } from "@/lib/queries/locate-post";
+import { locateParents } from "@/lib/queries/locate-post";
 import { getCurrentThreadView } from "@/lib/queries/threads";
+import {
+  attachmentDenyReason,
+  gateNoticeText,
+  lockedAttachmentNotice,
+  parentLink,
+  replyBadge,
+  repliesHeading,
+  splitAttachments,
+  threadBanner,
+} from "@/lib/queries/thread-page";
 
 export const dynamic = "force-dynamic";
 
 type Params = {
   params: Promise<{ tid: string }>;
-  searchParams: Promise<{ page?: string; gate?: string }>;
-};
-
-/** 购买失败的固定提示码（?gate=…）→ 文案。只认这几个码，URL 里的其它内容一律忽略 */
-const GATE_NOTICES: Record<string, string> = {
-  insufficient: "积分不足，无法解锁该内容。",
-  own_content: "你是该内容的作者或版主，无需购买。",
-  unavailable: "该内容暂不可购买。",
-  price_changed: "价格已变化，请确认新价格后重试。",
-  already_open: "你已经可以查看这段内容，无需购买。",
-  rate: "操作过于频繁，请稍后再试。",
+  searchParams: Promise<{ page?: string; gate?: string; reply?: string }>;
 };
 
 const parseTid = (raw: string): number | null => {
@@ -50,17 +55,23 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 export default async function ThreadPage({ params, searchParams }: Params) {
   const tid = parseTid((await params).tid);
   if (!tid) notFound();
-  const { page: pageRaw, gate: gateNotice } = await searchParams;
+  const { page: pageRaw, gate: gateNotice, reply: replyCode } = await searchParams;
 
   const viewer = await getCurrentSubject();
   // 不存在 / 版块读不到 / 屏蔽或删除（非版主）/ 别人的待审核 → 一律 404，不暴露存在性
   const thread = await getCurrentThreadView(tid);
   if (!thread) notFound();
 
-  const [forum, replies] = await Promise.all([
+  const banner = threadBanner(thread.state, thread.review?.note);
+  const notice = gateNoticeText(gateNotice);
+
+  const [forum, replies, replyEntry, limits] = await Promise.all([
     getForumView(viewer, thread.forumId),
     listReplies(viewer, thread, Math.max(1, Number(pageRaw ?? "1") || 1)),
+    loadReplyAccess(viewer, thread.forumId, thread.isLocked),
+    limitsFor(viewer, thread.forumId),
   ]);
+  const replyNotice = postingNoticeText(replyCode);
   // 一页的全部门控一次解析：作者/版主/已解锁者拿到正文，其余人拿到锁卡片（锁卡片里没有正文）
   const gatePosts = [
     { id: thread.first.id, authorId: thread.authorId, hasGate: thread.first.hasGate },
@@ -70,6 +81,37 @@ export default async function ThreadPage({ params, searchParams }: Params) {
   const canDownload = (
     await checkPermission(viewer, "attachment.download", { forumId: thread.forumId })
   ).allowed;
+  // 编辑入口：作者本人，或版主（版主可编辑任何未删除的可见内容）。版主身份整页只判定一次，逐帖只比较字段；
+  // 真正的权限在编辑页与保存时再判定，这里只决定显示哪个入口
+  const canModerate =
+    viewer.userId !== null &&
+    (await checkPermission(viewer, "forum.moderate", { forumId: thread.forumId })).allowed;
+  const canEditPost = (authorId: number, state: string): boolean =>
+    viewer.userId !== null && state !== "deleted" && (authorId === viewer.userId || canModerate);
+  // 恢复入口只给版主，且只对已删除 / 已隐藏的内容显示（删除与恢复的判定在确认页与保存时再做）
+  const canRestorePost = (state: string): boolean =>
+    canModerate && (state === "deleted" || state === "hidden");
+  const hasPostActions = (authorId: number, state: string): boolean =>
+    canEditPost(authorId, state) || canRestorePost(state);
+  const postActions = (postId: number, authorId: number, state: string) => (
+    <>
+      {canEditPost(authorId, state) && (
+        <>
+          <Link href={`/p/${postId}/edit`} className="text-primary hover:underline">
+            编辑
+          </Link>
+          <Link href={`/p/${postId}/delete`} className="text-primary hover:underline">
+            删除
+          </Link>
+        </>
+      )}
+      {canRestorePost(state) && (
+        <Link href={`/p/${postId}/restore`} className="text-primary hover:underline">
+          恢复
+        </Link>
+      )}
+    </>
+  );
   const [attachments, parents, gates, pointsName] = await Promise.all([
     // 门控附件与隐藏正文同权：锁定项只带「存在一个」，不含文件名 / 存储键 / 大小（lib/gates/attachments.ts）
     listAttachments(viewer, thread, gatePosts),
@@ -85,8 +127,7 @@ export default async function ThreadPage({ params, searchParams }: Params) {
   const attachmentList = (postId: number) => {
     const list = attachments.get(postId) ?? [];
     if (list.length === 0) return null;
-    const open = list.filter((a) => a.status === "open");
-    const lockedCount = list.length - open.length;
+    const { open, lockedCount } = splitAttachments(list);
     return (
       <div className="mt-4 flex flex-wrap gap-2 border-t pt-3">
         <Paperclip className="size-4 text-muted-foreground" />
@@ -106,7 +147,7 @@ export default async function ThreadPage({ params, searchParams }: Params) {
               className="inline-flex items-center gap-1 rounded-md border border-dashed px-2 py-1 text-xs text-muted-foreground"
             >
               📎 {a.originalName}
-              <span>（{viewer.userId === null ? "登录后下载" : "无下载权限"}）</span>
+              <span>（{attachmentDenyReason(viewer.userId === null)}）</span>
             </span>
           ),
         )}
@@ -115,7 +156,7 @@ export default async function ThreadPage({ params, searchParams }: Params) {
             data-testid="locked-attachments"
             className="inline-flex items-center gap-1 rounded-md border border-dashed px-2 py-1 text-xs text-muted-foreground"
           >
-            🔒 本帖有 {lockedCount} 个附件需解锁后下载
+            {lockedAttachmentNotice(lockedCount)}
           </span>
         )}
       </div>
@@ -138,32 +179,32 @@ export default async function ThreadPage({ params, searchParams }: Params) {
         )}
       </nav>
 
-      {gateNotice && Object.hasOwn(GATE_NOTICES, gateNotice) && (
+      {notice && (
         <p
           role="alert"
           className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
         >
-          {GATE_NOTICES[gateNotice]}
+          {notice}
         </p>
       )}
 
-      {thread.state === "pending" && (
+      {banner?.tone === "info" && (
         <p className="flex items-center gap-2 rounded-lg border border-info/30 bg-info/10 px-3 py-2 text-sm text-info">
-          <Clock className="size-4" /> 该主题正在审核中，目前只有你和版主能看到。
+          <Clock className="size-4" /> {banner.text}
         </p>
       )}
-      {thread.state === "rejected" && (
+      {banner?.tone === "destructive" && (
         <p className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           <XCircle className="mt-0.5 size-4 shrink-0" />
           <span>
-            该主题未通过审核，只有你和版主能看到。
-            {thread.review?.note && <>驳回理由：{thread.review.note}</>}
+            {banner.text}
+            {banner.reviewNote && <>驳回理由：{banner.reviewNote}</>}
           </span>
         </p>
       )}
-      {(thread.state === "hidden" || thread.state === "deleted") && (
+      {banner?.tone === "muted" && (
         <p className="rounded-lg border bg-muted px-3 py-2 text-sm text-muted-foreground">
-          【版主视图】该主题已被{thread.state === "hidden" ? "隐藏" : "删除"}，普通用户看不到。
+          {banner.text}
         </p>
       )}
 
@@ -207,8 +248,11 @@ export default async function ThreadPage({ params, searchParams }: Params) {
             returnPage={replies.page}
           />
           {attachmentList(thread.first.id)}
-          {thread.first.editedAt && (
-            <p className="mt-3 text-xs text-muted-foreground">最后编辑于 {thread.first.editedAt}</p>
+          {(thread.first.editedAt || hasPostActions(thread.authorId, thread.state)) && (
+            <p className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
+              {thread.first.editedAt && <span>最后编辑于 {thread.first.editedAt}</span>}
+              {postActions(thread.first.id, thread.authorId, thread.state)}
+            </p>
           )}
         </CardContent>
       </Card>
@@ -216,8 +260,7 @@ export default async function ThreadPage({ params, searchParams }: Params) {
       {/* 回帖楼层 */}
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-muted-foreground">
-          回帖 {replies.total} 条
-          {replies.totalPages > 1 && ` · 第 ${replies.page}/${replies.totalPages} 页`}
+          {repliesHeading(replies.total, replies.page, replies.totalPages)}
         </h2>
         {replies.items.length === 0 && (
           <p className="rounded-xl border bg-card p-6 text-center text-sm text-muted-foreground">
@@ -225,33 +268,26 @@ export default async function ThreadPage({ params, searchParams }: Params) {
           </p>
         )}
         {replies.items.map((f) => {
-          const parent = f.replyToPostId ? parents.get(f.replyToPostId) : undefined;
-          // 父帖在本页内（或是首帖，每页都有）用页内锚点；在别的页则带页码
-          const parentHref =
-            parent && (parent.page === replies.page || parent.floor === 1)
-              ? `#p${parent.postId}`
-              : parent
-                ? postPath(parent)
-                : null;
+          // 父帖不可见时不渲染链接；可见时：本页内（或首帖）用页内锚点，否则带页码
+          const link = parentLink(
+            f.replyToPostId ? parents.get(f.replyToPostId) : undefined,
+            replies.page,
+          );
           return (
             <Card key={f.id} id={`p${f.id}`} className="scroll-mt-20">
               <CardHeader className="flex flex-row items-center justify-between gap-2 py-3">
                 <UserBadge uid={f.authorId} name={f.authorName} deleted={f.authorDeleted} />
                 <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                  {f.state === "pending" && <Badge variant="outline">审核中</Badge>}
-                  {f.state === "rejected" && <Badge variant="outline">已驳回</Badge>}
-                  {(f.state === "hidden" || f.state === "deleted") && (
-                    <Badge variant="outline">{f.state === "hidden" ? "已隐藏" : "已删除"}</Badge>
-                  )}
-                  #{f.floor}
+                  {replyBadge(f.state) && <Badge variant="outline">{replyBadge(f.state)}</Badge>}#
+                  {f.floor}
                 </span>
               </CardHeader>
               <CardContent className="space-y-2 pb-4">
-                {parentHref && parent && (
+                {link && (
                   <p className="text-xs text-muted-foreground">
                     ↩ 回复{" "}
-                    <a href={parentHref} className="text-primary hover:underline">
-                      #{parent.floor}
+                    <a href={link.href} className="text-primary hover:underline">
+                      #{link.floor}
                     </a>
                   </p>
                 )}
@@ -263,9 +299,12 @@ export default async function ThreadPage({ params, searchParams }: Params) {
                   returnPage={replies.page}
                 />
                 {attachmentList(f.id)}
-                <p className="text-xs text-muted-foreground">
-                  {f.createdAt}
-                  {f.editedAt && ` · 编辑于 ${f.editedAt}`}
+                <p className="flex items-center gap-3 text-xs text-muted-foreground">
+                  <span>
+                    {f.createdAt}
+                    {f.editedAt && ` · 编辑于 ${f.editedAt}`}
+                  </span>
+                  {postActions(f.id, f.authorId, f.state)}
                 </p>
               </CardContent>
             </Card>
@@ -274,6 +313,53 @@ export default async function ThreadPage({ params, searchParams }: Params) {
       </section>
 
       <Pagination basePath={`/t/${tid}`} page={replies.page} totalPages={replies.totalPages} />
+
+      {/* 快速回复：只在主题可见时提供表单；锁定 / 归档 / 无权限时给出说明 */}
+      <section id="reply" className="scroll-mt-20 space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">快速回复</h2>
+        {replyNotice && (
+          <p
+            role="alert"
+            className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
+          >
+            {replyNotice}
+          </p>
+        )}
+        {thread.state !== "visible" ? (
+          <p className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
+            该主题暂不接受回复。
+          </p>
+        ) : replyEntry.mode === "closed" ? (
+          <Card>
+            <CardContent className="space-y-3 pt-6 text-sm">
+              <p>{replyEntry.text}</p>
+              {replyEntry.loginHref && (
+                <Link href={replyEntry.loginHref} className="text-primary hover:underline">
+                  去登录
+                </Link>
+              )}
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardContent className="space-y-3 pt-6">
+              {replyEntry.reviewHint && (
+                <p className="rounded-lg border border-info/30 bg-info/10 px-3 py-2 text-sm text-info">
+                  {REPLY_REVIEW_HINT}
+                </p>
+              )}
+              <ReplyComposer
+                action={createReplyAction}
+                threadId={tid}
+                page={replies.page}
+                draftKey={`funwind:draft:reply:${viewer.userId ?? "guest"}:${tid}`}
+                restore={replyCode !== undefined}
+                bodyMax={limits.bodyMax}
+              />
+            </CardContent>
+          </Card>
+        )}
+      </section>
     </main>
   );
 }
