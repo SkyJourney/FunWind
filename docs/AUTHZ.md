@@ -81,7 +81,7 @@ checkPermission(subject, "resource.action", { forumId? }) → { allowed, reason 
 - **版主**：`getForumModerators` 列出链上持有 `forum.moderate` 授权的**非 admin** 角色的持有人（admin 的全局基线授权不算“版主”）。
 - **管理护栏**：不得把 `forum.moderate`/`site.admin`/`admin.*`/`user.viewIp` 全局授予 `guest`/`member`；admin 的 `site.admin`/`admin.roles` 不可撤销；
   `createCustomRole` 只 insert，同名（含内置）拒绝；内置角色不可删；`guest`/`member` 不可绑定到用户。
-- **客户端 IP**（审计、频控）：`lib/net/client-ip.ts` 按 `TRUSTED_PROXY_HOPS` 取 X-Forwarded-For 从右数第 N 项；默认 0 = 不信任转发头（归入 `unknown` 桶）。
+- **客户端 IP**（审计、频控）：`lib/net/client-ip.ts` 按 `TRUSTED_PROXY_HOPS` 取 X-Forwarded-For 从右数第 N 项；取不到可信 IP 返回 `null`，调用方**跳过 IP 级限额**、只留账号级/邮箱级限额（共享桶会被攻击者占满，反成全站登录的拒绝服务）。生产环境未显式设置该变量会直接报错。
 
 ## 5. 后台与菜单权限
 

@@ -83,7 +83,7 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
 /** 创建会话并写 cookie（登录/注册成功；登录时须先销毁旧会话=防会话固定） */
 export async function createSession(
   userId: number,
-  meta: { ip?: string; userAgent?: string } = {},
+  meta: { ip?: string | null; userAgent?: string } = {},
 ): Promise<void> {
   const token = generateToken();
   const db = getWebDb();

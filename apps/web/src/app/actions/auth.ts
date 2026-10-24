@@ -23,10 +23,19 @@ import { getRegisterMode } from "@/lib/auth/settings";
 const USERNAME_RE = /^[a-zA-Z0-9_\u4e00-\u9fa5]{2,20}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** 频控键：前缀 + 客户端 IP（按 TRUSTED_PROXY_HOPS 取，伪造的 X-Forwarded-For 不被信任） */
-async function clientKey(prefix: string): Promise<string> {
-  return `${prefix}:${clientIpFrom(await headers())}`;
+/**
+ * IP 级频控键；取不到可信 IP 时为 null。
+ * 此时必须跳过 IP 级限额（见 lib/net/client-ip.ts：共享桶会被攻击者占满，反成全站登录的拒绝服务），
+ * 只保留账号级/邮箱级限额。
+ */
+async function ipRateKey(prefix: string): Promise<string | null> {
+  const ip = clientIpFrom(await headers());
+  return ip === null ? null : `${prefix}:${ip}`;
 }
+
+/** IP 级限额检查：无可信 IP 时放行，由其余维度的限额兜底 */
+const ipAllowed = (key: string | null, max: number, windowMs: number): boolean =>
+  key === null || rateLimit(key, max, windowMs).allowed;
 
 /** 用归一化键（username_key / email_key）查找；已注销账号不可登录 */
 async function findUserByIdentifier(identifier: string) {
@@ -43,10 +52,9 @@ export async function loginAction(formData: FormData): Promise<void> {
   const identifier = String(formData.get("identifier") ?? "").trim();
   const password = String(formData.get("password") ?? "");
   // 双层频控：IP 级（防撞库）+ 账号级（防定向爆破）
-  const ipKey = await clientKey("login-ip");
-  const accountKey = `login-account:${identifier.toLowerCase()}`;
+  const accountKey = `login-account:${normalizeKey(identifier)}`;
   if (
-    !rateLimit(ipKey, 20, 10 * 60_000).allowed ||
+    !ipAllowed(await ipRateKey("login-ip"), 20, 10 * 60_000) ||
     !rateLimit(accountKey, 5, 10 * 60_000).allowed
   ) {
     redirect("/login?error=" + encodeURIComponent("尝试过于频繁，请 10 分钟后再试"));
@@ -86,7 +94,7 @@ export async function registerAction(formData: FormData): Promise<void> {
 
   const fail = (msg: string): never => redirect(`/register?error=${encodeURIComponent(msg)}`);
 
-  if (!rateLimit(await clientKey("register"), 5, 60 * 60_000).allowed) {
+  if (!ipAllowed(await ipRateKey("register"), 5, 60 * 60_000)) {
     fail("注册过于频繁，请稍后再试");
   }
   if (!USERNAME_RE.test(username)) fail("用户名需 2-20 位（中文/字母/数字/下划线）");
@@ -126,7 +134,11 @@ export async function forgotAction(formData: FormData): Promise<void> {
   const email = String(formData.get("email") ?? "")
     .trim()
     .toLowerCase();
-  if (!rateLimit(await clientKey("forgot"), 5, 15 * 60_000).allowed) {
+  // 同时按邮箱限额：既防对同一受害邮箱的邮件轰炸，也在无可信 IP 时兜底
+  if (
+    !ipAllowed(await ipRateKey("forgot"), 5, 15 * 60_000) ||
+    !rateLimit(`forgot-email:${normalizeKey(email)}`, 3, 60 * 60_000).allowed
+  ) {
     redirect("/forgot?sent=1"); // 频控也返回中性视图
   }
 
