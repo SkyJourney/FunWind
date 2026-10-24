@@ -14,7 +14,8 @@ import { listAttachments } from "@/lib/gates/attachments";
 import { loadGateViews } from "@/lib/gates/service";
 import { fileUrl } from "@/lib/files";
 import { getForumView } from "@/lib/queries/forums";
-import { getParentFloors, listReplies, pageOfFloor } from "@/lib/queries/posts";
+import { listReplies } from "@/lib/queries/posts";
+import { locateParents, postPath } from "@/lib/queries/locate-post";
 import { getCurrentThreadView } from "@/lib/queries/threads";
 
 export const dynamic = "force-dynamic";
@@ -72,8 +73,9 @@ export default async function ThreadPage({ params, searchParams }: Params) {
   const [attachments, parents, gates, pointsName] = await Promise.all([
     // 门控附件与隐藏正文同权：锁定项只带「存在一个」，不含文件名 / 存储键 / 大小（lib/gates/attachments.ts）
     listAttachments(viewer, thread, gatePosts),
-    getParentFloors(
-      thread.id,
+    // 父帖按观众视角定位：不可见的父帖映射为 null，不渲染链接（也不泄露它的楼层）
+    locateParents(
+      viewer,
       replies.items.flatMap((r) => (r.replyToPostId ? [r.replyToPostId] : [])),
     ),
     loadGateViews(viewer, thread, gatePosts),
@@ -223,14 +225,14 @@ export default async function ThreadPage({ params, searchParams }: Params) {
           </p>
         )}
         {replies.items.map((f) => {
-          const parentFloor = f.replyToPostId ? parents.get(f.replyToPostId) : undefined;
-          // 父帖在别的页时链接带页码；首帖（楼层 1）与本页内的帖子用页内锚点
+          const parent = f.replyToPostId ? parents.get(f.replyToPostId) : undefined;
+          // 父帖在本页内（或是首帖，每页都有）用页内锚点；在别的页则带页码
           const parentHref =
-            f.replyToPostId && parentFloor !== undefined
-              ? parentFloor === 1 || pageOfFloor(parentFloor) === replies.page
-                ? `#p${f.replyToPostId}`
-                : `/t/${thread.id}?page=${pageOfFloor(parentFloor)}#p${f.replyToPostId}`
-              : null;
+            parent && (parent.page === replies.page || parent.floor === 1)
+              ? `#p${parent.postId}`
+              : parent
+                ? postPath(parent)
+                : null;
           return (
             <Card key={f.id} id={`p${f.id}`} className="scroll-mt-20">
               <CardHeader className="flex flex-row items-center justify-between gap-2 py-3">
@@ -245,11 +247,11 @@ export default async function ThreadPage({ params, searchParams }: Params) {
                 </span>
               </CardHeader>
               <CardContent className="space-y-2 pb-4">
-                {parentHref && parentFloor !== undefined && (
+                {parentHref && parent && (
                   <p className="text-xs text-muted-foreground">
                     ↩ 回复{" "}
                     <a href={parentHref} className="text-primary hover:underline">
-                      #{parentFloor}
+                      #{parent.floor}
                     </a>
                   </p>
                 )}

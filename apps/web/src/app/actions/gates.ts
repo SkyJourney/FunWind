@@ -6,7 +6,8 @@ import { z } from "zod";
 import { defineAction } from "@/lib/actions/define-action";
 import { locateGate, type GateLocation } from "@/lib/gates/service";
 import { unlockGate } from "@/lib/gates/unlock";
-import { pageOfFloor } from "@/lib/queries/posts";
+import { locatePost } from "@/lib/queries/locate-post";
+import type { Subject } from "@/lib/authz/types";
 
 /**
  * 门控购买 Server Action。购买后重定向回原帖原页并带锚点；失败时只带固定的提示码（?gate=insufficient 等），
@@ -14,14 +15,24 @@ import { pageOfFloor } from "@/lib/queries/posts";
  * URL 里也不带任何用户可控文本。
  */
 
-/** 返回地址：回帖按楼层算页码；首帖在每一页都显示，沿用表单带来的当前页（只接受 1–100000 的整数） */
-function backUrl(t: GateLocation, formPage: number, notice?: string): string {
-  const page = t.floor > 1 ? pageOfFloor(t.floor) : formPage;
+/**
+ * 返回地址：回帖的页码按观众视角重新定位（隐藏 / 待审的中间楼层不计入）；首帖在每一页都显示，沿用表单带来的当前页。
+ * 定位不到（帖子对观众已不可见）时回到首页的主题第一页——不泄露它存在过。
+ */
+async function backUrl(
+  viewer: Subject,
+  t: GateLocation,
+  formPage: number,
+  notice?: string,
+): Promise<string> {
+  const loc = await locatePost(viewer, t.postId);
+  if (!loc) return `/t/${t.threadId}`;
+  const page = loc.floor > 1 ? loc.page : formPage;
   const q = new URLSearchParams();
   if (page > 1) q.set("page", String(page));
   if (notice) q.set("gate", notice);
   const qs = q.toString();
-  return `/t/${t.threadId}${qs ? `?${qs}` : ""}#p${t.postId}`;
+  return `/t/${loc.threadId}${qs ? `?${qs}` : ""}#p${loc.postId}`;
 }
 
 /** 买家确认的价格：非负整数且不超过门控语法允许的上限（9999999）；缺失 / 畸形一律视为「价格不符」 */
@@ -60,7 +71,7 @@ export const unlockGateAction = defineAction({
       onLimit: async (ctx, input) => {
         const t = await locateGate(ctx.subject, input.gateId);
         if (!t) notFound();
-        redirect(backUrl(t, parsePage(input.page), "rate"));
+        redirect(await backUrl(ctx.subject, t, parsePage(input.page), "rate"));
       },
     },
   ],
@@ -71,16 +82,16 @@ export const unlockGateAction = defineAction({
     if (expectedPrice === null) {
       const t = await locateGate(ctx.subject, input.gateId);
       if (!t) notFound();
-      redirect(backUrl(t, formPage, "price_changed"));
+      redirect(await backUrl(ctx.subject, t, formPage, "price_changed"));
     }
 
     const r = await unlockGate(ctx.subject, input.gateId, { expectedPrice });
     if (!r.ok) {
       if (r.code === "login") redirect("/login");
       if (r.code === "not_found" || !r.target) notFound();
-      redirect(backUrl(r.target, formPage, r.code));
+      redirect(await backUrl(ctx.subject, r.target, formPage, r.code));
     }
     revalidatePath(`/t/${r.target.threadId}`);
-    redirect(backUrl(r.target, formPage));
+    redirect(await backUrl(ctx.subject, r.target, formPage));
   },
 });

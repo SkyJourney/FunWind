@@ -5,6 +5,19 @@
 
 ## [Unreleased]
 
+### Added / Fixed（M6.1 第 3 步·任务 6：`locatePost` 与 `/p/{pid}`）
+
+- **`lib/queries/locate-post.ts`**：`locatePost(viewer, postId)` 按**观众**可见的回帖数算页码（楼层 ≤ 目标、对该观众可见），不再假定楼层连续。隐藏 / 待审 / 已删的中间楼层不计入，不同观众看到的页码可以不同。目标帖或所在主题对观众不可见返回 `null`。`postPath` 拼出 `/t/{tid}?page=N#p{pid}`（第一页不写 page）。
+- **`/p/[pid]` 路由**：302 到帖子所在的页与锚点；不存在、非法或不可见一律 404（不暴露存在性）。Location 用相对地址。
+- **替换旧的楼层公式**：`pageOfFloor` 已删除，守卫测试禁止重新引入。主题页的父帖链接与门控购买后的返回地址改用 `locatePost`。
+- **修复一处信息泄露**：主题页的父帖链接原先用 `getParentFloors` 取楼层，不做可见性过滤，因此会暴露被隐藏父帖的楼层。现在不可见的父帖不渲染链接。`getParentFloors` 已删除。
+- **测试**：纯函数 7 项（页码边界、与旧公式在无空洞时一致、有空洞时旧公式错、地址形态、守卫）；集成 9 项（隐藏中间楼层、不同观众页码不同、隐藏帖与待审帖的可见性、隐藏主题、受限版块、不存在、父帖批量定位）；E2E 2 项（302 地址、404、版主看到隐藏帖的跳转）。
+- **变异验证 3 项各自变红**：去掉计数的可见性过滤、改回旧的楼层公式、目标帖不做可见性检查。
+
+### Docs（M6.1 遗留：编辑绕审）
+
+- 自动安全审查指出：作者编辑已通过审核的帖子不会重新送审（`review_policy=all` 的版块里可以绕过审核）。这是 2026-10-24 确认的取舍（与旧站一致），此前没有写进遗留事项，现已补上（见 M6.1 设计稿 §11），由 M9 审核队列统一处理。
+
 ### Added（M6.1 第 3 步·任务 5：编辑 / 删除 / 恢复 + 事件契约 + 编辑时限）
 
 - **事件契约**（设计稿 §7.2，`kernel/types.ts` / `event-names.ts` / `bus.ts` / `MODULES.md` 同步）：载荷只放 id 与标题，绝不放正文。`thread.created` / `thread.replied` / `thread.edited` / `thread.deleted` 补齐 `postId`、`forumId`、`authorId` 等字段；新增 `post.edited`、`post.deleted`；`content.submitted` 去掉 `pending`，改为 `threadId` + `isThread`（待审内容只发它）。清单由 21 个变为 23 个。发帖路径已改用新载荷，事件派发失败只记日志。

@@ -23,7 +23,7 @@ import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { getDirectory, getForumView } from "./forums";
-import { REPLIES_PER_PAGE, getParentFloors, listReplies, pageOfFloor } from "./posts";
+import { REPLIES_PER_PAGE, listReplies } from "./posts";
 import { getLatestThreads, getThreadView, listThreads } from "./threads";
 import { getProfile } from "./users";
 import { buildViewerScope, visiblePredicate } from "./visibility";
@@ -359,10 +359,6 @@ describe.skipIf(skipDb)("查询层 · 真实 MySQL", () => {
       expect((await listReplies(guest, t, Number.NaN)).page).toBe(1);
       const p3 = await listReplies(guest, t, 3);
       expect(p3.items.map((r) => r.floor)).toEqual(Array.from({ length: 7 }, (_, i) => i + 42));
-      expect(pageOfFloor(2)).toBe(1);
-      expect(pageOfFloor(21)).toBe(1);
-      expect(pageOfFloor(22)).toBe(2);
-      expect(pageOfFloor(42)).toBe(3);
     });
 
     it("回帖按各自状态过滤：被隐藏的回帖只有版主可见；待审核回帖只有其作者与版主可见", async () => {
@@ -378,15 +374,6 @@ describe.skipIf(skipDb)("查询层 · 真实 MySQL", () => {
       expect(await floorsOf(xiaoyi)).toContain(930001);
       expect(await floorsOf(xiaoyi)).not.toContain(930000);
       expect(await floorsOf(admin)).toEqual(expect.arrayContaining([930000, 930001]));
-    });
-
-    it("父帖楼层：批量取，且限定在同一主题内（不能借此探测别的主题的帖）", async () => {
-      const m = await getParentFloors(900001, [900001, 900002, 900103, 900101]);
-      expect(m.get(900001)).toBe(2);
-      expect(m.get(900002)).toBe(3);
-      expect(m.has(900103)).toBe(false); // 属于主题 900003
-      expect(m.get(900101)).toBe(1);
-      expect((await getParentFloors(900001, [])).size).toBe(0);
     });
   });
 

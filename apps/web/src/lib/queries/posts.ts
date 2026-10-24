@@ -1,4 +1,4 @@
-import { and, asc, count, eq, gt, inArray } from "drizzle-orm";
+import { and, asc, count, eq, gt } from "drizzle-orm";
 import { getWebDb, posts, threads, users } from "@funwind/db";
 import type { Subject } from "@/lib/authz/types";
 import type { ThreadListItem } from "./threads";
@@ -23,10 +23,6 @@ export interface ReplyItem {
   createdAt: string;
   editedAt: string | null;
 }
-
-/** 某楼层所在的回帖页码（回帖楼层从 2 起，每页 REPLIES_PER_PAGE 条） */
-export const pageOfFloor = (floor: number): number =>
-  Math.max(1, Math.ceil((floor - 1) / REPLIES_PER_PAGE));
 
 /**
  * 回帖分页。thread 必须是 getThreadView 已按 viewer 校验过的主题；
@@ -87,18 +83,4 @@ export async function listReplies(
     authorDeleted: authorState === "deleted",
   }));
   return { items, total, page: safePage, totalPages };
-}
-
-/** 回复指针指向的帖子楼层（父帖可能在别的页，所以单独批量取）；同主题限定防止越权探测别的主题 */
-export async function getParentFloors(
-  threadId: number,
-  ids: readonly number[],
-): Promise<Map<number, number>> {
-  const unique = [...new Set(ids)];
-  if (unique.length === 0) return new Map();
-  const rows = await getWebDb()
-    .select({ id: posts.id, floor: posts.floor })
-    .from(posts)
-    .where(and(eq(posts.threadId, threadId), inArray(posts.id, unique)));
-  return new Map(rows.map((r) => [r.id, r.floor]));
 }
