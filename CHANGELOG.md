@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### Security（M5.5 之后审查 · P2 小批 3/6：首帖状态独立校验）
+
+- `getThreadView` 此前只用主题状态判定可见，首帖自己的 `posts.state` 没有检查；而 `locateGate` 与 `/files` 都同时校验两者。一旦写入侧（M6）让主题与首帖状态分叉（如主题可见、首帖被隐藏），首帖正文会泄露给无权观众。现在首帖查询同样套 `visiblePredicate`：任一不可见整个主题 404。
+- `DESIGN-MODEL.md` §4 新增「主题状态与首帖状态（不变量）」：读取时两者都必须可见；写入侧同事务同步首帖状态，读取侧不依赖这一点，分叉时按更严一方处理。
+- 回归：集成测试把可见主题的首帖改成 hidden / pending（作者变更），逐观众断言（游客、会员、原作者、新首帖作者、版主），结束后还原；去掉新谓词后该用例变红。
+
 ### Security（M5.5 之后审查 · P2 小批 2/6：`code` / `pre` 的 class 白名单）
 
 - 净化器此前对 `code` / `pre` 放行任意 `class`，作者可注入站内已有的 Tailwind 类（如 `fixed inset-0 z-50 bg-background`）整页覆盖做钓鱼。现改为逐个 class token 校验 `/^language-[\w-]+$/`（代码围栏产生的语法高亮类仍保留）；token 被剥空后不留空的 `class=""`。

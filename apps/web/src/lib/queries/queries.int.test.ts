@@ -280,6 +280,37 @@ describe.skipIf(skipDb)("查询层 · 真实 MySQL", () => {
       expect(rejected?.review?.note.length).toBeGreaterThan(0);
     });
 
+    it("首帖状态独立于主题状态：主题可见但首帖被隐藏 / 待审时，同样 null（正文不因只查主题而泄露）", async () => {
+      // 900006 是游客可读的普通主题；把它的首帖状态改成与主题分叉
+      const [t] = await db().select().from(threads).where(eq(threads.id, 900006));
+      const fp = t!.firstPostId!; // 夹具主题都有首帖
+      try {
+        expect((await getThreadView(guest, 900006))?.first.bodyMd).toBeTruthy();
+
+        await db().update(posts).set({ state: "hidden" }).where(eq(posts.id, fp));
+        expect(await getThreadView(guest, 900006)).toBeNull();
+        expect(await getThreadView(member, 900006)).toBeNull();
+        expect(await getThreadView(alice, 900006)).toBeNull(); // 作者本人也不行：hidden 仅版主
+        expect((await getThreadView(admin, 900006))?.first.id).toBe(fp);
+
+        // 首帖待审：只有首帖作者与版主可见
+        await db()
+          .update(posts)
+          .set({ state: "pending", authorId: DEMO.xiaoyi })
+          .where(eq(posts.id, fp));
+        expect(await getThreadView(guest, 900006)).toBeNull();
+        expect(await getThreadView(alice, 900006)).toBeNull();
+        expect((await getThreadView(xiaoyi, 900006))?.first.id).toBe(fp);
+        expect((await getThreadView(admin, 900006))?.first.id).toBe(fp);
+      } finally {
+        await db()
+          .update(posts)
+          .set({ state: "visible", authorId: t!.authorId })
+          .where(eq(posts.id, fp));
+      }
+      expect((await getThreadView(guest, 900006))?.first.id).toBe(fp);
+    });
+
     it("门控帖：首帖 body_md 只含占位，hasGate 为真", async () => {
       const v = await getThreadView(guest, 900004);
       expect(v?.first.hasGate).toBe(true);

@@ -191,7 +191,18 @@ export async function getThreadView(viewer: Subject, tid: number): Promise<Threa
     })
     .from(posts)
     .innerJoin(threads, eq(threads.firstPostId, posts.id))
-    .where(and(eq(threads.id, tid), eq(posts.floor, 1)));
+    .where(
+      and(
+        eq(threads.id, tid),
+        eq(posts.floor, 1),
+        // 首帖自己的状态也要过可见性：主题可见不代表首帖可见（主题状态与首帖状态可以分叉，
+        // 见 docs/DESIGN-MODEL.md §4）。与 locateGate、/files 一致，正文不因只检查主题而泄露
+        visiblePredicate(
+          { forumId: threads.forumId, state: posts.state, authorId: posts.authorId },
+          scope,
+        ),
+      ),
+    );
   const first = firstRows[0];
   if (!first) return null;
 

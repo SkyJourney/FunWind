@@ -98,6 +98,10 @@
 
 状态变化由领域事件驱动通知（见 NOTIFICATIONS.md），并写 `audit_log` 与（审核类）`content_reviews`。
 
+**主题状态与首帖状态（不变量）**：主题（`threads.state`）和它的首帖（`posts.state`，`floor=1`）各有一个状态，读取时**两者都必须对观众可见**，任一不可见即整个主题对其不存在（404）。
+这条规则在 `getThreadView`、`locateGate`（门控）、`/files`（附件）三处同样成立；回帖只看自己的 `posts.state` 与所属主题的版块。
+写入侧（M6）的约定：对主题的审核 / 隐藏 / 删除操作**同事务同步首帖状态**，使两者通常一致；读取侧不依赖这一点，分叉时按「更严的一方」处理，宁可看不到也不泄露。
+
 ## 5. 文件与 `/files` 路由
 
 - 上传 → 计算 SHA-256 → 已存在则复用 `files` 行，否则落盘 → 写 `attachments` / `user_profiles.avatar_file_id` / 正文图片引用。
