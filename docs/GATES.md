@@ -2,7 +2,7 @@
 
 > 状态：M5.5 设计定稿；实现分布于 M5.5（存储/只读渲染/解锁服务）→ M6（创作与购买交互）。
 > 对应旧站：`[sell]`（付费）、`[post]`（回复可见）、`[hide=N]`（积分可见）三种 UBB 隐藏块。
-> 设计要点：**门控 = 内容容器 + 可插拔的解锁条件**；隐藏内容在保存时拆出，从构造上杜绝泄露。
+> 设计要点：**门控 = 内容容器 + 解锁条件（内置 `points` / `reply`）**；隐藏内容在保存时拆出，从构造上杜绝泄露。
 
 ## 1. 语法：`:::` 容器指令
 
@@ -44,27 +44,22 @@
 **作者编辑**：作者/版主打开编辑时，`assembleSource(body_md, gates)` 把门控按 id 合并回完整源码；保存时 `splitSource()` 再拆。
 门控 `key` 在往返中保持稳定，解锁记录因此不丢。有购买记录的门控**不可删除**，只能改内容；改价不退款，只影响之后的购买。
 
-## 3. 解锁条件注册表（`gateConditions`）
+## 3. 解锁条件（内置 `points` / `reply`，固定两种）
 
-模块内核第八类注册边界（`pointChannels` 为第七类）。每个条件声明：
+> **M6.1 修订（站长 2026-10-24 定）**：原设计把条件做成模块内核的第八类注册边界（`gateConditions`：`paramsSchema` / `kind` / `check` / `prompt` / `createPermission`）。
+> 实现里求值器一直是写死的 `switch`，只认 `points` / `reply`，注册边界没有任何消费者，只是名义上的"可插拔"，已**删除**（类型、注册校验、保留项、测试都已移除；模块内核由十类边界变为九类）。
+> 将来真要新增一种条件，应当是一次**有设计、有测试的核心改动**（改 `packages/content` 的条件规格、`lib/gates/evaluate.ts` 与创作侧校验），而不是模块随手声明。
 
-| 字段 | 含义 |
-|------|------|
-| `type` | 唯一键，如 `points`、`reply` |
-| `paramsSchema` | 参数校验（zod） |
-| `kind` | `stateful`（需用户动作，写 `gate_unlocks`）或 `derived`（每次渲染实时判定） |
-| `check(ctx)` | 返回 `satisfied` / `unsatisfied`（ctx 含 viewer、post、thread、params） |
-| `prompt(ctx)` | 未满足时的 UI 提示与动作（购买按钮 / 「回复本帖」链接 / 「登录」） |
-| `createPermission` | 创建该类门控所需权限点（如 `gate.points`、`gate.reply`） |
+| 条件 | 判定 | 创建所需权限点 |
+|------|------|----------------|
+| `points` | 存在 `gate_unlocks` 记录；价格 0 也写记录（登录后点击解锁）；购买走 `unlockGate`（单事务，见 §6） | `gate.points` |
+| `reply` | viewer 在该主题下有一条可见回帖（不含首帖） | `gate.reply` |
 
-首批条件：
-
-| 条件 | kind | 判定 |
-|------|------|------|
-| `points` | stateful | 存在 `gate_unlocks` 记录；价格 0 也写记录（登录后点击解锁） |
-| `reply` | derived | viewer 在该主题下有一条可见回帖（不含首帖） |
-
-预留（不实现，仅证明可扩展）：`login`、`follow`、`time`（定时开放）、`badge`。
+- 条件的参数解析与校验在 `packages/content`（`ConditionSpec`，纯函数）；运行时判定在 `lib/gates/evaluate.ts`（纯函数，`KNOWN_CONDITION_TYPES` 列出认识的类型）。
+- **未知条件类型 = 脏数据，一律 fail-closed**：
+  · 读取：求值为"暂不可用"，普通观众锁定且拿不到隐藏文本（正文、单门控出口 `getGateContent`、附件放行 `openGateIds` 三条链路一致）；作者与版主仍可见（便于排查）；
+  · 购买：`unlockGate` 对"只有未知条件"以及"`all` 模式下混有未知条件"的门控返回 `unavailable`，**不扣费**（后者付款后也永远开不了门，否则就是白扣钱）；`any` 模式下积分条件足以开门，未知条件被忽略，照常可购买。
+- 预留设想（**不实现**，仅作将来需要时的参考）：`login`、`follow`、`time`（定时开放）、`badge`。
 
 **永远可见的人**：作者本人；持有 `forum.moderate`（该 post 所在版块作用域）的版主；admin。其余人按条件判定。
 
@@ -105,7 +100,7 @@ body_md → remark(+指令) → sanitize → 公开 HTML 片段（与用户无�
 
 ## 5. 解锁事务（`unlockGate`）
 
-stateful 条件（`points`）的购买在**单个数据库事务**内完成：
+`points` 条件的购买在**单个数据库事务**内完成：
 
 1. 锁读者 `point_accounts` 行（`SELECT … FOR UPDATE`）。
 2. 校验：门控存在且未被删除；读者非作者/版主；未解锁（`gate_unlocks` 主键保证幂等）；余额 ≥ 价格。

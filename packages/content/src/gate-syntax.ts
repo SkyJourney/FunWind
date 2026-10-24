@@ -195,7 +195,7 @@ function parseConditionFromAttrs(
 // ---------- 拆分 ----------
 
 export interface SplitOptions {
-  /** 条件规格表；默认 points / reply，模块内核的 gateConditions 注册表可在此扩展 */
+  /** 条件规格表；默认 points / reply。纯函数的注入点，主要供测试验证“未知类型被拒绝 / 新规格可接入”，站点本身不扩展 */
   specs?: ReadonlyMap<string, ConditionSpec>;
   /** 为没有 key 的新门控分配 key；缺省取第一个未占用的 g{n} */
   allocateKey?: GateKeyAllocator;

@@ -22,6 +22,12 @@ function priceOf(c: GateCondition): number | null {
   return typeof p === "number" && Number.isInteger(p) && p >= 0 ? p : null;
 }
 
+/**
+ * 门控核心认识的条件类型。门控条件固定为这两种（M6.1 删除了模块注册边界 gateConditions）；
+ * 库里出现其他类型只会是脏数据（或早先某个已删除模块写入的遗留），求值一律按「暂不可用」封闭。
+ */
+export const KNOWN_CONDITION_TYPES: ReadonlySet<string> = new Set(["points", "reply"]);
+
 function checkCondition(gate: GateMeta, c: GateCondition, facts: GateFacts): ConditionOutcome {
   switch (c.type) {
     case "points": {

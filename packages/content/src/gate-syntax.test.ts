@@ -252,7 +252,7 @@ describe("serializeGate / 条件规格", () => {
     expect(out).toBe(':::gate{key="k1" unlock="tag" name="a onclick=x"}\nh\n:::');
   });
 
-  it("可注入新的条件规格（模块内核 gateConditions 的扩展点）", () => {
+  it("可注入新的条件规格（纯函数的注入点；站点本身只用内置 points / reply）", () => {
     const login: ConditionSpec = {
       type: "login",
       parse: () => ({ params: {} }),

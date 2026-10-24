@@ -9,6 +9,7 @@ import { applyPointsInTx, builtinChannel } from "@/lib/points/apply";
 import { InsufficientPointsError, PointsOverflowError } from "@/lib/points/errors";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
 import { gateOpenReason, locateGate, type GateLocation } from "./service";
+import { KNOWN_CONDITION_TYPES } from "./evaluate";
 import { parseConditions } from "./parse";
 
 /**
@@ -118,14 +119,23 @@ export async function unlockGate(
         // 若先拿共享锁、最后更新 unlock_count 时再升级，同一门控的多个购买者会互相等待升级而死锁。
         // 同一门控的购买因此串行化（事务极短）；持锁期间价格也不会被改，后续按此价格结算。
         const [gate] = await tx
-          .select({ conditions: postGates.conditions })
+          .select({ conditions: postGates.conditions, matchMode: postGates.matchMode })
           .from(postGates)
           .where(eq(postGates.id, gateId))
           .for("update");
         if (!gate) return { ok: false, code: "not_found" };
-        const points = parseConditions(gate.conditions).find((c) => c.type === "points");
+        const conditions = parseConditions(gate.conditions);
+        const points = conditions.find((c) => c.type === "points");
         const price = points?.price;
         if (!points || typeof price !== "number" || !Number.isInteger(price) || price < 0) {
+          return { ok: false, code: "unavailable" };
+        }
+        // 「全部满足」的门控里有未知类型的条件：它永远无法满足，付了款也看不到内容 = 白扣钱。事先封闭，不扣费。
+        // （「任一满足」模式下积分条件足以开门，未知条件被忽略，照常可购买。）
+        if (
+          gate.matchMode === "all" &&
+          conditions.some((c) => !KNOWN_CONDITION_TYPES.has(c.type))
+        ) {
           return { ok: false, code: "unavailable" };
         }
 

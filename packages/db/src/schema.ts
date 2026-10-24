@@ -284,7 +284,8 @@ export const threads = mysqlTable(
   (t) => [
     primaryKey({ columns: [t.id] }),
     index("idx_threads_forum").on(t.forumId, t.state, t.pinLevel, t.lastPostedAt),
-    index("idx_threads_author").on(t.authorId),
+    // (author_id, created_at)：每日发主题配额与"最近一次发帖时间"都按作者 + 时间范围查（M6.1）；是旧单列索引的超集
+    index("idx_threads_author_created").on(t.authorId, t.createdAt),
     index("idx_threads_created").on(t.createdAt),
     index("idx_threads_featured").on(t.isFeatured),
     index("idx_threads_last").on(t.state, t.lastPostedAt),
@@ -311,7 +312,7 @@ export const posts = mysqlTable(
   (t) => [
     primaryKey({ columns: [t.id] }),
     uniqueIndex("uq_posts_thread_floor").on(t.threadId, t.floor),
-    index("idx_posts_author").on(t.authorId),
+    index("idx_posts_author_created").on(t.authorId, t.createdAt),
     index("idx_posts_reply_to").on(t.replyToPostId),
   ],
 );

@@ -78,7 +78,7 @@ export interface SlotContext {
 
 export type SlotRenderer = (ctx: SlotContext) => Promise<ReactNode> | ReactNode;
 
-// ---------- 十类注册边界（M2 的六类 + M5.5 新增四类；真实消费者随里程碑落地） ----------
+// ---------- 九类注册边界（M2 的六类 + M5.5 新增三类；真实消费者随里程碑落地。M6.1 删除了 gateConditions：门控条件固定为内置 points / reply） ----------
 
 /** 权限点：M5 authz 内核消费 */
 export interface PermissionPointDef {
@@ -120,27 +120,6 @@ export interface PointChannelDef {
   dailyCap?: boolean;
 }
 
-/**
- * 门控解锁条件（docs/GATES.md §3）的扩展点。内置条件 points / reply 由门控核心实现，模块只能追加新类型。
- * 目前只开放 derived（每次渲染实时判定、无需用户动作）；需要购买动作的 stateful 条件待 M6 评估。
- * 失败即封闭：check 抛错或模块被停用，门控一律按“暂不可用”锁定，绝不放行。
- */
-export interface GateConditionContext {
-  viewerId: number;
-  postId: number;
-  threadId: number;
-  forumId: number;
-  /** 门控 conditions 里该条件的参数（不含 type） */
-  params: Record<string, unknown>;
-}
-export interface GateConditionDef {
-  type: string;
-  kind: "derived";
-  /** 未满足时展示给观众的提示文案 */
-  prompt: (params: Record<string, unknown>) => string;
-  check: (ctx: GateConditionContext) => boolean | Promise<boolean>;
-}
-
 /** 通知类型（docs/NOTIFICATIONS.md §4）：M8 通知模块消费 */
 export type NotificationCategory = "interaction" | "message" | "moderation" | "account";
 export interface NotificationTypeDef {
@@ -179,7 +158,6 @@ export interface ModuleDefinition {
   cron?: CronJobDef[];
   schemaFragments?: SchemaFragment[];
   pointChannels?: PointChannelDef[];
-  gateConditions?: GateConditionDef[];
   notificationTypes?: NotificationTypeDef[];
   notificationChannels?: NotificationChannelDef[];
   tokenOverrides?: TokenOverrides;

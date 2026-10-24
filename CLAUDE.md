@@ -79,6 +79,7 @@ pnpm --filter @funwind/web perf:lcp                       # 生产构建 LCP 门
 - **权限**（`lib/authz` + `packages/db/src/authz-vocab.ts`）：`roles` / `permissions` / `role_grants` / `user_roles` 四表；
   `forum.read` **就近层显式优先**（不回退父级），`forum.write/manage` **沿父链级联合并**；版主由授权派生，不指派。
 - **邮件**：nodemailer，开发期 MailPit（SMTP 1025 / UI 8025）。
+- **写入的容器与限制**（M6.1）：评估器对 `forum.write` 先判分区 / 归档（含 admin 也拒），回帖带 `threadLocked` 时还需 `thread.replyLocked`；发帖限制在 `site_settings.limits`（`lib/limits/`，zod 校验，无效回落默认；**0 = 不限**，多角色每项取最宽松，缺字段整体无效而不是补 0）。门控条件固定为内置 `points` / `reply`，库里的未知类型一律 fail-closed（含购买侧不扣费）。
 - **权限/可见性**（`lib/authz` + `lib/queries/visibility.ts`）：评估器是纯函数（显式 `Subject`，零 SQL）；版块树与授权表常驻内存快照（管理动作后 `invalidateAuthzSnapshot()`）；
   查询层用 `readableForumIds`/`moderatedForumIds` 在**取数前**过滤，不取出来再逐行判断。
 - **积分与门控的并发约定**（`lib/points`、`lib/gates`，教训来自真实复现的死锁/连接池饥饿）：① 事务内不得再借第二条连接（连接池仅 8 条）——渠道解析、权限检查等一律在开事务前完成；

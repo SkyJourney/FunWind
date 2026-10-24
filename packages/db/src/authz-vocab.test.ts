@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   BUILTIN_ROLE_KEYS,
   DEFAULT_ROLE_GRANTS,
+  DEFAULT_LIMITS,
   DEFAULT_SITE_SETTINGS,
   PERMISSION_DEFINITIONS,
   READ_POLICIES,
@@ -121,6 +122,7 @@ describe("内置角色与基线授权", () => {
     expect(DEFAULT_SITE_SETTINGS["register.mode"]).toEqual({ mode: "invite" });
     expect(DEFAULT_SITE_SETTINGS["points.gate_fee_rate"]).toEqual({ rate: 0 });
     expect(DEFAULT_SITE_SETTINGS["points.name"]).toBeDefined();
+    expect(DEFAULT_SITE_SETTINGS["limits"]).toBe(DEFAULT_LIMITS); // 默认限制只有一份
   });
 
   it("版块可见性策略取值", () => {

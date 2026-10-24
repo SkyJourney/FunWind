@@ -4,7 +4,7 @@
  * 自增 id、归一化键唯一、邀请码原子核销与回滚、令牌消费记录邮箱已验证。
  */
 import { eq, sql } from "drizzle-orm";
-import { DEMO, getWebDb, inviteCodes, userProfiles, users } from "@funwind/db";
+import { DEMO, getWebDb, inviteCodes, userProfiles, userStats, users } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { InviteCodeError, RegisterError, registerUser } from "./register";
@@ -46,6 +46,30 @@ describe.skipIf(skipDb)("注册事务 · 真实 MySQL", () => {
     expect(
       await getWebDb().select().from(userProfiles).where(eq(userProfiles.userId, id)),
     ).toHaveLength(1);
+  });
+
+  it("注册同事务建立 user_stats 行（计数全 0）；失败回滚时不留孤儿统计行", async () => {
+    const id = await registerUser(input({ username: "统计甲", email: "stats1@example.com" }));
+    const [row] = await getWebDb().select().from(userStats).where(eq(userStats.userId, id));
+    expect(row).toMatchObject({
+      userId: id,
+      threadCount: 0,
+      postCount: 0,
+      featuredCount: 0,
+      followerCount: 0,
+      lastPostAt: null,
+    });
+    // 对照：邀请码无效 → 整个事务回滚，用户、资料、统计行都不应留下
+    const before = (await getWebDb().select({ id: userStats.userId }).from(userStats)).length;
+    await expect(
+      registerUser(input({ username: "统计乙", email: "stats2@example.com", invite: "NO-SUCH" })),
+    ).rejects.toThrow(RegisterError);
+    expect((await getWebDb().select({ id: userStats.userId }).from(userStats)).length).toBe(before);
+    // 用户名冲突同样回滚
+    await expect(
+      registerUser(input({ username: "统计甲", email: "stats3@example.com" })),
+    ).rejects.toThrow(RegisterError);
+    expect((await getWebDb().select({ id: userStats.userId }).from(userStats)).length).toBe(before);
   });
 
   it("用户名/邮箱按归一化键唯一：大小写变体视为同一个", async () => {

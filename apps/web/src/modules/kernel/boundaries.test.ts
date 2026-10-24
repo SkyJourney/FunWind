@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { emit } from "./bus";
-import { BUILTIN_GATE_CONDITION_TYPES, BUILTIN_POINT_CHANNELS } from "./builtin";
+import { BUILTIN_POINT_CHANNELS } from "./builtin";
 import { EVENT_NAMES, REQUIRED_PAYLOAD_KEYS } from "./event-names";
 import {
-  getGateConditionDecls,
   getNotificationChannelDecls,
   getNotificationTypeDecls,
   getPointChannelDecls,
@@ -19,13 +18,6 @@ const channel = (key: string, direction: "earn" | "spend" | "adjust" = "earn") =
   direction,
   label: "测试渠道",
 });
-const condition = (type: string) => ({
-  type,
-  kind: "derived" as const,
-  prompt: () => "请先关注作者",
-  check: () => true,
-});
-
 beforeEach(() => resetRegistryForTests());
 
 describe("事件清单一致性", () => {
@@ -118,32 +110,6 @@ describe("积分渠道注册校验", () => {
         mod("m", { pointChannels: [{ key: "earn.x", direction: "earn", label: " " }] }),
       ),
     ).toThrow(/label/);
-  });
-});
-
-describe("门控条件注册校验", () => {
-  it("合法条件通过；与内置 points / reply 及其他模块重名拒绝", () => {
-    registerModule(mod("follow", { gateConditions: [condition("follow")] }));
-    expect(getGateConditionDecls().map((d) => d.def.type)).toEqual(["follow"]);
-    for (const t of BUILTIN_GATE_CONDITION_TYPES) {
-      expect(() => registerModule(mod("x" + t, { gateConditions: [condition(t)] })), t).toThrow(
-        /内置|重复/,
-      );
-    }
-    expect(() => registerModule(mod("other", { gateConditions: [condition("follow")] }))).toThrow(
-      /重复/,
-    );
-  });
-
-  it("类型名非法、kind 非 derived 拒绝", () => {
-    expect(() => registerModule(mod("m1", { gateConditions: [condition("Bad-Type")] }))).toThrow(
-      /类型非法/,
-    );
-    expect(() =>
-      registerModule(
-        mod("m2", { gateConditions: [{ ...condition("ok"), kind: "stateful" as never }] }),
-      ),
-    ).toThrow(/derived/);
   });
 });
 

@@ -380,3 +380,152 @@ function sortLikeTree(a: number, b: number): number {
   const order = [1, 2, 4, 3, 5, 6, 7];
   return order.indexOf(a) - order.indexOf(b);
 }
+
+/**
+ * M6.1：写入的容器与冻结规则——分区不可发帖、归档版块冻结（含 admin）、锁定主题需 thread.replyLocked。
+ * 用独立的小树，不动上面共享的测试树（共享树的集合断言按固定 id 列表写）。
+ *  10 分区 ─ 11 普通版块
+ *          ├ 12 归档版块 ─ 13 子版块（自身未归档，祖先已归档）
+ *          └ 14 仅团队可发帖版块（write restricted）
+ *  20 归档分区 ─ 21 子版块
+ */
+describe("写入的容器与冻结：分区 / 归档 / 主题锁定（M6.1）", () => {
+  const t2 = new ForumTree([
+    node(10, 0, "/10/", { kind: "section" }),
+    node(11, 10, "/10/11/"),
+    node(12, 10, "/10/12/", { isArchived: true }),
+    node(13, 12, "/10/12/13/"),
+    node(14, 10, "/10/14/", { writePolicy: "restricted" }),
+    node(20, 0, "/20/", { kind: "section", isArchived: true }),
+    node(21, 20, "/20/21/"),
+  ]);
+  const s2 = buildSnapshot(t2, [
+    g("member", "site.visit"),
+    g("member", "forum.write"),
+    g("member", "attachment.upload"),
+    g("locker", "thread.replyLocked"),
+    g("team", "forum.write", 14),
+    g("mod", "forum.moderate", 12),
+    g("section-mod", "forum.moderate", 10),
+  ]);
+  const ev = (s: Subject, key: string, ctx: { forumId?: number; threadLocked?: boolean }) =>
+    evaluate(s, key, ctx, s2);
+  const member = user();
+  const admin = user([role("admin")]);
+
+  describe("分区（kind=section）只是容器", () => {
+    it("任何人都不能往分区里写——含 admin 与持有版块写授权的角色", () => {
+      for (const [who, s] of [
+        ["会员", member],
+        ["admin", admin],
+        ["团队", user([role("team", 14)])],
+        ["分区版主", user([role("section-mod", 10)])],
+      ] as const) {
+        const d = ev(s, "forum.write", { forumId: 10 });
+        expect(d.allowed, who).toBe(false);
+        expect(d.reason, who).toContain("分区");
+      }
+    });
+
+    it("对照：同一分区下的普通版块可写；分区上的读 / 版主判定不受影响", () => {
+      expect(ev(member, "forum.write", { forumId: 11 }).allowed).toBe(true);
+      expect(ev(admin, "forum.write", { forumId: 11 }).allowed).toBe(true);
+      expect(ev(member, "forum.read", { forumId: 10 }).allowed).toBe(true);
+      expect(ev(user([role("section-mod", 10)]), "forum.moderate", { forumId: 10 }).allowed).toBe(
+        true,
+      );
+      expect(ev(admin, "forum.moderate", { forumId: 10 }).allowed).toBe(true);
+    });
+  });
+
+  describe("归档版块已冻结", () => {
+    it("自身归档、祖先归档（子版块）、归档分区下的版块：会员与 admin 都不能写", () => {
+      for (const forumId of [12, 13, 21]) {
+        for (const [who, s] of [
+          ["会员", member],
+          ["admin", admin],
+        ] as const) {
+          const d = ev(s, "forum.write", { forumId });
+          expect(d.allowed, `${who}@${forumId}`).toBe(false);
+          expect(d.reason, `${who}@${forumId}`).toContain("归档");
+        }
+      }
+    });
+
+    it("对照：未归档的兄弟版块可写；归档版块上读、版主操作不受影响（版主要能处理归档内容）", () => {
+      expect(ev(member, "forum.write", { forumId: 11 }).allowed).toBe(true);
+      expect(ev(member, "forum.read", { forumId: 12 }).allowed).toBe(true);
+      expect(ev(user([role("mod", 12)]), "forum.moderate", { forumId: 13 }).allowed).toBe(true);
+      expect(ev(admin, "forum.moderate", { forumId: 13 }).allowed).toBe(true);
+    });
+
+    it("归档的判定先于写授权：团队角色在（假设）归档的受限版块也写不了", () => {
+      const t3 = new ForumTree([
+        node(30, 0, "/30/", { kind: "section" }),
+        node(31, 30, "/30/31/", { writePolicy: "restricted", isArchived: true }),
+      ]);
+      const s3 = buildSnapshot(t3, [g("team", "forum.write", 31)]);
+      expect(evaluate(user([role("team", 31)]), "forum.write", { forumId: 31 }, s3).allowed).toBe(
+        false,
+      );
+    });
+  });
+
+  describe("主题锁定（threadLocked）", () => {
+    it("会员回帖：未锁定可写；锁定后被拒（reason 说明是锁定）", () => {
+      expect(ev(member, "forum.write", { forumId: 11, threadLocked: false }).allowed).toBe(true);
+      expect(ev(member, "forum.write", { forumId: 11 }).allowed).toBe(true);
+      const d = ev(member, "forum.write", { forumId: 11, threadLocked: true });
+      expect(d.allowed).toBe(false);
+      expect(d.reason).toContain("锁定");
+    });
+
+    it("持有 thread.replyLocked 的角色可在锁定主题回帖；admin 也可（对照：无授权者被拒）", () => {
+      expect(
+        ev(user([role("locker")]), "forum.write", { forumId: 11, threadLocked: true }).allowed,
+      ).toBe(true);
+      expect(ev(admin, "forum.write", { forumId: 11, threadLocked: true }).allowed).toBe(true);
+      expect(ev(member, "forum.write", { forumId: 11, threadLocked: true }).allowed).toBe(false);
+    });
+
+    it("锁定豁免不能绕过其他拒绝：没有发帖授权、被禁言、受限版块无授权，持有 replyLocked 也不行", () => {
+      const noWrite = buildSnapshot(t2, [g("locker", "thread.replyLocked")]);
+      expect(
+        evaluate(
+          user([role("locker")]),
+          "forum.write",
+          { forumId: 11, threadLocked: true },
+          noWrite,
+        ).allowed,
+      ).toBe(false);
+      const muted = user([role("locker")], {
+        restrictions: [{ kind: "mute", scopeId: 0, endsAt: null }],
+      });
+      expect(ev(muted, "forum.write", { forumId: 11, threadLocked: true }).allowed).toBe(false);
+      expect(
+        ev(user([role("locker")]), "forum.write", { forumId: 14, threadLocked: true }).allowed,
+      ).toBe(false);
+    });
+
+    it("threadLocked 只影响 forum.write：读 / 版主 / 上传等其他权限点忽略它", () => {
+      for (const key of ["forum.read", "attachment.upload", "site.visit"]) {
+        expect(ev(member, key, { forumId: 11, threadLocked: true }).allowed, key).toBe(
+          ev(member, key, { forumId: 11 }).allowed,
+        );
+      }
+      expect(
+        ev(user([role("mod", 12)]), "forum.moderate", { forumId: 12, threadLocked: true }).allowed,
+      ).toBe(true);
+    });
+
+    it("锁定与归档同时成立时，归档优先（reason 是归档）", () => {
+      const d = ev(admin, "forum.write", { forumId: 12, threadLocked: true });
+      expect(d.allowed).toBe(false);
+      expect(d.reason).toContain("归档");
+    });
+  });
+
+  it("没有 forumId 的站点级 forum.write 判定不受分区 / 归档规则影响", () => {
+    expect(ev(member, "forum.write", {}).allowed).toBe(true);
+  });
+});

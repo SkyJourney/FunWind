@@ -1,5 +1,5 @@
 import { and, eq, sql } from "drizzle-orm";
-import { getWebDb, inviteCodes, normalizeKey, userProfiles, users } from "@funwind/db";
+import { getWebDb, inviteCodes, normalizeKey, userProfiles, userStats, users } from "@funwind/db";
 
 /**
  * 注册的数据库部分（从 Server Action 抽出以便做真实 DB 集成测试）。
@@ -51,6 +51,9 @@ export async function registerUser(input: RegisterInput): Promise<number> {
       });
       const id = Number((inserted as unknown as [{ insertId: number }])[0].insertId);
       await tx.insert(userProfiles).values({ userId: id });
+      // 统计行与用户同事务建立（M6.1）：写路径要在持有这一行的锁时检查配额、维护计数，行必须一开始就存在；
+      // 迁移用户已有行，新注册用户此前没有。服务层仍用 INSERT IGNORE 兜底，覆盖更早注册的、没有这一行的用户
+      await tx.insert(userStats).values({ userId: id });
       if (input.invite !== null) {
         const redeemed = await tx
           .update(inviteCodes)

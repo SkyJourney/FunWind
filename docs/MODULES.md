@@ -18,9 +18,8 @@ export const myModule = defineModule({
   nav: [{ id: "my", label: "我的", href: "/my", order: 10 }], // M10 消费
   cron: [{ name: "my-daily", schedule: "0 3 * * *", run: async () => {} }], // M13 消费
   schemaFragments: [myTable], // M7 起消费（表仍需登记进 @funwind/db 单一事实源）
-  // —— 以下四类为 M5.5 新增边界（设计定稿，S4 落地到 kernel/types.ts）——
+  // —— 以下三类为 M5.5 新增边界（已落地到 kernel/types.ts；原第四类 gateConditions 已在 M6.1 删除）——
   pointChannels: [{ key: "earn.checkin", direction: "earn", label: "签到奖励" }], // 见 docs/POINTS.md
-  gateConditions: [{ type: "login", kind: "derived", /* paramsSchema/check/prompt */ }], // 见 docs/GATES.md
   notificationTypes: [{ key: "badge.awarded", category: "account", aggregate: false, mandatory: false }], // 见 docs/NOTIFICATIONS.md
   notificationChannels: [{ key: "in_app", deliver: async (n, user) => {} }], // 当前仅站内；email/push 预留
   tokenOverrides: { "--accent": "var(--fw-teal-500)" },
@@ -34,13 +33,13 @@ M9 后由管理后台管理）。
 
 ## 事件清单（21 个，M5.5 v2.1 设计定稿）
 
-> M5.5 把注册边界由六类扩为**十类**：新增 `pointChannels`（[POINTS.md](POINTS.md)）、`gateConditions`（[GATES.md](GATES.md)）、
-> `notificationTypes`、`notificationChannels`（[NOTIFICATIONS.md](NOTIFICATIONS.md)）。
-> **已落地**（M5.5 S4-5，`kernel/types.ts` 为准）：21 个事件与十类边界的类型、注册期校验、保留项均已实现。
+> M5.5 把注册边界由六类扩为十类：新增 `pointChannels`（[POINTS.md](POINTS.md)）、`gateConditions`、
+> `notificationTypes`、`notificationChannels`（[NOTIFICATIONS.md](NOTIFICATIONS.md)）。**M6.1 删除了 `gateConditions`**（它从未有过消费者，求值器写死 `points` / `reply`，见 [GATES.md](GATES.md) §3），现为**九类**。
+> **已落地**（M5.5 S4-5，`kernel/types.ts` 为准）：21 个事件与边界的类型、注册期校验、保留项均已实现（M6.1 起为九类边界）。
 > 当前有真实派发者的事件：`user.logged_in`、`user.registered`（认证 Server Action）、`role.changed`（授权管理）、`points.changed`（积分核心）、
 > `gate.unlocked`（门控购买）；其余为契约，由各自里程碑接线。
 > 注册期校验（启动即暴露，非法声明让应用起不来）：积分渠道键须形如 `earn.xxx / spend.xxx / adjust.xxx` 且方向与前缀一致、全站唯一、不得与内置渠道
-> （`opening` / `spend.gate_unlock` / `earn.gate_sale`）冲突；门控条件类型全站唯一、不得与内置 `points` / `reply` 冲突、目前只开放 `derived`；
+> （`opening` / `spend.gate_unlock` / `earn.gate_sale`）冲突；
 > 通知类型键为命名空间形态且全站唯一、分类限 `interaction|message|moderation|account`；通知渠道键唯一，`in_app` 为保留键。
 > **启停语义**：模块被停用，它声明的积分渠道一律被 `applyPoints` 拒绝，它声明的门控条件按“未知条件”失败即封闭（门控锁定而不是放行）；内置项不随模块启停。
 > 事件的一部分专为驱动通知而设：通知模块消费这些事件，解析接收人后写入（见 NOTIFICATIONS.md §4）。

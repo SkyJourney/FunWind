@@ -586,4 +586,40 @@ describe.skipIf(skipDb)("unlockGate · 真实 MySQL", () => {
       await db().update(threads).set({ forumId: 901 }).where(eq(threads.id, 900001));
     });
   });
+
+  // 放在最后：成功购买的对照用例会改动共享库里的余额，不能影响前面按固定余额断言的用例
+  describe("未知条件类型（脏数据 / 已删除模块遗留）：fail-closed（M6.1）", () => {
+    it("只有未知条件 → unavailable，不扣费", async () => {
+      const g = await mkGate(900102, [{ type: "follow" }]);
+      const before = await balance(DEMO.member);
+      expect(await run(member, g)).toMatchObject({ ok: false, code: "unavailable" });
+      expect(await balance(DEMO.member)).toBe(before);
+    });
+
+    it("「全部满足」里混有未知条件：付款后也永远开不了门，所以拒绝而不是白扣钱", async () => {
+      const g = await mkGate(900102, [{ type: "points", price: 5 }, { type: "follow" }], "all");
+      const before = await balance(DEMO.member);
+      const ledgerBefore = (await ledger(DEMO.member)).length;
+      expect(await run(member, g)).toMatchObject({ ok: false, code: "unavailable" });
+      expect(await balance(DEMO.member)).toBe(before);
+      expect((await ledger(DEMO.member)).length).toBe(ledgerBefore);
+      expect(await unlockRow(g, DEMO.member)).toBeUndefined();
+      expect(await unlockCount(g)).toBe(0);
+    });
+
+    it("对照：「任一满足」模式下积分条件足以开门，未知条件被忽略，照常可购买", async () => {
+      const g = await mkGate(900102, [{ type: "points", price: 5 }, { type: "follow" }], "any");
+      const before = (await balance(DEMO.member)) ?? 0;
+      expect(await run(member, g)).toMatchObject({ ok: true, pricePaid: 5 });
+      expect(await balance(DEMO.member)).toBe(before - 5);
+      expect(await unlockCount(g)).toBe(1);
+    });
+
+    it("对照：「全部满足」且全是已知类型（积分 + 回复）仍可购买", async () => {
+      const g = await mkGate(900102, [{ type: "points", price: 3 }, { type: "reply" }], "all");
+      const before = (await balance(DEMO.member)) ?? 0;
+      expect(await run(member, g)).toMatchObject({ ok: true, pricePaid: 3 });
+      expect(await balance(DEMO.member)).toBe(before - 3);
+    });
+  });
 });

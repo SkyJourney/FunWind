@@ -18,7 +18,7 @@ export interface GateDraft {
   hiddenMd: string;
 }
 
-/** 解锁条件的内容层规格：只负责参数的解析与校验，运行时判定由模块内核的 gateConditions 注册表负责 */
+/** 解锁条件的内容层规格：只负责参数的解析与校验；运行时判定在 apps/web 的 lib/gates/evaluate.ts（条件固定为内置 points / reply） */
 export interface ConditionSpec {
   type: string;
   /** 从属性字典解析并校验参数；返回错误信息表示非法 */

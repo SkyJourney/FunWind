@@ -6,7 +6,7 @@
  * 核心断言：锁定的结果序列化后不含任何隐藏文本。
  */
 import { eq, sql } from "drizzle-orm";
-import { DEMO, gateUnlocks, getWebDb, posts, threads } from "@funwind/db";
+import { DEMO, gateUnlocks, getWebDb, postGates, posts, threads } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
@@ -225,5 +225,40 @@ describe.skipIf(skipDb)("门控读取 · 真实 MySQL", () => {
       expect(await getGateContent(member, DEMO.pointsGate)).toBeNull();
       expect(open(await getGateContent(admin, DEMO.pointsGate))).not.toBeNull();
     });
+  });
+
+  it("未知条件类型（M6.1 删除 gateConditions 边界后，库里的未知类型只是脏数据）：单门控出口与附件放行判定同样封闭，与正文链路一致", async () => {
+    const SECRET = "UNKNOWN-TYPE-SECRET-9";
+    // 前一个用例把首帖留在 hidden 状态：先恢复可见，否则测的是「帖子不可见」而不是「条件类型未知」
+    await getWebDb().update(posts).set({ state: "visible" }).where(eq(posts.id, DEMO.gatePost));
+    const [{ insertId }] = (await getWebDb()
+      .insert(postGates)
+      .values({
+        postId: DEMO.gatePost,
+        gateKey: "u9",
+        conditions: [{ type: "follow" }],
+        matchMode: "all",
+        hiddenMd: SECRET,
+        createdAt: "2026-10-20 00:00:00",
+        updatedAt: "2026-10-20 00:00:00",
+      })) as unknown as [{ insertId: number }];
+    const gid = Number(insertId);
+    const only = new Set([gid]);
+    for (const [who, s] of [
+      ["游客", guest],
+      ["会员", member],
+      ["未购买者", xiaoyi],
+    ] as const) {
+      const v = await getGateContent(s, gid);
+      expect(v?.status, who).toBe("locked");
+      expect(JSON.stringify(v), who).not.toContain(SECRET);
+      expect(await openGateIds(s, THREAD, FIRST, only), `${who}：附件放行`).toEqual(new Set());
+      const fromViews = (await views(s)).get("u9");
+      expect(fromViews?.status, `${who}：正文链路`).toBe("locked");
+      expect(JSON.stringify(fromViews), `${who}：正文链路`).not.toContain(SECRET);
+    }
+    // 对照：作者与版主仍然能看（便于排查脏数据）
+    expect(open(await getGateContent(alice, gid))?.contentMd).toContain(SECRET);
+    expect(await openGateIds(admin, THREAD, FIRST, only)).toEqual(only);
   });
 });

@@ -125,11 +125,28 @@ export const DEFAULT_ROLE_GRANTS: Record<BuiltinRoleKey, string[]> = {
   ],
 };
 
+/**
+ * 写入限制的默认值（site_settings 的 `limits` 键；M6.1，设计见 docs/milestones/M6.1-write-path.md §6）。
+ * web 侧用 zod 校验这份配置，校验失败回落到本常量，所以默认值只此一份。
+ *  · titleMax / bodyMax：字符数。迁移数据实测最大值分别是 100 / 26503，默认留出余量；
+ *  · roles：按角色键的每项限制，**0 = 不限**；主体有多个角色时每项取最宽松的值；
+ *  · postIntervalSec：两次发帖（主题或回帖）的最短间隔；threadsPerDay / uploadsPerDay：每个自然日（库端时间）上限。
+ */
+export const DEFAULT_LIMITS = {
+  titleMax: 100,
+  bodyMax: 50000,
+  roles: {
+    member: { postIntervalSec: 5, threadsPerDay: 100, uploadsPerDay: 20 },
+    admin: { postIntervalSec: 0, threadsPerDay: 0, uploadsPerDay: 0 },
+  },
+} as const;
+
 /** 站点设置默认值（零数据部署；导入路径可覆盖，如积分显示名） */
 export const DEFAULT_SITE_SETTINGS: Record<string, unknown> = {
   "register.mode": { mode: "invite" },
   "points.name": { name: "积分" },
   "points.gate_fee_rate": { rate: 0 },
+  limits: DEFAULT_LIMITS,
 };
 
 /** 版块可见性策略（forums.read_policy） */

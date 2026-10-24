@@ -15,6 +15,13 @@
       "when": 1792828323302,
       "tag": "0001_attachments_gate_id",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1792857299036,
+      "tag": "0002_author_created_index",
+      "breakpoints": true
     }
   ]
 }

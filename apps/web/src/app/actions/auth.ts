@@ -14,6 +14,7 @@ import { attemptLogin } from "@/lib/auth/login";
 import { isValidEmail } from "@/lib/auth/email";
 import { requestAccountEmail } from "@/lib/auth/forgot";
 import { hashPassword } from "@/lib/auth/password";
+import { checkUsername } from "@/lib/auth/username";
 import { takeInviteAttempt } from "@/lib/auth/invite-limit";
 import { InviteCodeError, RegisterError, registerUser } from "@/lib/auth/register";
 import { createSession, destroyCurrentSession, revokeAllForUser } from "@/lib/auth/session";
@@ -46,8 +47,6 @@ async function safeEmit<K extends EventName>(name: K, payload: EventPayloads[K])
     console.error(`[auth] ${name} 派发失败:`, e);
   }
 }
-
-const USERNAME_RE = /^[a-zA-Z0-9_\u4e00-\u9fa5]{2,20}$/;
 
 /**
  * IP 级频控键；取不到可信 IP 时为 null。
@@ -132,7 +131,8 @@ export const registerAction = defineAction({
     ) {
       fail("注册过于频繁，请稍后再试");
     }
-    if (!USERNAME_RE.test(username)) fail("用户名需 2-20 位（中文/字母/数字/下划线）");
+    const nameCheck = checkUsername(username);
+    if (!nameCheck.ok) fail(nameCheck.message);
     if (!isValidEmail(email)) fail("邮箱格式不正确");
     if (password.length < 8) fail("密码至少 8 位");
 

@@ -5,7 +5,9 @@ import type { AuthzSnapshot, Decision, GrantRow, Subject } from "./types";
  * 权限评估器（纯函数，零 SQL）。顺序与语义见 docs/AUTHZ.md §8.3：
  *   未知权限点 → admin 短路 → 用户限制 → 开放注册未验证邮箱 → 按权限点类型分派
  *   forum.read   ：沿版块树取最近的非 inherit read_policy（public / members / restricted）
- *   forum.write  ：先过读判定，再取 write_policy（restricted 须在版块作用域持有授权，全局基线不算）
+ *   forum.write  ：先过读判定，再取 write_policy（restricted 须在版块作用域持有授权，全局基线不算）；
+ *                  目标是分区（kind=section）或自身 / 祖先已归档 → 一律拒绝（**含 admin**，在 admin 短路之前判定）；
+ *                  回帖且主题已锁定 → 还须持有 thread.replyLocked
  *   其余（含 forum.moderate）：级联合并——适用作用域内任一授权命中即允许
  * 默认拒绝；评估器不内置“游客可读/会员可写”之类硬编码默认值（读靠策略默认公开，写靠基线授权）。
  */
@@ -54,6 +56,11 @@ const deny = (reason: string): Decision => ({ allowed: false, reason });
 export interface EvalContext {
   /** 版块作用域；缺省为站点级 */
   forumId?: number;
+  /**
+   * 回帖目标主题是否已锁定（M6.1）。为 true 时，`forum.write` 在通过版块层判定之后还须持有 `thread.replyLocked`。
+   * 只对 `forum.write` 有意义，其他权限点忽略它；调用方（写路径服务）在事务内重读主题后传入，不信任事务外读到的旧值。
+   */
+  threadLocked?: boolean;
 }
 
 export function evaluate(
@@ -69,6 +76,13 @@ export function evaluate(
   const chain = ctx.forumId !== undefined ? tree.chain(ctx.forumId) : [];
   /** 作用域是否适用：全局恒适用；版块作用域仅当目标版块位于其子树内 */
   const applies = (scopeId: number): boolean => scopeId === 0 || chain.includes(scopeId);
+
+  // 0.5 容器与冻结：分区只是容器、归档版块已冻结，往里写没有意义（会产生无处展示的孤儿内容）。
+  //     放在 admin 短路之前——admin 也不例外；想写先取消归档。版主操作（forum.moderate）不受影响。
+  if (permissionKey === "forum.write" && ctx.forumId !== undefined) {
+    if (tree.get(ctx.forumId)?.kind === "section") return deny("分区不可发帖");
+    if (chain.some((id) => tree.get(id)?.isArchived)) return deny("版块已归档");
+  }
 
   // 1. admin 短路（角色绑定本身也受作用域约束）
   const held = new Set(subject.roles.filter((r) => applies(r.scopeId)).map((r) => r.key));
@@ -118,12 +132,19 @@ export function evaluate(
     const read = readDecision(subject, ctx.forumId, snap, (k) => hasGrant(k, forumScoped));
     if (!read.allowed) return deny("无权访问该版块");
     const policy = tree.writePolicy(ctx.forumId);
+    let decision: Decision;
     if (policy.value === "restricted") {
-      return hasGrant("forum.write", forumScoped)
+      decision = hasGrant("forum.write", forumScoped)
         ? allow("版块发帖授权")
         : deny("该版块仅限授权角色发帖");
+    } else {
+      decision = hasGrant("forum.write", anyScope) ? allow("授权") : deny("无发帖权限");
     }
-    return hasGrant("forum.write", anyScope) ? allow("授权") : deny("无发帖权限");
+    // 主题已锁定：普通发帖授权不够，还须 thread.replyLocked（admin 已在上面短路放行）
+    if (decision.allowed && ctx.threadLocked && !hasGrant("thread.replyLocked", anyScope)) {
+      return deny("主题已锁定");
+    }
+    return decision;
   }
 
   // 级联合并：适用作用域（全局 ∪ 链上）内任一授权命中即允许（含级别隐含，如 moderate ⊃ write ⊃ read）

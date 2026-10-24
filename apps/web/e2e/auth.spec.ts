@@ -49,6 +49,26 @@ test.describe("M4 · 用户与认证", () => {
   const EMAIL = `${USERNAME}@test.local`;
   const PASSWORD = "e2e-password-123";
 
+  test("保留用户名被拒（M6.1），且被拒的尝试不会烧掉邀请码——紧接着的正常注册仍能用同一个邀请码", async ({
+    page,
+  }) => {
+    for (const name of ["Admin2", "青翼官方客服"]) {
+      await page.goto("/register");
+      await page.getByLabel("邀请码").fill("E2E-INVITE-CODE");
+      await page.getByLabel("用户名").fill(name);
+      await page.getByLabel("邮箱").fill("reserved@test.local");
+      await page.getByLabel("密码（至少 8 位）").fill("e2e-password-123");
+      await page.getByRole("button", { name: "凭邀请码注册" }).click();
+      await expect(page.getByText("该用户名不可用")).toBeVisible();
+    }
+    await withE2eDb(async (q) => {
+      const rows = await q.query<{ used_by: number | null }>(
+        "SELECT used_by FROM invite_codes WHERE code = 'E2E-INVITE-CODE'",
+      );
+      expect(rows[0]?.used_by ?? null).toBeNull(); // 邀请码仍未被核销
+    });
+  });
+
   test("邀请注册 → 自动登录 → 退出", async ({ page }) => {
     await page.goto("/register");
     await page.getByLabel("邀请码").fill("E2E-INVITE-CODE");

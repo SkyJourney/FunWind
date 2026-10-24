@@ -9,6 +9,7 @@ import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   BUILTIN_ROLE_KEYS,
+  DEFAULT_LIMITS,
   DEFAULT_ROLE_GRANTS,
   PERMISSION_DEFINITIONS,
   ROLE_DEFINITIONS,
@@ -95,6 +96,30 @@ describe.skipIf(skip)("bootstrap / seed 集成（临时库）", () => {
     }
   });
 
+  it("迁移 0002（M6.1）：threads / posts 的作者索引是 (author_id, created_at)，旧的单列索引已删除", async () => {
+    const pool = createPool(config);
+    try {
+      const cols = async (table: string, index: string) => {
+        const [rows] = await pool.query<RowDataPacket[]>(
+          `SELECT COLUMN_NAME AS c FROM information_schema.STATISTICS
+           WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ? ORDER BY SEQ_IN_INDEX`,
+          [dbName, table, index],
+        );
+        return rows.map((r) => String(r.c));
+      };
+      expect(await cols("threads", "idx_threads_author_created")).toEqual([
+        "author_id",
+        "created_at",
+      ]);
+      expect(await cols("posts", "idx_posts_author_created")).toEqual(["author_id", "created_at"]);
+      // 对照：旧索引确实被替换而不是并存（并存会白白拖慢每次写入）
+      expect(await cols("threads", "idx_threads_author")).toEqual([]);
+      expect(await cols("posts", "idx_posts_author")).toEqual([]);
+    } finally {
+      await pool.end();
+    }
+  });
+
   it("门控 key 区分大小写：A1 与 a1 是两个门控，同名才冲突（复查 B1）", async () => {
     // 应用层的 KEY_RE 允许大小写字母，数据库必须与之同口径；否则 M6 保存含 A1 / a1 的帖子会撞唯一键报 500
     await withTestDb(async (db) => {
@@ -128,7 +153,9 @@ describe.skipIf(skip)("bootstrap / seed 集成（临时库）", () => {
         expect(rows.every((r) => r.scopeId === 0)).toBe(true);
       }
       const keys = (await db.select().from(siteSettings)).map((s) => s.key).sort();
-      expect(keys).toEqual(["points.gate_fee_rate", "points.name", "register.mode"]);
+      expect(keys).toEqual(["limits", "points.gate_fee_rate", "points.name", "register.mode"]);
+      const stored = (await db.select().from(siteSettings)).find((x) => x.key === "limits");
+      expect(stored?.value).toEqual(DEFAULT_LIMITS); // 默认写入限制与代码常量一致（零数据部署开箱可用）
     });
   });
 

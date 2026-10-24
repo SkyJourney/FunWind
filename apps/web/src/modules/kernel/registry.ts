@@ -1,12 +1,7 @@
-import {
-  BUILTIN_GATE_CONDITION_TYPES,
-  BUILTIN_POINT_CHANNELS,
-  RESERVED_NOTIFICATION_CHANNELS,
-} from "./builtin";
+import { BUILTIN_POINT_CHANNELS, RESERVED_NOTIFICATION_CHANNELS } from "./builtin";
 import type {
   EventConsumer,
   EventName,
-  GateConditionDef,
   ModuleDefinition,
   NotificationChannelDef,
   NotificationTypeDef,
@@ -51,17 +46,6 @@ function validateBoundaries(m: ModuleDefinition): void {
     if (!c.label.trim()) fail(`积分渠道 ${c.key} 缺少 label`);
     if (channelKeys.has(c.key)) fail(`积分渠道键重复或与内置冲突: ${c.key}`);
     channelKeys.add(c.key);
-  }
-
-  const conditionTypes = new Set<string>([
-    ...BUILTIN_GATE_CONDITION_TYPES,
-    ...modules.flatMap((x) => (x.gateConditions ?? []).map((c) => c.type)),
-  ]);
-  for (const c of m.gateConditions ?? []) {
-    if (!IDENT_RE.test(c.type)) fail(`门控条件类型非法: ${c.type}`);
-    if (c.kind !== "derived") fail(`门控条件 ${c.type} 目前只支持 kind=derived`);
-    if (conditionTypes.has(c.type)) fail(`门控条件类型重复或与内置冲突: ${c.type}`);
-    conditionTypes.add(c.type);
   }
 
   const typeKeys = new Set(modules.flatMap((x) => (x.notificationTypes ?? []).map((t) => t.key)));
@@ -141,8 +125,6 @@ const declsOf = <T>(pick: (m: ModuleDefinition) => T[] | undefined) =>
 
 export const getPointChannelDecls = (): { moduleId: string; def: PointChannelDef }[] =>
   declsOf((m) => m.pointChannels);
-export const getGateConditionDecls = (): { moduleId: string; def: GateConditionDef }[] =>
-  declsOf((m) => m.gateConditions);
 export const getNotificationTypeDecls = (): { moduleId: string; def: NotificationTypeDef }[] =>
   declsOf((m) => m.notificationTypes);
 export const getNotificationChannelDecls = (): {

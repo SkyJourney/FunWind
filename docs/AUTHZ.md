@@ -156,7 +156,9 @@ member 并集差异、gid3 allow_post=0 疑点、旧版主名单。
 ### 8.3 评估顺序（v2）
 
 ```
-check(subject, "resource.action", { forumId? })
+check(subject, "resource.action", { forumId?, threadLocked? })
+  0. （M6.1）forum.write 的目标是分区（kind=section），或自身 / 任一祖先已归档 → DENY，**含 admin**
+     ——分区只是容器、归档即冻结；判定在 admin 短路之前。forum.read / forum.moderate 等其他权限点不受影响
   1. admin 角色 → ALLOW
   2. 有效 user_restrictions（作用域覆盖该 forumId）与写类权限冲突 → DENY（优先于授权）
   3. 开放注册模式且邮箱未验证 → 写类权限 DENY
@@ -166,6 +168,7 @@ check(subject, "resource.action", { forumId? })
   5. forum.write：沿 ForumTree 找最近的非 inherit write_policy
        restricted → 须持有该版块（或祖先版块）作用域的 forum.write 授权（全局基线不算）
        members / 全链 inherit → 登录用户凭全局 forum.write 即可
+     回帖且 threadLocked（M6.1，调用方在事务内重读主题后传入）：上面通过后还须持有 thread.replyLocked，否则 DENY
      forum.moderate / 其它：沿作用域链级联合并（任一层命中即 ALLOW）；全局授权作基线
   6. 默认拒绝
 ```

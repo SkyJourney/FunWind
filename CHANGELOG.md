@@ -5,6 +5,17 @@
 
 ## [Unreleased]
 
+### Added / Fixed（M6.1 第 2 步：评估器 / 门控条件 / 用户名 / limits / schema）
+
+设计见 [`docs/milestones/M6.1-write-path.md`](docs/milestones/M6.1-write-path.md)。
+
+- **评估器**：`EvalContext` 新增 `threadLocked`。`forum.write` 的目标是分区，或自身 / 祖先已归档 → 一律拒绝（**含 admin**，判定在 admin 短路之前）；回帖且主题已锁定 → 通过版块层后还须持有 `thread.replyLocked`。`forum.read` / `forum.moderate` 等不受影响，版主仍能处理归档版块里的内容。新增 13 项穷举测试（独立小树），变异验证 6 项各自变红。`AUTHZ.md` §8.3 同步。
+- **删除 `gateConditions` 内核边界**：类型、注册校验、`BUILTIN_GATE_CONDITION_TYPES`、测试全部移除，注册边界由十类变九类（`MODULES.md` / `BLUEPRINT.md` / `NOTIFICATIONS.md` 同步）；`GATES.md` §3 重写为"内置 `points` / `reply`，未知类型 fail-closed"。**顺带修复一个真问题**：`unlockGate` 只找第一个 `points` 条件就扣款，`all` 模式下 `[积分, 未知类型]` 的门控会让买家付了钱却永远看不到内容。现在含未知条件的 `all` 门控返回 `unavailable` 且不扣费；`any` 模式下积分条件足以开门，照常可购买。读取侧新增单门控出口 `getGateContent` 与附件放行 `openGateIds` 对未知类型的端到端回归（与正文链路一致）。变异验证 2 项。
+- **用户名保留名**（`lib/auth/username.ts`）：ASCII 保留词精确匹配（比较前 `normalizeKey`，并忽略夹带的数字与下划线：`admin2`、`_root_`、`ad_min` 都算 `admin`），中文词（`管理员` `版主` `站长` `客服` `官方` `系统` `已注销用户`）按"包含"拦截。只作用于新注册，不烧邀请码（E2E 直接查库验证）。已知取舍：含"系统"二字的正常昵称会被误拦。变异验证 6 项。
+- **`limits` 配置**（`lib/limits/`）：默认值 `DEFAULT_LIMITS` 放 `packages/db`（bootstrap 写入缺失的键），web 侧 zod 校验，无效整体回落默认并告警；角色项必须写全三个字段（缺一个整体无效，因为缺省补 0 会悄悄变成"不限"）。`resolveLimits` 每项取最宽松：间隔取最小，额度取最大且 **0（不限）胜过任何正数**；没有任何角色匹配（游客）回落到 member 项，绝不变成不限；版块作用域的角色绑定只在该版块子树内参与取值。纯逻辑 15 项 + 真实 MySQL 8 项，变异验证 8 项（含"额度直接 `Math.max`"会把 0 误吞）。
+- **schema**：`threads` / `posts` 的单列作者索引换成 `(author_id, created_at)`（迁移 `0002_author_created_index.sql`，开发库已用 `db:bootstrap` 应用；`db:verify` 13 项与 `verify:migration` 110 项仍全过）；`registerUser` 在同一事务里建 `user_stats` 行（失败回滚时无孤儿行）。变异验证 4 项。
+- 验证过程中的几处自我纠错：新增的"成功购买"用例曾改动共享库的余额而牵连老用例（已挪到文件末尾并改成前后对比断言）；一个旧用例会把首帖留在 `hidden`，我的读取侧用例因此测的是"帖子不可见"而非"条件类型未知"（已先恢复可见）；多次变异的替换因 prettier 把代码拆成多行而没命中，改成断言命中后重做。
+
 ### Added（M6.1 第 1 步：`zod` + `defineAction`）
 
 设计见 [`docs/milestones/M6.1-write-path.md`](docs/milestones/M6.1-write-path.md)（站长 2026-10-24 确认）。
