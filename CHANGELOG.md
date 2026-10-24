@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### Added（M5.6 · E0 编辑器选型 spike）
+
+- 选型结论：**Tiptap v3（所见即所得，默认）+ CodeMirror 6（源码模式）+ react-image-crop（裁剪）**。在仓库外搭三套原型放进同一个测试页，用 244 条语料（含真实迁移帖与还原后的门控完整源码）做「载入 → 不改 → 取回」往返，用站点真实渲染器判定渲染等价；桌面用 CDP 模拟拼音组合输入测 6 个位置，站长用手机真机测输入法与门控编辑。
+- 关键数据：渲染等价 Tiptap 234/244（95.9%）、Milkdown 229/244（93.9%）、CodeMirror 244/244；体积（gzip）Tiptap 156 kB、CodeMirror 208 kB、Milkdown 458 kB。默认配置下两个编辑器都会把单个 `~` 改写成 `~~`（迁移库 1136 篇受影响）、Milkdown 对 336 篇的「冒号+字母」直接抛错，针对性修正后都可修复。
+- 新增 `docs/spikes/E0-editor-selection.md`（选型记录）与 `docs/spikes/e0-editor/`（spike 源码存档，**不在 pnpm 工作区内**，不含语料）；`GATES.md` §9 与 `M6-posting.md` 写入结论与设计约束（服务端预览、往返保护、marked `del` 覆盖、裁剪「服务端先 auto-orient 再 extract」、首版不做旋转）。
+
 ### Fixed（M5.6 S1：渲染补精简 GFM）
 
 - **渲染管线此前不解析 GFM**：迁移转换器把 UBB 的 `[table]` / `[s]` 产出为 Markdown 表格与 `~~`，渲染端没有 GFM 扩展，结果 **22 个表格显示成竖线原文、1199 篇的删除线显示成 `~~…~~`**。这是 M3 / M5.5 遗留缺陷，E2E 因为用夹具而没发现。

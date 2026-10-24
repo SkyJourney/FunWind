@@ -184,7 +184,9 @@ stateful 条件（`points`）的购买在**单个数据库事务**内完成：
 
 ## 9. 编辑器契约（M6 选型）
 
-选型与调研推迟到 M6 开工时。M5.5 只固定三样契约：**围栏语法、存储拆分、`packages/content` 接口**。
-M6 评审维度：能否把 gate 渲染为可视块（价格输入、锁图标）、Markdown 往返是否无损、移动端体验；
-候选方向：Milkdown（remark 生态，与渲染端同源）、Tiptap（需自写 Markdown 序列化）、CodeMirror 源码 + 预览（兜底）。
-无论选哪个，序列化一律经 `packages/content`，保证线上保存与迁移同一套语法。
+M5.5 固定三样契约：**围栏语法、存储拆分、`packages/content` 接口**。无论编辑器怎么变，序列化一律经 `packages/content`，保证线上保存与迁移同一套语法。
+
+**选型已定（E0 spike，2026-10-24，记录见 [spikes/E0-editor-selection.md](spikes/E0-editor-selection.md)）：Tiptap v3（所见即所得，默认）+ CodeMirror 6（源码模式，一键切换）**。要点：
+- 门控在所见即所得里是带「付费 / 回复可见」下拉与价格输入的可视块；序列化为 `:::gate{key="…" unlock="…" price="…"}`。编辑器端的 marked 分词器只服务编辑体验，**保存时以服务端 `splitSource` 为准**。
+- Tiptap 官方 Markdown 基于 marked，与站点渲染器（remark / micromark）语义不完全一致，所以：**预览走服务端渲染**（用站点真实渲染器），往返不等价的旧帖**强制进源码模式**，未编辑不重新序列化。
+- 必须覆盖 marked 的 `del` 分词器（只放行 `~~`）：迁移库有 1136 篇用单个 `~` 表语气。

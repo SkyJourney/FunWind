@@ -1,0 +1,181 @@
+:root {
+  color-scheme: light dark;
+  font-family:
+    system-ui,
+    -apple-system,
+    "PingFang SC",
+    sans-serif;
+}
+body {
+  margin: 0;
+  padding: 0 0 80px;
+}
+.wrap {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 8px 12px;
+}
+h1 {
+  font-size: 18px;
+  margin: 8px 0;
+}
+.tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+  position: sticky;
+  top: 0;
+  background: Canvas;
+  padding: 6px 0;
+  z-index: 5;
+}
+.tabs button,
+.btn {
+  padding: 10px 12px;
+  border: 1px solid #8884;
+  border-radius: 8px;
+  background: #8881;
+  font-size: 15px;
+  min-height: 44px;
+}
+.tabs button.on {
+  background: #0891b2;
+  color: #fff;
+  border-color: #0891b2;
+}
+.row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 8px 0;
+}
+select,
+input[type="number"],
+input[type="text"] {
+  font-size: 16px;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid #8886;
+  max-width: 100%;
+}
+.ed {
+  border: 1px solid #8886;
+  border-radius: 8px;
+  min-height: 260px;
+  padding: 4px;
+}
+.status {
+  padding: 8px 10px;
+  border-radius: 8px;
+  margin: 8px 0;
+  font-size: 14px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.ok {
+  background: #16a34a22;
+  border: 1px solid #16a34a;
+}
+.warn {
+  background: #f59e0b22;
+  border: 1px solid #f59e0b;
+}
+.bad {
+  background: #dc262622;
+  border: 1px solid #dc2626;
+}
+textarea.out {
+  width: 100%;
+  min-height: 160px;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  box-sizing: border-box;
+}
+.gate-block {
+  border: 2px dashed #0891b2;
+  border-radius: 8px;
+  margin: 10px 0;
+  padding: 0 8px 8px;
+  background: #0891b211;
+}
+.gate-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 0;
+  user-select: none;
+  flex-wrap: wrap;
+}
+.gate-head select,
+.gate-head input {
+  font-size: 16px;
+  padding: 6px;
+}
+.gate-content {
+  min-height: 24px;
+}
+.ime-item {
+  border: 1px solid #8884;
+  border-radius: 8px;
+  padding: 8px;
+  margin: 8px 0;
+}
+.ime-item .b {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.ime-item .b button {
+  flex: 1;
+  min-height: 44px;
+  font-size: 18px;
+  border-radius: 8px;
+  border: 1px solid #8886;
+  background: #8881;
+}
+.ime-item .b button.on {
+  background: #0891b2;
+  color: #fff;
+}
+.crop-box {
+  position: relative;
+  width: 100%;
+  height: 340px;
+  background: #333;
+  border-radius: 8px;
+  overflow: hidden;
+}
+pre.json {
+  background: #8881;
+  padding: 8px;
+  border-radius: 8px;
+  overflow: auto;
+  font-size: 12px;
+}
+/* Milkdown/Tiptap 内容区基本排版 */
+.ProseMirror {
+  outline: none;
+  min-height: 220px;
+  padding: 6px 8px;
+}
+.ProseMirror table {
+  border-collapse: collapse;
+}
+.ProseMirror td,
+.ProseMirror th {
+  border: 1px solid #8886;
+  padding: 4px 8px;
+}
+.ProseMirror img {
+  max-width: 100%;
+}
+/* Crepe 默认主题的内容区左右内边距是给桌面宽屏准备的，手机上正文只剩窄窄一列；测试页里压小，避免干扰对编辑器本身的判断
+   （这也是真正集成时必须自己重做主题的原因之一） */
+.milkdown .ProseMirror {
+  padding: 12px 10px !important;
+}
+.milkdown {
+  --crepe-color-surface: transparent;
+}

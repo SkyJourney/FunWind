@@ -10,8 +10,9 @@
 
 ## 范围（做什么）
 
-1. **编辑器选型与实现**：开工第一步做选型 spike（候选 Milkdown / Tiptap / CodeMirror 源码+预览，评审维度见
-   [GATES.md](../GATES.md) §9），选定后实现：Markdown 往返无损、工具栏、预览、移动端适配、Unicode emoji 直输。
+1. **编辑器**：选型 spike 已完成（E0，结论 **Tiptap v3 所见即所得为默认 + CodeMirror 6 源码模式一键切换**，记录见
+   [spikes/E0-editor-selection.md](../spikes/E0-editor-selection.md)，评审维度见 [GATES.md](../GATES.md) §9）。实现：工具栏、门控可视块、
+   服务端预览、往返保护（未编辑不重新序列化 / 不等价旧帖强制源码模式）、移动端适配、Unicode emoji 直输。
    **不再提供旧式表情面板**（历史表情已在迁移期展开为静态图片）。
 2. **发帖/回帖**（统一 post 模型）：选版块与主题前缀（`forum_prefixes`）；回帖楼层在主题级锁内分配（`floor = max+1`，防并发撞号）；
    回帖可指向 `reply_to_post_id`，渲染平铺 + 锚点跳转；@提及发 `post.mentioned` 事件（通知中心在 M8，本期仅发事件）。
@@ -25,6 +26,8 @@
    正文图片与下载附件同一上传管线（图片内联为 `/files/…`，其余写 `attachments`）；图片缩略；
    **非图片附件下载走带权限校验的路由**（按所属帖子的版块读权限，M5.5 遗留）；孤儿附件在 post 末尾自动列出。
    头像上传同管线（写 `user_profiles.avatar_file_id`）。
+   **图片裁剪**（站长要求；库选 `react-image-crop`，真机偏好）：客户端只选区域，**服务端 sharp 真正裁剪**；请求只带原图自然像素坐标 `{x,y,width,height}`，
+   服务端**先自动旋转（EXIF）再 `extract`**、严格校验；头像强制 1:1，正文插图可选（默认直接插入）；动图不裁剪；首版不做旋转。
 6b. **门控附件创作约束**（M5.5 之后审查 P1-2；设计与读取侧已就绪，见 [ATTACHMENT-GATES.md](../ATTACHMENT-GATES.md)，**写入侧归本里程碑**）：
     · 上传 / 编辑时作者为每个附件选择归属：公开或某个门控，落 `attachments.gate_id`；读取一律走 `lib/gates/attachments.ts`（硬约定 3d），不得另写查询。
     · **保存事务内校验**：该帖每个附件的 `gate_id` 必须指向该帖现存的门控；删除带附件的门控块时拒绝保存并提示重新指派，**不得**静默把附件变公开（读取侧对悬空归属一律锁定，`db:verify` 也会报错）。
@@ -64,4 +67,6 @@
 
 ## 遗留事项
 
-（开工时填写：编辑器选型结论）
+- **编辑器选型结论（E0，2026-10-24）**：Tiptap v3（所见即所得，默认）+ CodeMirror 6（源码模式）+ react-image-crop（裁剪）。
+  备选对比、往返保真数据（244 条语料：Tiptap 渲染等价 95.9%，Milkdown 93.9%）、体积（gzip：Tiptap 156 kB、CodeMirror 208 kB、Milkdown 458 kB）、
+  真机反馈与设计约束见 [spikes/E0-editor-selection.md](../spikes/E0-editor-selection.md)；spike 源码存档在 [spikes/e0-editor/](../spikes/e0-editor/)。
