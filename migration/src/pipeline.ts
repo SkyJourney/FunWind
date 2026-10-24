@@ -12,7 +12,6 @@ import {
   countersStep,
   emojiStep,
   followsStep,
-  messagesStep,
   pollsStep,
   pointsStep,
   reactionsStep,
@@ -39,7 +38,6 @@ export const STEPS: Step[] = [
   followsStep,
   reactionsStep,
   pollsStep,
-  messagesStep,
   filesStep,
   countersStep,
 ];

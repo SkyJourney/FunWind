@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  transformConversations,
-  transformFollows,
-  transformPolls,
-  transformReactions,
-} from "./social.js";
+import { transformFollows, transformPolls, transformReactions } from "./social.js";
 
 const ASOF = "2026-10-23 00:00:00";
 const T = 1_300_000_000;
@@ -160,85 +155,5 @@ describe("transformPolls", () => {
       votesInvalid: 2,
       voterCountCorrected: 1,
     });
-  });
-});
-
-describe("transformConversations", () => {
-  const convert = (s: string) => s.trim();
-  const msg = (id: number, from: number, to: number, t: number, content = `m${id}`) => ({
-    message_id: id,
-    from_uid: from,
-    to_uid: to,
-    content,
-    created_time: T + t,
-  });
-
-  it("系统消息(uid 0)、用户不存在(含已删除的虚拟账号 uid 1)、自发自收、空内容不进会话；真实用户对合并为单聊", () => {
-    const r = transformConversations(
-      [
-        msg(1, 0, 2, 1),
-        msg(2, 1, 2, 2),
-        msg(3, 2, 99, 3),
-        msg(4, 2, 2, 4),
-        msg(5, 2, 3, 5),
-        msg(6, 3, 2, 6),
-        msg(7, 2, 3, 7, "   "),
-      ],
-      [],
-      new Set([2, 3, 4]), // uid 1 在旧站用户表里不存在（已删除的虚拟账号）
-      convert,
-      ASOF,
-    );
-    expect(r.conversations).toEqual([
-      { id: 1, pairKey: "2:3", lastMessageAt: expect.any(String), createdAt: expect.any(String) },
-    ]);
-    expect(r.messages.map((m) => [m.id, m.senderId])).toEqual([
-      [5, 2],
-      [6, 3],
-    ]);
-    expect(r.stats).toMatchObject({
-      systemDropped: 1,
-      orphanUser: 2,
-      self: 1,
-      emptyDropped: 1,
-      messages: 2,
-    });
-  });
-
-  it("会话 id 与成员确定性；A→B 与 B→A 合并到同一会话", () => {
-    const rows = [msg(1, 3, 2, 1), msg(2, 1, 4, 2), msg(3, 2, 3, 3)];
-    const a = transformConversations(rows, [], users, convert, ASOF);
-    expect(a.conversations.map((c) => [c.id, c.pairKey])).toEqual([
-      [1, "1:4"],
-      [2, "2:3"],
-    ]);
-    expect(a.members).toHaveLength(4);
-    expect(transformConversations([...rows].reverse(), [], users, convert, ASOF)).toEqual(a);
-  });
-
-  it("未读状态还原：按对端发来的消息倒数；无未读记录视为已读；全部未读为 null", () => {
-    const rows = [msg(1, 3, 2, 1), msg(2, 3, 2, 2), msg(3, 3, 2, 3), msg(4, 2, 3, 4)];
-    const r = transformConversations(
-      rows,
-      [
-        { from_uid: 2, to_uid: 3, unread_count: 1 }, // 用户 2 有 1 条未读 → 已读到第 2 条
-        { from_uid: 3, to_uid: 2, unread_count: 0 },
-      ],
-      users,
-      convert,
-      ASOF,
-    );
-    const by = new Map(r.members.map((m) => [m.userId, m.lastReadMessageId]));
-    expect(by.get(2)).toBe(2);
-    expect(by.get(3)).toBe(4);
-    const allUnread = transformConversations(
-      rows,
-      [{ from_uid: 2, to_uid: 3, unread_count: 3 }],
-      users,
-      convert,
-      ASOF,
-    );
-    expect(allUnread.members.find((m) => m.userId === 2)?.lastReadMessageId).toBeNull();
-    expect(allUnread.stats.withUnread).toBe(1);
   });
 });

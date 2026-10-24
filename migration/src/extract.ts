@@ -262,20 +262,3 @@ export const extractPollVotes = () =>
   oldQuery<{ uid: number; poll_id: number; option_id: number; created_time: number }>(
     `SELECT uid, poll_id, option_id, created_time FROM nw_app_poll_voter`,
   );
-
-export const extractMessages = () =>
-  oldQuery<{
-    message_id: number;
-    from_uid: number;
-    to_uid: number;
-    content: string;
-    created_time: number;
-  }>(
-    `SELECT message_id, from_uid, to_uid, content, created_time FROM nw_windid_message
-     ORDER BY created_time, message_id`,
-  );
-
-export const extractDialogs = () =>
-  oldQuery<{ from_uid: number; to_uid: number; unread_count: number }>(
-    `SELECT from_uid, to_uid, unread_count FROM nw_windid_message_dialog`,
-  );

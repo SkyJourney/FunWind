@@ -136,35 +136,58 @@ export interface CheckinRow {
   reward: number;
 }
 
+const DAY_MS = 86_400_000;
+const dayNumber = (day: string): number => Date.parse(`${day}T00:00:00Z`) / DAY_MS;
+
 /**
  * 签到历史取自旧站积分流水里 logtype='punch' 的记录（约 7.3 万条）：
  * 按「用户 × 北京时间自然日」去重，同日多条取最早一条的奖励；连签天数由日期重算，不依赖旧 punch 序列化串。
+ * 新站只关心「当前连签」，所以每个用户只保留**最近一段连续签到**（以其最后一次签到日结尾的连续日期），
+ * 更早的零散历史不迁（旧库即归档）。
  */
 export function transformCheckins(
   logs: readonly { id: number; uid: number; affect: number; created_time: number }[],
   userIds: ReadonlySet<number>,
-): { rows: CheckinRow[]; stats: { logs: number; orphan: number; sameDayDuplicates: number } } {
-  const stats = { logs: logs.length, orphan: 0, sameDayDuplicates: 0 };
-  const seen = new Set<string>();
-  const rows: CheckinRow[] = [];
+): {
+  rows: CheckinRow[];
+  stats: {
+    logs: number;
+    orphan: number;
+    sameDayDuplicates: number;
+    /** 有签到记录的用户数 */
+    users: number;
+    /** 去重后、因不在最近一段连续区间内而不迁的签到日 */
+    olderDropped: number;
+  };
+} {
+  const stats = { logs: logs.length, orphan: 0, sameDayDuplicates: 0, users: 0, olderDropped: 0 };
+  const byUser = new Map<number, Map<string, number>>(); // uid → (day → reward)
   for (const l of [...logs].sort((a, b) => Number(a.id) - Number(b.id))) {
     const uid = Number(l.uid);
-    if (!userIds.has(uid)) {
-      stats.orphan++;
-      continue;
-    }
-    const day = toDatetime(Number(l.created_time))?.slice(0, 10);
+    const day = userIds.has(uid) ? toDatetime(Number(l.created_time))?.slice(0, 10) : undefined;
     if (!day) {
       stats.orphan++;
       continue;
     }
-    const key = `${uid}:${day}`;
-    if (seen.has(key)) {
+    const days = byUser.get(uid) ?? new Map<string, number>();
+    if (days.has(day)) {
       stats.sameDayDuplicates++;
       continue;
     }
-    seen.add(key);
-    rows.push({ userId: uid, checkinDate: day, reward: Math.max(0, Number(l.affect) || 0) });
+    days.set(day, Math.max(0, Number(l.affect) || 0));
+    byUser.set(uid, days);
+  }
+
+  const rows: CheckinRow[] = [];
+  for (const [uid, days] of [...byUser].sort((a, b) => a[0] - b[0])) {
+    stats.users++;
+    const sorted = [...days.keys()].sort();
+    let start = sorted.length - 1;
+    while (start > 0 && dayNumber(sorted[start]!) - dayNumber(sorted[start - 1]!) === 1) start--;
+    stats.olderDropped += start;
+    for (const day of sorted.slice(start)) {
+      rows.push({ userId: uid, checkinDate: day, reward: days.get(day) ?? 0 });
+    }
   }
   return { rows, stats };
 }

@@ -1,5 +1,5 @@
 /**
- * B2 迁移步骤：内容（统一 post / 门控 / 附件 / 标签）、表情资源、积分、徽章、社交、计数重算。
+ * B2 迁移步骤：内容（统一 post / 门控 / 附件 / 标签）、表情资源、积分、徽章、社交（私信不迁）、计数重算。
  * 每步 = extract → transform（纯函数）→ load（自然键幂等）。
  */
 import { copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
@@ -12,13 +12,11 @@ import {
   extractBank,
   extractBuys,
   extractCreditBalances,
-  extractDialogs,
   extractEmojiIds,
   extractForumJoins,
   extractLikes,
   extractMedalInfo,
   extractMedalUsers,
-  extractMessages,
   extractPollOptions,
   extractPolls,
   extractPollVotes,
@@ -39,15 +37,9 @@ import {
   transformTags,
   transformUnlocks,
 } from "./transform/content.js";
-import { plainConverter } from "./transform/plain.js";
 import { transformCheckins, transformPoints } from "./transform/points.js";
 import { transformPlaceholders } from "./transform/users.js";
-import {
-  transformConversations,
-  transformFollows,
-  transformPolls,
-  transformReactions,
-} from "./transform/social.js";
+import { transformFollows, transformPolls, transformReactions } from "./transform/social.js";
 
 const b = (v: boolean) => (v ? 1 : 0);
 const jsonOf = (v: unknown) => JSON.stringify(v);
@@ -479,7 +471,8 @@ export const pointsStep: Step = {
     s.bullets([
       `负余额按 0 处理：${st.negativeClamped.length} 人（uid ${head(st.negativeClamped)}）`,
       `用户已不存在的余额 ${st.orphanBalances} 条、银行账户 ${st.orphanBank} 个，丢弃`,
-      `签到：旧流水 ${checks.stats.logs} 条 → 按「用户×北京时间自然日」去重 ${checks.rows.length} 次（同日重复 ${checks.stats.sameDayDuplicates}、用户不存在 ${checks.stats.orphan}）`,
+      `签到：旧流水 ${checks.stats.logs} 条 → 按「用户×北京时间自然日」去重（同日重复 ${checks.stats.sameDayDuplicates}、用户不存在 ${checks.stats.orphan}）；` +
+        `${checks.stats.users} 位用户各只保留**最近一段连续签到**，共 ${checks.rows.length} 天，更早的 ${checks.stats.olderDropped} 个零散签到日不迁（旧库即归档）`,
     ]);
     return {
       rows: pts.ledger.length + checks.rows.length,
@@ -545,7 +538,7 @@ export const badgesStep: Step = {
   },
 };
 
-// ---------- 社交：关注 / 点赞 / 投票 / 私信 ----------
+// ---------- 社交：关注 / 点赞 / 投票 ----------
 
 export const followsStep: Step = {
   name: "follows",
@@ -690,71 +683,13 @@ export const pollsStep: Step = {
   },
 };
 
-export const messagesStep: Step = {
-  name: "messages",
-  async run(ctx) {
-    const emojiIds = await extractEmojiIds();
-    const res = transformConversations(
-      await extractMessages(),
-      await extractDialogs(),
-      await loadUserIds(ctx),
-      plainConverter(emojiIds),
-      ctx.asOf,
-    );
-    await load(
-      "conversations",
-      ["id", "kind", "pair_key", "last_message_at", "created_at"],
-      res.conversations.map((c) => ({
-        id: c.id,
-        kind: "direct",
-        pair_key: c.pairKey,
-        last_message_at: c.lastMessageAt,
-        created_at: c.createdAt,
-      })),
-      ["id"],
-    );
-    await load(
-      "conversation_members",
-      ["conversation_id", "user_id", "last_read_message_id"],
-      res.members.map((m) => ({
-        conversation_id: m.conversationId,
-        user_id: m.userId,
-        last_read_message_id: m.lastReadMessageId,
-      })),
-      ["conversation_id", "user_id"],
-    );
-    await load(
-      "messages",
-      ["id", "conversation_id", "sender_id", "body", "created_at"],
-      res.messages.map((m) => ({
-        id: m.id,
-        conversation_id: m.conversationId,
-        sender_id: m.senderId,
-        body: m.body,
-        created_at: m.createdAt,
-      })),
-      ["id"],
-    );
-    await bumpAutoIncrement("conversations");
-    await bumpAutoIncrement("messages");
-    const st = res.stats;
-    ctx.report
-      .section("私信")
-      .line(
-        `真实用户私信 ${st.messages} 条 → 单聊会话 ${res.conversations.length} 个（含未读状态的成员 ${st.withUnread} 个）。` +
-          `系统消息（uid 0，欢迎语与锁帖通知）${st.systemDropped} 条不进会话；用户已不存在 ${st.orphanUser}（含旧站已删除的虚拟账号 uid 1 的真人对话）、自发自收 ${st.self}、空内容 ${st.emptyDropped} 已丢弃。`,
-      );
-    return { rows: res.messages.length };
-  },
-};
-
 // ---------- 计数重算 ----------
 
 export const countersStep: Step = {
   name: "counters",
   async run(ctx) {
     const q = (sql: string) => newQuery(sql);
-    // 点赞数、标签数、投票数以明细为准
+    // 点赞数、标签数以明细为准
     await q(`UPDATE posts SET like_count = 0`);
     await q(
       `UPDATE posts p JOIN (SELECT post_id, COUNT(*) c FROM reactions GROUP BY post_id) r ON r.post_id = p.id
@@ -766,11 +701,10 @@ export const countersStep: Step = {
            WHERE tt.tag_id = t.id AND th.state = 'visible')`,
     );
 
-    // 主题：回复数 = 可见回帖数；最后回复 = 可见帖子中楼层最大者（楼层按时间序分配）
+    // 主题：回复数 = 可见回帖数；最后回复 = 可见帖子中楼层最大者（楼层按时间序分配，首帖 = 1）
     await q(
       `UPDATE threads t SET reply_count = (
-         SELECT COUNT(*) FROM posts p WHERE p.thread_id = t.id AND p.floor > 1 AND p.state = 'visible')
-       WHERE t.state <> 'spam'`,
+         SELECT COUNT(*) FROM posts p WHERE p.thread_id = t.id AND p.floor > 1 AND p.state = 'visible')`,
     );
     await q(
       `UPDATE threads t JOIN posts p ON p.thread_id = t.id
@@ -792,19 +726,19 @@ export const countersStep: Step = {
                             ORDER BY t.last_posted_at DESC, t.id DESC LIMIT 1)`,
     );
 
-    // 用户统计：为全部用户建行
+    // 用户统计：为全部用户（含占位账号）建行；精华数 = 被设为精华的可见主题
     await q(
-      `INSERT INTO user_stats (user_id, thread_count, post_count, digest_count, follower_count, last_post_at)
-       SELECT u.id, COALESCE(t.c, 0), COALESCE(p.c, 0), COALESCE(t.d, 0), COALESCE(f.c, 0), p.last
+      `INSERT INTO user_stats (user_id, thread_count, post_count, featured_count, follower_count, last_post_at)
+       SELECT u.id, COALESCE(t.c, 0), COALESCE(p.c, 0), COALESCE(t.f, 0), COALESCE(f.c, 0), p.last
        FROM users u
-       LEFT JOIN (SELECT author_id, COUNT(*) c, SUM(digest > 0) d FROM threads
+       LEFT JOIN (SELECT author_id, COUNT(*) c, SUM(is_featured) f FROM threads
                    WHERE state = 'visible' GROUP BY author_id) t ON t.author_id = u.id
        LEFT JOIN (SELECT author_id, COUNT(*) c, MAX(created_at) last FROM posts
                    WHERE state = 'visible' GROUP BY author_id) p ON p.author_id = u.id
        LEFT JOIN (SELECT target_id, COUNT(*) c FROM follows
                    WHERE target_type = 'user' GROUP BY target_id) f ON f.target_id = u.id
        ON DUPLICATE KEY UPDATE thread_count = VALUES(thread_count), post_count = VALUES(post_count),
-         digest_count = VALUES(digest_count), follower_count = VALUES(follower_count),
+         featured_count = VALUES(featured_count), follower_count = VALUES(follower_count),
          last_post_at = VALUES(last_post_at)`,
     );
 
@@ -817,7 +751,7 @@ export const countersStep: Step = {
     ctx.report
       .section("计数重算")
       .line(
-        `全部计数由明细重算（旧计数在 50 个主题上对不上）：用户统计 ${row?.stats} 行；版块可见主题合计 ${row?.forum_threads}、可见帖子合计 ${row?.forum_posts}；点赞合计 ${row?.likes}。`,
+        `全部计数由明细重算（旧计数在 50 个主题上对不上）：用户统计 ${row?.stats} 行（含占位账号）；版块可见主题合计 ${row?.forum_threads}、可见帖子合计 ${row?.forum_posts}；点赞合计 ${row?.likes}。`,
       );
     return { rows: Number(row?.stats ?? 0) };
   },

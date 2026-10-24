@@ -111,4 +111,50 @@ describe("transformCheckins", () => {
     expect(a.rows.every((r) => r.reward >= 0)).toBe(true);
     expect(transformCheckins([...logs].reverse(), users).rows).toEqual(a.rows);
   });
+
+  it("每个用户只保留最近一段连续签到（以最后一次签到日结尾），更早的零散历史不迁", () => {
+    const day = (d: string, id: number, uid = 1) => ({
+      id,
+      uid,
+      affect: 2,
+      created_time: ts(`${d}T09:00:00`),
+    });
+    const r = transformCheckins(
+      [
+        day("2013-02-01", 1),
+        day("2013-02-02", 2),
+        day("2013-02-10", 3), // 断档后的最近一段：10、11、12
+        day("2013-02-11", 4),
+        day("2013-02-12", 5),
+        day("2013-03-01", 6, 2), // 用户 2 只有一天
+      ],
+      users,
+    );
+    expect(r.rows.map((x) => [x.userId, x.checkinDate])).toEqual([
+      [1, "2013-02-10"],
+      [1, "2013-02-11"],
+      [1, "2013-02-12"],
+      [2, "2013-03-01"],
+    ]);
+    expect(r.stats).toMatchObject({ users: 2, olderDropped: 2 });
+  });
+
+  it("连续区间跨月/跨年按真实日历计算", () => {
+    const day = (d: string, id: number) => ({
+      id,
+      uid: 1,
+      affect: 1,
+      created_time: ts(`${d}T09:00:00`),
+    });
+    const r = transformCheckins(
+      [day("2013-12-30", 1), day("2013-12-31", 2), day("2014-01-01", 3), day("2014-01-03", 4)],
+      users,
+    );
+    expect(r.rows.map((x) => x.checkinDate)).toEqual(["2014-01-03"]);
+    const r2 = transformCheckins(
+      [day("2013-12-30", 1), day("2013-12-31", 2), day("2014-01-01", 3)],
+      users,
+    );
+    expect(r2.rows).toHaveLength(3);
+  });
 });

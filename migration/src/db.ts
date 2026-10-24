@@ -142,9 +142,6 @@ export const OWNED_TABLES: ReadonlySet<string> = new Set([
   "polls",
   "poll_options",
   "poll_votes",
-  "conversations",
-  "conversation_members",
-  "messages",
 ]);
 
 /** 按表的归属选择加载方式：独占表整体替换，其余 UPSERT */
