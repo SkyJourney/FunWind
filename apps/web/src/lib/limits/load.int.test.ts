@@ -23,6 +23,7 @@ const lim = (postIntervalSec: number, threadsPerDay: number, uploadsPerDay: numb
   postIntervalSec,
   threadsPerDay,
   uploadsPerDay,
+  editWindowSec: 0,
 });
 
 describe.skipIf(skipDb)("limits 加载 · 真实 MySQL", () => {

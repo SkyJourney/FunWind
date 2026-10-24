@@ -6,25 +6,79 @@ import type { ReactNode } from "react";
  * 扩展事件/槽位清单 = 修改本文件并在 docs/MODULES.md 说明——模块不得私设插入点。
  */
 
-// ---------- 事件清单（21 个，docs/MODULES.md 定稿；命名承接旧 phpwind 钩子语义） ----------
+// ---------- 事件清单（23 个，docs/MODULES.md 定稿；命名承接旧 phpwind 钩子语义；M6.1 新增 post.edited / post.deleted） ----------
 // 派发状态：user.logged_in / user.registered / role.changed / points.changed / gate.unlocked 已有真实派发者（M5.5 S4-5），
 // 其余为契约，由各自里程碑（M6 发帖、M8 互动、M9 后台、M10 私信…）接线。
 export interface EventPayloads {
   "user.logged_in": { userId: number };
   "user.registered": { userId: number };
   "user.followed": { userId: number; targetType: "user" | "forum"; targetId: number };
-  "thread.created": { threadId: number; forumId: number; authorId: number };
-  "thread.replied": { threadId: number; postId: number; authorId: number; replyToPostId?: number };
-  "thread.edited": { threadId: number; editorId: number };
-  "thread.deleted": { threadId: number; operatorId: number };
+  /** 载荷只放 id 与标题，绝不放正文（event_log 会持久化；M6.1 设计稿 §7.2） */
+  "thread.created": {
+    threadId: number;
+    postId: number;
+    forumId: number;
+    authorId: number;
+    title: string;
+  };
+  "thread.replied": {
+    threadId: number;
+    postId: number;
+    forumId: number;
+    authorId: number;
+    /** 主题作者（M8 通知给楼主） */
+    threadAuthorId: number;
+    replyToPostId?: number;
+    replyToAuthorId?: number;
+  };
+  /** 首帖 / 标题被编辑（回帖编辑用 post.edited） */
+  "thread.edited": {
+    threadId: number;
+    postId: number;
+    forumId: number;
+    authorId: number;
+    editorId: number;
+    title: string;
+  };
+  "post.edited": {
+    postId: number;
+    threadId: number;
+    forumId: number;
+    authorId: number;
+    editorId: number;
+  };
+  /** 主题被软删；byModerator 表示是否由版主操作（理由在 audit_log，不进事件） */
+  "thread.deleted": {
+    threadId: number;
+    postId: number;
+    forumId: number;
+    authorId: number;
+    operatorId: number;
+    byModerator: boolean;
+  };
+  "post.deleted": {
+    postId: number;
+    threadId: number;
+    forumId: number;
+    authorId: number;
+    operatorId: number;
+    byModerator: boolean;
+  };
   "thread.moderated": {
     threadId: number;
     operatorId: number;
     action: "lock" | "unlock" | "move" | "feature" | "pin";
     detail?: Record<string, unknown>;
   };
-  /** 版块需审核时 pending=true */
-  "content.submitted": { postId: number; authorId: number; forumId: number; pending: boolean };
+  /** 待审内容（版块需审核）：只发这个，审核通过才发 thread.created / thread.replied（M9 调同一迁移函数） */
+  "content.submitted": {
+    postId: number;
+    threadId: number;
+    authorId: number;
+    forumId: number;
+    /** true = 主题的首帖（审核的是主题） */
+    isThread: boolean;
+  };
   "content.moderated": {
     postId: number;
     operatorId: number;

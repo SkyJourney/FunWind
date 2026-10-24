@@ -17,10 +17,16 @@ const cfg = (roles: LimitsConfig["roles"], over: Partial<LimitsConfig> = {}): Li
   roles,
   ...over,
 });
-const lim = (postIntervalSec: number, threadsPerDay: number, uploadsPerDay: number) => ({
+const lim = (
+  postIntervalSec: number,
+  threadsPerDay: number,
+  uploadsPerDay: number,
+  editWindowSec = 0,
+) => ({
   postIntervalSec,
   threadsPerDay,
   uploadsPerDay,
+  editWindowSec,
 });
 
 describe("默认配置", () => {
@@ -35,6 +41,25 @@ describe("parseLimitsConfig：无效配置整体回落默认值", () => {
   it("缺失 / null → 默认，且不算错误（没配置过是正常的）", () => {
     expect(parseLimitsConfig(undefined)).toEqual({ config: DEFAULT_LIMITS_CONFIG });
     expect(parseLimitsConfig(null)).toEqual({ config: DEFAULT_LIMITS_CONFIG });
+  });
+
+  it("editWindowSec 可选：旧配置（不含该字段）仍然有效，缺省为 0（不限）；对照：它给了负数则整体无效", () => {
+    const legacy = {
+      titleMax: 100,
+      bodyMax: 50000,
+      roles: { member: { postIntervalSec: 5, threadsPerDay: 100, uploadsPerDay: 20 } },
+    };
+    const r = parseLimitsConfig(legacy);
+    expect(r.error).toBeUndefined();
+    expect(r.config.roles["member"]).toEqual(lim(5, 100, 20, 0));
+    expect(parseLimitsConfig(cfg({ member: lim(5, 100, 20, -1) })).error).toBeTruthy();
+    expect(parseLimitsConfig(cfg({ member: lim(5, 100, 20, 3600) })).error).toBeUndefined();
+  });
+
+  it("编辑时限合并：与额度同口径，0 = 不限胜过任何正数", () => {
+    const c = cfg({ member: lim(5, 100, 20, 600), team: lim(5, 100, 20, 0) });
+    expect(resolveLimits(c, ["member"]).editWindowSec).toBe(600);
+    expect(resolveLimits(c, ["member", "team"]).editWindowSec).toBe(0);
   });
 
   it("合法的自定义配置原样生效（含给团队角色单独配置）", () => {
@@ -95,6 +120,7 @@ describe("resolveLimits：每项取最宽松的值，0 = 不限", () => {
       postIntervalSec: 5,
       threadsPerDay: 100,
       uploadsPerDay: 20,
+      editWindowSec: 0,
     });
   });
 

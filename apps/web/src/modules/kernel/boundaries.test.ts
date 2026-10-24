@@ -38,7 +38,17 @@ describe("事件清单一致性", () => {
       ],
       ["announcement.published", { announcementId: 1, createdBy: 11 }, 11],
       ["message.sent", { conversationId: 1, messageId: 1, senderId: 12, recipientId: 2 }, 12],
-      ["content.submitted", { postId: 1, authorId: 13, forumId: 1, pending: true }, 13],
+      [
+        "content.submitted",
+        { postId: 1, threadId: 1, authorId: 13, forumId: 1, isThread: true },
+        13,
+      ],
+      ["post.edited", { postId: 1, threadId: 1, forumId: 1, authorId: 3, editorId: 18 }, 18],
+      [
+        "post.deleted",
+        { postId: 1, threadId: 1, forumId: 1, authorId: 3, operatorId: 19, byModerator: true },
+        19,
+      ],
       ["post.mentioned", { postId: 1, authorId: 14, mentionedUserId: 2 }, 14],
       ["gate.unlocked", { gateId: 1, userId: 15, authorId: 2, price: 5 }, 15],
       ["points.changed", { userId: 16, channel: "earn.x", delta: 1 }, 16],

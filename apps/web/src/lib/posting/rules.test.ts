@@ -23,6 +23,7 @@ const target = (over: Partial<TargetFacts> = {}): TargetFacts => ({
   state: "visible",
   threadState: "visible",
   othersVisibleReplies: 0,
+  ageSec: 0,
   ...over,
 });
 const code = (d: RuleDecision) => (d.allowed ? "ok" : d.code);
@@ -47,7 +48,7 @@ describe("canEdit", () => {
 
   it("作者不能动 hidden / deleted（那是版主的决定）", () => {
     expect(code(canEdit(actor(), target({ state: "hidden" })))).toBe("bad_state");
-    expect(code(canEdit(actor(), target({ state: "deleted" })))).toBe("bad_state");
+    expect(code(canEdit(actor(), target({ state: "deleted" })))).toBe("already_deleted");
   });
 
   it("作者的 forum.write 失效（被禁言 / 封禁 / 版块归档）→ 不能再改自己的", () => {
@@ -176,5 +177,26 @@ describe("全状态矩阵（防止新增状态漏判）", () => {
               const d = fn(a, target({ state, threadState, kind, othersVisibleReplies: 1 }));
               expect(typeof d.allowed).toBe("boolean");
             }
+  });
+});
+
+describe("编辑时限（limits.editWindowSec）", () => {
+  it("作者：时限内可编辑；超出时限拒绝；对照：时限为 0（不限）时任何时候都可以", () => {
+    expect(canEdit(actor(), target({ ageSec: 599 }), 600).allowed).toBe(true);
+    expect(canEdit(actor(), target({ ageSec: 600 }), 600).allowed).toBe(true);
+    expect(code(canEdit(actor(), target({ ageSec: 601 }), 600))).toBe("edit_window_closed");
+    expect(canEdit(actor(), target({ ageSec: 10_000_000 }), 0).allowed).toBe(true);
+  });
+
+  it("版主不受编辑时限限制（编辑别人的内容本来就要理由）", () => {
+    const mod = actor({ userId: 9, isModerator: true });
+    expect(canEdit(mod, target({ ageSec: 10_000 }), 600)).toMatchObject({
+      allowed: true,
+      reasonRequired: true,
+    });
+  });
+
+  it("时限不影响 pending / rejected 的待审内容的编辑判定（只限制作者的 visible / pending / rejected 编辑）", () => {
+    expect(code(canEdit(actor(), target({ state: "hidden", ageSec: 1 }), 600))).toBe("bad_state");
   });
 });

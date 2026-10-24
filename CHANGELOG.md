@@ -5,6 +5,20 @@
 
 ## [Unreleased]
 
+### Added（M6.1 第 3 步·任务 5：编辑 / 删除 / 恢复 + 事件契约 + 编辑时限）
+
+- **事件契约**（设计稿 §7.2，`kernel/types.ts` / `event-names.ts` / `bus.ts` / `MODULES.md` 同步）：载荷只放 id 与标题，绝不放正文。`thread.created` / `thread.replied` / `thread.edited` / `thread.deleted` 补齐 `postId`、`forumId`、`authorId` 等字段；新增 `post.edited`、`post.deleted`；`content.submitted` 去掉 `pending`，改为 `threadId` + `isThread`（待审内容只发它）。清单由 21 个变为 23 个。发帖路径已改用新载荷，事件派发失败只记日志。
+- **编辑时限**：`limits` 角色项新增可选的 `editWindowSec`（0 = 不限，默认 0）。它的缺省值就是设计的默认，所以旧库里不含该字段的配置仍然有效；另外三个字段仍必须写全。版主不受时限限制。
+- **`lib/posting/mutate.ts`**：
+  - `editPost`：编辑表单必须提交渲染时看到的 `expectedEditedAt`，不一致返回 `conflict`，不静默覆盖。作者改自己的（时限内）；版主改别人的必须填理由并写 `post.edit` 审计。主题的标题与首帖一起改。门控经 `applyGateDrafts` 对账。驳回的帖子编辑后转为待审，派发 `content.submitted`。
+  - `deletePost`：作者只能删自己的回帖，或"没有别人回复"的主题（自己的回复不算）；版主删除任何内容必须填理由，写 `post.state.deleted` 审计。走 `transitionContent`，计数与指针由它负责。
+  - `restorePost`：只有版主能恢复，必须填理由，作者不能自己恢复。派发 `content.moderated`（action=restore）。
+- **规则**（`rules.ts`）：`canEdit` 新增编辑时限判定（`edit_window_closed`）；作者编辑已删除内容返回 `already_deleted`（比泛泛的 `bad_state` 更清楚）。
+- **锁与一致性**：编辑、删除、恢复与发帖使用同一加锁顺序（作者统计行 → 主题 → 帖子 → 版块），锁后重读帖子与主题，版块与探测时不一致则返回 `conflict`。
+- **自动安全审查的发现（第 4 步提交后）**：回帖的事务内检查依据事务外探测到的版块，锁后的主题版块可能不同。现在锁后发现版块不一致直接返回 `conflict`（目前没有"移动主题"的操作，M9 才有，所以暂时走不到，但检查依据必须一致）。
+- **测试**：规则单测 +3 项（编辑时限）；集成 13 项，覆盖编辑（回帖、冲突、标题、驳回后重提交、时限、版主理由与审计、门控对账、并发编辑）、删除（作者删回帖、删主题的"有别人回复"规则、版主删除与审计）、恢复（作者不能恢复、理由、计数与指针）、已删除内容不能编辑。
+- **变异验证 9 项各自变红**：去掉编辑冲突检查、去掉编辑时限、版主编辑不要理由、删主题不检查别人的回复、作者可以恢复、驳回后编辑不转待审、编辑不对账门控、版主编辑不写审计、删除绕过迁移。
+
 ### Added（M6.1 第 3 步·任务 4：发主题与回帖）
 
 - **`lib/posting/service.ts`**：`createThread` / `createReply`。事务外做权限（快照 + 评估器）、限制与文本、门控语法；事务内按 `user_stats` → 主题 → 版块加锁，持锁检查发帖间隔与每日主题配额（含已删除的主题），主题锁定与可见性在锁后重读；`MAX(floor)+1` 分配楼层；60 秒幂等（同作者、同位置、同正文）；门控经 `applyGateDrafts` 落库；计数经 `applyCounterDelta`（与状态迁移共用同一口径）。提交后派发事件，失败只记日志。

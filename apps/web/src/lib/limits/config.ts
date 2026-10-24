@@ -21,6 +21,11 @@ const roleLimitsSchema = z
     threadsPerDay: nonNegInt(100_000),
     /** 每个自然日最多上传文件数；0 = 不限 */
     uploadsPerDay: nonNegInt(100_000),
+    /**
+     * 作者可自行编辑的时限（秒）；0 = 不限。可选、缺省 0：它的缺省值就是设计的默认（不限），
+     * 所以旧库里不含此字段的配置仍然有效。注意：其余三个字段仍必须写全（缺省补 0 会悄悄放开限制）。
+     */
+    editWindowSec: nonNegInt(31_536_000).default(0),
   })
   .strict();
 
@@ -94,5 +99,7 @@ export function resolveLimits(config: LimitsConfig, roleKeys: readonly string[])
     postIntervalSec: Math.min(...matched.map((r) => r.postIntervalSec)),
     threadsPerDay: quota((r) => r.threadsPerDay),
     uploadsPerDay: quota((r) => r.uploadsPerDay),
+    // 编辑时限与额度同口径：越长越宽松，0 = 不限胜过任何正数
+    editWindowSec: quota((r) => r.editWindowSec),
   };
 }

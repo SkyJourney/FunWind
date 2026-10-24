@@ -94,7 +94,7 @@ describe("emit", () => {
     const w = fakeWriter();
     const r = await emit(
       "thread.created",
-      { threadId: 9, forumId: 1, authorId: 2 },
+      { threadId: 9, postId: 90, forumId: 1, authorId: 2, title: "t" },
       { enabledModuleIds: new Set(["boom", "after"]), writer: w.write },
     );
     expect(calls).toEqual(["after"]); // 后续消费者未受影响
@@ -108,7 +108,7 @@ describe("emit", () => {
     const w = fakeWriter();
     await emit(
       "thread.deleted",
-      { threadId: 1, operatorId: 66 },
+      { threadId: 1, postId: 10, forumId: 1, authorId: 3, operatorId: 66, byModerator: true },
       {
         enabledModuleIds: new Set(),
         writer: w.write,

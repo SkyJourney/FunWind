@@ -111,7 +111,16 @@ describe.skipIf(skipDb)("发主题与回帖 · 真实 MySQL", () => {
     expect((await threadRow(r.threadId)).firstPostId).toBe(r.postId);
     await oracle.expectConsistent("发主题后", [r.threadId]);
     expect(events).toEqual([
-      ["thread.created", { threadId: r.threadId, forumId: FORUM, authorId: DEMO.member }],
+      [
+        "thread.created",
+        {
+          threadId: r.threadId,
+          postId: r.postId,
+          forumId: FORUM,
+          authorId: DEMO.member,
+          title: "服务层首帖",
+        },
+      ],
     ]);
     expect(JSON.stringify(events)).not.toContain(MARK);
   });

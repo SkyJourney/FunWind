@@ -26,6 +26,8 @@ export interface TargetFacts {
   threadState: ContentState;
   /** 该主题里**别人**（非该帖作者）的可见回帖数；删除"无人回复的主题"的判据 */
   othersVisibleReplies: number;
+  /** 发布至今的秒数（编辑时限的判据） */
+  ageSec: number;
 }
 
 export type DenyCode =
@@ -34,7 +36,8 @@ export type DenyCode =
   | "thread_gone" // 所属主题已不可见，作者不能再动里面的回帖
   | "bad_state" // 当前状态下不允许这个动作
   | "has_replies" // 主题已有别人的回复，作者不能删
-  | "not_restorable";
+  | "not_restorable"
+  | "edit_window_closed"; // 超出作者可自行编辑的时限（版主不受限）
 
 export type RuleDecision =
   | {
@@ -62,13 +65,18 @@ const threadGoneForAuthor = (t: TargetFacts) =>
  *  · 作者本人：须 forum.write 仍成立；pending / visible / rejected 可改（rejected 改完重新提交）；hidden / deleted 是版主的决定，作者不能动。
  *  · 版主改别人的：除 deleted 外都可改，必须填理由。
  */
-export function canEdit(actor: ActorFacts, t: TargetFacts): RuleDecision {
+export function canEdit(actor: ActorFacts, t: TargetFacts, editWindowSec = 0): RuleDecision {
   const isAuthor = actor.userId === t.authorId;
   if (isAuthor) {
     if (!actor.canWrite) return actor.isModerator ? moderatorEdit(t) : deny("forbidden");
     if (threadGoneForAuthor(t)) return deny("thread_gone");
+    // 编辑时限：0 = 不限；版主不受限（版主编辑别人的内容本来就要理由）
+    if (!actor.isModerator && editWindowSec > 0 && t.ageSec > editWindowSec) {
+      return deny("edit_window_closed");
+    }
     if (t.state === "visible" || t.state === "pending") return allow();
     if (t.state === "rejected") return allow(false, true);
+    if (t.state === "deleted") return deny("already_deleted");
     return deny("bad_state");
   }
   return actor.isModerator ? moderatorEdit(t) : deny("forbidden");

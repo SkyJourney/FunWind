@@ -31,11 +31,11 @@ export const myModule = defineModule({
 —— **启用/停用运行中模块 = `pnpm --filter @funwind/web modules:toggle <id> <on|off>`**（module_state 表；
 M9 后由管理后台管理）。
 
-## 事件清单（21 个，M5.5 v2.1 设计定稿）
+## 事件清单（23 个；M5.5 v2.1 定稿，M6.1 新增 post.edited / post.deleted）
 
 > M5.5 把注册边界由六类扩为十类：新增 `pointChannels`（[POINTS.md](POINTS.md)）、`gateConditions`、
 > `notificationTypes`、`notificationChannels`（[NOTIFICATIONS.md](NOTIFICATIONS.md)）。**M6.1 删除了 `gateConditions`**（它从未有过消费者，求值器写死 `points` / `reply`，见 [GATES.md](GATES.md) §3），现为**九类**。
-> **已落地**（M5.5 S4-5，`kernel/types.ts` 为准）：21 个事件与边界的类型、注册期校验、保留项均已实现（M6.1 起为九类边界）。
+> **已落地**（M5.5 S4-5，`kernel/types.ts` 为准）：23 个事件与边界的类型、注册期校验、保留项均已实现（M6.1 起为九类边界）。
 > 当前有真实派发者的事件：`user.logged_in`、`user.registered`（认证 Server Action）、`role.changed`（授权管理）、`points.changed`（积分核心）、
 > `gate.unlocked`（门控购买）；其余为契约，由各自里程碑接线。
 > 注册期校验（启动即暴露，非法声明让应用起不来）：积分渠道键须形如 `earn.xxx / spend.xxx / adjust.xxx` 且方向与前缀一致、全站唯一、不得与内置渠道
@@ -49,12 +49,14 @@ M9 后由管理后台管理）。
 | `user.logged_in` | `{ userId }` | M4 认证 |
 | `user.registered` | `{ userId }` | M4 注册 |
 | `user.followed` | `{ userId, targetType, targetId }` | M8 关注 |
-| `thread.created` | `{ threadId, forumId, authorId }` | M6 发帖 |
-| `thread.replied` | `{ threadId, postId, authorId, replyToPostId? }` | M6 回帖 |
-| `thread.edited` | `{ threadId, editorId }` | M6 编辑 |
-| `thread.deleted` | `{ threadId, operatorId }` | M6 删除 |
 | `thread.moderated` | `{ threadId, operatorId, action: lock\|unlock\|move\|feature\|pin, detail? }` | M9 版主操作 |
-| `content.submitted` | `{ postId, authorId, forumId, pending }` | M6 提交（版块需审核时 `pending=true`） |
+| `thread.created` | `{ threadId, postId, forumId, authorId, title }` | M6 发帖（已接线，M6.1 第 4 步） |
+| `thread.replied` | `{ threadId, postId, forumId, authorId, threadAuthorId, replyToPostId?, replyToAuthorId? }` | M6 回帖（已接线） |
+| `thread.edited` | `{ threadId, postId, forumId, authorId, editorId, title }` | M6 编辑首帖 / 标题（M6.1 第 5 步） |
+| `post.edited` | `{ postId, threadId, forumId, authorId, editorId }` | M6 编辑回帖（M6.1 第 5 步） |
+| `thread.deleted` | `{ threadId, postId, forumId, authorId, operatorId, byModerator }` | M6 删除主题（M6.1 第 5 步） |
+| `post.deleted` | `{ postId, threadId, forumId, authorId, operatorId, byModerator }` | M6 删除回帖（M6.1 第 5 步） |
+| `content.submitted` | `{ postId, threadId, authorId, forumId, isThread }` | M6 待审内容（版块需审核时只发它；审核通过才发 thread.created / replied） |
 | `content.moderated` | `{ postId, operatorId, action: approve\|reject\|remove\|hide\|restore, reason? }` | M9 审核/版主操作 |
 | `post.mentioned` | `{ postId, authorId, mentionedUserId }` | M6 保存时解析 @ |
 | `reaction.added` | `{ userId, postId, kind }` | M8 点赞 |
@@ -86,8 +88,8 @@ M9 后由管理后台管理）。
    Slot 渲染失败→该模块跳过，宿主页不受影响。
 3. **审计**：每次 emit 落 `event_log`（payload/actor/source/错误摘要）；落库失败仅降级告警。
    **actor 语义**：`event_log.actor_id` = 动作发起者，按事件映射 payload 字段
-   （user.\* → userId；thread.created/replied → authorId；thread.edited → editorId；
-   thread.deleted / thread.moderated / content.moderated / restriction.changed / role.changed → operatorId；
+   （user.\* → userId；thread.created/replied → authorId；thread.edited / post.edited → editorId；
+   thread.deleted / post.deleted / thread.moderated / content.moderated / restriction.changed / role.changed → operatorId；
    content.submitted / post.mentioned → authorId；attachment.uploaded → uploaderId；
    announcement.published → createdBy；其余按 payload 的 userId / senderId）；
    调用方显式传 `deps.actorId` 时覆盖映射（如代操作场景）。

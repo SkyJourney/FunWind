@@ -130,14 +130,15 @@ export const DEFAULT_ROLE_GRANTS: Record<BuiltinRoleKey, string[]> = {
  * web 侧用 zod 校验这份配置，校验失败回落到本常量，所以默认值只此一份。
  *  · titleMax / bodyMax：字符数。迁移数据实测最大值分别是 100 / 26503，默认留出余量；
  *  · roles：按角色键的每项限制，**0 = 不限**；主体有多个角色时每项取最宽松的值；
- *  · postIntervalSec：两次发帖（主题或回帖）的最短间隔；threadsPerDay / uploadsPerDay：每个自然日（库端时间）上限。
+ *  · postIntervalSec：两次发帖（主题或回帖）的最短间隔；threadsPerDay / uploadsPerDay：每个自然日（库端时间）上限；
+ *  · editWindowSec：作者可自行编辑的时限（发布后多少秒内）。缺省 0 = 不限；旧库里没有这个字段的配置仍然有效（见 web 侧 zod）。
  */
 export const DEFAULT_LIMITS = {
   titleMax: 100,
   bodyMax: 50000,
   roles: {
-    member: { postIntervalSec: 5, threadsPerDay: 100, uploadsPerDay: 20 },
-    admin: { postIntervalSec: 0, threadsPerDay: 0, uploadsPerDay: 0 },
+    member: { postIntervalSec: 5, threadsPerDay: 100, uploadsPerDay: 20, editWindowSec: 0 },
+    admin: { postIntervalSec: 0, threadsPerDay: 0, uploadsPerDay: 0, editWindowSec: 0 },
   },
 } as const;
 

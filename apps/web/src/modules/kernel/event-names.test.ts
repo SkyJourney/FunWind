@@ -3,9 +3,9 @@ import { EVENT_NAMES, isEventName, validateEventPayload } from "./event-names";
 import type { EventPayloads } from "./types";
 
 describe("EVENT_NAMES / isEventName", () => {
-  it("清单完整（21 事件，与 docs/MODULES.md 一致）", () => {
-    expect(EVENT_NAMES).toHaveLength(21);
-    expect(new Set(EVENT_NAMES).size).toBe(21);
+  it("清单完整（23 事件，与 docs/MODULES.md 一致）", () => {
+    expect(EVENT_NAMES).toHaveLength(23);
+    expect(new Set(EVENT_NAMES).size).toBe(23);
     expect(EVENT_NAMES).toContain("points.changed");
     expect(EVENT_NAMES).not.toContain("credit.changed");
     expect(EVENT_NAMES).not.toContain("medal.awarded");
@@ -22,7 +22,13 @@ describe("validateEventPayload", () => {
   it("合法 payload 通过", () => {
     expect(validateEventPayload("user.logged_in", { userId: 1 })).toBeNull();
     expect(
-      validateEventPayload("thread.created", { threadId: 1, forumId: 2, authorId: 3 }),
+      validateEventPayload("thread.created", {
+        threadId: 1,
+        postId: 4,
+        forumId: 2,
+        authorId: 3,
+        title: "t",
+      }),
     ).toBeNull();
   });
 

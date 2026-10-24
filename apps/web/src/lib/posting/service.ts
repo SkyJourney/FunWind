@@ -47,7 +47,19 @@ export type PostingErrorCode =
   | "gate_permission"
   | "too_frequent"
   | "quota_exceeded"
-  | "reply_target_invalid";
+  | "reply_target_invalid"
+  | "conflict" // 数据在两次读取之间被并发改变（如主题被移动、编辑冲突），拒绝在过期的判断上写入，请用户刷新后重试
+  | "has_replies" // 主题已有别人的回复，作者不能删
+  | "already_deleted"
+  | "bad_state" // 当前状态下不允许这个动作
+  | "thread_gone" // 所属主题已隐藏 / 删除
+  | "edit_window_closed" // 超出作者可自行编辑的时限
+  | "reason_required" // 版主操作必须填理由
+  | "reason_too_long"
+  | "not_restorable"
+  | "gate_has_unlocks"
+  | "gate_conditions_locked"
+  | "gate_has_attachments";
 
 export interface PostingError {
   ok: false;
@@ -78,17 +90,17 @@ export interface PostingDeps {
   emitter?: PostingEmitter;
 }
 
-const defaultEmitter: PostingEmitter = (name, payload) =>
+export const defaultEmitter: PostingEmitter = (name, payload) =>
   emit(name as EventName, payload as never, { source: "posting" });
 
-const err = (code: PostingErrorCode, message: string): PostingError => ({
+export const err = (code: PostingErrorCode, message: string): PostingError => ({
   ok: false,
   code,
   message,
 });
 
 /** 事务内遇到业务拒绝时抛出，让事务整体回滚；外层把它还原成结果 */
-class Rollback extends Error {
+export class Rollback extends Error {
   constructor(readonly result: PostingError) {
     super(result.code);
   }
@@ -98,7 +110,7 @@ class Rollback extends Error {
  * 发帖事务的重试：死锁（整体回滚后重放是安全的）与唯一键撞车（uq_posts_thread_floor，楼层并发分配的最后一道防线）各重试一次。
  * 正常情况下加锁已经避免了撞车，所以重试很少发生；它存在是为了让一次偶发的竞争不变成 500（设计稿 §4）。
  */
-async function withPostingRetry<T>(fn: () => Promise<T>): Promise<T> {
+export async function withPostingRetry<T>(fn: () => Promise<T>): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
       return await fn();
@@ -108,14 +120,14 @@ async function withPostingRetry<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-interface PreparedBody {
+export interface PreparedBody {
   body: string;
   publicMd: string;
   gates: GateDraft[];
 }
 
 /** 事务外：正文长度与门控语法（不碰数据库） */
-function prepareBody(source: string, bodyMax: number): PreparedBody | PostingError {
+export function prepareBody(source: string, bodyMax: number): PreparedBody | PostingError {
   const b = checkBody(source, bodyMax);
   if (!b.ok) return err(b.code, b.message);
   const split = splitSource(b.value);
@@ -125,10 +137,14 @@ function prepareBody(source: string, bodyMax: number): PreparedBody | PostingErr
   return { body: b.value, publicMd: split.publicMd, gates: split.gates };
 }
 
-const isError = (x: unknown): x is PostingError =>
+export const isError = (x: unknown): x is PostingError =>
   typeof x === "object" && x !== null && (x as PostingError).ok === false;
 
-function gatePermissions(viewer: Subject, forumId: number, snap: AuthzSnapshot): GatePermissions {
+export function gatePermissions(
+  viewer: Subject,
+  forumId: number,
+  snap: AuthzSnapshot,
+): GatePermissions {
   return {
     points: evaluate(viewer, "gate.points", { forumId }, snap).allowed,
     reply: evaluate(viewer, "gate.reply", { forumId }, snap).allowed,
@@ -284,8 +300,14 @@ export async function createThread(
       await dispatch(
         emitter,
         out.state === "visible"
-          ? ["thread.created", { threadId: out.threadId, forumId, authorId }]
-          : ["content.submitted", { postId: out.postId, authorId, forumId, pending: true }],
+          ? [
+              "thread.created",
+              { threadId: out.threadId, postId: out.postId, forumId, authorId, title: title.value },
+            ]
+          : [
+              "content.submitted",
+              { postId: out.postId, threadId: out.threadId, authorId, forumId, isThread: true },
+            ],
       );
     }
     return out;
@@ -340,6 +362,10 @@ export async function createReply(
         await enforceFrequency(tx, authorId, limits, false);
         const thread = await lockThread(tx, input.threadId);
         if (!thread) throw new Rollback(err("not_found", "主题不存在"));
+        // 事务外的判断（权限、审核策略、门控权限）都是按 probe.forumId 算的；锁后版块变了则这些结论全部过期，必须拒绝
+        if (thread.forumId !== forumId) {
+          throw new Rollback(err("conflict", "主题已被移动，请刷新后重试"));
+        }
         if (thread.state !== "visible") throw new Rollback(err("thread_closed", "主题不可回复"));
         // 锁后重读：锁定状态可能已被并发改变，以库里的为准
         const gate = evaluate(
@@ -442,6 +468,18 @@ export async function createReply(
     );
     if (!out.duplicate) {
       const emitter = deps.emitter ?? defaultEmitter;
+      // 楼主与被引用帖的作者只在派发时需要：提交之后一次读取，不占用事务
+      const [t] = await getWebDb()
+        .select({ authorId: threads.authorId })
+        .from(threads)
+        .where(eq(threads.id, out.threadId));
+      const [target] =
+        replyTo === null
+          ? [undefined]
+          : await getWebDb()
+              .select({ authorId: posts.authorId })
+              .from(posts)
+              .where(eq(posts.id, replyTo));
       await dispatch(
         emitter,
         out.state === "visible"
@@ -450,11 +488,17 @@ export async function createReply(
               {
                 threadId: out.threadId,
                 postId: out.postId,
+                forumId,
                 authorId,
+                threadAuthorId: t!.authorId,
                 replyToPostId: replyTo ?? undefined,
+                replyToAuthorId: target?.authorId,
               },
             ]
-          : ["content.submitted", { postId: out.postId, authorId, forumId, pending: true }],
+          : [
+              "content.submitted",
+              { postId: out.postId, threadId: out.threadId, authorId, forumId, isThread: false },
+            ],
       );
     }
     return out;
@@ -465,7 +509,7 @@ export async function createReply(
 }
 
 /** 提交后派发：失败只记日志，不反噬已提交的发帖（与 unlockGate 的做法一致） */
-async function dispatch(
+export async function dispatch(
   emitter: PostingEmitter,
   call:
     | ["thread.created", EventPayloads["thread.created"]]
