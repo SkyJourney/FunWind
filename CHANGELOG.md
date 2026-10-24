@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### Changed（附件与门控 · 第 2 步：判定抽取）
+
+- `lib/gates/service.ts`：把读取侧第 ① 步（加载门控元数据 + 观众事实 → `evaluateGate`）抽成内部函数 `decideGates`，`resolveViews` 改为复用它，**行为不变**（既有 gates 测试原样全绿）。
+- 新增导出 `openGateIds(viewer, thread, postList, gateIds)`：返回观众可开放的门控 id 集合，**不读 `hidden_md`**（3b 守卫不变）。不存在 / 不属于 `postList` 的门控一律不在结果里（fail-closed）。
+- 新增集成测试：与 `loadGateViews` 逐观众对账（正文与附件两条链路不可分叉）、只返回被问到的门控、空集合 / 不存在 / 不属于 postList 的门控均不开放（版主也一样）。
+- 仍未接入读取侧：门控附件在第 3 步之前依旧未受保护。
+
 ### Added（附件与门控 · 第 1 步：数据模型）
 
 - 设计稿 `docs/ATTACHMENT-GATES.md`（已确认）：门控帖的附件与隐藏正文同权，`attachments.gate_id` 归属门控，锁定项不下发任何元数据。

@@ -22,18 +22,25 @@ interface PostCtx {
   authorId: number;
 }
 
+/** 一个门控的判定结果（元数据 + 观众相对它的开放/锁定结论）。元数据刻意不含 hidden_md */
+interface GateDecisionItem {
+  meta: GateMeta;
+  decision: ReturnType<typeof evaluateGate>;
+}
+
 /**
- * 对一个主题内的一批帖子解析其全部门控。
- * 调用方须已确认这些帖子对观众可见（页面经 getThreadView / listReplies；单门控出口经 visiblePredicate）。
+ * 判定一个主题内一批帖子的全部门控（读取侧第 ① 步，**不读 hidden_md**）：
+ * 加载门控元数据与观众事实，交给纯函数 evaluateGate。
+ * 隐藏正文（resolveViews）与门控附件（openGateIds）共用这一份判定，保证「能看正文的人才能取附件」不会分叉。
+ * 调用方须已确认这些帖子对观众可见。
  */
-async function resolveViews(
+async function decideGates(
   viewer: Subject,
   thread: { id: number; forumId: number },
   postList: readonly PostCtx[],
   onlyGateIds?: ReadonlySet<number>,
-): Promise<GateViews> {
-  const out: GateViews = new Map();
-  if (postList.length === 0) return out;
+): Promise<GateDecisionItem[]> {
+  if (postList.length === 0) return [];
   const db = getWebDb();
   const authorOf = new Map(postList.map((p) => [p.id, p.authorId]));
 
@@ -53,7 +60,7 @@ async function resolveViews(
   const metas: GateMeta[] = rows
     .filter((r) => !onlyGateIds || onlyGateIds.has(r.id))
     .map((r) => ({ ...r, conditions: parseConditions(r.conditions) }));
-  if (metas.length === 0) return out;
+  if (metas.length === 0) return [];
 
   const viewerId = viewer.userId;
   const needsPoints = metas.some((m) => m.conditions.some((c) => c.type === "points"));
@@ -109,7 +116,7 @@ async function resolveViews(
   );
   const balance = balanceRows[0]?.balance ?? 0;
 
-  const decisions = metas.map((m) => {
+  return metas.map((m) => {
     const facts: GateFacts = {
       viewerId,
       isAuthor: viewerId !== null && authorOf.get(m.postId) === viewerId,
@@ -120,6 +127,41 @@ async function resolveViews(
     };
     return { meta: m, decision: evaluateGate(m, facts) };
   });
+}
+
+/**
+ * 观众对一批门控的开放状态（docs/ATTACHMENT-GATES.md §5、§6）：返回**开放**的门控 id 集合，不读隐藏正文。
+ * 门控附件据此放行——与隐藏正文共用 decideGates，两条链路因此不会分叉。
+ *
+ * fail-closed：不在返回集合里的 id 一律视为锁定，包括不存在的门控、属于其他帖子的门控、
+ * 以及不属于 `postList` 的门控（decideGates 只加载 postList 内帖子的门控）。
+ * 调用方须已确认 `postList` 内的帖子对观众可见。
+ */
+export async function openGateIds(
+  viewer: Subject,
+  thread: { id: number; forumId: number },
+  postList: readonly PostCtx[],
+  gateIds: ReadonlySet<number>,
+): Promise<Set<number>> {
+  if (gateIds.size === 0) return new Set();
+  const decisions = await decideGates(viewer, thread, postList, gateIds);
+  return new Set(decisions.filter((d) => d.decision.open).map((d) => d.meta.id));
+}
+
+/**
+ * 对一个主题内的一批帖子解析其全部门控（含开放门控的隐藏正文）。
+ * 调用方须已确认这些帖子对观众可见（页面经 getThreadView / listReplies；单门控出口经 visiblePredicate）。
+ */
+async function resolveViews(
+  viewer: Subject,
+  thread: { id: number; forumId: number },
+  postList: readonly PostCtx[],
+  onlyGateIds?: ReadonlySet<number>,
+): Promise<GateViews> {
+  const out: GateViews = new Map();
+  const decisions = await decideGates(viewer, thread, postList, onlyGateIds);
+  if (decisions.length === 0) return out;
+  const db = getWebDb();
 
   // ② 只对开放的门控取正文（唯一读取 hidden_md 的语句）
   const openIds = decisions.filter((d) => d.decision.open).map((d) => d.meta.id);

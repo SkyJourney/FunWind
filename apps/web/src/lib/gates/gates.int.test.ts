@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
-import { getGateContent, loadGateViews } from "./service";
+import { getGateContent, loadGateViews, openGateIds } from "./service";
 import type { GateView } from "./types";
 
 const PAID_TEXT = "需要 10 积分才能解锁的隐藏正文";
@@ -154,6 +154,44 @@ describe.skipIf(skipDb)("门控读取 · 真实 MySQL", () => {
         .size,
     ).toBe(0);
     expect((await loadGateViews(guest, THREAD, [])).size).toBe(0);
+  });
+
+  describe("openGateIds 开放状态（门控附件的放行依据，不读隐藏正文）", () => {
+    const BOTH = new Set([DEMO.pointsGate, DEMO.replyGate]);
+    const ids = (
+      s: Subject,
+      gateIds: ReadonlySet<number> = BOTH,
+      list: { id: number; authorId: number; hasGate: boolean }[] = FIRST,
+    ) => openGateIds(s, THREAD, list, gateIds);
+
+    it("游客一个都不开放；作者与版主全部开放", async () => {
+      expect(await ids(guest)).toEqual(new Set());
+      expect(await ids(alice)).toEqual(BOTH);
+      expect(await ids(admin)).toEqual(BOTH);
+    });
+
+    it("与 loadGateViews 的结论逐观众一致——正文与附件两条链路不可分叉", async () => {
+      for (const s of [guest, alice, member, xiaoyi, admin]) {
+        const fromViews = new Set(
+          [...(await views(s)).values()].filter((v) => v.status === "open").map((v) => v.gateId),
+        );
+        expect(await ids(s), `userId=${s.userId}`).toEqual(fromViews);
+      }
+    });
+
+    it("只返回被问到的门控", async () => {
+      expect(await ids(alice, new Set([DEMO.pointsGate]))).toEqual(new Set([DEMO.pointsGate]));
+    });
+
+    it("fail-closed：空集合、不存在的门控、不属于 postList 的门控都不开放（即使是版主）", async () => {
+      expect(await ids(admin, new Set())).toEqual(new Set());
+      expect(await ids(admin, new Set([424242]))).toEqual(new Set());
+      // 门控 9001 属于 DEMO.gatePost；postList 里没有它（或只有别的帖子）时，不得被当成开放
+      expect(await ids(admin, BOTH, [])).toEqual(new Set());
+      expect(await ids(admin, BOTH, [{ id: 999999, authorId: DEMO.alice, hasGate: true }])).toEqual(
+        new Set(),
+      );
+    });
   });
 
   describe("getGateContent 单门控出口", () => {
