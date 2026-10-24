@@ -5,6 +5,24 @@
 
 ## [Unreleased]
 
+### Docs（M5.6 S5：文档漂移清账）
+
+- 新增 [`docs/milestones/M5.6-prelaunch-hardening.md`](docs/milestones/M5.6-prelaunch-hardening.md)：S1–S5 范围、提交、DoD 与遗留事项；ROADMAP 补 M5.6 行与依赖图；`CLAUDE.md` 更新进度。
+- `POINTS.md`：积分显示名默认值写成「积分」（`DEFAULT_SITE_SETTINGS`），「青翼币」是青翼导入覆盖的值（此前写反）。
+- `GATES.md` §7.1：UBB 转换器在 `migration/src/transform/ubb.ts` 而不是 `packages/content`（文档与包描述都写错了位置）；「开发库 `content_md` 存在截断」已过期；补 M5.6 S1b-3 对转换器的补充。
+- `packages/content/package.json` 的 `description` 同上更正；`CLAUDE.md` 里 content 包的测试说明与 `verify:migration` 的说明同步。
+- `AUTHZ.md`：§6 与 `permissions` 表行标注为 v1（`legacy_key` / `condition_params` 在 v2.1 已删，当前规则以 §8.4 为准）；§8.3 补「`forum.moderate` 与 `forum.read` 是独立权限点，`moderatedForumIds` 不是 `readableForumIds` 的子集，查询层靠求交保证安全」。
+- **`post_modify_time` 语义**（`M6-posting.md`、`AUTHZ.md` §7）：此前文档写成「编辑时限」，此次核对旧库与旧源码——旧库 24 个用户组的 `post_modify_time` 全为空、`thread_edit_time` 为 0 或空，即旧站从没设过时限；旧源码里搜不到这些键的字面量，**无法确认其原始语义**，所以文档只记录已证实的事实，并注明「不要凭键名推断」。新站编辑时限做成可配置项，默认不限。**注意**：M6 规划阶段曾记过一个「本义是超时后编辑留痕」的说法，本次无法复核，不采用。
+- 发现但未处理（只记录）：`loginAction` 不销毁旧会话，而 `CLAUDE.md` 曾写「登录轮换会话」——文字已改准确，行为留作遗留事项。
+
+### Security（M5.6 S4 补丁：CSP 报告端点，自动安全审查指出）
+
+- 提交 S4 后，自动安全审查指出 `/api/csp-report` 的两处问题，核实后都成立并已修复（各自带对照组与变异验证）：
+  - **日志泄露令牌（较严重）**：违规报告里的 `document-uri` 带页面完整地址，包括 `/reset/<令牌>`、`/claim/<令牌>`、`/verify/<令牌>`（单次使用的重置 / 认领 / 验证令牌）和查询串，原样写进日志。现在 `redactUri` 只保留「源 + 规范化路径」：去掉查询串与片段，路径里 ≥20 个 URL-safe 字符的不透明段（令牌、sha256 存储键）换成 `:token`，`data:` / `blob:` 只留协议，既非 URL 也非 CSP 关键字的值记为 `[other]`。
+  - **体积上限可被绕过**：只检查了 `Content-Length`，分块传输或不带该头的请求会被 `req.text()` 整个读进内存。现在流式读取，超过 16KB 立即 `reader.cancel()`；测试用 1000 个 8KB 分块的无长度请求，证明只拉取了不到 10 块。
+- 变异验证 3 项（URI 不脱敏 2 项红、回到 `req.text()` 1 项红、路径令牌段不替换 3 项红）。
+- 附注：反向代理的访问日志同样会记下 `/reset/<令牌>` 这类请求路径，那一层不在应用控制内，部署时应避免把访问日志发往不受信的地方（令牌单次使用且 1 小时 / 24 小时 / 30 天过期，但仍应注意）。
+
 ### Security（M5.6 S4：安全响应头 + `/files` 路径穿越矩阵，审查 C4）
 
 - **全站安全响应头**（`lib/security-headers.ts` 纯函数，`next.config.ts` 的 `headers()` 接入，单测直接断言）：`X-Content-Type-Options: nosniff`、`Referrer-Policy: strict-origin-when-cross-origin`、`X-Frame-Options: DENY`、`Permissions-Policy`（关摄像头 / 麦克风 / 定位 / 支付 / USB）；`poweredByHeader: false`；HSTS 只在「生产 + `APP_URL` 为 https」时下发（http 下浏览器忽略它，开发环境下发会污染 localhost 的 HSTS 缓存）。`/files/**` 一律排除，它自带更严的 `default-src 'none'; sandbox`，不能被叠加。

@@ -159,7 +159,7 @@ stateful 条件（`points`）的购买在**单个数据库事务**内完成：
 
 ### 7.1 实现要点与真实数据验证（M5.5 S3-A）
 
-`packages/content`（`@funwind/content`）已实现：`splitSource` / `assembleSource` / `validateGates`（门控语法）与 `ubbToMarkdown`（转换器 v2）。
+`packages/content`（`@funwind/content`）已实现 `splitSource` / `assembleSource` / `validateGates`（门控语法）与 `body-segments`（正文按门控占位切段）；**UBB 转换器 `ubbToMarkdown`（v2）在 `migration/src/transform/ubb.ts`**——它只服务一次性导入，运行时不需要，所以不在这个包里。两者的接口契约由 `packages/content/src/syntax-contract.ts` 的语法契约连接（转换器产出什么 Markdown、渲染器必须渲染出什么 HTML）。
 
 - **门控身份用 `gate_key`**（首轮 v2 曾用 `post_id × 16 + seq` 这类 id 公式，已在 v2.1 废除：运行时不应理解迁移用的 id 公式）。
   迁移按帖内出现顺序生成 `a1 a2 …`；单帖门控上限 15 个，超限抛 `RangeError`。迁移的可重复性靠「清空后按确定顺序重导」。
@@ -176,7 +176,8 @@ stateful 条件（`points`）的购买在**单个数据库事务**内完成：
 - **真实旧库验证**（36,715 条正文，迁移 v2 全量导入后的最终数字）：零异常；门控 664 个（积分 311，回复可见 353）；
   汉字/假名保留率 101.43%；仅 2 处嵌套门控被丢弃（发帖模板里的空 `[hide]` 示例）；遗留表情码删除 197 处；价格 ≥ 9999 重置为免费 58 处。
 - **v1 转换器的数据丢失缺陷（已在 v2 修复）**：`[attachment=N]` 等无闭合标签会把其后全部正文吞成子节点并丢弃
-  （`"[attachment=7] 后文"` 只剩附件链接）。当前开发库（v1 迁移）的 `content_md` 因此存在截断，**S3-B 全量重导后消除**。
+  （`"[attachment=7] 后文"` 只剩附件链接）。v1 迁移的开发库 `content_md` 因此存在截断；已在 M5.5 S3-B 全量重导后消除，之后又在 M5.6 S1b-3 再次重导（见下）。
+- **M5.6 S1b-3 对转换器的补充**（数字见 CHANGELOG 与 `verify:render` / `verify:fidelity`）：普通文本里的 Markdown 特殊字符现在会转义（`5*3=15`、`~~心情~~`、行首 `#`/`>`/`-` 不再被解析成强调 / 删除线 / 标题 / 引用 / 列表）；引用 / 列表 / 表格前后留空行；未知且未闭合的方括号词（`[QYsub]`）字面保留；强调内容以标点开头或结尾时输出 `<strong>` / `<em>` / `<del>`。上面「真实旧库验证」的数字是 M5.5 时的快照，门控数量与位置规则不受这些补充影响（`verify:migration` 110 项对账仍全过）。
 
 ## 8. 事件
 

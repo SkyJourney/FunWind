@@ -27,7 +27,7 @@
 | 表 | 语义 |
 |----|------|
 | `roles` | 角色目录：`key` / `name` / `kind(builtin\|custom)` / `description` |
-| `permissions` | 权限点：`key` / `resource` / `level(read\|write\|manage\|NULL)` / `legacy_key`（旧 57 键对照）/ `condition_params`（ABAC 参数） |
+| `permissions` | 权限点：`key` / `resource` / `level(read\|write\|manage\|NULL)` / ~~`legacy_key`（旧 57 键对照）/ `condition_params`（ABAC 参数）~~（**v1 描述；v2.1 已删除这两列**，见 §8.2） |
 | `role_grants` | **角色获得权限的唯一通道**：`role_key` + `permission_key` + `scope_type(global\|forum)` + `forum_id` |
 | `user_roles` | 用户→角色绑定：`user_id` + `role_key` + `scope_type` + `forum_id` + `expires_at`（可过期） |
 
@@ -97,7 +97,10 @@ checkPermission(subject, "resource.action", { forumId? }) → { allowed, reason 
 `/admin` 最小实现（M9 完善为完整后台）：① 角色列表 + 自定义角色增删；② 单角色授权矩阵
 （分级域三态 + 动作勾选 + 全局/版块作用域切换）；③ 版块视角（级联授权 + 派生版主列表）。
 
-## 6. 翻译与对账
+## 6. 翻译与对账（v1，已被 §8.4 取代）
+
+> ⚠️ 本节描述 M5 的 v1 翻译规则，其中的 `legacy_key` 等列在 v2.1 已从运行时 schema 删除（硬约定 2a：运行时不认识旧站）。
+> 旧键映射现在只存在于 `migration/src/mapping/`，当前的翻译规则与对账以 **§8.4** 为准；本节仅保留作考古记录。
 
 | 旧 | 新 | 规则 |
 |----|----|------|
@@ -112,8 +115,9 @@ member 并集差异、gid3 allow_post=0 疑点、旧版主名单。
 
 ## 7. 已知边界与后续
 
-- **ABAC 条件只留接口**：频控/编辑时限/所有权判定随 M6 实装（M6 清单：`threads_perday`、`post_pertime`、
-  `post_url_num`、`post_modify_time`、`uploads_perday`）。
+- **ABAC 条件只留接口**：频控 / 编辑时限 / 所有权判定随 M6 实装（旧站对应的权限键：`threads_perday`、`post_pertime`、
+  `post_url_num`、`post_modify_time`、`uploads_perday`）。**注意**：旧库实测 `post_modify_time` 与 `thread_edit_time` 在全部用户组里都是空或 0，
+  即旧站没有设置过编辑时限；旧源码里搜不到这些键的字面量，无法据此确认它们的原始语义，**不要仅凭键名推断**。新站的限制值拟放 `site_settings` 的 `limits`（M6.1 设计），编辑时限默认不限。
 - **member 基线最宽并集**会抹平个别 LV 组的旧行为差异——差异报告供复核；如需找回，走荣誉标识（不进权限内核）。
 - **旧 status 位标志**（51 人非零）语义未考古：仅 raw 归档，不参与判定。
 - 后台菜单清单与完整后台交互归 M9。
@@ -171,6 +175,10 @@ check(subject, "resource.action", { forumId? })
 内容状态机与可见性矩阵见 [DESIGN-MODEL.md](DESIGN-MODEL.md) §4。
 
 作用域链来自内存树 `ForumTree`（`path` 切分），评估器零 SQL 取链。
+
+**`forum.moderate` 与 `forum.read` 是两个独立的权限点**：一个全局的 `forum.moderate` 授权**不蕴含**对 `restricted` 版块的读权，所以 `moderatedForumIds(subject)` 不是 `readableForumIds(subject)` 的子集。
+查询层（`lib/queries/visibility.ts`）始终先取 `readable` 再在其中叠加「可见 pending / rejected / hidden / deleted 内容」的 `moderated` 条件（`and(readable, or(…))`），所以不会因此泄露；
+但写新查询时**不要**只用 `moderated` 当作可读范围。
 
 ### 8.4 旧数据翻译（v2；v2.1 起该映射表只存在于 `migration/src/mapping/`，运行时不认识）
 

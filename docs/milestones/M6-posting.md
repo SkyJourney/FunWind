@@ -19,7 +19,7 @@
 3. **门控创作**：编辑器内可视化门控块（条件选择、价格输入）；保存经 `packages/content` 拆分入 `post_gates`；
    创作权限 `gate.points` / `gate.reply`；有购买记录的门控不可删除、改价只影响后续；**购买按钮与 Server Action**
    （消费 M5.5 的 `unlockGate`）；回复可见的「去回复」引导。
-4. **编辑/删除**：编辑时限（旧 `post_modify_time` 语义，ABAC 条件）；删除为软删（`state=deleted`，回收站即状态过滤）；
+4. **编辑/删除**：编辑时限为**可配置项，默认不限**（旧库实测 `post_modify_time` / `thread_edit_time` 在全部用户组里为空或 0 = 旧站没有设过时限；这些键在旧源码里搜不到字面量，**不要凭键名推断它们的原始语义**）；删除为软删（`state=deleted`，回收站即状态过滤）；
    版主操作带理由（旧 `force_operate_reason` 语义）并写 `audit_log`；`edited_at` 展示。
 5. **草稿**：客户端自动保存与恢复（localStorage 为主；是否需要服务端草稿表在选型时评估，旧站草稿仅 48 行，已死）。
 6. **文件上传**（`files` 注册表 + `/files/<storage_key>`，见 [DESIGN-MODEL.md](../DESIGN-MODEL.md) §5）：SHA-256 去重、类型白名单、大小配额（旧 `uploads_perday` 语义）；

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "内容层纯函数：门控语法（拆分/还原/校验）与 UBB→Markdown 转换器 v2；迁移与线上保存共用同一套语法（M5.5）",
+  "description": "内容层纯函数：门控语法（拆分 / 还原 / 校验）、正文按门控占位切段，以及转换器 ⇄ 渲染器共用的语法契约；迁移与线上保存共用同一套门控语法（UBB 转换器在 migration/，不在本包）",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
