@@ -8,11 +8,12 @@ import {
   IdempotencyConflictError,
   InsufficientPointsError,
   InvalidDeltaError,
+  PointsOverflowError,
   UnregisteredChannelError,
 } from "./errors";
 import { lockAccount } from "./account";
 import { resolvePointChannel } from "./channels";
-import { withDeadlockRetry } from "./retry";
+import { POINTS_TX_OPTIONS, withDeadlockRetry } from "./retry";
 
 /**
  * 积分变动的**唯一入口**（硬约定 3c，docs/POINTS.md §2）。
@@ -64,9 +65,16 @@ export function builtinChannel(key: string): PointChannelDef {
 }
 
 /** 渠道与金额的纯校验（符号须与渠道方向一致）；不碰数据库 */
+/** point_ledger.delta 是 INT；point_accounts.balance 是 INT UNSIGNED。越界时 MySQL 报 1264，用户只会看到 500 */
+export const MAX_DELTA = 2_147_483_647;
+export const MAX_BALANCE = 4_294_967_295;
+
 export function validateRequest(channel: PointChannelDef, req: ApplyPointsRequest): void {
   if (!Number.isInteger(req.delta) || req.delta === 0) {
     throw new InvalidDeltaError(`delta 必须是非零整数: ${req.delta}`);
+  }
+  if (Math.abs(req.delta) > MAX_DELTA) {
+    throw new InvalidDeltaError(`delta 超出单笔上限 ±${MAX_DELTA}: ${req.delta}`);
   }
   if (channel.direction === "earn" && req.delta < 0) {
     throw new InvalidDeltaError(`收入渠道 ${req.channel} 的 delta 必须为正`);
@@ -91,6 +99,7 @@ export async function resolveChannelOrThrow(
 
 /**
  * 在调用方已开启的事务内记账（unlockGate 等多步原子操作用）。不提交、不派发事件。
+ * 调用方的事务必须以 POINTS_TX_OPTIONS（READ COMMITTED）开启，否则新账户并发首次入账会因间隙锁死锁（见 retry.ts）。
  * 渠道须由调用方在事务外解析好传入（resolveChannelOrThrow / builtinChannel），事务内不再借用第二条连接。
  */
 export async function applyPointsInTx(
@@ -127,6 +136,7 @@ export async function applyPointsInTx(
 
   const balanceAfter = balance + req.delta;
   if (balanceAfter < 0) throw new InsufficientPointsError(req.userId, balance, -req.delta);
+  if (balanceAfter > MAX_BALANCE) throw new PointsOverflowError(req.userId, balance, req.delta);
 
   const [inserted] = (await tx.insert(pointLedger).values({
     userId: req.userId,
@@ -167,7 +177,7 @@ export async function applyPoints(
   const channel = await resolveChannelOrThrow(req.channel, deps.enabledModuleIds);
   validateRequest(channel, req);
   const result = await withDeadlockRetry(() =>
-    getWebDb().transaction((tx) => applyPointsInTx(tx, req, channel)),
+    getWebDb().transaction((tx) => applyPointsInTx(tx, req, channel), POINTS_TX_OPTIONS),
   );
   if (result.event) {
     try {

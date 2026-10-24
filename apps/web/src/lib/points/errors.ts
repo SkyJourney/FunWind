@@ -28,6 +28,17 @@ export class InsufficientPointsError extends PointsError {
   }
 }
 
+/** 入账后余额会超过账户列的上限（INT UNSIGNED）：业务上几乎不会发生，但必须是可识别的拒绝而不是 MySQL 原始错误 */
+export class PointsOverflowError extends PointsError {
+  constructor(
+    public readonly userId: number,
+    public readonly balance: number,
+    public readonly delta: number,
+  ) {
+    super(`积分余额会超过上限: 用户 ${userId} 余额 ${balance}，变动 ${delta}`);
+  }
+}
+
 /** 同一幂等键被用于不同的用户/渠道/金额——调用方键构造有误，宁可报错也不静默忽略 */
 export class IdempotencyConflictError extends PointsError {
   constructor(public readonly key: string) {

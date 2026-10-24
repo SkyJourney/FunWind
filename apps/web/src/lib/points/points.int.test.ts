@@ -15,6 +15,7 @@ import {
   IdempotencyConflictError,
   InsufficientPointsError,
   InvalidDeltaError,
+  PointsOverflowError,
   UnregisteredChannelError,
 } from "./errors";
 
@@ -184,6 +185,70 @@ describe.skipIf(skipDb)("applyPoints · 真实 MySQL", () => {
         ),
       ).rejects.toThrow(InsufficientPointsError);
       expect(await ledgerOf(99003)).toHaveLength(0);
+    });
+  });
+
+  describe("数值边界（复查 B2）", () => {
+    const MAX_BALANCE = 4_294_967_295; // point_accounts.balance 是 INT UNSIGNED
+    const MAX_DELTA = 2_147_483_647; // point_ledger.delta 是 INT
+
+    it("余额会超过列上限：抛类型化的 PointsOverflowError（不是 MySQL 1264 原始错误），整体回滚；恰好到顶允许", async () => {
+      const channel = await resolveChannelOrThrow("adjust.admin");
+      const ROLLBACK = new Error("rollback");
+      // 在事务里造数据并最后回滚：共享夹具的「余额 = 台账之和」对账不受影响
+      await expect(
+        db().transaction(async (tx) => {
+          await tx
+            .update(pointAccounts)
+            .set({ balance: MAX_BALANCE - 3 })
+            .where(eq(pointAccounts.userId, DEMO.xiaoyi));
+          const req = (delta: number, p: string) => ({
+            userId: DEMO.xiaoyi,
+            channel: "adjust.admin",
+            delta,
+            idempotencyKey: key(p),
+            note: "边界",
+          });
+          await expect(applyPointsInTx(tx, req(10, "ovf"), channel)).rejects.toBeInstanceOf(
+            PointsOverflowError,
+          );
+          const [still] = await tx
+            .select()
+            .from(pointAccounts)
+            .where(eq(pointAccounts.userId, DEMO.xiaoyi));
+          expect(still?.balance).toBe(MAX_BALANCE - 3); // 被拒绝的一笔没有改动余额
+          const ok = await applyPointsInTx(tx, req(3, "max"), channel);
+          expect(ok.balanceAfter).toBe(MAX_BALANCE);
+          throw ROLLBACK;
+        }),
+      ).rejects.toBe(ROLLBACK);
+    });
+
+    it("单笔 delta 超过台账列上限：InvalidDeltaError，不碰数据库", async () => {
+      await expect(
+        applyPoints(
+          {
+            userId: DEMO.alice,
+            channel: "adjust.admin",
+            delta: MAX_DELTA + 1,
+            idempotencyKey: key("big"),
+            note: "太大",
+          },
+          noEmit,
+        ),
+      ).rejects.toBeInstanceOf(InvalidDeltaError);
+      await expect(
+        applyPoints(
+          {
+            userId: DEMO.alice,
+            channel: "adjust.admin",
+            delta: -(MAX_DELTA + 1),
+            idempotencyKey: key("bigneg"),
+            note: "太小",
+          },
+          noEmit,
+        ),
+      ).rejects.toBeInstanceOf(InvalidDeltaError);
     });
   });
 
