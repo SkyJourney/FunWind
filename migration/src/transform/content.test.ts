@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   noteAuthor,
   stateOf,
+  bindAttachmentGates,
   transformAttachments,
   transformContent,
   transformTags,
@@ -438,6 +439,7 @@ describe("transformAttachments", () => {
   it("挂到所属回帖；pid=0 挂首帖；记下旧站路径与下载数（文件本体交文件管线）", () => {
     const r = run([att({}), att({ aid: 2, pid: 50, name: "a.JPG", path: "Mon_1/a.jpg" })]);
     expect(r.rows[0]).toEqual({
+      aid: 1,
       postId: FIRST,
       uploaderId: 1,
       originalName: "字幕.zip",
@@ -457,6 +459,118 @@ describe("transformAttachments", () => {
     expect(r.rows.map((x) => x.postId)).toEqual([FIRST, FIRST]);
     expect(r.rows[1]?.uploaderId).toBe(1);
     expect(r.stats).toEqual({ orphan: 1, reattachedToFirstPost: 1, uploaderFromPostAuthor: 1 });
+  });
+});
+
+describe("bindAttachmentGates · 附件归属门控规则 R1~R5", () => {
+  const draft = (aid: number, postId: number) => ({
+    aid,
+    postId,
+    uploaderId: 1,
+    originalName: `${aid}.zip`,
+    sourcePath: `${aid}.zip`,
+    downloads: 0,
+    createdAt: "2026-01-01 00:00:00",
+  });
+  const gate = (id: number, postId: number, key: string, cond: object) =>
+    ({
+      id,
+      postId,
+      gateKey: key,
+      conditions: [cond],
+      matchMode: "all",
+      hiddenMd: "x",
+      createdAt: "",
+      updatedAt: "",
+    }) as never;
+  const refs = (m: Record<number, { aid: number; gateKey: string | null }[]>) =>
+    new Map(Object.entries(m).map(([k, v]) => [Number(k), v]));
+  const idsOf = (r: ReturnType<typeof bindAttachmentGates>) =>
+    Object.fromEntries(r.rows.map((x) => [x.aid, x.gateId]));
+
+  it("R5：所在帖没有门控 → 公开", () => {
+    const r = bindAttachmentGates([draft(1, 10)], refs({}), []);
+    expect(idsOf(r)).toEqual({ 1: null });
+    expect(r.stats.rules.R5).toBe(1);
+  });
+
+  it("R2：在公开正文里被引用 → 公开（即使也在门控内引用——以公开为准）", () => {
+    const gates = [gate(1, 10, "g1", { type: "reply" })];
+    const r = bindAttachmentGates(
+      [draft(1, 10), draft(2, 10)],
+      refs({
+        10: [
+          { aid: 1, gateKey: null },
+          { aid: 2, gateKey: null },
+          { aid: 2, gateKey: "g1" },
+        ],
+      }),
+      gates,
+    );
+    expect(idsOf(r)).toEqual({ 1: null, 2: null });
+    expect(r.stats.rules.R2).toBe(2);
+  });
+
+  it("R1：只在某个门控内引用 → 该门控；跨多个门控取最严", () => {
+    const gates = [
+      gate(1, 10, "g1", { type: "points", price: 5 }),
+      gate(2, 10, "g2", { type: "points", price: 50 }),
+      gate(3, 10, "g3", { type: "reply" }),
+    ];
+    const r = bindAttachmentGates(
+      [draft(1, 10), draft(2, 10)],
+      refs({
+        10: [
+          { aid: 1, gateKey: "g2" },
+          { aid: 2, gateKey: "g1" },
+          { aid: 2, gateKey: "g3" },
+        ],
+      }),
+      gates,
+    );
+    // aid1 只在 g2；aid2 横跨 g1（付费 5）与 g3（回复可见）→ 付费更严，取 g1
+    expect(idsOf(r)).toEqual({ 1: 2, 2: 1 });
+    expect(r.stats.rules.R1).toBe(2);
+  });
+
+  it("R3：未被引用且帖内恰好 1 个门控 → 该门控", () => {
+    const r = bindAttachmentGates([draft(1, 10)], refs({}), [gate(7, 10, "g1", { type: "reply" })]);
+    expect(idsOf(r)).toEqual({ 1: 7 });
+    expect(r.stats.rules.R3).toBe(1);
+    expect(r.stats.ambiguous).toEqual([]);
+  });
+
+  it("R4：未被引用且多个门控 → 最严者，并列入待复核：付费(价高) > 回复可见 > 免费解锁；并列取 id 最大", () => {
+    const pick = (conds: object[]) => {
+      const gates = conds.map((c, i) => gate(i + 1, 10, `g${i + 1}`, c));
+      return bindAttachmentGates([draft(1, 10)], refs({}), gates).rows[0]!.gateId;
+    };
+    expect(
+      pick([{ type: "points", price: 5 }, { type: "points", price: 50 }, { type: "reply" }]),
+    ).toBe(2);
+    expect(pick([{ type: "points", price: 0 }, { type: "reply" }])).toBe(2);
+    expect(pick([{ type: "reply" }, { type: "points", price: 0 }])).toBe(1);
+    expect(
+      pick([
+        { type: "points", price: 0 },
+        { type: "points", price: 0 },
+      ]),
+    ).toBe(2);
+    expect(pick([{ type: "reply" }, { type: "reply" }, { type: "reply" }])).toBe(3);
+    const r = bindAttachmentGates([draft(9, 10)], refs({}), [
+      gate(1, 10, "g1", { type: "reply" }),
+      gate(2, 10, "g2", { type: "points", price: 3 }),
+    ]);
+    expect(r.stats.rules.R4).toBe(1);
+    expect(r.stats.ambiguous).toEqual([{ postId: 10, aid: 9, gateId: 2 }]);
+  });
+
+  it("只看附件最终所挂帖子内的引用：改挂首帖的附件，别的帖里的公开引用不算", () => {
+    const gates = [gate(1, 10, "g1", { type: "reply" })];
+    // 附件 5 最终挂在帖 10，但引用它的 [attachment=5] 出现在帖 20 的公开正文里
+    const r = bindAttachmentGates([draft(5, 10)], refs({ 20: [{ aid: 5, gateKey: null }] }), gates);
+    expect(idsOf(r)).toEqual({ 5: 1 });
+    expect(r.stats.rules.R3).toBe(1);
   });
 });
 

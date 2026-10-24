@@ -525,6 +525,58 @@ group = "内容";
     expAtts,
     await num("SELECT COUNT(*) n FROM attachments", newQuery),
   );
+
+  // 附件归属门控（docs/ATTACHMENT-GATES.md §7）：从导入结果反查「引用位置」独立推导期望，不信转换器自己的统计。
+  // 引用判定用存储键在 body_md / hidden_md 里的出现；这三类结论对任何数据都必须成立。
+  const anomalies = await num(
+    `SELECT (SELECT COUNT(*) FROM attachments a LEFT JOIN post_gates g ON g.id = a.gate_id
+              WHERE a.gate_id IS NOT NULL AND g.id IS NULL)
+          + (SELECT COUNT(*) FROM attachments a JOIN post_gates g ON g.id = a.gate_id
+              WHERE g.post_id <> a.post_id)
+          + (SELECT COUNT(*) FROM attachments a JOIN posts p ON p.id = a.post_id
+              WHERE a.gate_id IS NOT NULL AND p.has_gate = 0) AS n`,
+    newQuery,
+  );
+  add("附件门控归属无悬空/跨帖/挂在非门控帖", anomalies === 0, `异常 ${anomalies}`);
+  const gatedAtts = await newQuery<{
+    id: number;
+    gate_id: number | null;
+    in_pub: number;
+    hid_gates: string | null;
+  }>(
+    `SELECT a.id, a.gate_id,
+            (p.body_md LIKE CONCAT('%', f.storage_key, '%')) AS in_pub,
+            (SELECT GROUP_CONCAT(g.id) FROM post_gates g
+              WHERE g.post_id = a.post_id AND g.hidden_md LIKE CONCAT('%', f.storage_key, '%')) AS hid_gates
+       FROM attachments a
+       JOIN posts p ON p.id = a.post_id AND p.has_gate = 1
+       JOIN files f ON f.id = a.file_id`,
+  );
+  const unreferencedPublic = gatedAtts.filter(
+    (a) => !Number(a.in_pub) && a.hid_gates === null && a.gate_id === null,
+  );
+  add(
+    "门控帖里未被任何正文引用的附件一律归属门控（不得公开）",
+    unreferencedPublic.length === 0,
+    `公开的 ${unreferencedPublic.length}`,
+  );
+  const hiddenOnlyWrong = gatedAtts.filter(
+    (a) =>
+      !Number(a.in_pub) &&
+      a.hid_gates !== null &&
+      (a.gate_id === null || !a.hid_gates.split(",").includes(String(a.gate_id))),
+  );
+  add(
+    "只在门控内引用的附件归属引用它的门控",
+    hiddenOnlyWrong.length === 0,
+    `错位 ${hiddenOnlyWrong.length}`,
+  );
+  const publicRefWrong = gatedAtts.filter((a) => Number(a.in_pub) && a.gate_id !== null);
+  add(
+    "在公开正文引用的附件保持公开",
+    publicRefWrong.length === 0,
+    `被误锁 ${publicRefWrong.length}`,
+  );
 }
 
 // ---------- 门控（安全核心） ----------

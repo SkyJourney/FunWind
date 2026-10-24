@@ -25,7 +25,12 @@ const conv = (src: string, over?: Partial<UbbContext>) => ubbToMarkdown(src, ctx
 
 describe("基础标签", () => {
   it("空输入", () => {
-    expect(ubbToMarkdown(null, ctx())).toEqual({ md: "", gates: [], warnings: [] });
+    expect(ubbToMarkdown(null, ctx())).toEqual({
+      md: "",
+      gates: [],
+      warnings: [],
+      attachmentRefs: [],
+    });
     expect(conv("").md).toBe("");
   });
 
@@ -207,6 +212,26 @@ describe("表格与门控", () => {
     const r = conv("[quote][table][tr][td][post]秘[/post][/td][/tr][/table][/quote]");
     expect(r.gates).toEqual([]);
     expect(r.md).not.toContain("秘");
+  });
+});
+
+describe("附件引用位置（附件归属门控的依据）", () => {
+  it("公开正文里的引用 gateSeq 为 null；门控块内的引用记为所在门控的序号", () => {
+    const r = conv(
+      "看[attachment=7]再[sell=5,]秘[attachment=8]密[/sell]后[post]回[attachment=7]复[/post]",
+    );
+    expect(r.attachmentRefs).toEqual([
+      { aid: 7, gateSeq: null },
+      { aid: 8, gateSeq: 1 },
+      { aid: 7, gateSeq: 2 },
+    ]);
+  });
+
+  it("解析不到的附件（文件缺失）也记录引用；被丢弃的门控（空内容 / 嵌套在容器内）不留下引用", () => {
+    expect(conv("[attachment=99]").attachmentRefs).toEqual([{ aid: 99, gateSeq: null }]);
+    expect(conv("[sell=3,][/sell]").attachmentRefs).toEqual([]);
+    // 嵌套在引用内的门控整体丢弃，其中的附件引用不能被当成「公开引用」
+    expect(conv("[quote][sell=3,][attachment=7][/sell][/quote]").attachmentRefs).toEqual([]);
   });
 });
 

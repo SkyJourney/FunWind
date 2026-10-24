@@ -56,11 +56,19 @@ export interface ConvertWarning {
   detail?: string;
 }
 
+/** 正文里一处 `[attachment=N]` 引用及其所在位置：gateSeq 为所在门控的帖内序号，null = 公开正文 */
+export interface AttachmentRef {
+  aid: number;
+  gateSeq: number | null;
+}
+
 export interface ConvertResult {
   /** 公开 Markdown（含门控占位） */
   md: string;
   gates: GateDraft[];
   warnings: ConvertWarning[];
+  /** 全部 `[attachment=N]` 引用的位置（附件归属门控的依据，docs/ATTACHMENT-GATES.md §7）；被丢弃的门控内的引用不记 */
+  attachmentRefs: AttachmentRef[];
 }
 
 interface Node {
@@ -238,6 +246,8 @@ interface State {
   gates: GateDraft[];
   warnings: ConvertWarning[];
   seq: number;
+  /** `[attachment=N]` 引用；渲染门控期间追加的条目在门控成立后回填 gateSeq */
+  attachmentRefs: AttachmentRef[];
 }
 
 interface Env {
@@ -339,11 +349,13 @@ function parsePrice(arg: string | undefined): number | null {
 
 function renderGate(n: Node, st: State): string {
   const tag = n.tag!;
+  const refsFrom = st.attachmentRefs.length; // 本门控渲染期间新增的引用都属于它
   const hidden = renderChildren(n, st, { pos: "nested", inGate: true, raw: false })
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   if (hidden === "") {
     st.warnings.push({ code: "gate-empty-dropped", detail: tag });
+    st.attachmentRefs.length = refsFrom;
     return "";
   }
 
@@ -366,6 +378,7 @@ function renderGate(n: Node, st: State): string {
   const seq = ++st.seq;
   if (seq > MAX_GATES_PER_POST) throw new RangeError(`一个帖子最多 ${MAX_GATES_PER_POST} 个门控`);
   const key = st.ctx.gateKey?.(seq) ?? `g${seq}`;
+  for (let i = refsFrom; i < st.attachmentRefs.length; i++) st.attachmentRefs[i]!.gateSeq = seq;
   st.gates.push({ key, seq, conditions: [condition], matchMode: "all", hiddenMd: hidden });
   return `\n\n:::gate{key="${key}"}\n:::\n\n`;
 }
@@ -509,6 +522,7 @@ function render(n: Node, st: State, env: Env): string {
     case "ATTACHMENT": {
       const aid = parseInt((n.arg ?? inner).trim(), 10);
       if (!Number.isFinite(aid)) return inner;
+      st.attachmentRefs.push({ aid, gateSeq: null });
       const att = st.ctx.resolveAttachment?.(aid);
       const link = att
         ? att.image
@@ -561,8 +575,8 @@ function htmlImagesToUbb(src: string): string {
 }
 
 export function ubbToMarkdown(input: string | null | undefined, ctx: UbbContext): ConvertResult {
-  const st: State = { ctx, gates: [], warnings: [], seq: 0 };
-  if (!input) return { md: "", gates: [], warnings: [] };
+  const st: State = { ctx, gates: [], warnings: [], seq: 0, attachmentRefs: [] };
+  if (!input) return { md: "", gates: [], warnings: [], attachmentRefs: [] };
   const src = htmlImagesToUbb(input.replace(/\r\n?/g, "\n"));
   // 根节点没有 tag：直接渲染其子节点，保持顶层语义（不能走 render，否则会被当成非透明容器）
   const tree = parse(src);
@@ -574,5 +588,5 @@ export function ubbToMarkdown(input: string | null | undefined, ctx: UbbContext)
   const md = renderChildren(tree, st, { pos: "top", inGate: false, raw: false })
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  return { md, gates: st.gates, warnings: st.warnings };
+  return { md, gates: st.gates, warnings: st.warnings, attachmentRefs: st.attachmentRefs };
 }

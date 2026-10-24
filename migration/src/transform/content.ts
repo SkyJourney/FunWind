@@ -124,6 +124,8 @@ export interface ContentResult {
   gates: GateRow[];
   /** tid → 首帖 post id：点赞、购买、附件的归属解析都靠它 */
   firstPostOf: Map<number, number>;
+  /** postId → 该帖正文里每个 `[attachment=N]` 引用所在的门控 key（null = 公开正文）；附件归属门控的依据 */
+  attachmentRefs: Map<number, { aid: number; gateKey: string | null }[]>;
   /** 作者不在 userIds 的 uid → 其最早内容时间（占位账号的 created_at） */
   placeholders: Map<number, string>;
   stats: ContentStats;
@@ -176,6 +178,7 @@ export function transformContent(
   /** 待分配 id 的门控：全部帖子转换完后按 (postId, 序号) 排序再编号 */
   const pendingGates: { postId: number; draft: GateDraft; createdAt: string; updatedAt: string }[] =
     [];
+  const attachmentRefs = new Map<number, { aid: number; gateKey: string | null }[]>();
 
   const convert = (
     src: string | null,
@@ -199,6 +202,16 @@ export function transformContent(
         createdAt,
         updatedAt: editedAt ?? createdAt,
       });
+    }
+    if (r.attachmentRefs.length > 0) {
+      const keyOfSeq = new Map(r.gates.map((g) => [g.seq, g.key]));
+      attachmentRefs.set(
+        postId,
+        r.attachmentRefs.map((a) => ({
+          aid: a.aid,
+          gateKey: a.gateSeq === null ? null : (keyOfSeq.get(a.gateSeq) ?? null),
+        })),
+      );
     }
     return { md: r.md, gateCount: r.gates.length };
   };
@@ -350,7 +363,7 @@ export function transformContent(
     updatedAt: g.updatedAt,
   }));
 
-  return { threads, posts, gates, firstPostOf, placeholders, stats };
+  return { threads, posts, gates, firstPostOf, attachmentRefs, placeholders, stats };
 }
 
 function collectWarning(stats: ContentStats, postId: number, w: ConvertWarning): void {
@@ -470,6 +483,8 @@ export interface OldAttachment {
 
 /** 附件草稿：文件本体由文件管线登记（得到 file_id 后才能写 attachments 行） */
 export interface AttachmentDraft {
+  /** 旧站附件 id：只用来关联正文里的 `[attachment=N]` 引用，不写入新库 */
+  aid: number;
   postId: number;
   uploaderId: number;
   originalName: string;
@@ -514,6 +529,7 @@ export function transformAttachments(
       stats.uploaderFromPostAuthor++;
     }
     out.push({
+      aid: Number(a.aid),
       postId: target,
       uploaderId,
       originalName: String(a.name ?? "").slice(0, 255),
@@ -523,6 +539,99 @@ export function transformAttachments(
     });
   }
   return { rows: out, stats };
+}
+
+// ---------- 附件 → 门控归属（docs/ATTACHMENT-GATES.md §7）----------
+
+export type AttachmentGateRule = "R1" | "R2" | "R3" | "R4" | "R5";
+
+export interface BoundAttachment extends AttachmentDraft {
+  /** 归属的门控（post_gates.id）；null = 公开 */
+  gateId: number | null;
+}
+
+export interface AttachmentGateStats {
+  /** 各规则命中数 */
+  rules: Record<AttachmentGateRule, number>;
+  /** R4：所在帖有多个门控而附件未被引用，按「最严」归属，列出供站长复核 */
+  ambiguous: { postId: number; aid: number; gateId: number }[];
+}
+
+/**
+ * 门控「严格程度」：付费（价格越高越严）> 回复可见 > 登录后免费解锁（price 0）。
+ * 归属有歧义时 fail-closed——宁可多锁，不可少锁。
+ */
+function strictness(g: GateRow): number {
+  const c = g.conditions[0];
+  if (c?.type === "points") {
+    const price = Number(c.price) || 0;
+    return price > 0 ? 1 + price : 0;
+  }
+  return 0.5; // 回复可见
+}
+
+/** 在若干候选门控里取最严的；并列取 id 最大（帖内序号最靠后）者 */
+function strictest(candidates: readonly GateRow[]): GateRow {
+  return candidates.reduce((best, g) =>
+    strictness(g) > strictness(best) || (strictness(g) === strictness(best) && g.id > best.id)
+      ? g
+      : best,
+  );
+}
+
+/**
+ * 给每个附件定归属门控（规则只存在于迁移适配层，运行时 schema 不认识旧站）：
+ *  R5 所在帖没有门控 → 公开
+ *  R2 在公开正文里被引用 → 公开（作者有意公开；同时也在门控内引用的，以公开为准——内容本来就已在公开正文暴露）
+ *  R1 只在门控内被引用 → 该门控（引用跨多个门控时取最严）
+ *  R3 未被引用，所在帖恰好 1 个门控 → 该门控
+ *  R4 未被引用，所在帖有多个门控 → 最严的门控（歧义，列入报告复核）
+ * 只看「本附件最终所挂的帖子」内的引用：附件被改挂首帖时，别的帖里的引用不算。
+ */
+export function bindAttachmentGates(
+  drafts: readonly AttachmentDraft[],
+  refsOfPost: ReadonlyMap<number, readonly { aid: number; gateKey: string | null }[]>,
+  gates: readonly GateRow[],
+): { rows: BoundAttachment[]; stats: AttachmentGateStats } {
+  const gatesOfPost = new Map<number, GateRow[]>();
+  for (const g of gates) {
+    const list = gatesOfPost.get(g.postId) ?? [];
+    list.push(g);
+    gatesOfPost.set(g.postId, list);
+  }
+  const stats: AttachmentGateStats = {
+    rules: { R1: 0, R2: 0, R3: 0, R4: 0, R5: 0 },
+    ambiguous: [],
+  };
+  const rows = drafts.map((d): BoundAttachment => {
+    const postGates = gatesOfPost.get(d.postId);
+    if (!postGates) {
+      stats.rules.R5++;
+      return { ...d, gateId: null };
+    }
+    const refs = (refsOfPost.get(d.postId) ?? []).filter((r) => r.aid === d.aid);
+    if (refs.some((r) => r.gateKey === null)) {
+      stats.rules.R2++;
+      return { ...d, gateId: null };
+    }
+    if (refs.length > 0) {
+      const keys = new Set(refs.map((r) => r.gateKey));
+      const hit = postGates.filter((g) => keys.has(g.gateKey));
+      if (hit.length > 0) {
+        stats.rules.R1++;
+        return { ...d, gateId: strictest(hit).id };
+      }
+    }
+    if (postGates.length === 1) {
+      stats.rules.R3++;
+      return { ...d, gateId: postGates[0]!.id };
+    }
+    const g = strictest(postGates);
+    stats.rules.R4++;
+    stats.ambiguous.push({ postId: d.postId, aid: d.aid, gateId: g.id });
+    return { ...d, gateId: g.id };
+  });
+  return { rows, stats };
 }
 
 // ---------- 标签 ----------

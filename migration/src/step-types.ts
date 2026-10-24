@@ -23,6 +23,8 @@ export interface Ctx {
 
 export interface AttachmentEntry {
   postId: number;
+  /** 归属的门控（post_gates.id），null = 公开；规则见 transform/content.ts bindAttachmentGates */
+  gateId: number | null;
   uploaderId: number;
   originalName: string;
   downloads: number;

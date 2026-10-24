@@ -63,10 +63,20 @@ export const filesStep: Step = {
 
     await replaceAll(
       "attachments",
-      ["id", "post_id", "file_id", "uploader_id", "original_name", "downloads", "created_at"],
+      [
+        "id",
+        "post_id",
+        "gate_id",
+        "file_id",
+        "uploader_id",
+        "original_name",
+        "downloads",
+        "created_at",
+      ],
       ctx.attachments.map((a, i) => ({
         id: i + 1,
         post_id: a.postId,
+        gate_id: a.gateId,
         file_id: idOf.get(a.sha256)!,
         uploader_id: a.uploaderId,
         original_name: a.originalName,

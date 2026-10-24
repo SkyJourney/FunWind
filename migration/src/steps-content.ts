@@ -31,6 +31,7 @@ import { confinedPath, fileUrl } from "./lib/files.js";
 import { head, idSet, loadUserIds, mapRows, type Step } from "./step-types.js";
 import { transformBadges } from "./transform/badges.js";
 import {
+  bindAttachmentGates,
   noteAuthor,
   transformAttachments,
   transformContent,
@@ -142,6 +143,8 @@ export const contentStep: Step = {
       ctx.asOf,
     );
     const atts = transformAttachments(oldAtts, postIds, content.firstPostOf, authorOf, ctx.asOf);
+    // 门控帖的附件归属门控（先于「文件缺失丢弃」，规则命中数按全部附件统计）
+    const bound = bindAttachmentGates(atts.rows, content.attachmentRefs, content.gates);
     const tags = transformTags(
       await extractTags(),
       await extractTagRelations(),
@@ -151,7 +154,7 @@ export const contentStep: Step = {
     // 附件：先解析到文件；本体缺失的附件没有意义，丢弃并记入报告。写表由 files 步骤完成（需要 file_id）
     const missingAtts: string[] = [];
     ctx.attachments = [];
-    for (const d of atts.rows) {
+    for (const d of bound.rows) {
       const f = ctx.files.addUnder(config.attachmentDir, d.sourcePath);
       if (!f) {
         missingAtts.push(d.sourcePath);
@@ -160,6 +163,7 @@ export const contentStep: Step = {
       noteAuthor(content.placeholders, userIds, d.uploaderId, d.createdAt);
       ctx.attachments.push({
         postId: d.postId,
+        gateId: d.gateId,
         uploaderId: d.uploaderId,
         originalName: d.originalName,
         downloads: d.downloads,
@@ -402,6 +406,15 @@ export const contentStep: Step = {
     s.line("### 附件与标签");
     s.bullets([
       `附件 ${ctx.attachments.length}（所属主题未迁移而丢弃 ${atts.stats.orphan}；回帖未迁移、改挂首帖 ${atts.stats.reattachedToFirstPost}；上传者缺失记为帖子作者 ${atts.stats.uploaderFromPostAuthor}；文件缺失丢弃 ${missingAtts.length}${missingAtts.length ? "：" + head(missingAtts, 10) : ""}）；文件本体由文件管线复制进内容寻址存储`,
+      `附件归属门控（规则 R1 只在门控内引用 ${bound.stats.rules.R1} / R2 公开正文引用 ${bound.stats.rules.R2} / R3 未引用且帖内单门控 ${bound.stats.rules.R3} / R4 未引用且多门控、按最严归属 ${bound.stats.rules.R4} / R5 非门控帖 ${bound.stats.rules.R5}）；R4 待站长复核${
+        bound.stats.ambiguous.length
+          ? "：" +
+            head(
+              bound.stats.ambiguous.map((a) => `帖 ${a.postId} 附件 ${a.aid}→门控 ${a.gateId}`),
+              20,
+            )
+          : "（无）"
+      }`,
       `标签 ${tags.tags.length}（空名/重复丢弃 ${tags.stats.emptyOrDuplicate}）；主题标签关联 ${tags.threadTags.length}（孤儿 ${tags.stats.orphanRelations}）`,
     ]);
     return {
