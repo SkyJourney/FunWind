@@ -5,6 +5,17 @@
 
 ## [Unreleased]
 
+### Added（M6.1 第 1 步：`zod` + `defineAction`）
+
+设计见 [`docs/milestones/M6.1-write-path.md`](docs/milestones/M6.1-write-path.md)（站长 2026-10-24 确认）。
+
+- **`lib/actions/define-action.ts`**：Server Action 的统一骨架，产物恒为 `(formData) => Promise<void>`，可直接作 `<form action>`。统一做：求值模块注册表（硬约定 9）、鉴权（`guest` / `user` 未登录跳登录页 / `{ admin: 权限点 }` **先于读表单与取数**调用 `requireAdmin`）、取主体与可信 IP、声明式频控（`onLimit` 必填，写错也 fail-closed 为 404）、zod 结构校验（失败一律 404，不泄露细节；业务文案仍在 `run` 里）、`unstable_rethrow` 重新抛出 Next 控制流。依赖可注入（`createDefineAction`），单测不碰数据库与 cookie。`zod ^4.6.7` 提升为直接依赖。
+- **`lib/actions/form-data.ts`**：`FormData` → 对象，只收字符串、文件字段忽略、同名多值归并为数组、丢弃 `__proto__` / `constructor` / `prototype` 键并用空原型对象。
+- **迁移 14 个 Action**：`gates.ts`（1）、`auth.ts`（9）、`admin/actions.ts`（4），业务逻辑与跳转行为逐字保留，只换外壳；缺失字段仍按空串处理（`.default("")`），另给文本加长度上限（密码 1024、令牌 256…），超长按 404。登录 / 找回 / 邀请码的专用频控（先占后退、兜底桶）行为已固定且带变异验证，所以留在 `run` 里，不挪进声明式策略表。
+- **可行性**：真实 `next build` 接受 `"use server"` 文件导出工厂返回的函数；开发服务器 86 项 + 生产冒烟 10 项 E2E（含购买、登录、找回、认领、验证、后台授权）全过。
+- **守卫改造**：`modules-import-guard`——入口或其传递依赖里有 `import "@/modules"` 即合规（经 `defineAction` 的入口天然满足），并**先剥注释再分析**（此前文档注释里写着这串字就能让守卫被偶然满足，变异验证时发现）；`admin-entry-guard`——`/admin/**` 里的 `defineAction` 必须声明 `auth: { admin }`，且"找不到任何入口"本身算违规（否则 `actions.ts` 改写法后会悄悄通过）；新增 `lib/actions/use-server-exports-guard.test.ts`——`"use server"` 文件的运行时导出必须全是 `defineAction(...)`，防止有人手写一个绕开骨架的 Action。
+- 测试：`define-action.test.ts` 20 项、`form-data.test.ts` 5 项、`use-server-exports-guard` 5 项、两个守卫共新增 5 项合成样例。变异验证 7 项各自变红（去掉 `import "@/modules"`、admin 鉴权挪到取主体之后、去掉 `unstable_rethrow`、不做 zod 校验失败处理、不检查频控、admin 动作改成 `auth: "user"`、手写导出）。验证过程中发现并修正了两处我自己的问题：zsh 下未加引号的变量不会按空格拆分，第一版变异脚本其实什么都没跑；"admin 改 user" 的替换命中了注释里的示例而非真正的 Action——都重做了。
+
 ### Docs（M5.6 S5：文档漂移清账）
 
 - 新增 [`docs/milestones/M5.6-prelaunch-hardening.md`](docs/milestones/M5.6-prelaunch-hardening.md)：S1–S5 范围、提交、DoD 与遗留事项；ROADMAP 补 M5.6 行与依赖图；`CLAUDE.md` 更新进度。

@@ -1,10 +1,9 @@
 "use server";
 
-// 授权管理会派发 role.changed：使用内核的 Server Action 须自行求值模块注册表（硬约定 9），
-// 否则事件只落 event_log、消费者不会被调用（modules-import-guard.test.ts 守护）
-import "@/modules";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
+import { defineAction } from "@/lib/actions/define-action";
 import {
   AdminError,
   createCustomRole,
@@ -12,10 +11,17 @@ import {
   grantRolePermission,
   revokeRolePermission,
 } from "@/lib/authz/admin";
-import { requireAdmin } from "@/lib/authz/require-admin";
+
+/**
+ * 授权管理 Server Actions。统一经 defineAction：`auth: { admin: "admin.roles" }` 保证**第一个 await 就是 requireAdmin**
+ * （先鉴权、后读表单与取数，admin-entry-guard 静态守护），并求值模块注册表（授权管理会派发 role.changed，硬约定 9）。
+ */
+
+/** 表单里的短文本字段：缺失按空串，设上限防巨型输入（业务合法性由 lib/authz/admin 的校验给出可读消息） */
+const text = (max: number) => z.string().max(max).default("");
 
 /** 执行管理写操作；校验类错误（AdminError）带着消息跳回，其余异常照常抛出 */
-async function run(back: string, fn: () => Promise<void>): Promise<void> {
+async function guarded(back: string, fn: () => Promise<void>): Promise<void> {
   try {
     await fn();
   } catch (e) {
@@ -24,46 +30,61 @@ async function run(back: string, fn: () => Promise<void>): Promise<void> {
   }
 }
 
-const scopeOf = (formData: FormData): number => {
-  const raw = String(formData.get("scopeId") ?? "0").trim();
+/** 作用域：缺失按全局（0）；非法值返回 -1，由 requireScope 拒绝 */
+const scopeOf = (rawInput: string): number => {
+  const raw = (rawInput === "" ? "0" : rawInput).trim();
   const n = Number(raw);
   return Number.isInteger(n) && n >= 0 ? n : -1; // -1 会被 requireScope 拒绝
 };
 
-export async function createRoleAction(formData: FormData): Promise<void> {
-  const actor = await requireAdmin("admin.roles");
-  const key = String(formData.get("key") ?? "").trim();
-  const name = String(formData.get("name") ?? "").trim();
-  const description = String(formData.get("description") ?? "").trim();
-  await run("/admin/authz", () => createCustomRole(actor, key, name, description));
-  revalidatePath("/admin/authz");
-  redirect(`/admin/authz/${key}`);
-}
+const createRoleInput = z.object({ key: text(200), name: text(200), description: text(1000) });
+export const createRoleAction = defineAction({
+  name: "admin.role.create",
+  auth: { admin: "admin.roles" },
+  input: createRoleInput,
+  async run(ctx, input) {
+    const key = input.key.trim();
+    const name = input.name.trim();
+    const description = input.description.trim();
+    await guarded("/admin/authz", () => createCustomRole(ctx.admin!, key, name, description));
+    revalidatePath("/admin/authz");
+    redirect(`/admin/authz/${key}`);
+  },
+});
 
-export async function deleteRoleAction(formData: FormData): Promise<void> {
-  const actor = await requireAdmin("admin.roles");
-  const key = String(formData.get("key") ?? "");
-  await run("/admin/authz", () => deleteCustomRole(actor, key));
-  revalidatePath("/admin/authz");
-  redirect("/admin/authz");
-}
+export const deleteRoleAction = defineAction({
+  name: "admin.role.delete",
+  auth: { admin: "admin.roles" },
+  input: z.object({ key: text(200) }),
+  async run(ctx, input) {
+    await guarded("/admin/authz", () => deleteCustomRole(ctx.admin!, input.key));
+    revalidatePath("/admin/authz");
+    redirect("/admin/authz");
+  },
+});
 
-export async function grantAction(formData: FormData): Promise<void> {
-  const actor = await requireAdmin("admin.roles");
-  const roleKey = String(formData.get("roleKey") ?? "");
-  const permissionKey = String(formData.get("permissionKey") ?? "");
-  await run(`/admin/authz/${roleKey}`, () =>
-    grantRolePermission(actor, roleKey, permissionKey, scopeOf(formData)),
-  );
-  revalidatePath(`/admin/authz/${roleKey}`);
-}
+const grantInput = z.object({ roleKey: text(200), permissionKey: text(200), scopeId: text(20) });
 
-export async function revokeAction(formData: FormData): Promise<void> {
-  const actor = await requireAdmin("admin.roles");
-  const roleKey = String(formData.get("roleKey") ?? "");
-  const permissionKey = String(formData.get("permissionKey") ?? "");
-  await run(`/admin/authz/${roleKey}`, () =>
-    revokeRolePermission(actor, roleKey, permissionKey, scopeOf(formData)),
-  );
-  revalidatePath(`/admin/authz/${roleKey}`);
-}
+export const grantAction = defineAction({
+  name: "admin.grant.add",
+  auth: { admin: "admin.roles" },
+  input: grantInput,
+  async run(ctx, input) {
+    await guarded(`/admin/authz/${input.roleKey}`, () =>
+      grantRolePermission(ctx.admin!, input.roleKey, input.permissionKey, scopeOf(input.scopeId)),
+    );
+    revalidatePath(`/admin/authz/${input.roleKey}`);
+  },
+});
+
+export const revokeAction = defineAction({
+  name: "admin.grant.revoke",
+  auth: { admin: "admin.roles" },
+  input: grantInput,
+  async run(ctx, input) {
+    await guarded(`/admin/authz/${input.roleKey}`, () =>
+      revokeRolePermission(ctx.admin!, input.roleKey, input.permissionKey, scopeOf(input.scopeId)),
+    );
+    revalidatePath(`/admin/authz/${input.roleKey}`);
+  },
+});

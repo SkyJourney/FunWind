@@ -10,7 +10,11 @@ import { describe, expect, it } from "vitest";
  * Server Action 本就是独立入口。「第一个 await」意味着先鉴权、后读 params / searchParams、再取数——
  * 顺序错了（先取数后鉴权）同样变红。
  *
- * 检查对象：app/admin 下所有 page.tsx / layout.tsx 的默认导出函数，以及 actions.ts 里每个导出的 async 函数。
+ * 检查对象：app/admin 下所有 page.tsx / layout.tsx 的默认导出函数，以及 actions.ts 里每个入口：
+ *   · `export async function`（手写形态）：第一个 await 必须是 requireAdmin；
+ *   · `export const X = defineAction({...})`（M6.1 起的形态）：必须声明 `auth: { admin: "…" }`——defineAction 对这种声明保证
+ *     requireAdmin 是第一个 await（先于读表单与取数，lib/actions/define-action.ts 的单测守护），所以声明本身就是鉴权。
+ *     声明成 `"user"` / `"guest"` 或干脆漏写，都算违规。
  * 局限：静态文本分析，只看每个入口函数体里的第一个 await；入口之外新增的文件类型（如 route.ts）不在此检查——
  * 目前 /admin 下没有，若新增须同步扩展。
  */
@@ -34,6 +38,7 @@ export function firstAwaitedCall(body: string): string | null {
 
 /** 切出每个入口函数的源码片段：key = 函数名（默认导出记为 default） */
 export function entryBodies(file: string, src: string): Map<string, string> {
+  void file;
   const text = stripComments(src);
   const out = new Map<string, string>();
   const re = /export\s+(default\s+)?async\s+function\s*([\w$]*)/g;
@@ -47,9 +52,24 @@ export function entryBodies(file: string, src: string): Map<string, string> {
     const end = next.find((n) => n > s.at + 6) ?? text.length;
     out.set(s.name, text.slice(s.at, end));
   }
-  if (out.size === 0 && /\b(page|layout|actions)\.tsx?$/.test(file)) out.set("(none)", "");
   return out;
 }
+
+/** 切出每个 `export const X = defineAction(…)` 的源码片段：key = 常量名 */
+export function defineActionBodies(src: string): Map<string, string> {
+  const text = stripComments(src);
+  const out = new Map<string, string>();
+  const next = [...text.matchAll(/\bexport\s/g)].map((m) => m.index!);
+  for (const m of text.matchAll(/export\s+const\s+([\w$]+)\s*=\s*defineAction\s*\(/g)) {
+    const end = next.find((n) => n > m.index! + 6) ?? text.length;
+    out.set(m[1]!, text.slice(m.index!, end));
+  }
+  return out;
+}
+
+/** defineAction 片段是否声明了 admin 鉴权：`auth: { admin: "…" }` */
+export const declaresAdminAuth = (body: string): boolean =>
+  /\bauth\s*:\s*\{\s*admin\s*:/.test(body);
 
 const files = walk(ADMIN_DIR)
   .filter((p) => /(^|[\\/])(page|layout)\.tsx$|(^|[\\/])actions\.ts$/.test(p))
@@ -70,20 +90,34 @@ describe("/admin 入口必须先鉴权（审查 P2-15）", () => {
     );
   });
 
-  it("每个入口函数的第一个 await 都是 requireAdmin", () => {
+  it("每个入口的鉴权都在最前面：手写函数的第一个 await 是 requireAdmin；defineAction 声明了 auth: { admin }", () => {
     const offenders: string[] = [];
     for (const f of files) {
-      const bodies = entryBodies(f.rel, f.src);
-      for (const [name, body] of bodies) {
+      const fns = entryBodies(f.rel, f.src);
+      const das = defineActionBodies(f.src);
+      for (const [name, body] of fns) {
         if (firstAwaitedCall(body) !== "requireAdmin") offenders.push(`${f.rel} › ${name}`);
       }
+      for (const [name, body] of das) {
+        if (!declaresAdminAuth(body))
+          offenders.push(`${f.rel} › ${name}（defineAction 未声明 admin 鉴权）`);
+      }
+      // 页面 / 布局 / actions 文件一个入口都找不到：多半是写法变了而守卫没跟上，宁可报错也不悄悄通过
+      if (fns.size + das.size === 0) offenders.push(`${f.rel} › （没有识别到任何入口）`);
     }
     expect(offenders).toEqual([]);
   });
 
-  it("actions.ts 里的导出函数不止一个（守卫确实逐个检查了每个动作）", () => {
+  it("actions.ts 里的入口不止一个（守卫确实逐个检查了每个动作）", () => {
     const actions = files.find((f) => f.rel === "actions.ts")!;
-    expect(entryBodies(actions.rel, actions.src).size).toBeGreaterThanOrEqual(4);
+    expect(
+      entryBodies(actions.rel, actions.src).size + defineActionBodies(actions.src).size,
+    ).toBeGreaterThanOrEqual(4);
+  });
+
+  it("actions.ts 里不再有 `export async function`：入口统一走 defineAction（lib/actions/use-server-exports-guard 也会守护）", () => {
+    const actions = files.find((f) => f.rel === "actions.ts")!;
+    expect([...entryBodies(actions.rel, actions.src).keys()]).toEqual([]);
   });
 });
 
@@ -108,5 +142,31 @@ describe("firstAwaitedCall / entryBodies 自身", () => {
     const m = entryBodies("actions.ts", src);
     expect(firstAwaitedCall(m.get("a")!)).toBe("doIt");
     expect(firstAwaitedCall(m.get("b")!)).toBe("requireAdmin");
+  });
+});
+
+describe("defineActionBodies / declaresAdminAuth 自身", () => {
+  const good = `export const a = defineAction({ name: "x", auth: { admin: "admin.roles" }, async run() {} });`;
+  const user = `export const b = defineAction({ name: "x", auth: "user", async run() {} });`;
+  const guest = `export const c = defineAction({ name: "x", auth: "guest", async run() {} });`;
+  const missing = `export const d = defineAction({ name: "x", async run() {} });`;
+  const inComment = `export const e = defineAction({ // auth: { admin: "admin.roles" }\n name: "x", auth: "user", async run() {} });`;
+
+  it("声明 admin 鉴权的通过；user / guest / 漏写 / 只写在注释里的都识别为违规", () => {
+    const das = defineActionBodies([good, user, guest, missing, inComment].join("\n"));
+    expect([...das.keys()]).toEqual(["a", "b", "c", "d", "e"]);
+    expect([...das].map(([n, b]) => [n, declaresAdminAuth(b)])).toEqual([
+      ["a", true],
+      ["b", false],
+      ["c", false],
+      ["d", false],
+      ["e", false],
+    ]);
+  });
+
+  it("多个 defineAction 互不串味：后一个声明的 admin 不能替前一个背书", () => {
+    const das = defineActionBodies(`${user}\n${good}`);
+    expect(declaresAdminAuth(das.get("b")!)).toBe(false);
+    expect(declaresAdminAuth(das.get("a")!)).toBe(true);
   });
 });

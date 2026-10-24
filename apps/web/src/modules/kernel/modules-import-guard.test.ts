@@ -14,18 +14,26 @@ import { describe, expect, it } from "vitest";
  *  · 「触及内核」的文件 = 非 modules/ 目录下、有运行时（非 `import type`）引用 `@/modules/kernel/*` 的源文件，
  *    也就是会派发事件或读写注册表的代码（lib/authz/admin、lib/gates/unlock、lib/points/apply 等，自动发现，无需维护清单）；
  *  · 「入口」= route.ts 与文件头带 "use server" 的 Server Action 文件（所有会改数据的服务端入口）；
- *  · 入口经**传递**引用（任意层 import）能到达触及内核的文件，就必须直接 `import "@/modules"`。
+ *  · 入口经**传递**引用（任意层 import）能到达触及内核的文件，就必须保证注册表已被求值：入口自己或它（传递）引用的
+ *    某个文件带有 `import "@/modules"` 即合规（M6.1：`lib/actions/define-action.ts` 顶部就有，所以经 defineAction 的入口天然满足；
+ *    静态 import 在入口被加载时一定会求值，所以「可达」与「直接写」效果相同）。
  * 局限：只看静态 import，动态 `import()` 与按字符串拼路径的引用看不到；页面（page.tsx）只读，不在检查范围。
  */
 
 const SRC = join(__dirname, "../..");
 
 /** 分析一组源码（键 = 相对 src 的 POSIX 路径）。纯函数，便于用合成样例验证守卫本身 */
-export function findViolations(sources: Record<string, string>): {
+/** 去掉注释再分析：注释里写着 `import "@/modules"` 或被注释掉的 import 不能算数（M6.1：守卫曾被文档注释里的这串字偶然满足） */
+const stripComments = (s: string) =>
+  s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|\s)\/\/.*$/gm, "$1");
+
+export function findViolations(rawSources: Record<string, string>): {
   kernelTouching: string[];
   entries: string[];
   violations: { entry: string; via: string[] }[];
 } {
+  const sources: Record<string, string> = {};
+  for (const [f, src] of Object.entries(rawSources)) sources[f] = stripComments(src);
   const keys = new Set(Object.keys(sources));
   const resolveSpec = (from: string, spec: string): string | null => {
     let base: string;
@@ -89,8 +97,9 @@ export function findViolations(sources: Record<string, string>): {
   for (const e of entries) {
     const r = reach(e);
     const via = kernelTouching.filter((k) => r.has(k));
-    // 入口自己触及内核同样要求引入（via 里包含它自己）
-    if (via.length > 0 && !importsModules.test(sources[e]!)) violations.push({ entry: e, via });
+    // 入口自己触及内核同样要求（via 里包含它自己）。合规 = 入口或其传递依赖里有文件 import "@/modules"
+    const loadsRegistry = [...r].some((f) => importsModules.test(sources[f] ?? ""));
+    if (via.length > 0 && !loadsRegistry) violations.push({ entry: e, via });
   }
   return { kernelTouching: [...kernelSet].sort(), entries, violations };
 }
@@ -115,7 +124,7 @@ function loadSources(): Record<string, string> {
 describe('入口必须 import "@/modules"（硬约定 9）', () => {
   const result = findViolations(loadSources());
 
-  it("所有 Server Action 与 route handler：凡（传递）引用会触及内核的代码，都直接引入了 @/modules", () => {
+  it('所有 Server Action 与 route handler：凡（传递）引用会触及内核的代码，自己或其传递依赖里都有 import "@/modules"', () => {
     expect(result.violations).toEqual([]);
   });
 
@@ -152,6 +161,58 @@ describe("findViolations 自身（合成样例）", () => {
       "app/a/actions.ts": action('import "@/modules";\nimport { f } from "@/lib/x";'),
     });
     expect(r.violations).toEqual([]);
+  });
+
+  it("经包装函数（如 defineAction）引入 @/modules 同样合规；对照：包装函数没引入则违规；引入了但入口并不引用它也违规", () => {
+    const wrapperWith = 'import "@/modules";\nexport const defineAction = (f: unknown) => f;';
+    const wrapperWithout = "export const defineAction = (f: unknown) => f;";
+    const entry = (w: string) =>
+      action(`import { defineAction } from "@/lib/${w}";\nimport { f } from "@/lib/x";`);
+    expect(
+      findViolations({
+        "lib/x.ts": kernelLib,
+        "lib/wrap.ts": wrapperWith,
+        "app/a/actions.ts": entry("wrap"),
+      }).violations,
+    ).toEqual([]);
+    expect(
+      findViolations({
+        "lib/x.ts": kernelLib,
+        "lib/wrap.ts": wrapperWithout,
+        "app/a/actions.ts": entry("wrap"),
+      }).violations,
+    ).toEqual([{ entry: "app/a/actions.ts", via: ["lib/x.ts"] }]);
+    // 有人引入了 @/modules，但这个入口并不（传递）引用它：不算数
+    expect(
+      findViolations({
+        "lib/x.ts": kernelLib,
+        "lib/wrap.ts": wrapperWithout,
+        "lib/other.ts": 'import "@/modules";\nexport {};',
+        "app/a/actions.ts": entry("wrap"),
+      }).violations,
+    ).toEqual([{ entry: "app/a/actions.ts", via: ["lib/x.ts"] }]);
+  });
+
+  it('注释不算数：注释里写着 import "@/modules"，或把 import 注释掉了，都不能让入口合规', () => {
+    const commented =
+      '/** 本文件顶部有 import "@/modules" */\n// import "@/modules";\nexport const defineAction = (f: unknown) => f;';
+    const r = findViolations({
+      "lib/x.ts": kernelLib,
+      "lib/wrap.ts": commented,
+      "app/a/actions.ts": action(
+        'import { defineAction } from "@/lib/wrap";\nimport { f } from "@/lib/x";',
+      ),
+    });
+    expect(r.violations).toEqual([{ entry: "app/a/actions.ts", via: ["lib/x.ts"] }]);
+    // 对照：真正的 import 写在注释之后仍然有效
+    const real = findViolations({
+      "lib/x.ts": kernelLib,
+      "lib/wrap.ts": '// 说明\nimport "@/modules";\nexport const defineAction = (f: unknown) => f;',
+      "app/a/actions.ts": action(
+        'import { defineAction } from "@/lib/wrap";\nimport { f } from "@/lib/x";',
+      ),
+    });
+    expect(real.violations).toEqual([]);
   });
 
   it("传递引用（入口 → 中间层 → 触及内核的 lib，含相对路径）同样违规", () => {
