@@ -10,7 +10,7 @@
   进度：R1 文档 ✅ → R2 `packages/db` 与 `packages/content` 重做 ✅ → R3 迁移适配层重做并重建开发库 ✅ → S4 应用适配 ✅ → **S5 E2E 与全量门禁 ✅（2026-10-24）**；之后进入 M6 发帖。
 - **工作分支 `feat/m5.5-schema-v2`**（无 remote）：类型检查 / lint / 单测 / 构建 / E2E 全部真实通过（`pnpm verify:all` 与 `pnpm test:e2e` 均已连续多次实测）。
   **合并回 main 的时机由站长决定**；合并前须做：重写 git 历史清除旧库口令并轮换口令（见下文安全事项）。
-- 开发库：`qysub_next` = v2 **纯导入**（`verify:migration` 106 项对账只对它有意义）；`qysub_next_e2e` = 导入 + 演示夹具（`db:seed`，id ≥ 90000），`pnpm test:e2e` 每次自动重建它。
+- 开发库：`qysub_next` = v2 **纯导入**（`verify:migration` 106 项对账只对它有意义）；`qysub_next_e2e` = 空库 + 演示种子（`db:seed`，id ≥ 90000）+ E2E 夹具（`db:e2e-fixtures`，id ≥ 950000），**不含迁移数据**（CI 同样如此），`pnpm test:e2e` 每次自动重建它。
 - **M5.5 是破坏性重构**：站长已确认任何破坏性变更均可接受（重新迁移即可）。
 - 开工前先读：`docs/ROADMAP.md`（里程碑与 DoD）→ 对应 `docs/milestones/Mx-*.md`（范围/边界/测试/门禁）；M5.5 另读 `docs/DESIGN-MODEL.md`（数据模型依据）、`docs/NOTIFICATIONS.md`、`docs/GATES.md`、`docs/POINTS.md`、`docs/AUTHZ.md` §4/§8。
 - 新功能落地前查 `docs/LEGACY-FEATURE-MAP.md`（末尾有重构判定表）追溯旧实现语义；模块内核契约看 `docs/MODULES.md`。
@@ -34,8 +34,8 @@ docker/          qysub-next（MySQL 8.4 @33621）、dev（web 容器 + MailPit�
 ```bash
 pnpm dev                      # http://127.0.0.1:3100
 pnpm verify:all               # lint + format:check + typecheck + test(覆盖率) + build
-pnpm test:e2e                 # 重置并重建 qysub_next_e2e（迁移+种子）→ dev 服务器 3200 的 E2E（55 项）→ 生产构建冒烟 3201（7 项）；需要 MailPit(8025)；约 40s
-pnpm db:bootstrap | db:seed | db:verify     # 零数据路径：建表+系统种子 / 演示夹具 / schema 对账（10 项）
+pnpm test:e2e                 # 重置并重建 qysub_next_e2e（bootstrap + 种子 + E2E 夹具，无迁移）→ dev 服务器 3200 的 E2E（55 项）→ 生产构建冒烟 3201（7 项）；需要 MailPit(8025)；约 40s
+pnpm db:bootstrap | db:seed | db:e2e-fixtures | db:verify   # 零数据路径：建表+系统种子 / 演示夹具 / E2E 专用夹具 / schema 对账（10 项）
 pnpm --filter @funwind/db test              # db 包单测 + 真实 MySQL 临时库集成测试（SKIP_DB_TESTS=1 可跳过）
 pnpm --filter @funwind/web test             # web 单测 + 真实 MySQL 临时库集成测试（同样认 SKIP_DB_TESTS=1）；git push 前由 .husky/pre-push 自动跑类型检查 + 全部测试
 pnpm --filter @funwind/content test         # 门控语法 + UBB 转换器 v2（含泄露不变量性质测试）
@@ -85,7 +85,8 @@ pnpm --filter @funwind/web perf:lcp                       # 生产构建 LCP 门
 ## 已知坑
 
 - **E2E 写法**：用例以 `e2e/support/session.ts` 的 `loginAs()` 直接往库里写会话并注入 cookie，**不要在多个用例里走界面登录**——登录有账号级频控（每账号 10 分钟 5 次），共用账号会互相挤爆；界面登录只在 `auth.spec` 与 `modules.spec` 各测一次。
-  用例要的特殊数据用 `support/db.ts` 的 `withE2eDb()` 直连 e2e 库自己造、自己收尾（Playwright 以 CJS 加载，不能直接 import 纯 ESM 的 `@funwind/db`）；写 SQL 时 **`?` 占位符不能放在引号里**（mysql2 不替换字符串字面量中的 `?`）。
+  E2E 用例**不得引用真实迁移数据**（fid/tid 写死会让 CI 变红）：稳定场景用 `support/fixtures.ts`（镜像 `packages/db/src/e2e-fixtures.ts`，两处同步）；
+  用例要的临时数据用 `support/db.ts` 的 `withE2eDb()` 直连 e2e 库自己造、自己收尾（Playwright 以 CJS 加载，不能直接 import 纯 ESM 的 `@funwind/db`）；写 SQL 时 **`?` 占位符不能放在引号里**（mysql2 不替换字符串字面量中的 `?`）。
 - `pnpm test` 必须串行跑各包（`--workspace-concurrency=1`）：并行时 content 与 db 的 vitest 会同时清理共享的 `node_modules/.vitest-cache`，间歇性 `ENOTEMPTY`。
 
 - Next 16 开发服务器需 `allowedDevOrigins: ["127.0.0.1"]`，否则页面可渲染但整页无交互（水合静默失败）。

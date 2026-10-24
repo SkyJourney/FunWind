@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { withE2eDb } from "../e2e/support/db";
+import { FIX } from "../e2e/support/fixtures";
 
 /**
  * 生产模式冒烟（真实 next build + next start，端口 3201，TRUSTED_PROXY_HOPS=0 已声明）。
@@ -45,12 +46,12 @@ test.describe("生产构建", () => {
   });
 
   test("P0：受限版块与受限主题在生产构建下对游客同样 404，首页无其名称", async ({ page }) => {
-    for (const p of ["/f/121", "/f/904", "/t/900005"]) {
+    for (const p of [`/f/${FIX.staff.id}`, "/f/904", "/t/900005"]) {
       expect((await page.goto(p))?.status(), p).toBe(404);
     }
     await page.goto("/");
     const html = await page.content();
-    expect(html).not.toContain("『字幕制作组』");
+    expect(html).not.toContain(FIX.staff.name);
     expect(html).not.toContain("『字幕组内部区』");
   });
 
@@ -62,15 +63,15 @@ test.describe("生产构建", () => {
 
   test("/files：图片带安全响应头；非法 key 与旧路由 404", async ({ request }) => {
     const [row] = await withE2eDb((q) =>
-      q.query<{ storage_key: string }>(
-        "SELECT storage_key FROM files WHERE mime = 'image/jpeg' LIMIT 1",
+      q.query<{ storage_key: string; mime: string }>(
+        "SELECT storage_key, mime FROM files WHERE mime LIKE 'image/%' ORDER BY id LIMIT 1",
       ),
     );
     const res = await request.get(`/files/${row!.storage_key}`);
     expect(res.status()).toBe(200);
     expect(res.headers()["x-content-type-options"]).toBe("nosniff");
     expect(res.headers()["content-security-policy"]).toBe("default-src 'none'; sandbox");
-    expect(res.headers()["content-type"]).toBe("image/jpeg");
+    expect(res.headers()["content-type"]).toBe(row!.mime);
     expect((await request.get("/files/aa/aa/xx.png")).status()).toBe(404);
     expect((await request.get("/attachment/x")).status()).toBe(404);
   });

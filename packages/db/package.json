@@ -17,6 +17,7 @@
     "build": "tsc -p tsconfig.build.json",
     "bootstrap": "tsx scripts/bootstrap.ts",
     "seed": "tsx scripts/seed.ts",
+    "e2e-fixtures": "tsx scripts/e2e-fixtures.ts",
     "verify": "tsx scripts/verify.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",

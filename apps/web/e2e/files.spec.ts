@@ -3,13 +3,15 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { withE2eDb } from "./support/db";
+import { FIX } from "./support/fixtures";
 import { USERS, loginAs } from "./support/session";
 
 /**
  * /files 路由与附件渲染 E2E。
  *   · 图片类（头像、正文图片）公开，响应头安全（mime 取自数据库、nosniff、CSP sandbox、ETag/304）；
  *   · 非图片附件：游客只看到「登录后下载」（无链接），会员下载 200 且计数累加，受限版块的附件对无权者 404。
- * 夹具：tid 477 带两个 txt 附件（迁移数据）；受限版块 904 的帖 900105 的附件由用例造（含真实文件落盘，结束后清理）。
+ * 夹具：E2E 夹具帖 FIX.thread.attach 带两个 txt 附件、alice 挂有头像、FIX.thread.image 含正文内联图；
+ * 受限版块 904 的帖 900105 的附件由用例造（含真实文件落盘，结束后清理）。
  */
 
 // 存储根目录：与 web 服务器相同的默认值（<仓库根>/storage）
@@ -50,7 +52,7 @@ const txtAttachmentKeys = () =>
   withE2eDb((q) =>
     q.query<{ storage_key: string }>(
       `SELECT f.storage_key FROM attachments a JOIN files f ON f.id = a.file_id
-        JOIN posts p ON p.id = a.post_id WHERE p.thread_id = 477 ORDER BY a.id`,
+        JOIN posts p ON p.id = a.post_id WHERE p.thread_id = ${FIX.thread.attach} ORDER BY a.id`,
     ),
   );
 
@@ -59,7 +61,7 @@ test.describe("图片（公开）", () => {
     page,
     request,
   }) => {
-    await page.goto("/t/47");
+    await page.goto(`/t/${FIX.thread.image}`);
     const src = (await page
       .locator('.content-md img[src^="/files/"]')
       .first()
@@ -112,7 +114,7 @@ test.describe("附件（须有权限）", () => {
     page,
     request,
   }) => {
-    await page.goto("/t/477");
+    await page.goto(`/t/${FIX.thread.attach}`);
     await expect(page.getByText("登录后下载")).toHaveCount(2);
     await expect(page.locator('a[href^="/files/"][href$=".txt"]')).toHaveCount(0);
     for (const { storage_key } of await txtAttachmentKeys()) {
@@ -122,7 +124,7 @@ test.describe("附件（须有权限）", () => {
 
   test("会员：看到下载链接；下载 200，附件下载头，且下载计数累加", async ({ page, context }) => {
     await loginAs(context, USERS.member);
-    await page.goto("/t/477");
+    await page.goto(`/t/${FIX.thread.attach}`);
     const link = page.locator('a[href^="/files/"][href$=".txt"]').first();
     await expect(link).toBeVisible();
     const before = Number((await link.innerText()).match(/（(\d+) 次下载）/)![1]);
