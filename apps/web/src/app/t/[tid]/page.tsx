@@ -7,7 +7,9 @@ import { PostBody } from "@/components/content/post-body";
 import { UserBadge } from "@/components/content/user-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { getPointsName } from "@/lib/auth/settings";
 import { getCurrentSubject } from "@/lib/authz/subject";
+import { loadGateViews } from "@/lib/gates/service";
 import { fileUrl } from "@/lib/files";
 import { getForumView } from "@/lib/queries/forums";
 import { getAttachments, getParentFloors, listReplies, pageOfFloor } from "@/lib/queries/posts";
@@ -43,12 +45,19 @@ export default async function ThreadPage({ params, searchParams }: Params) {
     getForumView(viewer, thread.forumId),
     listReplies(viewer, thread, Math.max(1, Number(pageRaw ?? "1") || 1)),
   ]);
-  const [attachments, parents] = await Promise.all([
+  // 一页的全部门控一次解析：作者/版主/已解锁者拿到正文，其余人拿到锁卡片（锁卡片里没有正文）
+  const gatePosts = [
+    { id: thread.first.id, authorId: thread.authorId, hasGate: thread.first.hasGate },
+    ...replies.items.map((r) => ({ id: r.id, authorId: r.authorId, hasGate: r.hasGate })),
+  ];
+  const [attachments, parents, gates, pointsName] = await Promise.all([
     getAttachments([thread.first.id, ...replies.items.map((r) => r.id)]),
     getParentFloors(
       thread.id,
       replies.items.flatMap((r) => (r.replyToPostId ? [r.replyToPostId] : [])),
     ),
+    loadGateViews(viewer, thread, gatePosts),
+    getPointsName(),
   ]);
 
   const attachmentList = (postId: number) => {
@@ -139,7 +148,12 @@ export default async function ThreadPage({ params, searchParams }: Params) {
       {/* 首帖（楼主）：每一页都固定在顶部 */}
       <Card id={`p${thread.first.id}`} className="scroll-mt-20">
         <CardContent className="pt-6">
-          <PostBody md={thread.first.bodyMd} hasGate={thread.first.hasGate} />
+          <PostBody
+            md={thread.first.bodyMd}
+            hasGate={thread.first.hasGate}
+            gates={gates.get(thread.first.id)}
+            pointsName={pointsName}
+          />
           {attachmentList(thread.first.id)}
           {thread.first.editedAt && (
             <p className="mt-3 text-xs text-muted-foreground">最后编辑于 {thread.first.editedAt}</p>
@@ -189,7 +203,12 @@ export default async function ThreadPage({ params, searchParams }: Params) {
                     </a>
                   </p>
                 )}
-                <PostBody md={f.bodyMd} hasGate={f.hasGate} />
+                <PostBody
+                  md={f.bodyMd}
+                  hasGate={f.hasGate}
+                  gates={gates.get(f.id)}
+                  pointsName={pointsName}
+                />
                 {attachmentList(f.id)}
                 <p className="text-xs text-muted-foreground">
                   {f.createdAt}

@@ -119,12 +119,16 @@ describe("harden（HTML 级净化）", () => {
 
   it("img 站内路由保留并加 lazy；外站 http 保留；其他来源降级", () => {
     const out = renderHtml(
-      '<img src="/emotion/01/17.gif"><img src="https://x/a.png"><img src="/etc/passwd">',
+      '<img src="/emoji/130.gif"><img src="/files/ab/cd/x.png"><img src="https://x/a.png"><img src="/etc/passwd"><img src="/emotion/01/17.gif"><img src="/attachment/a.jpg">',
     );
-    expect(out).toContain('src="/emotion/01/17.gif"');
+    expect(out).toContain('src="/emoji/130.gif"');
+    expect(out).toContain('src="/files/ab/cd/x.png"');
     expect(out).toContain('loading="lazy"');
     expect(out).toContain("https://x/a.png");
     expect(out).not.toContain("/etc/passwd");
+    // 旧站路径已随 /attachment、/emotion 路由一起退役，不再放行
+    expect(out).not.toContain("/emotion/");
+    expect(out).not.toContain("/attachment/");
   });
 
   it("Markdown 管线：引用/代码块/表情图/附件链接完整保留", () => {
@@ -134,14 +138,14 @@ describe("harden（HTML 级净化）", () => {
       "```js",
       "const a = 1;",
       "```",
-      "![表情](/emotion/01/17.gif)",
-      "[📎 字幕.rar](/attachment/Mon_1004/x.rar)",
+      "![表情](/emoji/130.gif)",
+      "[📎 字幕.rar](/files/ab/cd/x.rar)",
     ].join("\n");
     const out = renderMarkdown(md);
     expect(out).toContain("<blockquote>");
     expect(out).toContain("<pre><code");
-    expect(out).toContain('src="/emotion/01/17.gif"');
-    expect(out).toContain('href="/attachment/Mon_1004/x.rar"');
+    expect(out).toContain('src="/emoji/130.gif"');
+    expect(out).toContain('href="/files/ab/cd/x.rar"');
   });
 
   it("Markdown 管线：脚本注入被净化", () => {

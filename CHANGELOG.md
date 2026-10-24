@@ -5,6 +5,16 @@
 
 ## [Unreleased]
 
+### Changed（M5.5 · S4-4：门控读取与 /files 文件路由）
+
+- **门控读取（`lib/gates`）**：纯函数 `evaluateGate`（作者/版主 → 登录 → 逐条件，`all`/`any`，未知条件与脏数据失败即封闭）+ 服务层 `loadGateViews`/`getGateContent`
+  ——隐藏正文分两步读取，只对判定开放的门控才取 `hidden_md`；守卫测试保证其他源文件不得引用该列。`GateBlock` 渲染五种状态（含“已购买”标签），取代过渡的占位卡片。
+- **`/files/<storage_key>` 路由**：只按数据库查 key（不探测文件系统）；图片公开（能力 URL，mime 取自 `files.mime`，`nosniff` + CSP sandbox + immutable + ETag/304）；
+  非图片附件须“所属帖子对观众可见 + 该版块持有 `attachment.download`”，越权一律 404，下载计数仅 GET 累加，文件名防头部注入。
+- **退役**：`/attachment/**`、`/emotion/**` 路由，以及把 `svg` 标为 inline 的扩展名映射（`contentDispositionFor`）；`next.config` 不再内联 `ATTACHMENT_DIR`/`EMOTION_DIR`，改为 `STORAGE_DIR`。
+- **修复（真实数据验证前发现）**：净化白名单仍只放行 `/emotion/`、`/attachment/` 的图片，迁移后的 `/files/…` 图片与 `/emoji/…` 表情会被剥掉——改为放行 `/emoji/`、`/files/`。
+- web 测试 244 项（含门控服务与 `/files` 的真实 MySQL 集成测试），覆盖率 93.5%；真实库端到端验证：游客锁卡片零泄露、真实购买者看到“已购买 · 14 青翼币”与完整隐藏内容、作者看到解锁人数与收益、附件游客 404 / 会员 200 / 受限版块附件 404、头像与正文图片 200。
+
 ### Changed（M5.5 · S4-2/S4-3：应用适配，权限内核与内容查询层）
 
 - **权限内核（S4-2）**：`ForumTree`（祖先链/子树/沿链解析 read·write·review 策略）、纯函数评估器（显式 `Subject`，词汇表 25 个权限点显式归类写类/非写类）、

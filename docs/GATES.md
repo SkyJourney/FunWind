@@ -92,6 +92,17 @@ body_md → remark(+指令) → sanitize → 公开 HTML 片段（与用户无�
 - 购买后通过 Server Action 重新渲染；**不提供任何会返回隐藏内容的 JSON 接口**。
 - 页面已为动态渲染（含会话），无额外缓存失效负担。
 
+### 4.1 实现要点（M5.5 S4-4，读取侧）
+
+- **唯一读取点**：`apps/web/src/lib/gates/service.ts`（`loadGateViews` 页面批量 / `getGateContent` 单门控）。读取分两步——先只读元数据（不含隐藏正文）
+  与观众事实，由纯函数 `evaluateGate` 判定；**只有判定为开放的门控才会去取 `hidden_md`**。守卫测试 `hidden-md-guard.test.ts` 断言其他源文件不得引用该列。
+- **判定顺序**：作者 → 版主/admin（`forum.moderate`）→ 未登录（一律引导登录）→ 逐条件（`all`/`any`）。失败即封闭：未知条件类型、空条件、非法价格都锁定，
+  普通观众看到“该内容暂不可用”，作者与版主仍可见（便于排查）。
+- **`reply` 条件只计观众在该主题下 `visible` 的回帖（不含首帖）**；待审核/已隐藏的不算，免得一条垃圾回帖即解锁。
+- **价格 0 仍需解锁记录**（登录后点击解锁），不是自动放行；购买按钮在 S4-5 接通 `unlockGate` 前显示为禁用态。
+- `getGateContent` 先确认门控所在的帖子与主题对观众可见（版块可读 + 状态矩阵），不可见一律 `null`——知道门控 id 也读不到。
+- 渲染：`PostBody` 按占位切分（`packages/content` 的 `splitByGatePlaceholders`），`GateBlock` 渲染五种状态；占位在 `post_gates` 里查不到对应行时显示“门控数据异常”。
+
 ## 5. 解锁事务（`unlockGate`）
 
 stateful 条件（`points`）的购买在**单个数据库事务**内完成：

@@ -24,3 +24,13 @@ export async function setSetting(key: string, value: unknown): Promise<void> {
     .values({ key, value: value as object, updatedAt: sql`NOW()` })
     .onDuplicateKeyUpdate({ set: { value: value as object, updatedAt: sql`NOW()` } });
 }
+
+/** 积分显示名（site_settings.points.name；默认“积分”，青翼导入后为“青翼币”） */
+export const getPointsName = cache(async (): Promise<string> => {
+  const rows = await getWebDb()
+    .select({ value: siteSettings.value })
+    .from(siteSettings)
+    .where(eq(siteSettings.key, "points.name"))
+    .limit(1);
+  return (rows[0]?.value as { name?: string } | undefined)?.name ?? "积分";
+});

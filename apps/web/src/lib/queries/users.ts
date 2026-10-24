@@ -1,14 +1,7 @@
 import { and, eq } from "drizzle-orm";
-import {
-  files,
-  getWebDb,
-  pointAccounts,
-  siteSettings,
-  userProfiles,
-  userStats,
-  users,
-} from "@funwind/db";
+import { files, getWebDb, pointAccounts, userProfiles, userStats, users } from "@funwind/db";
 import { findActiveGlobalBan } from "@/lib/authz/restrictions";
+import { getPointsName } from "@/lib/auth/settings";
 
 /** 个人页数据。已注销账号（含迁移生成的“已注销用户”占位账号）不开页面：查询直接返回 null */
 
@@ -51,20 +44,13 @@ export async function getProfile(uid: number): Promise<Profile | null> {
   const r = rows[0];
   if (!r) return null;
 
-  const [nameRow] = await db
-    .select({ value: siteSettings.value })
-    .from(siteSettings)
-    .where(eq(siteSettings.key, "points.name"))
-    .limit(1);
-  const pointsName = (nameRow?.value as { name?: string } | undefined)?.name ?? "积分";
-
   return {
     ...r,
     threadCount: r.threadCount ?? 0,
     postCount: r.postCount ?? 0,
     featuredCount: r.featuredCount ?? 0,
     points: r.points ?? 0,
-    pointsName,
+    pointsName: await getPointsName(),
     ban: await findActiveGlobalBan(uid),
   };
 }
