@@ -6,6 +6,19 @@ type Db = ReturnType<typeof getWebDb>;
 export type DbTx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 export type DbExecutor = Db | DbTx;
 
+/**
+ * 配置类写操作（模块启停、站点设置）的操作者：Web 管理后台有登录用户；
+ * 命令行脚本与开发接口没有，此时 userId 为 null，via 标明来源，写进审计的 after_json。
+ */
+export interface ConfigActor {
+  userId: number | null;
+  via: "admin" | "cli" | "dev-api";
+  ip?: string | null;
+}
+
+/** 脚本/默认调用方的操作者 */
+export const CLI_ACTOR: ConfigActor = { userId: null, via: "cli" };
+
 export interface AuditEntry {
   actorId: number | null;
   /** 命名空间动作：role.create / grant.add / user_role.assign … */

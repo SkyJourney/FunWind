@@ -5,6 +5,17 @@
 
 ## [Unreleased]
 
+### Changed（M5.5 · S4-6：收口）
+
+- **开发入口收口**：`lib/dev-only.ts` 统一守卫 `/api/dev/*` 与 `/design`，`dev-only-guard.test.ts` 保证每个开发路由的每个处理器都接入（新增漏守卫即红）；首页的设计令牌链接仅开发环境显示；
+  **生产构建实测**这些路径全部 404。
+- **审计补全**：模块启停（`setModuleEnabled`）与站点设置（`setSetting`）同事务写 `audit_log`，状态/值真正变化才记，行为人为空时 `via` 标明来源（cli / dev-api / admin）。
+- **覆盖率门禁恢复真绿**：去掉对 queries / session / tokens / settings / state 的整块排除（仅余 `slot.tsx`、`mailer.ts` 两个宿主壳，原因写在配置里），门槛未降；
+  补会话真实 MySQL 集成测试（令牌只存哈希、过期/注销/封禁失效、滑动续期、登出与全部吊销）及 parse / storage / site / Markdown 缓存淘汰 / 频控清理测试。
+- `tsconfig.tsbuildinfo` 出库；新增 `.husky/pre-push`（类型检查 + 全部测试；确无数据库可 `SKIP_DB_TESTS=1` 显式跳过集成测试）。
+- 主题页：无 `attachment.download` 权限者看到附件名与「登录后下载 / 无下载权限」，不再渲染点进去只会 404 的链接。
+- **`pnpm verify:all` 真实通过**（lint、format:check、typecheck、582 项测试、next build）；`CLAUDE.md` 的缺口清单改为处置状态，并补充权限/并发约定。
+
 ### Changed（M5.5 · S4-5：内核升级、积分核心与门控购买）
 
 - **内核**：事件 10→21 个（`credit.changed`→`points.changed`、`medal.awarded`→`badge.awarded`，新增 11 个），actor 映射按 MODULES.md §3；注册边界 6→10 类（新增

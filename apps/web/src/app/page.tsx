@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Slot } from "@/modules/kernel/slot";
 import { ThreadRow } from "@/components/content/thread-row";
+import { isDevEnv } from "@/lib/dev-only";
 import { getForumTree } from "@/lib/authz/snapshot";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { getDirectory } from "@/lib/queries/forums";
@@ -29,9 +30,11 @@ export default async function HomePage() {
             日语·ACG 情怀社区 —— {dir.forumCount} 个版块 · {dir.threadCount} 个主题
           </p>
         </div>
-        <Link href="/design" className="text-xs text-muted-foreground hover:text-primary">
-          设计令牌（内部）
-        </Link>
+        {isDevEnv() && (
+          <Link href="/design" className="text-xs text-muted-foreground hover:text-primary">
+            设计令牌（内部）
+          </Link>
+        )}
       </header>
 
       <Slot name="home.after-header" />

@@ -8,6 +8,7 @@ import { UserBadge } from "@/components/content/user-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { getPointsName } from "@/lib/auth/settings";
+import { checkPermission } from "@/lib/authz/service";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { loadGateViews } from "@/lib/gates/service";
 import { fileUrl } from "@/lib/files";
@@ -61,6 +62,10 @@ export default async function ThreadPage({ params, searchParams }: Params) {
     { id: thread.first.id, authorId: thread.authorId, hasGate: thread.first.hasGate },
     ...replies.items.map((r) => ({ id: r.id, authorId: r.authorId, hasGate: r.hasGate })),
   ];
+  // 附件下载权限按版块判定，整页同属一个版块，只查一次；无权者看到附件名与原因，不渲染可点击链接（点进去只会是 404）
+  const canDownload = (
+    await checkPermission(viewer, "attachment.download", { forumId: thread.forumId })
+  ).allowed;
   const [attachments, parents, gates, pointsName] = await Promise.all([
     getAttachments([thread.first.id, ...replies.items.map((r) => r.id)]),
     getParentFloors(
@@ -77,16 +82,26 @@ export default async function ThreadPage({ params, searchParams }: Params) {
     return (
       <div className="mt-4 flex flex-wrap gap-2 border-t pt-3">
         <Paperclip className="size-4 text-muted-foreground" />
-        {list.map((a) => (
-          <a
-            key={a.id}
-            href={fileUrl(a.storageKey)}
-            className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-accent"
-          >
-            📎 {a.originalName}
-            <span className="text-muted-foreground">（{a.downloads} 次下载）</span>
-          </a>
-        ))}
+        {list.map((a) =>
+          canDownload ? (
+            <a
+              key={a.id}
+              href={fileUrl(a.storageKey)}
+              className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-accent"
+            >
+              📎 {a.originalName}
+              <span className="text-muted-foreground">（{a.downloads} 次下载）</span>
+            </a>
+          ) : (
+            <span
+              key={a.id}
+              className="inline-flex items-center gap-1 rounded-md border border-dashed px-2 py-1 text-xs text-muted-foreground"
+            >
+              📎 {a.originalName}
+              <span>（{viewer.userId === null ? "登录后下载" : "无下载权限"}）</span>
+            </span>
+          ),
+        )}
       </div>
     );
   };

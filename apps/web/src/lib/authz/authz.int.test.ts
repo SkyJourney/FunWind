@@ -33,7 +33,7 @@ import {
   getReadableForumIds,
   requirePermission,
 } from "./service";
-import { getAuthzSnapshot, invalidateAuthzSnapshot } from "./snapshot";
+import { getAuthzSnapshot, getForumTree, invalidateAuthzSnapshot } from "./snapshot";
 import { loadSubject } from "./subject";
 
 let tdb: TempDb;
@@ -60,6 +60,10 @@ describe.skipIf(skipDb)("权限内核 · 真实 MySQL", () => {
       expect(await getAuthzSnapshot()).toBe(a); // 命中缓存
       invalidateAuthzSnapshot();
       expect(await getAuthzSnapshot()).not.toBe(a);
+    });
+
+    it("getForumTree 与快照共用同一棵树", async () => {
+      expect(await getForumTree()).toBe((await getAuthzSnapshot()).tree);
     });
 
     it("演示夹具：受限版块 904 的有效读策略为 restricted", async () => {

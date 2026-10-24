@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { eq, sql } from "drizzle-orm";
 import { getWebDb, siteSettings } from "@funwind/db";
+import { CLI_ACTOR, writeAudit, type ConfigActor } from "@/lib/audit";
 
 /** 站点配置（site_settings；M12 安装向导接管写入） */
 
@@ -17,12 +18,34 @@ export const getRegisterMode = cache(async (): Promise<RegisterMode> => {
   return mode === "open" ? "open" : "invite"; // 默认邀请制（保守）
 });
 
-export async function setSetting(key: string, value: unknown): Promise<void> {
-  const db = getWebDb();
-  await db
-    .insert(siteSettings)
-    .values({ key, value: value as object, updatedAt: sql`NOW()` })
-    .onDuplicateKeyUpdate({ set: { value: value as object, updatedAt: sql`NOW()` } });
+/** 站点设置写入：管理动作，值真正变化时同事务写 audit_log（前后值）；写入相同值是幂等空操作 */
+export async function setSetting(
+  key: string,
+  value: unknown,
+  actor: ConfigActor = CLI_ACTOR,
+): Promise<void> {
+  await getWebDb().transaction(async (tx) => {
+    const [prev] = await tx
+      .select({ value: siteSettings.value })
+      .from(siteSettings)
+      .where(eq(siteSettings.key, key))
+      .for("update");
+    await tx
+      .insert(siteSettings)
+      .values({ key, value: value as object, updatedAt: sql`NOW()` })
+      .onDuplicateKeyUpdate({ set: { value: value as object, updatedAt: sql`NOW()` } });
+    if (!prev || JSON.stringify(prev.value) !== JSON.stringify(value)) {
+      await writeAudit(tx, {
+        actorId: actor.userId,
+        action: "setting.update",
+        targetType: "setting",
+        targetId: key,
+        before: prev ? { value: prev.value } : null,
+        after: { value, via: actor.via },
+        ip: actor.ip,
+      });
+    }
+  });
 }
 
 /** 积分显示名（site_settings.points.name；默认“积分”，青翼导入后为“青翼币”） */

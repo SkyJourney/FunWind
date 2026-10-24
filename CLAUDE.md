@@ -6,13 +6,13 @@
 ## 当前阶段
 
 - 阶段一·骨架 M1–M5 已交付，但 2026-10-23 审查发现其数据模型与多项门禁勾选需重做/更正。
-  **当前里程碑：M5.5 重构（设计先行）**。2026-10-23 站长调整思路：**先定目标模型（`docs/DESIGN-MODEL.md`，schema v2.1 共 43 表，含通知中心），旧数据向它靠拢，迁移只是适配层**。
-  第一轮 v2（S1–S3，38 表）已提交，但其中沿袭旧结构的部分要重做：**R1 文档（进行中）→ R2 重做 `packages/db` 与 `packages/content` → R3 迁移适配层重做并重建开发库 → S4 应用适配 → S5 收口**；之后才是 M6 发帖。
-- **工作分支 `feat/m5.5-schema-v2`**：`apps/web` 与 `migration` 仍依赖 v1 schema，类型检查/构建为红直到 S3/S4；S5 全绿后合回 main。
-  开发库 `qysub_next` 现为 v2 纯导入（`apps/web` 在 S4 适配前无法在它上面运行）；`qysub_next_e2e` = 导入 + 演示夹具。
-  `verify:migration` 只对纯导入的库有意义（见 M5.5 文档 B3）。
-- **M5.5 是破坏性重构**：站长已确认任何破坏性变更均可接受（重新迁移即可）；M3–M5 的查询层/权限层/E2E 夹具将随 schema v2 重写。
-- 开工前先读：`docs/ROADMAP.md`（里程碑与 DoD）→ 对应 `docs/milestones/Mx-*.md`（范围/边界/测试/门禁）；M5.5 另读 `docs/DESIGN-MODEL.md`（数据模型依据）、`docs/NOTIFICATIONS.md`、`docs/GATES.md`、`docs/POINTS.md`、`docs/AUTHZ.md` §8。
+  **当前里程碑：M5.5 重构（设计先行）**。站长思路：**先定目标模型（`docs/DESIGN-MODEL.md`，schema v2.1 共 43 表，含通知中心），旧数据向它靠拢，迁移只是适配层**。
+  进度：**R1 文档 ✅ → R2 重做 `packages/db` 与 `packages/content` ✅ → R3 迁移适配层重做并重建开发库 ✅ → S4 应用适配 ✅ → S5 收口（E2E 夹具重建 + 全量门禁，进行中）**；之后才是 M6 发帖。
+- **工作分支 `feat/m5.5-schema-v2`**（无 remote）：`apps/web` 已适配 v2.1，类型检查/lint/单测/构建全绿（`pnpm verify:all` 真实通过）；S5 全绿后合回 main。
+  **E2E 尚未适配**：`apps/web/e2e/*.spec.ts` 仍引用 v1 夹具（已不迁移的回收站版块 fid 53、空壳/屏蔽帖 tid 3500/96、`/emotion/…`），`pnpm test:e2e` 在 S5 重写前会红。
+- 开发库：`qysub_next` = v2 **纯导入**（`verify:migration` 106 项对账只对它有意义）；`qysub_next_e2e` = 导入 + 演示夹具（`db:seed`，id ≥ 90000）。
+- **M5.5 是破坏性重构**：站长已确认任何破坏性变更均可接受（重新迁移即可）。
+- 开工前先读：`docs/ROADMAP.md`（里程碑与 DoD）→ 对应 `docs/milestones/Mx-*.md`（范围/边界/测试/门禁）；M5.5 另读 `docs/DESIGN-MODEL.md`（数据模型依据）、`docs/NOTIFICATIONS.md`、`docs/GATES.md`、`docs/POINTS.md`、`docs/AUTHZ.md` §4/§8。
 - 新功能落地前查 `docs/LEGACY-FEATURE-MAP.md`（末尾有重构判定表）追溯旧实现语义；模块内核契约看 `docs/MODULES.md`。
 - 里程碑文档的门禁勾选**以真实命令输出为准**；M0–M5 复验发现多处勾选与实测不符。
 
@@ -34,9 +34,10 @@ docker/          qysub-next（MySQL 8.4 @33621）、dev（web 容器 + MailPit�
 ```bash
 pnpm dev                      # http://127.0.0.1:3100
 pnpm verify:all               # lint + format:check + typecheck + test(覆盖率) + build
-pnpm test:e2e                 # 独立库 qysub_next_e2e + 端口 3200 + MailPit(8025)，会重建 e2e 库
+pnpm test:e2e                 # 独立库 qysub_next_e2e + 端口 3200 + MailPit(8025)，会重建 e2e 库（⚠ S5 重写夹具前会红）
 pnpm db:bootstrap | db:seed | db:verify     # 零数据路径：建表+系统种子 / 演示夹具 / schema 对账（10 项）
 pnpm --filter @funwind/db test              # db 包单测 + 真实 MySQL 临时库集成测试（SKIP_DB_TESTS=1 可跳过）
+pnpm --filter @funwind/web test             # web 单测 + 真实 MySQL 临时库集成测试（同样认 SKIP_DB_TESTS=1）；git push 前由 .husky/pre-push 自动跑类型检查 + 全部测试
 pnpm --filter @funwind/content test         # 门控语法 + UBB 转换器 v2（含泄露不变量性质测试）
 pnpm migrate | verify:migration             # 青翼导入 v2（幂等）/ 对账 v2；报告写入 docs/reports/（入库）
                                             # 先用临时库演练：NEW_DB_NAME=… 并用 packages/db/scripts/e2e-reset.ts 建空库
@@ -62,7 +63,7 @@ pnpm --filter @funwind/web perf:lcp                       # 生产构建 LCP 门
 5. **DB 连接**：web 运行时只用 `getWebDb()` 单例；`withDb` 仅限一次性脚本。
 6. **渲染**：用户内容必须经 `lib/markdown.ts` + `lib/sanitize.ts` 管线，禁止 `dangerouslySetInnerHTML` 直出原文。
 7. **权限**：一律走 `lib/authz` 的 `checkPermission`；越权对外表现为 **404**（不暴露存在性）；不允许硬编码身份判断。
-8. **URL 已冻结**：`/f/{fid}`、`/t/{tid}`、`?page=`、`#p{pid}`（M13 的 301 依赖）。文件统一走 `/files/<storage_key>`（取代 `/attachment/**`，S4 起生效）；表情为 `/emoji/{id}.gif`。
+8. **URL 已冻结**：`/f/{fid}`、`/t/{tid}`、`?page=`、`#p{pid}`（M13 的 301 依赖）。文件统一走 `/files/<storage_key>`（已取代 `/attachment/**`，S4-4 落地）；表情为 `/emoji/{id}.gif`。
 9. **模块**：扩事件/槽位 = 改 `modules/kernel/types.ts` + 同步 `docs/MODULES.md`；使用内核的 route handler 必须自行 `import "@/modules"`。
 10. **schema 变更**：改 `packages/db/src/schema.ts` → `drizzle-kit generate` → 提交迁移 SQL → `db:verify` 通过；迁移程序与应用共用同一管线。
 11. **数据层双模式**：零数据部署是默认路径，青翼导入只是可选路径，应用代码不得依赖旧库。
@@ -74,6 +75,11 @@ pnpm --filter @funwind/web perf:lcp                       # 生产构建 LCP 门
 - **权限**（`lib/authz` + `packages/db/src/authz-vocab.ts`）：`roles` / `permissions` / `role_grants` / `user_roles` 四表；
   `forum.read` **就近层显式优先**（不回退父级），`forum.write/manage` **沿父链级联合并**；版主由授权派生，不指派。
 - **邮件**：nodemailer，开发期 MailPit（SMTP 1025 / UI 8025）。
+- **权限/可见性**（`lib/authz` + `lib/queries/visibility.ts`）：评估器是纯函数（显式 `Subject`，零 SQL）；版块树与授权表常驻内存快照（管理动作后 `invalidateAuthzSnapshot()`）；
+  查询层用 `readableForumIds`/`moderatedForumIds` 在**取数前**过滤，不取出来再逐行判断。
+- **积分与门控的并发约定**（`lib/points`、`lib/gates`，教训来自真实复现的死锁/连接池饥饿）：① 事务内不得再借第二条连接（连接池仅 8 条）——渠道解析、权限检查等一律在开事务前完成；
+  ② 加锁顺序固定「门控行 → 账户行（user_id 升序）」；③ 账户行用 `SELECT … FOR UPDATE` 加锁（不存在才 `INSERT IGNORE`），**禁止**用 `INSERT … ON DUPLICATE KEY UPDATE` 当加锁手段（共享锁升级死锁）；
+  ④ 先拿账户锁再查幂等/已解锁。积分表只能经 `lib/points` 写，隐藏正文只能经 `lib/gates/service.ts` 读，均有守卫测试。
 
 ## 已知坑
 
@@ -81,19 +87,24 @@ pnpm --filter @funwind/web perf:lcp                       # 生产构建 LCP 门
 - Next 16.4.2 的 `title.template` 对子页字符串标题疑似未生效（M1 遗留，升级后复验）。
 - E2E 必须用独立库与 3200 端口，别和 dev 服务抢端口。
 - zsh 下 `grep --include=*.ts` 要加引号，否则报 `no matches found`。
-- 频控是进程内存实现（单实例语义），多实例前须换 Redis（M13）。
+- 频控与权限快照都是进程内存实现（单实例语义），多实例前须换 Redis / 共享失效通道（M13）。
+- `TRUSTED_PROXY_HOPS`：生产环境必须显式设置（直连填 0，nginx 之后填层数），漏配会在首次取 IP 时报错；取不到可信 IP 时跳过 IP 级限额，只留账号/邮箱级。
+- `next dev` 每次启动会生成 `apps/web/AGENTS.md`（已 `.gitignore`）；`.next/` 里过期的生成类型会让 `tsc` 报已删除路由，用 `pnpm --filter @funwind/web exec next typegen` 刷新。
+- 迁移与对账的临时库演练：`NEW_DB_NAME=… pnpm --filter @funwind/db exec tsx scripts/e2e-reset.ts` 建空库再 `pnpm migrate`；`STORAGE_DIR` 可指向临时目录避免污染 `storage/`。
 
-## 已知缺口（2026-10-23 M0–M5 审查；**代码修复归 M5.5 S4**，当前代码仍带这些缺陷）
+## M0–M5 审查缺口的处置状态（2026-10-23 审查 → M5.5 修复）
 
-- **P0** 首页 `getLatestThreads` 与版块目录未按权限过滤，会泄露受限版块的标题/计数；`isShow=0` 版块主题也未从最新动态排除。
-- **P0（数据）** 权限翻译迁移不幂等：当前开发库 `user_roles` 1255 行仅 251 组不同、`role_grants` 含脏键（`p1`/`p2`/`y`）；迁移 v2 前不要依赖这两张表的内容。
-- **P0（数据）** 门控内容变公开：`[post]` 306 帖未处理、`[sell]` 全文公开；当前开发库的 `content_md` 不可视为已隔离。
-- **P1** `pnpm test` 覆盖率门槛当前为红（`lib/authz/service.ts` 0%），`verify:all` 并非全绿。
-- **P1** `/admin` 权限动作未写审计；开放注册的邮箱未验证限制未落地；派生版主把 `forum.write` 当版主授权。
-- **P1** 频控信任 `x-forwarded-for`；注册 `MAX(id)+1` 有竞态且邀请码先核销后建用户；`checkPermission(userId)` 忽略传入 userId。
-- **P2** `createCustomRole` upsert 可改写内置角色；`/api/dev/*` 与 `/design` 在生产构建中可达（仅靠 `NODE_ENV` 守卫）；
-  `tsconfig.tsbuildinfo` 被误提交。
-- **安全提醒**：BLUEPRINT 的旧库口令已清除，但 **git 历史里仍有**；仓库当前无 remote，推送前必须审计/重写历史并轮换口令。
+全部在 `feat/m5.5-schema-v2` 上修复并带回归用例；括号内为提交。**仍未做的只有最后一条安全事项。**
+
+- ✅ **P0** 首页目录/最新动态泄露受限版块、`is_listed=0` 进聚合 —— 可见性在取数前翻译成 SQL 谓词（S4-3 `9cfc9e4`），游客在真实数据上 4 个受限版块全 404、标题/计数/置顶均无泄露。
+- ✅ **P0（数据）** 权限翻译不幂等、脏键 —— R3 迁移重写（`user_roles`/`role_grants` 由旧数据整体推导，`verify:migration` 零容忍断言）。
+- ✅ **P0（数据）** 门控内容变公开 —— R2/R3 转换器重写 + 门控读取唯一出口（S4-4 `41ce53b`，守卫测试禁止别处引用 `hidden_md`）。
+- ✅ **P1** 覆盖率门槛为红 —— S4-6：去掉对 queries/session/tokens/settings/state 的整块排除，仅余 `slot.tsx`、`mailer.ts` 两个有明文原因的宿主壳，门槛未降（实测 96.9/91.5/96.5/98.2 vs 90/85/90/90）。
+- ✅ **P1** `/admin` 动作未写审计 —— 授权管理（S4-2 `293b630`）、模块启停与站点设置（S4-6）均同事务写 `audit_log`。
+- ✅ **P1** 开放注册邮箱未验证限制、派生版主误用 `forum.write` —— S4-2（评估器写类权限拦截；版主=持有 `forum.moderate`）。
+- ✅ **P1** 频控信任 `x-forwarded-for`、`checkPermission(userId)` 忽略入参、注册 `MAX(id)+1` 竞态与邀请码先核销 —— S4-2（`TRUSTED_PROXY_HOPS`、显式 `Subject`、自增 id + 同事务核销）及两次安全补丁（`4a050d7`、`3df7394`）。
+- ✅ **P2** `createCustomRole` 可改写内置角色、grant/revoke 不校验 —— S4-2。`/api/dev/*` 与 `/design` 生产可达 —— S4-6：统一守卫 `lib/dev-only.ts` + 守卫测试，生产构建实测 404。`tsconfig.tsbuildinfo` 误入库 —— S4-6 出库并加入 `.gitignore`。
+- ⏳ **安全事项（推送前必须做）**：BLUEPRINT 的旧库口令已清除，但 **git 历史里仍有**；仓库当前无 remote，推送前必须重写历史并轮换口令。
 
 ## 工作流
 

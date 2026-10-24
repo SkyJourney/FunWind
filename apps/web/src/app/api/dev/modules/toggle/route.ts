@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 // API 路由与页面是两棵模块图：各自显式求值模块注册表
 import "@/modules";
+import { devOnlyResponse } from "@/lib/dev-only";
 import { getEnabledModuleIds, setModuleEnabled } from "@/modules/kernel/state";
 import { getModules } from "@/modules/kernel/registry";
 
@@ -10,9 +11,8 @@ import { getModules } from "@/modules/kernel/registry";
  * 生产不可达；M9 由 /admin 模块管理页替代。
  */
 export async function GET() {
-  if (process.env.NODE_ENV === "production") {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
-  }
+  const blocked = devOnlyResponse();
+  if (blocked) return blocked;
   const enabled = await getEnabledModuleIds();
   return NextResponse.json({
     modules: getModules().map((m) => ({
@@ -24,9 +24,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  if (process.env.NODE_ENV === "production") {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
-  }
+  const blocked = devOnlyResponse();
+  if (blocked) return blocked;
   let body: { id?: string; enabled?: boolean };
   try {
     body = await req.json();
@@ -39,6 +38,6 @@ export async function POST(req: Request) {
   if (!getModules().some((m) => m.id === body.id)) {
     return NextResponse.json({ error: `unknown module: ${body.id}` }, { status: 404 });
   }
-  await setModuleEnabled(body.id, body.enabled);
+  await setModuleEnabled(body.id, body.enabled, { userId: null, via: "dev-api" });
   return NextResponse.json({ ok: true, id: body.id, enabled: body.enabled });
 }

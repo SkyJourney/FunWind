@@ -1,5 +1,7 @@
 import { Archive, ArrowRight, Bell, CreditCard, LogOut, Settings, User } from "lucide-react";
 import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+import { isDevEnv } from "@/lib/dev-only";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { Slot } from "@/modules/kernel/slot";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -85,6 +87,8 @@ function Section({
 }
 
 export default function TokensPage() {
+  // 设计令牌页是内部工具：生产环境不可达（统一守卫见 lib/dev-only.ts）
+  if (!isDevEnv()) notFound();
   return (
     <main className="mx-auto max-w-5xl space-y-12 px-4 py-10 sm:px-6 lg:px-8">
       <header className="flex flex-wrap items-center justify-between gap-4">
