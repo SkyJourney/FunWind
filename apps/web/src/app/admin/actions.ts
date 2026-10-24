@@ -3,31 +3,16 @@
 // 授权管理会派发 role.changed：使用内核的 Server Action 须自行求值模块注册表（硬约定 9），
 // 否则事件只落 event_log、消费者不会被调用（modules-import-guard.test.ts 守护）
 import "@/modules";
-import { headers } from "next/headers";
-import { notFound, redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { getCurrentUser } from "@/lib/auth/session";
 import {
   AdminError,
   createCustomRole,
   deleteCustomRole,
   grantRolePermission,
   revokeRolePermission,
-  type AdminActor,
 } from "@/lib/authz/admin";
-import { checkPermission } from "@/lib/authz/service";
-import { loadSubject } from "@/lib/authz/subject";
-import { clientIpFrom } from "@/lib/net/client-ip";
-
-/** 后台动作门禁：须登录且持有 admin.roles；越权表现为 404（不暴露后台存在） */
-async function requireAdmin(): Promise<AdminActor> {
-  const user = await getCurrentUser();
-  if (!user) redirect("/login");
-  const subject = await loadSubject(user.id);
-  const r = await checkPermission(subject, "admin.roles");
-  if (!r.allowed) notFound();
-  return { userId: user.id, ip: clientIpFrom(await headers()) };
-}
+import { requireAdmin } from "@/lib/authz/require-admin";
 
 /** 执行管理写操作；校验类错误（AdminError）带着消息跳回，其余异常照常抛出 */
 async function run(back: string, fn: () => Promise<void>): Promise<void> {
@@ -46,7 +31,7 @@ const scopeOf = (formData: FormData): number => {
 };
 
 export async function createRoleAction(formData: FormData): Promise<void> {
-  const actor = await requireAdmin();
+  const actor = await requireAdmin("admin.roles");
   const key = String(formData.get("key") ?? "").trim();
   const name = String(formData.get("name") ?? "").trim();
   const description = String(formData.get("description") ?? "").trim();
@@ -56,7 +41,7 @@ export async function createRoleAction(formData: FormData): Promise<void> {
 }
 
 export async function deleteRoleAction(formData: FormData): Promise<void> {
-  const actor = await requireAdmin();
+  const actor = await requireAdmin("admin.roles");
   const key = String(formData.get("key") ?? "");
   await run("/admin/authz", () => deleteCustomRole(actor, key));
   revalidatePath("/admin/authz");
@@ -64,7 +49,7 @@ export async function deleteRoleAction(formData: FormData): Promise<void> {
 }
 
 export async function grantAction(formData: FormData): Promise<void> {
-  const actor = await requireAdmin();
+  const actor = await requireAdmin("admin.roles");
   const roleKey = String(formData.get("roleKey") ?? "");
   const permissionKey = String(formData.get("permissionKey") ?? "");
   await run(`/admin/authz/${roleKey}`, () =>
@@ -74,7 +59,7 @@ export async function grantAction(formData: FormData): Promise<void> {
 }
 
 export async function revokeAction(formData: FormData): Promise<void> {
-  const actor = await requireAdmin();
+  const actor = await requireAdmin("admin.roles");
   const roleKey = String(formData.get("roleKey") ?? "");
   const permissionKey = String(formData.get("permissionKey") ?? "");
   await run(`/admin/authz/${roleKey}`, () =>

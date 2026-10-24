@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
+import { requireAdmin } from "@/lib/authz/require-admin";
 
-export default function AdminIndex() {
+export default async function AdminIndex() {
+  await requireAdmin();
   redirect("/admin/authz");
 }

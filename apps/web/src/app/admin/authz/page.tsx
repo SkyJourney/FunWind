@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createRoleAction, deleteRoleAction } from "@/app/admin/actions";
 import { listRoles } from "@/lib/authz/admin";
+import { requireAdmin } from "@/lib/authz/require-admin";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "角色与授权" };
@@ -10,6 +11,8 @@ export default async function AuthzPage({
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
+  // 第一个 await：局部渲染可能跳过 layout，页面自己必须鉴权（admin-entry-guard.test.ts 守护）
+  await requireAdmin("admin.roles");
   const { error } = await searchParams;
   const roles = await listRoles();
 

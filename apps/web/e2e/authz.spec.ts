@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type BrowserContext } from "@playwright/test";
 import { withE2eDb } from "./support/db";
 import { FIX } from "./support/fixtures";
 import { USERS, loginAs } from "./support/session";
@@ -91,6 +91,65 @@ test.describe("权限内核", () => {
   test("非 admin 访问后台 → 404（不暴露后台存在）", async ({ page, context }) => {
     await loginAs(context, USERS.member);
     expect((await page.goto("/admin/authz"))?.status()).toBe(404);
+  });
+
+  test("后台页面自己也鉴权：伪造 RSC 局部渲染请求（假装已持有父路由的 layout）绕不过去（审查 P2-15）", async ({
+    browser,
+  }) => {
+    // 真实的绕过向量：客户端已持有 /admin 的 layout，只「导航」到子页面——服务端按路由状态树做差，
+    // 只渲染变化的叶子，layout 不再执行。状态树因此必须描述「导航前所在的父路由」。
+    const state = (children: unknown) => ["", { children: ["admin", children] }];
+    const atAdmin = state({ children: ["__PAGE__", {}] }); // 当前在 /admin
+    const atAuthz = state({ children: ["authz", { children: ["__PAGE__", {}] }] }); // 当前在 /admin/authz
+    const targets: { path: string; tree: unknown; marker: string }[] = [
+      { path: "/admin/authz", tree: atAdmin, marker: "新建自定义角色" },
+      { path: "/admin/authz/member", tree: atAuthz, marker: "admin.roles" },
+      { path: `/admin/authz/forum/${FIX.staff.id}`, tree: atAuthz, marker: "仅授权角色" },
+    ];
+    const rscGet = (ctx: BrowserContext, t: { path: string; tree: unknown }) =>
+      ctx.request.get(t.path, {
+        headers: { rsc: "1", "next-router-state-tree": encodeURIComponent(JSON.stringify(t.tree)) },
+        // Next 会先把不带 _rsc 参数的 RSC 请求 307 到 ?_rsc=<hash>（缓存破坏），必须跟随这一跳，
+        // 否则看到的 307 只是这一跳而不是鉴权结果
+      });
+    const newCtx = async (uid: number | null) => {
+      const ctx = await browser.newContext({ baseURL: "http://127.0.0.1:3200" });
+      if (uid !== null) await loginAs(ctx, uid);
+      return ctx;
+    };
+
+    // 对照：admin 用同样的伪造请求能拿到页面内容——证明这条向量确实只渲染叶子、
+    // 下面「拿不到」不是因为请求写错或标记词不对
+    const adminCtx = await newCtx(USERS.admin);
+    for (const t of targets) {
+      const res = await rscGet(adminCtx, t);
+      expect(res.status(), `admin ${t.path}`).toBe(200);
+      expect(await res.text(), `admin ${t.path}`).toContain(t.marker);
+    }
+    await adminCtx.close();
+
+    for (const [label, uid] of [
+      ["游客", null],
+      ["普通会员", USERS.member],
+      ["团队成员", USERS.team],
+    ] as const) {
+      const ctx = await newCtx(uid);
+      for (const t of targets) {
+        const res = await rscGet(ctx, t);
+        const where = `${label} · ${t.path}`;
+        const body = await res.text();
+        expect(body, where).not.toContain(t.marker);
+        // 游客被引去登录页，登录的非 admin 一律 404
+        // 游客：RSC 响应里携带的是跳转到 /login 的指令（200 状态的流式载荷），而不是页面内容
+        if (uid === null) expect(body, where).toContain("/login");
+        // 登录的非 admin：RSC 流里是「找不到」的错误边界（状态码仍是 200 的流），不含页面内容
+        else
+          expect(body, where).toMatch(
+            /NEXT_HTTP_ERROR_FALLBACK;404|NEXT_NOT_FOUND|could not be found/,
+          );
+      }
+      await ctx.close();
+    }
   });
 
   test("admin：可读全部受限版块 + 后台授权矩阵 + 版块权限视角", async ({ page, context }) => {

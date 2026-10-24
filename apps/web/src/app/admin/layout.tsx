@@ -1,19 +1,15 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { notFound } from "next/navigation";
-import { getCurrentUser } from "@/lib/auth/session";
-import { checkPermission } from "@/lib/authz/service";
-import { getCurrentSubject } from "@/lib/authz/subject";
+import { requireAdmin } from "@/lib/authz/require-admin";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "后台" };
 
-/** 后台门禁布局：site.admin 总开关；非 admin 直接 404（不暴露后台存在） */
+/**
+ * 后台门禁布局：site.admin 总开关；非 admin 直接 404（不暴露后台存在）。
+ * 注意这只是第一道门：局部渲染可能跳过 layout，每个页面与 Server Action 仍须自己 requireAdmin。
+ */
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
-  const user = await getCurrentUser();
-  if (!user) redirect("/login");
-  const r = await checkPermission(await getCurrentSubject(), "site.admin");
-  if (!r.allowed) notFound();
+  await requireAdmin();
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">

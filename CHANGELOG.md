@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+### Security（M5.5 之后审查 · P2-15 → 升为 P0：`/admin/**` 页面未授权可读，已修复）
+
+- **漏洞**：`/admin/**` 的鉴权只在 `layout.tsx`，页面与数据读取函数自己不鉴权。Next 的 RSC 局部渲染按路由状态树做差、只渲染变化的叶子，已持有的 layout 不再执行；伪造「客户端已持有 `/admin` 的 layout，只导航到子页面」的请求，**未登录的游客**就能拿到后台页面内容：角色列表、授权矩阵、版块权限视角（含版主用户名）。只读泄露——改授权的 Server Action 自带 `admin.roles` 校验，未受影响。
+- **审查报告的更正**：初稿把这一项标为【未复现】并降级。原因是我的伪造请求被 Next 的 `?_rsc=<hash>` 缓存破坏重定向（307）拦住，我把这一跳误当成了鉴权结果。已在 `docs/reviews/2026-10-24-post-m5.5-review.md` 顶部与第 15 项更正；「没有 P0」的结论作废。
+- **修复**：新增 `lib/authz/require-admin.ts` 的 `requireAdmin(...)`（始终先要求 `site.admin`，再叠加 `admin.roles` 等细分权限；未登录跳登录页，缺权限 404）。layout、`/admin` 首页、三个授权页面、全部 4 个 Server Action 统一使用，并且它必须是入口函数里的**第一个 await**——先于读 params / searchParams 与任何取数。副作用：`admin.roles` 的 Server Action 现在也要求 `site.admin`（此前只要求 `admin.roles`），与页面口径一致。
+- **守护**：`app/admin/admin-entry-guard.test.ts` 静态检查每个入口函数的第一个 await 是 `requireAdmin`（先取数后鉴权也变红，对真实页面 / 动作变异验证逐个点名）；`require-admin.int.test.ts` 4 项真实 MySQL 行为测试（游客跳登录、非 admin 404、admin 通过并带可信 IP、只有 `admin.roles` 没有 `site.admin` 的角色一律 404）；E2E 新增伪造 RSC 请求用例，带**对照组**（admin 用同样请求拿得到页面，证明向量有效）与游客 / 会员 / 团队成员三组负例。**把页面级鉴权去掉后该用例对游客变红**，即漏洞确实存在；加回后全绿（E2E 共 62 + 冒烟 7）。
+- 未做：审查原建议里「数据读取函数自己鉴权」。`listRoles` / `getRoleGrants` 读取的是授权配置而非用户数据，调用点只有后台页面，入口门禁 + 静态守卫已覆盖；如 M9 后台扩张出现被其他入口复用的读取函数，再补。
+
 ### Security（M5.5 之后审查 · P2 小批 6/6：演示种子的生产守卫）
 
 - `db:seed` 会写入固定口令的演示管理员与固定邀请码，在真实站点库误跑等于开后门，此前没有任何保护。新增 `packages/db/src/seed-guard.ts`，`db:seed` 与 `db:e2e-fixtures` 启动前先过守卫：`NODE_ENV=production`，或目标库里已有**非演示用户**（用户名键不以 `demo_` / `e2e_` 开头，即真实注册或迁移导入的账号）→ 拒绝并打印原因，须显式 `--force` 才覆盖（并留下警告）。

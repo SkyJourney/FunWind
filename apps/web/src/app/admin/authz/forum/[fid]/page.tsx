@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { requireAdmin } from "@/lib/authz/require-admin";
 import { getForumModerators } from "@/lib/authz/service";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
 
@@ -11,6 +12,8 @@ const WRITE_LABEL = { members: "登录会员（凭全局发帖权）", restricte
 const REVIEW_LABEL = { none: "无需审核", threads: "新主题需审核", all: "所有发帖需审核" } as const;
 
 export default async function ForumAuthzPage({ params }: { params: Promise<{ fid: string }> }) {
+  // 第一个 await：局部渲染可能跳过 layout，页面自己必须鉴权（admin-entry-guard.test.ts 守护）
+  await requireAdmin("admin.roles");
   const { fid: fidRaw } = await params;
   const fid = Number(fidRaw);
   if (!Number.isInteger(fid)) notFound();

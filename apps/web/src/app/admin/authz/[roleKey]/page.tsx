@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { grantAction, revokeAction } from "@/app/admin/actions";
 import { getRoleGrants, listPermissions, listRoles } from "@/lib/authz/admin";
+import { requireAdmin } from "@/lib/authz/require-admin";
 import { getForumTree } from "@/lib/authz/snapshot";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +15,8 @@ export default async function RoleMatrixPage({
   params: Promise<{ roleKey: string }>;
   searchParams: Promise<{ error?: string; scopeForum?: string }>;
 }) {
+  // 第一个 await：局部渲染可能跳过 layout，页面自己必须鉴权（admin-entry-guard.test.ts 守护）
+  await requireAdmin("admin.roles");
   const { roleKey } = await params;
   const { error, scopeForum } = await searchParams;
 
