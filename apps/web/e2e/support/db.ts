@@ -31,6 +31,8 @@ export async function withE2eDb<T>(fn: (q: Q) => Promise<T>): Promise<T> {
     timezone: "+08:00",
     dateStrings: true,
   });
+  // 与 @funwind/db 的 createPool 同口径：服务器侧 NOW() 必须是北京墙面时间（timezone 选项不改会话时区）
+  await conn.query("SET time_zone = '+08:00'");
   try {
     return await fn({
       query: async <R>(sql: string, params: unknown[] = []) =>

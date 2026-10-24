@@ -162,6 +162,17 @@ try {
     );
   }
 
+  // 4b. 连接层会话时区：NOW() 必须是北京墙面时间（审查 P1-1）。pool 来自 createPool，应已锁定为 +08:00
+  const [tzRows] = await pool.query<RowDataPacket[]>(
+    "SELECT @@session.time_zone AS tz, @@global.time_zone AS gtz, @@system_time_zone AS stz",
+  );
+  const tz = tzRows[0] as { tz: string; gtz: string; stz: string };
+  add(
+    "conn:会话时区",
+    tz.tz === "+08:00",
+    `session=${tz.tz}（服务器 global=${tz.gtz} / system=${tz.stz}；运行时靠连接层 SET 锁定）`,
+  );
+
   // 5. 权限数据健康 + 系统种子
   const [badRoles] = await pool.query<RowDataPacket[]>(
     `SELECT DISTINCT role_key AS k FROM (

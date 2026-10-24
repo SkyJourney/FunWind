@@ -11,9 +11,12 @@ export interface DbContext {
 }
 
 /**
- * 连接层约定（基线审查 P1-2，2026-10-23）：
- * - 库内 DATETIME 一律为「北京墙面时间」（迁移 toDatetime 固定 +8；本层 timezone 锁定
- *   Date 序列化/解析语义，不随进程/容器时区漂移）
+ * 连接层约定（基线审查 P1-2，2026-10-23；时区补强 2026-10-24 审查 P1-1）：
+ * - 库内 DATETIME 一律为「北京墙面时间」（迁移 toDatetime 固定 +8）
+ * - 时区要在两处同时锁定，缺一不可：
+ *   · mysql2 的 timezone 选项只管客户端 Date 的序列化/解析，**不会**改变服务器会话时区；
+ *   · 服务器侧 NOW() 取决于会话 time_zone（默认 SYSTEM，容器通常是 UTC），
+ *     所以每条新连接必须显式 SET time_zone（见 SESSION_TIME_ZONE_SQL 与 createPool）。
  * - dateStrings: 读取按原样字符串返回，任何解析必须经 web 侧 parseDbDateTime（显式 +08:00）
  * - web 运行时用 getWebPool 单例池（globalThis 守卫，HMR 安全）；withDb 仅限一次性脚本
  */
@@ -24,13 +27,21 @@ const CONNECTION_OPTS = {
   multipleStatements: false,
 } as const;
 
+/** 新连接建立后立即执行：让服务器侧 NOW() 等函数与库内「北京墙面时间」同口径 */
+export const SESSION_TIME_ZONE_SQL = "SET time_zone = '+08:00'";
+
 /** 连接池工厂：一次性脚本用（用完即 end） */
 export function createPool(config = newDbConfig()) {
-  return mysql.createPool({
+  const pool = mysql.createPool({
     ...config,
     ...CONNECTION_OPTS,
     connectionLimit: 8,
   });
+  // 'connection' 事件在新连接建立后、交给调用方之前触发；此处入队的 SET 先于该连接上的任何后续查询执行
+  pool.pool.on("connection", (conn) => {
+    conn.query(SESSION_TIME_ZONE_SQL);
+  });
+  return pool;
 }
 
 export function createDb(pool: mysql.Pool): Db {

@@ -2,7 +2,8 @@ import { and, eq, sql } from "drizzle-orm";
 import { getWebDb, userRestrictions } from "@funwind/db";
 
 /**
- * 用户限制的“当前生效”判定（库内 DATETIME 为北京墙面时间，连接层 +08:00，NOW() 与之同口径）。
+ * 用户限制的“当前生效”判定（库内 DATETIME 为北京墙面时间，连接建立时 `SET time_zone='+08:00'`（packages/db 的 createPool），NOW() 因此与之同口径；
+ * 若会话时区被改回 UTC，封禁/过期会整体偏移 8 小时，由 db 包集成测试守住）。
  * 抽成独立叶子模块：session（会话有效性）与 subject（权限主体）都要用，避免循环依赖。
  */
 export const restrictionActive = sql`${userRestrictions.startsAt} <= NOW()

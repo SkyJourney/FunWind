@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+### Fixed（M5.5 之后审查 · P1-1 数据库会话时区）
+
+- **`NOW()` 与「库内 DATETIME 为北京墙面时间」不同口径**：mysql2 的 `timezone:"+08:00"` 只管客户端 `Date` 序列化，服务器会话时区仍是容器的 UTC，
+  导致封禁/角色/会话过期判断偏移 8 小时、台账与审计时间显示早 8 小时。现 `createPool` 对每条新连接执行 `SET time_zone='+08:00'`（E2E 裸连接同样）。
+- 新增 `packages/db/src/client.int.test.ts`（真实 MySQL：会话时区、`NOW()` 对客户端北京墙面时间误差 < 5s、池内多连接均生效；还原修复后全红）；`db:verify` 增加 `conn:会话时区`（共 11 项）。
+- 审查报告见 `docs/reviews/2026-10-24-post-m5.5-review.md`（2 个 P1 + 16 个 P2）；本条为其 P1-1。
+
 ### Added（推送准备 · D：GitHub Actions CI）
 
 - 新增 `.github/workflows/ci.yml`（`push` 到 main 与 `pull_request` 触发，`permissions: contents: read`，不使用任何仓库密钥）：
