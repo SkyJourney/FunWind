@@ -72,7 +72,7 @@ pnpm test:e2e               # Playwright（chromium）
 |------|------|------|
 | 应用（开发） | http://127.0.0.1:3100 | `pnpm dev` |
 | 旧库（**只读红线**） | `127.0.0.1:33620/qingyisub`（GBK，mysql 5.7） | 见 `.env`（迁移程序内置只读守卫，非 SELECT 直接抛错） |
-| 新库 | `127.0.0.1:33621/qysub_next`（MySQL 8.4） | root / ***REMOVED***（本地开发） |
+| 新库 | `127.0.0.1:33621/qysub_next`（MySQL 8.4） | root / 口令见根 `.env` 的 `NEW_DB_PASSWORD`（不入库） |
 | 旧站本地还原 | http://127.0.0.1:8080 | qingyisub-nginx 容器 |
 | 附件目录（旧站） | `…/www.qingyisub.top/attachment/`（527MB，只读） | 仅作迁移来源；新系统经 `/files/**` 提供（迁入内容寻址存储） |
 | 表情目录（旧站） | 同上 `res/images/emotion/` | 迁移期已展开为 `/emoji/{id}.gif` 静态图 |

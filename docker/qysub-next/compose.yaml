@@ -11,7 +11,9 @@ services:
     ports:
       - "127.0.0.1:33621:3306"
     environment:
-      - MYSQL_ROOT_PASSWORD=***REMOVED***
+      # 口令只放在不入库的根 .env（NEW_DB_PASSWORD），不要写进本文件。
+      # 启动：docker compose --env-file .env -f docker/qysub-next/compose.yaml up -d
+      - MYSQL_ROOT_PASSWORD=${NEW_DB_PASSWORD:?请先在仓库根 .env 设置 NEW_DB_PASSWORD}
       - MYSQL_DATABASE=qysub_next
     command:
       - --character-set-server=utf8mb4
@@ -19,7 +21,7 @@ services:
     volumes:
       - /Volumes/Docker/data/qysub-next/mysql:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p***REMOVED***"]
+      test: ["CMD-SHELL", 'mysqladmin ping -h 127.0.0.1 -p"$$MYSQL_ROOT_PASSWORD" --silent']
       interval: 10s
       timeout: 5s
       retries: 6

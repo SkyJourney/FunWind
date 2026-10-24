@@ -116,4 +116,4 @@ pnpm --filter @funwind/web perf:lcp                       # 生产构建 LCP 门
 1. 领取里程碑 → 严守其「范围/边界」；完成定义（DoD）= 门禁 checklist 全勾 + CHANGELOG + 相关文档同步 + 遗留事项记录。
 2. 门禁以真实命令输出为准，不凭文档勾选；测试规则见 `docs/ROADMAP.md`「全局测试基线」。
 3. 代码注释一律简体中文（类/方法/复杂逻辑），标识符保持英文。
-4. 本地开发凭据见 `README.md`「环境速查」与根 `.env`（已 gitignore）；**不要把口令写进文档或提交**。
+4. 本地开发凭据只放根 `.env`（已 gitignore；模板见 `.env.example`），README 里只有变量名；**不要把口令写进文档或提交**，`pnpm check:secrets`（pre-push / CI 自动跑）会拦截。

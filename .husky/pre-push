@@ -1,4 +1,5 @@
 # 推送前门禁：类型检查 + 全部测试（含真实 MySQL 的集成测试，需要 docker/qysub-next 在线）。
 # 确无数据库的环境请显式跳过集成测试，而不是静默放行：  SKIP_DB_TESTS=1 git push
 # 紧急绕过整个钩子（不推荐，会跳过全部检查）：  git push --no-verify
-pnpm typecheck && pnpm test
+# 先跑秘密扫描（秒级）：口令/真实邮箱进了被跟踪文件就在这里拦住，不必等完整测试
+pnpm check:secrets && pnpm typecheck && pnpm test
