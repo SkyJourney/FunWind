@@ -15,6 +15,14 @@ export class RegisterError extends Error {
   }
 }
 
+/** 邀请码无效 / 已被使用 / 已过期：与「用户名或邮箱被占用」区分开，邀请码猜测限速只统计这一类（见 invite-limit.ts） */
+export class InviteCodeError extends RegisterError {
+  constructor() {
+    super("邀请码无效或已被使用");
+    this.name = "InviteCodeError";
+  }
+}
+
 /** 唯一键冲突（drizzle 会把 mysql2 错误包在 cause 里） */
 export function isDuplicateKey(e: unknown): boolean {
   const err = e as { code?: string; errno?: number; cause?: { code?: string; errno?: number } };
@@ -56,7 +64,7 @@ export async function registerUser(input: RegisterInput): Promise<number> {
           );
         // 原子核销：并发复用同一邀请码时，只有一个事务能把 used_by 从 NULL 改掉
         if ((redeemed as unknown as [{ affectedRows: number }])[0]?.affectedRows !== 1) {
-          throw new RegisterError("邀请码无效或已被使用");
+          throw new InviteCodeError();
         }
       }
       return id;

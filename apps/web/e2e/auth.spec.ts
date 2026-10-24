@@ -1,4 +1,6 @@
 import { expect, test } from "@playwright/test";
+import { createHash, randomBytes } from "node:crypto";
+import { withE2eDb } from "./support/db";
 
 /**
  * M4 · 用户与认证 E2E。
@@ -9,19 +11,35 @@ import { expect, test } from "@playwright/test";
 
 const MAIL_API = "http://127.0.0.1:8025/api/v1";
 
-async function latestLinkFor(email: string, subjectPart: string): Promise<string> {
-  const res = await fetch(`${MAIL_API}/messages?limit=20`);
-  const data = (await res.json()) as {
-    messages: { ID: string; To: { Address: string }[]; Subject: string }[];
-  };
-  const mail = (data.messages ?? []).find(
-    (m) => m.To.some((t) => t.Address === email) && m.Subject.includes(subjectPart),
-  );
-  if (!mail) throw new Error(`未找到邮件: ${email} / ${subjectPart}`);
-  const full = (await (await fetch(`${MAIL_API}/message/${mail.ID}`)).json()) as { HTML: string };
-  const link = full.HTML.match(/href="(http[^"]+)"/)?.[1];
-  if (!link) throw new Error("邮件中未找到链接");
-  return link;
+/**
+ * 取 `since` 之后到达的最新一封邮件里的链接。找回 / 认领邮件在响应之后才发（after()，M5.6 S3：响应时间不能泄露邮箱是否存在），
+ * 所以页面提示出现时邮件可能还在路上，这里轮询到出现为止。
+ * 必须按 `since` 过滤：MailPit 会跨次运行保留旧邮件，不过滤的话一见到旧邮件就返回，拿到的是上一次运行的过期令牌。
+ */
+async function latestLinkFor(email: string, subjectPart: string, since: number): Promise<string> {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    const res = await fetch(`${MAIL_API}/messages?limit=20`);
+    const data = (await res.json()) as {
+      messages: { ID: string; Created: string; To: { Address: string }[]; Subject: string }[];
+    };
+    const mail = (data.messages ?? []).find(
+      (m) =>
+        m.To.some((t) => t.Address === email) &&
+        m.Subject.includes(subjectPart) &&
+        Date.parse(m.Created) >= since,
+    );
+    if (mail) {
+      const full = (await (await fetch(`${MAIL_API}/message/${mail.ID}`)).json()) as {
+        HTML: string;
+      };
+      const link = full.HTML.match(/href="(http[^"]+)"/)?.[1];
+      if (!link) throw new Error("邮件中未找到链接");
+      return link;
+    }
+    if (Date.now() > deadline) throw new Error(`未找到邮件: ${email} / ${subjectPart}`);
+    await new Promise((r) => setTimeout(r, 200));
+  }
 }
 
 test.describe.configure({ mode: "serial" });
@@ -68,10 +86,11 @@ test.describe("M4 · 用户与认证", () => {
   test("找回流程（已设密账户）：邮件链接 → 重置密码 → 新密码登录", async ({ page }) => {
     await page.goto("/forgot");
     await page.getByLabel("注册邮箱").fill(EMAIL);
+    const since = Date.now() - 1000; // 容忍时间戳取整
     await page.getByRole("button", { name: "发送邮件" }).click();
     await expect(page.getByText("若该邮箱已注册，邮件已发出")).toBeVisible();
 
-    const link = await latestLinkFor(EMAIL, "重置密码");
+    const link = await latestLinkFor(EMAIL, "重置密码", since);
     await page.goto(link.replace("http://127.0.0.1:3100", ""));
     await page.getByLabel("新密码（至少 8 位）").fill("new-pass-456");
     await page.getByLabel("确认新密码").fill("new-pass-456");
@@ -89,10 +108,11 @@ test.describe("M4 · 用户与认证", () => {
   test("认领流程（无密码老账户 demo_alice）：邮件链接 → 设密 → 登录", async ({ page }) => {
     await page.goto("/forgot");
     await page.getByLabel("注册邮箱").fill("alice@demo.local");
+    const since = Date.now() - 1000;
     await page.getByRole("button", { name: "发送邮件" }).click();
     await expect(page.getByText("若该邮箱已注册，邮件已发出")).toBeVisible();
 
-    const link = await latestLinkFor("alice@demo.local", "认领");
+    const link = await latestLinkFor("alice@demo.local", "认领", since);
     await page.goto(link.replace("http://127.0.0.1:3100", ""));
     await page.getByLabel("新密码（至少 8 位）").fill("alice-pass-789");
     await page.getByLabel("确认新密码").fill("alice-pass-789");
@@ -126,6 +146,52 @@ test.describe("M4 · 用户与认证", () => {
     await page.getByRole("button", { name: "登录" }).click();
     await expect(page.getByText(/账号已被封禁/)).toBeVisible();
     await expect(page.getByText(/E2E 封禁夹具/)).toBeVisible();
+  });
+
+  test("邮箱验证确认页：GET 不消费令牌（邮件扫描器预取不会让链接失效），点按钮才消费，之后同一链接无效", async ({
+    page,
+    request,
+  }) => {
+    const token = randomBytes(32).toString("base64url");
+    const id = createHash("sha256").update(token).digest("hex");
+    const usedAt = () =>
+      withE2eDb((q) =>
+        q.query<{ used_at: string | null }>("SELECT used_at FROM email_tokens WHERE id = ?", [id]),
+      );
+    await withE2eDb((q) =>
+      q.exec(
+        "INSERT INTO email_tokens (id, purpose, user_id, created_at, expires_at) VALUES (?, 'verify', 90002, NOW(), NOW() + INTERVAL 1 DAY)",
+        [id],
+      ),
+    );
+    try {
+      // 模拟邮件扫描器 / 链接预览：反复 GET
+      for (let i = 0; i < 3; i++) {
+        const res = await request.get(`/verify/${token}`);
+        expect(res.status()).toBe(200);
+        expect(await res.text()).toContain("确认验证邮箱");
+      }
+      expect((await usedAt())[0]!.used_at).toBeNull(); // 仍未被消费
+
+      await page.goto(`/verify/${token}`);
+      await page.getByRole("button", { name: "确认验证邮箱" }).click();
+      await expect(page.getByText("邮箱验证完成")).toBeVisible();
+      expect((await usedAt())[0]!.used_at).not.toBeNull();
+
+      // 对照：已消费的令牌再点按钮是无效链接
+      await page.goto(`/verify/${token}`);
+      await page.getByRole("button", { name: "确认验证邮箱" }).click();
+      await expect(page.getByText("验证链接无效或已过期")).toBeVisible();
+    } finally {
+      await withE2eDb((q) => q.exec("DELETE FROM email_tokens WHERE id = ?", [id]));
+    }
+  });
+
+  test("登录页的“忘记密码 / 认领老账号”可达（此前指向不存在的 /claim）", async ({ page }) => {
+    await page.goto("/login");
+    await page.getByRole("link", { name: "忘记密码 / 认领老账号" }).click();
+    await expect(page).toHaveURL(/\/forgot$/);
+    await expect(page.getByRole("button", { name: "发送邮件" })).toBeVisible();
   });
 
   // M5.6 S2（审查 C2）。放在最后：这里会让 USERNAME 的 (IP, 标识符) 桶满，它之后不能再被其他用例用到。

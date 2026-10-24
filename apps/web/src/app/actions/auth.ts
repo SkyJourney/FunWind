@@ -1,22 +1,26 @@
 "use server";
 
-import { and, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 // 使用内核的 Server Action 须自行求值模块注册表（硬约定 9）
 import "@/modules";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { headers } from "next/headers";
-import { getWebDb, normalizeKey, users } from "@funwind/db";
+import { getWebDb, users } from "@funwind/db";
 import { findActiveGlobalBan } from "@/lib/authz/restrictions";
 import { clientIpFrom } from "@/lib/net/client-ip";
 import { emit } from "@/modules/kernel/bus";
 import type { EventName, EventPayloads } from "@/modules/kernel/types";
 import { attemptLogin } from "@/lib/auth/login";
+import { isValidEmail } from "@/lib/auth/email";
+import { requestAccountEmail } from "@/lib/auth/forgot";
 import { hashPassword } from "@/lib/auth/password";
-import { RegisterError, registerUser } from "@/lib/auth/register";
+import { takeInviteAttempt } from "@/lib/auth/invite-limit";
+import { InviteCodeError, RegisterError, registerUser } from "@/lib/auth/register";
 import { createSession, destroyCurrentSession, revokeAllForUser } from "@/lib/auth/session";
 import { rateLimit } from "@/lib/auth/ratelimit";
 import { issueEmailToken } from "@/lib/auth/tokens";
-import { claimMail, resetPasswordMail, sendMail, verifyEmailMail } from "@/lib/auth/mailer";
+import { sendMail, verifyEmailMail } from "@/lib/auth/mailer";
 import { getRegisterMode } from "@/lib/auth/settings";
 
 /**
@@ -35,7 +39,6 @@ async function safeEmit<K extends EventName>(name: K, payload: EventPayloads[K])
 }
 
 const USERNAME_RE = /^[a-zA-Z0-9_\u4e00-\u9fa5]{2,20}$/;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
  * IP 级频控键；取不到可信 IP 时为 null。
@@ -111,8 +114,12 @@ export async function registerAction(formData: FormData): Promise<void> {
     fail("注册过于频繁，请稍后再试");
   }
   if (!USERNAME_RE.test(username)) fail("用户名需 2-20 位（中文/字母/数字/下划线）");
-  if (!EMAIL_RE.test(email)) fail("邮箱格式不正确");
+  if (!isValidEmail(email)) fail("邮箱格式不正确");
   if (password.length < 8) fail("密码至少 8 位");
+
+  // 邀请制：邀请码是唯一门槛，猜测单独限速（先占后退，只有邀请码无效才留下计数）
+  const inviteAttempt = mode === "invite" ? takeInviteAttempt(clientIpFrom(await headers())) : null;
+  if (inviteAttempt && !inviteAttempt.allowed) fail("邀请码尝试过于频繁，请稍后再试");
 
   const passwordHash = await hashPassword(password);
 
@@ -125,9 +132,14 @@ export async function registerAction(formData: FormData): Promise<void> {
       invite: mode === "invite" ? invite : null,
     });
   } catch (e) {
-    if (e instanceof RegisterError) return fail(e.message);
+    if (e instanceof RegisterError) {
+      if (!(e instanceof InviteCodeError)) inviteAttempt?.refund(); // 与邀请码无关的失败不计入
+      return fail(e.message);
+    }
+    inviteAttempt?.refund();
     throw e;
   }
+  inviteAttempt?.refund();
 
   if (mode === "open") {
     // 开放注册：邮箱验证令牌（验证前可登录、可浏览，写类权限由评估器拦截）
@@ -145,36 +157,10 @@ export async function registerAction(formData: FormData): Promise<void> {
 }
 
 export async function forgotAction(formData: FormData): Promise<void> {
-  const email = String(formData.get("email") ?? "")
-    .trim()
-    .toLowerCase();
-  if (!ipAllowed(await ipRateKey("forgot"), 5, 15 * 60_000)) {
-    redirect("/forgot?sent=1"); // 频控也返回中性视图
-  }
-
-  const db = getWebDb();
-  const rows = await db
-    .select({ id: users.id, passwordHash: users.passwordHash })
-    .from(users)
-    .where(and(eq(users.emailKey, normalizeKey(email)), eq(users.state, "active")))
-    .limit(1);
-  const user = rows[0];
-  if (user) {
-    // 按账号限额，且只对真实存在的账号计数（限额表不会被任意输入撑大）：
-    //  · 短冷却（2 分钟 1 封）+ 小时上限（6 封）防对同一邮箱的邮件轰炸，也在无可信 IP 时兜底；
-    //  · 不会让人把别人锁在外面：被限额丢弃的请求不签发新令牌，也就不会作废此前已发到本人邮箱的有效链接，
-    //    而触发那次发送的邮件本来就是发给邮箱主人的。
-    const allowed =
-      rateLimit(`forgot-cooldown:${user.id}`, 1, 2 * 60_000).allowed &&
-      rateLimit(`forgot-hour:${user.id}`, 6, 60 * 60_000).allowed;
-    if (allowed) {
-      const purpose = user.passwordHash ? "reset" : "claim";
-      const token = await issueEmailToken(user.id, purpose);
-      const { APP_URL } = await import("@/lib/site");
-      const link = `${APP_URL}/${purpose === "claim" ? "claim" : "reset"}/${token}`;
-      await sendMail(email, purpose === "claim" ? claimMail(link) : resetPasswordMail(link));
-    }
-  }
+  // 判定与限额见 lib/auth/forgot.ts；无论结果如何都跳到同一个中性视图，响应时间也与邮箱是否存在无关
+  await requestAccountEmail(String(formData.get("email") ?? ""), clientIpFrom(await headers()), {
+    defer: (task) => after(task),
+  });
   redirect("/forgot?sent=1");
 }
 
@@ -262,6 +248,17 @@ export async function claimAction(formData: FormData): Promise<void> {
     .where(eq(users.id, userId));
   await revokeAllForUser(userId);
   redirect("/login?message=" + encodeURIComponent("账号认领成功，请登录"));
+}
+
+/** 邮箱验证确认（/verify/{token} 页面的按钮）：POST 才消费令牌，见该页注释 */
+export async function verifyEmailAction(formData: FormData): Promise<void> {
+  const token = String(formData.get("token") ?? "");
+  const { consumeEmailToken } = await import("@/lib/auth/tokens");
+  const userId = await consumeEmailToken(token, "verify");
+  if (userId === null) {
+    redirect("/login?error=" + encodeURIComponent("验证链接无效或已过期"));
+  }
+  redirect("/login?message=" + encodeURIComponent("邮箱验证完成，请登录"));
 }
 
 export async function logoutAction(): Promise<void> {

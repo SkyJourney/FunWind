@@ -7,6 +7,9 @@ import { generateToken, hashToken } from "./token";
 
 /**
  * 服务端会话（M4）：不透明令牌 cookie，库内只存 SHA-256。
+ * 有效期口径：**30 天绝对过期**，从登录那一刻算起，活跃使用不延长（M5.6 S3 明确）。
+ * 真正的滑动续期要同时延长 expires_at 并刷新 cookie 的 maxAge，而 cookie 只能在 Server Action / Route Handler 里写，
+ * 不能在 RSC 渲染里写；要做须引入中间件，暂不做。last_seen_at 只作活跃度展示，不参与有效期判定。
  * 可撤销性：封禁/改密 → revokeAllForUser 即时失效全部会话。
  * cookie Secure 按站点协议自动判定（http://127.0.0.1 下浏览器拒收 Secure，E2E 必需）。
  */
@@ -60,7 +63,7 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
   // 全站封禁中：会话视为失效（登录页会显示理由与期限）
   if (await findActiveGlobalBan(row.userId)) return null;
 
-  // 滑动续期（每小时至多一次，避免写放大）
+  // 记录最近活跃时间（每小时至多写一次，避免写放大）。注意：不延长 expires_at，见文件头的有效期口径
   await db
     .update(sessions)
     .set({ lastSeenAt: sql`NOW()` })

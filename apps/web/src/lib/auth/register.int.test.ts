@@ -7,7 +7,7 @@ import { eq, sql } from "drizzle-orm";
 import { DEMO, getWebDb, inviteCodes, userProfiles, users } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
-import { RegisterError, registerUser } from "./register";
+import { InviteCodeError, RegisterError, registerUser } from "./register";
 import { consumeEmailToken, issueEmailToken } from "./tokens";
 
 let tdb: TempDb;
@@ -87,6 +87,26 @@ describe.skipIf(skipDb)("注册事务 · 真实 MySQL", () => {
     expect(await userCount()).toBe(before);
     const rolledBack = await getWebDb().select().from(users).where(eq(users.usernameKey, "回滚甲"));
     expect(rolledBack).toHaveLength(0);
+  });
+
+  it("错误类型可区分：邀请码无效 / 已用 / 过期是 InviteCodeError；用户名被占用只是 RegisterError（邀请码猜测限速只统计前者）", async () => {
+    await addInvite("INV-KIND");
+    await registerUser(input({ username: "类型甲", email: "k1@example.com", invite: "INV-KIND" }));
+    const used = await registerUser(
+      input({ username: "类型乙", email: "k2@example.com", invite: "INV-KIND" }),
+    ).catch((e: unknown) => e);
+    const missing = await registerUser(
+      input({ username: "类型丙", email: "k3@example.com", invite: "NO-SUCH" }),
+    ).catch((e: unknown) => e);
+    expect(used).toBeInstanceOf(InviteCodeError);
+    expect(missing).toBeInstanceOf(InviteCodeError);
+    // 对照：邀请码有效但用户名重复，不是邀请码错误
+    await addInvite("INV-KIND-2");
+    const dup = await registerUser(
+      input({ username: "类型甲", email: "k4@example.com", invite: "INV-KIND-2" }),
+    ).catch((e: unknown) => e);
+    expect(dup).toBeInstanceOf(RegisterError);
+    expect(dup).not.toBeInstanceOf(InviteCodeError);
   });
 
   it("并发复用同一邀请码：恰有一个成功，其余回滚", async () => {

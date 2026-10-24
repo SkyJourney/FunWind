@@ -1,0 +1,79 @@
+import { and, eq } from "drizzle-orm";
+import { getWebDb, normalizeKey, users } from "@funwind/db";
+import { APP_URL } from "@/lib/site";
+import { claimMail, resetPasswordMail, sendMail } from "./mailer";
+import { MAX_EMAIL_LENGTH } from "./email";
+import { rateLimit } from "./ratelimit";
+import { issueEmailToken } from "./tokens";
+
+/**
+ * 找回密码 / 认领账号的发信判定（M5.6 S3）。Server Action 只负责取表单、调用本函数、跳转到中性视图。
+ *
+ * 防枚举（时序）：旧实现对存在的邮箱会 await 签发令牌 + 发信，响应明显比不存在的邮箱慢，能枚举注册邮箱。
+ * 现在响应前只做一次按邮箱的查库（存在与否耗时相同），签发令牌与发信一律交给 defer（生产里是 Next 的 after()，
+ * 响应发出之后才执行），响应时间与邮箱是否存在无关。
+ *
+ * 频控：有可信 IP 按 IP 限额；取不到时退回全局兜底桶（宽松，只防批量轰炸，见 client-ip.ts 说明为什么不能共享 IP 桶）。
+ * 按账号另有 2 分钟 1 封 + 每小时 6 封：只对真实存在的账号计数（限额表不会被任意输入撑大），
+ * 被限额丢弃的请求不签发新令牌——这不会让人把别人锁在外面（令牌共存，见 tokens.ts）。
+ */
+
+export const FORGOT_LIMITS = {
+  ip: { max: 5, windowMs: 15 * 60_000 },
+  global: { max: 60, windowMs: 15 * 60_000 },
+  cooldown: { max: 1, windowMs: 2 * 60_000 },
+  hourly: { max: 6, windowMs: 60 * 60_000 },
+} as const;
+
+export interface ForgotDeps {
+  /** 响应之后执行的任务（生产：Next 的 after()）；单测注入以验证“响应不等发信” */
+  defer: (task: () => Promise<void>) => void;
+  /** 为该用户签发令牌并发信；缺省走真实令牌与邮件 */
+  deliver?: (user: { id: number; hasPassword: boolean }, email: string) => Promise<void>;
+}
+
+async function defaultDeliver(user: { id: number; hasPassword: boolean }, email: string) {
+  const purpose = user.hasPassword ? "reset" : "claim";
+  const token = await issueEmailToken(user.id, purpose);
+  const link = `${APP_URL}/${purpose}/${token}`;
+  await sendMail(email, purpose === "claim" ? claimMail(link) : resetPasswordMail(link));
+}
+
+/** 无论结果如何都返回 void：调用方一律跳转到同一个中性视图 */
+export async function requestAccountEmail(
+  rawEmail: string,
+  ip: string | null,
+  deps: ForgotDeps,
+): Promise<void> {
+  const email = rawEmail.trim().toLowerCase();
+  if (email === "" || email.length > MAX_EMAIL_LENGTH) return;
+
+  const lim = ip !== null ? FORGOT_LIMITS.ip : FORGOT_LIMITS.global;
+  if (!rateLimit(ip !== null ? `forgot:${ip}` : "forgot-global", lim.max, lim.windowMs).allowed)
+    return;
+
+  const rows = await getWebDb()
+    .select({ id: users.id, passwordHash: users.passwordHash })
+    .from(users)
+    .where(and(eq(users.emailKey, normalizeKey(email)), eq(users.state, "active")))
+    .limit(1);
+  const user = rows[0];
+  if (!user) return;
+
+  const { cooldown, hourly } = FORGOT_LIMITS;
+  if (
+    !rateLimit(`forgot-cooldown:${user.id}`, cooldown.max, cooldown.windowMs).allowed ||
+    !rateLimit(`forgot-hour:${user.id}`, hourly.max, hourly.windowMs).allowed
+  )
+    return;
+
+  const deliver = deps.deliver ?? defaultDeliver;
+  deps.defer(async () => {
+    try {
+      await deliver({ id: user.id, hasPassword: user.passwordHash !== null }, email);
+    } catch (e) {
+      // 响应早已发出，这里只能记日志；用户重新申请即可
+      console.error("[auth] 找回邮件发送失败:", e);
+    }
+  });
+}

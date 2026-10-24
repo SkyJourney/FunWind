@@ -22,12 +22,9 @@ export default async function LoginPage({
             注册
           </Link>
           {" · "}
+          {/* 认领入口就是找回页：输入邮箱，老账号（无密码）会收到「认领」邮件。/claim 只有带令牌的子路由，不能直接访问 */}
           <Link className="text-primary hover:underline" href="/forgot">
-            忘记密码
-          </Link>
-          {" · "}
-          <Link className="text-primary hover:underline" href="/claim">
-            认领老账号
+            忘记密码 / 认领老账号
           </Link>
         </>
       }

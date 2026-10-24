@@ -4,12 +4,12 @@
  * 此前只有顺序用例；「单次、原子消费」的结论来自读代码。这里真的并发打：
  * 同一个令牌被多个请求同时消费，恰好一个成功，其余都拿到 null。
  */
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { DEMO, emailTokens, getWebDb, users } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { hashToken } from "./token";
-import { consumeEmailToken, issueEmailToken } from "./tokens";
+import { MAX_LIVE_TOKENS, consumeEmailToken, issueEmailToken } from "./tokens";
 
 let tdb: TempDb;
 
@@ -66,13 +66,70 @@ describe.skipIf(skipDb)("邮件令牌 · 真实 MySQL", () => {
     expect(row?.usedAt).toBeNull();
   });
 
-  it("重签使旧令牌作废；空令牌与随机串不消费任何东西", async () => {
-    const first = await issueEmailToken(DEMO.alice, "reset");
-    const second = await issueEmailToken(DEMO.alice, "reset");
-    expect(await consumeEmailToken(first, "reset")).toBeNull();
-    expect(await consumeEmailToken(second, "reset")).toBe(DEMO.alice);
+  it("空令牌与随机串不消费任何东西", async () => {
     expect(await consumeEmailToken("", "reset")).toBeNull();
     expect(await consumeEmailToken("not-a-real-token", "reset")).toBeNull();
+  });
+
+  describe("共存与作废（M5.6 S3：别人替你请求找回，不能让你邮箱里已有的链接失效）", () => {
+    it("重发不使未过期的旧令牌失效：先后签发的两个都能用（旧实现第一个会作废）", async () => {
+      const first = await issueEmailToken(DEMO.xiaoyi, "reset");
+      const second = await issueEmailToken(DEMO.xiaoyi, "reset");
+      expect(await consumeEmailToken(first, "reset")).toBe(DEMO.xiaoyi);
+      // first 被成功使用后，second 作废（见下一条）
+      expect(await consumeEmailToken(second, "reset")).toBeNull();
+    });
+
+    it("成功使用一个令牌后，同用户同用途的其余令牌一并作废；对照：别的用途与别的用户不受影响", async () => {
+      const a1 = await issueEmailToken(DEMO.member, "reset");
+      const a2 = await issueEmailToken(DEMO.member, "reset");
+      const claimMine = await issueEmailToken(DEMO.member, "claim");
+      const othersReset = await issueEmailToken(DEMO.team, "reset");
+      expect(await consumeEmailToken(a2, "reset")).toBe(DEMO.member);
+      expect(await consumeEmailToken(a1, "reset")).toBeNull();
+      expect(await consumeEmailToken(claimMine, "claim")).toBe(DEMO.member);
+      expect(await consumeEmailToken(othersReset, "reset")).toBe(DEMO.team);
+    });
+
+    it("上限：保留最新的 MAX_LIVE_TOKENS 个，超出时挤掉最旧的；对照：恰好到上限时全部有效", async () => {
+      const tokens: string[] = [];
+      for (let i = 0; i < MAX_LIVE_TOKENS; i++)
+        tokens.push(await issueEmailToken(DEMO.admin, "claim"));
+      // 让创建时间可区分（同一秒内签发时排序不确定）
+      for (const [i, t] of tokens.entries())
+        await getWebDb()
+          .update(emailTokens)
+          .set({ createdAt: sql`NOW() - INTERVAL ${100 - i} SECOND` })
+          .where(eq(emailTokens.id, hashToken(t)));
+      const alive = async () =>
+        (
+          await getWebDb()
+            .select({ id: emailTokens.id })
+            .from(emailTokens)
+            .where(and(eq(emailTokens.userId, DEMO.admin), eq(emailTokens.purpose, "claim")))
+        ).length;
+      expect(await alive()).toBe(MAX_LIVE_TOKENS); // 对照：到上限为止都在
+      const extra = await issueEmailToken(DEMO.admin, "claim");
+      expect(await alive()).toBe(MAX_LIVE_TOKENS); // 超出时总数不再增长
+      // 最旧的一个被挤掉，其余与新签发的仍有效
+      expect(await consumeEmailToken(tokens[0]!, "claim")).toBeNull();
+      expect(await consumeEmailToken(extra, "claim")).toBe(DEMO.admin);
+    });
+
+    it("签发时清理该用户该用途下已过期 / 已使用的行，不留垃圾", async () => {
+      const old = await issueEmailToken(DEMO.banned, "verify");
+      await getWebDb()
+        .update(emailTokens)
+        .set({ expiresAt: "2000-01-01 00:00:00" })
+        .where(eq(emailTokens.id, hashToken(old)));
+      await issueEmailToken(DEMO.banned, "verify");
+      const rows = await getWebDb()
+        .select({ id: emailTokens.id })
+        .from(emailTokens)
+        .where(and(eq(emailTokens.userId, DEMO.banned), eq(emailTokens.purpose, "verify")));
+      expect(rows.map((r) => r.id)).not.toContain(hashToken(old));
+      expect(rows).toHaveLength(1);
+    });
   });
 
   it("消费成功才记邮箱已验证：并发消费后 emailVerifiedAt 只被置一次且不为空", async () => {

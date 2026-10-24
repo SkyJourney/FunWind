@@ -1,12 +1,27 @@
 import { describe, expect, it } from "vitest";
 import { devOnlyResponse, isDevEnv } from "./dev-only";
 
-describe("isDevEnv", () => {
-  it("只有 NODE_ENV=production 才算生产；开发/测试/未设置都算开发环境", () => {
-    expect(isDevEnv({ NODE_ENV: "production" })).toBe(false);
+describe("isDevEnv（fail-closed：只有明确是开发 / 测试才放行）", () => {
+  it("development / test 放行", () => {
     expect(isDevEnv({ NODE_ENV: "development" })).toBe(true);
     expect(isDevEnv({ NODE_ENV: "test" })).toBe(true);
-    expect(isDevEnv({})).toBe(true);
+  });
+
+  it("production 与一切未知取值都不放行——变量缺失、空串、拼写错误（prod / Production / staging）不会把开发入口暴露到线上", () => {
+    for (const v of [
+      "production",
+      "prod",
+      "Production",
+      "PRODUCTION",
+      "staging",
+      "dev",
+      "",
+      " development",
+      undefined,
+    ]) {
+      expect(isDevEnv({ NODE_ENV: v }), `NODE_ENV=${JSON.stringify(v)}`).toBe(false);
+    }
+    expect(isDevEnv({})).toBe(false);
   });
 });
 

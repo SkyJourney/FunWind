@@ -1,7 +1,7 @@
 // @vitest-environment node
 /**
  * 会话的真实 MySQL 集成测试（临时库）。next/headers 的 cookies() 用内存 cookie 罐替身，其余全是真实代码与真实数据库。
- * 覆盖：令牌只存哈希、读取条件（过期/已注销/封禁）、滑动续期、登录轮换、登出与全部吊销。
+ * 覆盖：令牌只存哈希、读取条件（过期/已注销/封禁）、活跃时间记录与 30 天绝对过期、登录轮换、登出与全部吊销。
  */
 import { eq, sql } from "drizzle-orm";
 import { DEMO, getWebDb, sessions, userRestrictions, users } from "@funwind/db";
@@ -133,7 +133,7 @@ describe.skipIf(skipDb)("会话 · 真实 MySQL", () => {
       expect(await getCurrentUser()).toBeNull();
     });
 
-    it("滑动续期：超过 1 小时未活动才更新 last_seen_at（避免写放大）", async () => {
+    it("活跃时间：超过 1 小时未活动才更新 last_seen_at（避免写放大）", async () => {
       await createSession(DEMO.admin);
       const id = hashToken(jar.get(SESSION_COOKIE)!.value);
       const seen = async () =>
@@ -141,7 +141,7 @@ describe.skipIf(skipDb)("会话 · 真实 MySQL", () => {
 
       const fresh = await seen();
       await getCurrentUser();
-      expect(await seen()).toBe(fresh); // 刚创建：不续期
+      expect(await seen()).toBe(fresh); // 刚创建：不更新
 
       await db().execute(
         sql`UPDATE sessions SET last_seen_at = NOW() - INTERVAL 2 HOUR WHERE id = ${id}`,
@@ -149,6 +149,19 @@ describe.skipIf(skipDb)("会话 · 真实 MySQL", () => {
       const stale = await seen();
       await getCurrentUser();
       expect(await seen()).not.toBe(stale);
+    });
+
+    it("30 天绝对过期：活跃使用不延长 expires_at（与 cookie maxAge 一致；真正的滑动续期需要中间件，暂不做）", async () => {
+      await createSession(DEMO.admin);
+      const id = hashToken(jar.get(SESSION_COOKIE)!.value);
+      const expires = async () =>
+        (await db().select().from(sessions).where(eq(sessions.id, id)))[0]!.expiresAt;
+      const before = await expires();
+      await db().execute(
+        sql`UPDATE sessions SET last_seen_at = NOW() - INTERVAL 2 HOUR WHERE id = ${id}`,
+      );
+      expect(await getCurrentUser()).not.toBeNull(); // 触发了活跃时间更新
+      expect(await expires()).toBe(before); // 有效期没有被顺延
     });
   });
 
