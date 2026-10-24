@@ -5,7 +5,7 @@
 import { copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { config } from "./config.js";
-import { bumpAutoIncrement, load, newQuery, oldQuery } from "./db.js";
+import { bumpAutoIncrement, load, newQuery, oldQuery, upsert } from "./db.js";
 import {
   extractAttachments,
   extractAttention,
@@ -33,6 +33,7 @@ import { confinedPath, fileUrl } from "./lib/files.js";
 import { head, idSet, loadUserIds, mapRows, type Step } from "./step-types.js";
 import { transformBadges } from "./transform/badges.js";
 import {
+  noteAuthor,
   transformAttachments,
   transformContent,
   transformTags,
@@ -40,6 +41,7 @@ import {
 } from "./transform/content.js";
 import { plainConverter } from "./transform/plain.js";
 import { transformCheckins, transformPoints } from "./transform/points.js";
+import { transformPlaceholders } from "./transform/users.js";
 import {
   transformConversations,
   transformFollows,
@@ -109,16 +111,12 @@ export const contentStep: Step = {
       await extractAttachments(),
       await extractBuys(),
     ];
+    // 真实用户 = state=active；内容作者不在其中的才建「已注销用户」占位账号
     const userIds = await loadUserIds(ctx);
     const [forumIds, prefixIds] = [
       await idSet("SELECT id FROM forums"),
       await idSet("SELECT id FROM forum_prefixes"),
     ];
-    // 版块已被删除的主题改挂到归档版块（旧站「回收站」）：内容保留，仅管理员可读
-    const archived = await newQuery<{ id: number }>(
-      "SELECT id FROM forums WHERE is_archived = 1 ORDER BY id LIMIT 1",
-    );
-    const fallbackForumId = archived[0] ? Number(archived[0].id) : undefined;
     const attMap = new Map(oldAtts.map((a) => [Number(a.aid), { name: a.name, path: a.path }]));
 
     const content = transformContent(oldThreads, oldPosts, {
@@ -140,16 +138,96 @@ export const contentStep: Step = {
           : null;
       },
       asOf: ctx.asOf,
-      fallbackForumId,
     });
     const postIds = new Set(content.posts.map((p) => p.id));
-    const unlocks = transformUnlocks(buys, content.gates, postIds, userIds, ctx.asOf);
-    const atts = transformAttachments(oldAtts, postIds, ctx.asOf);
+    const authorOf = new Map(content.posts.map((p) => [p.id, p.authorId]));
+    const unlocks = transformUnlocks(
+      buys,
+      content.gates,
+      postIds,
+      content.firstPostOf,
+      userIds,
+      ctx.asOf,
+    );
+    const atts = transformAttachments(oldAtts, postIds, content.firstPostOf, authorOf, ctx.asOf);
     const tags = transformTags(
       await extractTags(),
       await extractTagRelations(),
-      new Set(content.threads.filter((t) => t.state !== "spam").map((t) => t.id)),
+      new Set(content.threads.map((t) => t.id)),
     );
+
+    // 附件：先解析到文件；本体缺失的附件没有意义，丢弃并记入报告。写表由 files 步骤完成（需要 file_id）
+    const missingAtts: string[] = [];
+    ctx.attachments = [];
+    for (const d of atts.rows) {
+      const f = ctx.files.addUnder(config.attachmentDir, d.sourcePath);
+      if (!f) {
+        missingAtts.push(d.sourcePath);
+        continue;
+      }
+      noteAuthor(content.placeholders, userIds, d.uploaderId, d.createdAt);
+      ctx.attachments.push({
+        postId: d.postId,
+        uploaderId: d.uploaderId,
+        originalName: d.originalName,
+        downloads: d.downloads,
+        createdAt: d.createdAt,
+        sha256: f.sha256,
+      });
+    }
+
+    // 占位账号：先清掉上一轮遗留的（只有占位账号是 state=deleted），再按本轮需要重建
+    await newQuery(
+      "DELETE FROM user_profiles WHERE user_id IN (SELECT id FROM users WHERE state = 'deleted')",
+    );
+    await newQuery(
+      "DELETE FROM user_stats WHERE user_id IN (SELECT id FROM users WHERE state = 'deleted')",
+    );
+    await newQuery("DELETE FROM users WHERE state = 'deleted'");
+    const ph = transformPlaceholders(content.placeholders);
+    await upsert(
+      "users",
+      [
+        "id",
+        "username",
+        "username_key",
+        "email",
+        "email_key",
+        "password_hash",
+        "email_verified_at",
+        "state",
+        "created_at",
+        "last_login_at",
+      ],
+      ph.users.map((u) => ({
+        id: u.id,
+        username: u.username,
+        username_key: u.usernameKey,
+        email: u.email,
+        email_key: u.emailKey,
+        password_hash: u.passwordHash,
+        email_verified_at: u.emailVerifiedAt,
+        state: u.state,
+        created_at: u.createdAt,
+        last_login_at: u.lastLoginAt,
+      })),
+      ["id"],
+    );
+    await upsert(
+      "user_profiles",
+      ["user_id", "bio", "location", "website", "gender", "birthday", "signature_md"],
+      ph.profiles.map((p) => ({
+        user_id: p.userId,
+        bio: p.bio,
+        location: p.location,
+        website: p.website,
+        gender: p.gender,
+        birthday: p.birthday,
+        signature_md: p.signatureMd,
+      })),
+      ["user_id"],
+    );
+    await bumpAutoIncrement("users");
 
     await load(
       "threads",
@@ -157,14 +235,12 @@ export const contentStep: Step = {
         "id",
         "forum_id",
         "author_id",
-        "author_name_legacy",
         "title",
         "prefix_id",
         "kind",
         "first_post_id",
-        "state",
-        "topped",
-        "digest",
+        "pin_level",
+        "is_featured",
         "view_count",
         "created_at",
       ],
@@ -172,14 +248,12 @@ export const contentStep: Step = {
         id: t.id,
         forum_id: t.forumId,
         author_id: t.authorId,
-        author_name_legacy: t.authorNameLegacy,
         title: t.title,
         prefix_id: t.prefixId,
         kind: t.kind,
         first_post_id: t.firstPostId,
-        state: t.state,
-        topped: t.topped,
-        digest: t.digest,
+        pin_level: t.pinLevel,
+        is_featured: b(t.isFeatured),
         view_count: t.viewCount,
         created_at: t.createdAt,
       })),
@@ -192,11 +266,9 @@ export const contentStep: Step = {
         "thread_id",
         "floor",
         "author_id",
-        "author_name_legacy",
         "body_md",
         "reply_to_post_id",
         "has_gate",
-        "state",
         "created_at",
         "edited_at",
       ],
@@ -205,11 +277,9 @@ export const contentStep: Step = {
         thread_id: p.threadId,
         floor: p.floor,
         author_id: p.authorId,
-        author_name_legacy: p.authorNameLegacy,
         body_md: p.bodyMd,
         reply_to_post_id: p.replyToPostId,
         has_gate: b(p.hasGate),
-        state: p.state,
         created_at: p.createdAt,
         edited_at: p.editedAt,
       })),
@@ -217,11 +287,20 @@ export const contentStep: Step = {
     );
     await load(
       "post_gates",
-      ["id", "post_id", "seq", "conditions", "match_mode", "hidden_md", "created_at", "updated_at"],
+      [
+        "id",
+        "post_id",
+        "gate_key",
+        "conditions",
+        "match_mode",
+        "hidden_md",
+        "created_at",
+        "updated_at",
+      ],
       content.gates.map((g) => ({
         id: g.id,
         post_id: g.postId,
-        seq: g.seq,
+        gate_key: g.gateKey,
         conditions: jsonOf(g.conditions),
         match_mode: g.matchMode,
         hidden_md: g.hiddenMd,
@@ -232,13 +311,12 @@ export const contentStep: Step = {
     );
     await load(
       "gate_unlocks",
-      ["gate_id", "user_id", "price_paid", "author_income", "source", "unlocked_at"],
+      ["gate_id", "user_id", "price_paid", "author_income", "unlocked_at"],
       unlocks.rows.map((u) => ({
         gate_id: u.gateId,
         user_id: u.userId,
         price_paid: u.pricePaid,
         author_income: u.authorIncome,
-        source: u.source,
         unlocked_at: u.unlockedAt,
       })),
       ["gate_id", "user_id"],
@@ -247,24 +325,6 @@ export const contentStep: Step = {
       `UPDATE post_gates g SET unlock_count =
          (SELECT COUNT(*) FROM gate_unlocks u WHERE u.gate_id = g.id)`,
     );
-    // 附件：先解析到文件；本体缺失的附件没有意义，丢弃并记入报告。写表由 files 步骤完成（需要 file_id）
-    const missingAtts: string[] = [];
-    ctx.attachments = [];
-    for (const d of atts.rows) {
-      const f = ctx.files.addUnder(config.attachmentDir, d.sourcePath);
-      if (!f) {
-        missingAtts.push(d.sourcePath);
-        continue;
-      }
-      ctx.attachments.push({
-        postId: d.postId,
-        uploaderId: d.uploaderId,
-        originalName: d.originalName,
-        downloads: d.downloads,
-        createdAt: d.createdAt,
-        sha256: f.sha256,
-      });
-    }
     await load(
       "tags",
       ["id", "name"],
@@ -282,32 +342,47 @@ export const contentStep: Step = {
     }
 
     const st = content.stats;
+    const dropped = st.threadsDropped;
+    const firstPosts = content.threads.length;
     const s = ctx.report.section("内容（统一 post 模型）");
     s.line(
-      `主题 ${content.threads.length}（其中 spam 空壳 ${st.spamThreads}，不生成首帖）；帖子 ${content.posts.length} = 首帖 ${
-        content.posts.filter((p) => p.floor === 1).length
-      } + 回帖 ${content.posts.filter((p) => p.floor > 1).length}。` +
-        `首帖 post id = ${100000} + tid，回帖保留旧 pid（锚点 #p{pid} 已冻结）。`,
+      `只迁移**可见**内容：主题 ${content.threads.length}；帖子 ${content.posts.length} = 首帖 ${firstPosts} + 回帖 ${
+        content.posts.length - firstPosts
+      }。回收站、被屏蔽、垃圾空壳的内容一律不迁（旧库即归档）。` +
+        `回帖保留旧 pid（锚点 #p{pid} 已冻结）；首帖旧站没有 pid，id 接在旧站全部帖子最大 pid 之后按 tid 升序自增；楼层按时间连续编号。`,
     );
     s.table(
-      ["状态", "帖子数"],
-      (["visible", "hidden", "deleted", "spam"] as const).map((k) => [k, st.postsByState[k]]),
+      ["未迁移的主题", "数量"],
+      [
+        ["回收站（disabled）", dropped.deleted],
+        ["被屏蔽（ifshield）", dropped.hidden],
+        ["垃圾空壳（无正文无回复）", dropped.spamShell],
+        ["版块已被删除或属回收站子树", dropped.badForum.length],
+        ["无作者（uid 0）", dropped.noAuthor],
+      ],
+    );
+    s.table(
+      ["未迁移的回帖", "数量"],
+      [
+        ["所属主题未迁移", st.postsDropped.orphan],
+        ["回收站（disabled）", st.postsDropped.deleted],
+        ["被屏蔽（ifshield）", st.postsDropped.hidden],
+        ["无作者（uid 0）", st.postsDropped.noAuthor],
+      ],
     );
     s.bullets([
-      `旧站回收站（disabled=2）→ state=deleted，可由后台恢复；屏蔽（ifshield）→ hidden`,
-      `无正文但有回复的主题，补了空首帖：${head(st.emptyFirstPosts)}`,
-      `孤儿回帖（所属主题不存在/为空壳）丢弃：${st.orphanPosts}`,
-      `回复指针：跨主题置空 ${st.crossThreadReplyPointers}；指向不存在的帖置空 ${st.danglingReplyPointers}`,
-      `原版块已被删除的主题 ${st.reassignedThreads.length} 个，改挂到归档版块（fid ${fallbackForumId ?? "无"}，仅管理员可读）：${
-        st.reassignedThreads.map((r) => `tid ${r.tid}（原 fid ${r.fromForum}）`).join("、") || "无"
-      }；无归档版块而丢弃：${head(st.droppedThreadsBadForum) || "无"}`,
+      `版块已被删除、仍是可见状态的主题（tid）：${head(dropped.badForum) || "无"}`,
+      `无正文但有回复的主题，补了空首帖：${head(st.emptyFirstPosts) || "无"}`,
+      `回复指针置空：跨主题 ${st.replyPointers.crossThread}；指向不存在的帖 ${st.replyPointers.dangling}；指向未迁移的帖 ${st.replyPointers.droppedTarget}`,
+      `置顶级别（topped）与精华（digest）已映射为 pin_level / is_featured`,
+      `「已注销用户」占位账号 ${ph.users.length} 个（保留原 uid，state=deleted，无邮箱无密码；只为内容作者与附件上传者建立，不持有积分、不能登录）`,
     ]);
     s.line("### 门控");
     s.bullets([
-      `门控共 ${content.gates.length} 个：积分 ${st.gates.points} / 回复可见 ${st.gates.reply}；含门控的帖子 ${content.posts.filter((p) => p.hasGate).length}`,
+      `门控共 ${content.gates.length} 个：积分 ${st.gates.points} / 回复可见 ${st.gates.reply}；含门控的帖子 ${content.posts.filter((p) => p.hasGate).length}；帖内 key 为 g1、g2…`,
       `购买记录 ${buys.length} → 解锁记录 ${unlocks.rows.length}（旧购买按帖子计，一帖多门控时展开）`,
       `未生成解锁记录的购买：目标帖只有「回复可见」门控 ${unlocks.stats.replyOnly}（旧站把回复解锁也记入购买表，新模型按实际回帖实时判定）、` +
-        `目标帖已无任何门控 ${unlocks.stats.noGate}、购买者已不存在 ${unlocks.stats.orphanBuyer}、目标帖不存在 ${unlocks.stats.orphanTarget}、重复 ${unlocks.stats.duplicate}`,
+        `目标帖已无任何门控 ${unlocks.stats.noGate}、购买者不是真实用户 ${unlocks.stats.orphanBuyer}、目标帖未迁移 ${unlocks.stats.orphanTarget}、重复 ${unlocks.stats.duplicate}`,
     ]);
     s.line(`### 待站长处理：价格 ≥ 9999 被重置为免费的门控 ${st.priceReset.length} 个`);
     s.table(
@@ -327,15 +402,19 @@ export const contentStep: Step = {
       st.nestedDropped.map((r) => [r.postId, r.detail]),
     );
     s.line("### 转换告警汇总");
+    s.bullets([
+      `样式降级（颜色/字号/背景/对齐/字体 → 纯文本，不再保留内联样式）：${st.warnings.get("style-degraded") ?? 0} 处`,
+      `正文图片文件缺失（保留为无法解析的占位）：${st.warnings.get("image-unresolved") ?? 0} 处`,
+    ]);
     s.table(["代码", "次数"], mapRows(st.warnings));
     s.line("### 附件与标签");
     s.bullets([
-      `附件 ${ctx.attachments.length}（孤儿丢弃 ${atts.stats.orphan}；回帖已不存在、改挂首帖 ${atts.stats.reattachedToFirstPost}；文件缺失丢弃 ${missingAtts.length}${missingAtts.length ? "：" + head(missingAtts, 10) : ""}）；文件本体由文件管线复制进内容寻址存储`,
+      `附件 ${ctx.attachments.length}（所属主题未迁移而丢弃 ${atts.stats.orphan}；回帖未迁移、改挂首帖 ${atts.stats.reattachedToFirstPost}；上传者缺失记为帖子作者 ${atts.stats.uploaderFromPostAuthor}；文件缺失丢弃 ${missingAtts.length}${missingAtts.length ? "：" + head(missingAtts, 10) : ""}）；文件本体由文件管线复制进内容寻址存储`,
       `标签 ${tags.tags.length}（空名/重复丢弃 ${tags.stats.emptyOrDuplicate}）；主题标签关联 ${tags.threadTags.length}（孤儿 ${tags.stats.orphanRelations}）`,
     ]);
     return {
       rows: content.threads.length + content.posts.length + content.gates.length,
-      note: `${content.gates.length} 门控 / ${unlocks.rows.length} 解锁`,
+      note: `${content.gates.length} 门控 / ${unlocks.rows.length} 解锁 / ${ph.users.length} 占位`,
     };
   },
 };
@@ -501,9 +580,13 @@ export const followsStep: Step = {
 export const reactionsStep: Step = {
   name: "reactions",
   async run(ctx) {
+    const firstPosts = await newQuery<{ id: number; first_post_id: number }>(
+      "SELECT id, first_post_id FROM threads",
+    );
     const res = transformReactions(
       await extractLikes(),
       await idSet("SELECT id FROM posts"),
+      new Map(firstPosts.map((t) => [Number(t.id), Number(t.first_post_id)])),
       await loadUserIds(ctx),
       ctx.asOf,
     );
@@ -535,7 +618,7 @@ export const pollsStep: Step = {
       rawPolls,
       await extractPollOptions(),
       await extractPollVotes(),
-      await idSet("SELECT id FROM threads WHERE state <> 'spam'"),
+      await idSet("SELECT id FROM threads"),
       await loadUserIds(ctx),
       ctx.asOf,
       new Map(rawPolls.map((p) => [Number(p.poll_id), Number(p.voter_num)])),

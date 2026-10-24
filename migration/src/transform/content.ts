@@ -1,14 +1,6 @@
-import type { GateCondition } from "@funwind/content";
+import type { GateCondition, GateDraft } from "@funwind/content";
 import { ubbToMarkdown, type ConvertWarning } from "./ubb.js";
 import { toDatetime } from "../config.js";
-
-/**
- * 首帖的 post id = FIRST_POST_BASE + tid。
- * 旧站首帖只在 threads_content 里，没有 pid；回帖保留旧 pid（锚点 #p{pid} 已冻结，最大 40887），
- * 首帖取一段不会与回帖冲突的确定性 id，重跑结果一致。
- */
-export const FIRST_POST_BASE = 100_000;
-export const firstPostId = (tid: number): number => FIRST_POST_BASE + tid;
 
 export interface OldThread {
   tid: number;
@@ -42,20 +34,20 @@ export interface OldPost {
   modified_time: number;
 }
 
-export type ContentState = "visible" | "hidden" | "deleted" | "spam";
+/** 旧站内容的三种状态；只有 visible 会被迁移，其余随旧库归档 */
+export type LegacyContentState = "visible" | "hidden" | "deleted";
 
 export interface ThreadRow {
   id: number;
   forumId: number;
   authorId: number;
-  authorNameLegacy: string | null;
   title: string;
   prefixId: number | null;
   kind: "normal" | "poll";
-  firstPostId: number | null;
-  state: ContentState;
-  topped: number;
-  digest: number;
+  firstPostId: number;
+  /** 置顶级别：0 无 / 1 版块 / 2 分区 / 3 全站 */
+  pinLevel: number;
+  isFeatured: boolean;
   viewCount: number;
   createdAt: string;
 }
@@ -65,11 +57,9 @@ export interface PostRow {
   threadId: number;
   floor: number;
   authorId: number;
-  authorNameLegacy: string | null;
   bodyMd: string;
   replyToPostId: number | null;
   hasGate: boolean;
-  state: ContentState;
   createdAt: string;
   editedAt: string | null;
 }
@@ -77,7 +67,8 @@ export interface PostRow {
 export interface GateRow {
   id: number;
   postId: number;
-  seq: number;
+  /** 帖内稳定身份，与正文占位 :::gate{key="…"} 对应 */
+  gateKey: string;
   conditions: GateCondition[];
   matchMode: "all" | "any";
   hiddenMd: string;
@@ -86,6 +77,7 @@ export interface GateRow {
 }
 
 export interface ContentContext {
+  /** 真实存在的用户（state=active）；内容作者不在其中的建占位账号 */
   userIds: ReadonlySet<number>;
   forumIds: ReadonlySet<number>;
   prefixIds: ReadonlySet<number>;
@@ -96,22 +88,26 @@ export interface ContentContext {
   /** [attachment=N] → 已登记文件的 /files 地址；image 表示内联为图片 */
   resolveAttachment: (aid: number) => { name: string; url: string; image?: boolean } | null;
   asOf: string;
-  /** 版块已被删除的主题改挂到该归档版块（回收站，仅管理员可读）；缺省则丢弃 */
-  fallbackForumId?: number;
 }
 
 export interface ContentStats {
+  /** 迁移的主题数（每个都有首帖） */
   threads: number;
-  spamThreads: number;
-  droppedThreadsBadForum: number[];
-  /** 原版块已不存在、改挂到归档版块的主题 */
-  reassignedThreads: { tid: number; fromForum: number }[];
+  /** 未迁移的主题（旧库即归档）；判定顺序：回收站/屏蔽 → 空壳 → 版块不存在 → 无作者 */
+  threadsDropped: {
+    deleted: number;
+    hidden: number;
+    spamShell: number;
+    /** 版块已被删除或属于回收站子树的 tid */
+    badForum: number[];
+    noAuthor: number;
+  };
   /** 无正文但有回复，补了空首帖 */
   emptyFirstPosts: number[];
-  orphanPosts: number;
-  crossThreadReplyPointers: number;
-  danglingReplyPointers: number;
-  postsByState: Record<ContentState, number>;
+  /** 未迁移的回帖；所属主题未迁移的记为 orphan，其余按状态 */
+  postsDropped: { orphan: number; deleted: number; hidden: number; noAuthor: number };
+  /** 回复指针置空：跨主题 / 指向不存在的帖 / 指向未迁移的帖 */
+  replyPointers: { crossThread: number; dangling: number; droppedTarget: number };
   gates: { points: number; reply: number };
   warnings: Map<string, number>;
   /** 需要站长复核的明细（帖子 id + 说明） */
@@ -122,24 +118,38 @@ export interface ContentStats {
 
 export interface ContentResult {
   threads: ThreadRow[];
+  /** 按 id 升序：旧回帖保留 pid，首帖 id 排在其后 */
   posts: PostRow[];
+  /** 已分配 id（按 (post_id, 帖内序号) 升序自增） */
   gates: GateRow[];
+  /** tid → 首帖 post id：点赞、购买、附件的归属解析都靠它 */
+  firstPostOf: Map<number, number>;
+  /** 作者不在 userIds 的 uid → 其最早内容时间（占位账号的 created_at） */
+  placeholders: Map<number, string>;
   stats: ContentStats;
 }
 
 /** 旧 disabled（2 = 回收站）→ deleted；屏蔽 → hidden；其余可见 */
-export function stateOf(disabled: number, ifshield: number): ContentState {
+export function stateOf(disabled: number, ifshield: number): LegacyContentState {
   if (Number(disabled) > 0) return "deleted";
   if (Number(ifshield) > 0) return "hidden";
   return "visible";
 }
 
-const legacyName = (name: string | null, authorId: number, userIds: ReadonlySet<number>) =>
-  userIds.has(authorId)
-    ? null
-    : String(name ?? "")
-        .trim()
-        .slice(0, 64) || null;
+/** 记录「需要占位账号的作者」及其最早内容时间 */
+export function noteAuthor(
+  seen: Map<number, string>,
+  userIds: ReadonlySet<number>,
+  uid: number,
+  at: string,
+): void {
+  if (userIds.has(uid)) return;
+  const prev = seen.get(uid);
+  if (prev === undefined || at < prev) seen.set(uid, at);
+}
+
+/** 旧置顶值 0–3 与新级别一致（1 版块 / 2 分区 / 3 全站），越界按边界截断 */
+const pinLevelOf = (topped: number): number => Math.min(3, Math.max(0, Number(topped) || 0));
 
 export function transformContent(
   oldThreads: readonly OldThread[],
@@ -148,14 +158,10 @@ export function transformContent(
 ): ContentResult {
   const stats: ContentStats = {
     threads: 0,
-    spamThreads: 0,
-    droppedThreadsBadForum: [],
-    reassignedThreads: [],
+    threadsDropped: { deleted: 0, hidden: 0, spamShell: 0, badForum: [], noAuthor: 0 },
     emptyFirstPosts: [],
-    orphanPosts: 0,
-    crossThreadReplyPointers: 0,
-    danglingReplyPointers: 0,
-    postsByState: { visible: 0, hidden: 0, deleted: 0, spam: 0 },
+    postsDropped: { orphan: 0, deleted: 0, hidden: 0, noAuthor: 0 },
+    replyPointers: { crossThread: 0, dangling: 0, droppedTarget: 0 },
     gates: { points: 0, reply: 0 },
     warnings: new Map(),
     priceReset: [],
@@ -165,9 +171,18 @@ export function transformContent(
 
   const threads: ThreadRow[] = [];
   const posts: PostRow[] = [];
-  const gates: GateRow[] = [];
+  const firstPostOf = new Map<number, number>();
+  const placeholders = new Map<number, string>();
+  /** 待分配 id 的门控：全部帖子转换完后按 (postId, 序号) 排序再编号 */
+  const pendingGates: { postId: number; draft: GateDraft; createdAt: string; updatedAt: string }[] =
+    [];
 
-  const convert = (src: string | null, postId: number): { md: string; gateCount: number } => {
+  const convert = (
+    src: string | null,
+    postId: number,
+    createdAt: string,
+    editedAt: string | null,
+  ): { md: string; gateCount: number } => {
     const r = ubbToMarkdown(src, {
       emojiIds: ctx.emojiIds,
       resolveUpload: ctx.resolveUpload,
@@ -178,98 +193,115 @@ export function transformContent(
       const c = g.conditions[0]?.type;
       if (c === "points") stats.gates.points++;
       else if (c === "reply") stats.gates.reply++;
-      gates.push({
-        id: postId * 16 + g.seq, // 临时：R3-4 改为确定顺序自增
+      pendingGates.push({
         postId,
-        seq: g.seq,
-        conditions: g.conditions,
-        matchMode: g.matchMode,
-        hiddenMd: g.hiddenMd,
-        createdAt: ctx.asOf,
-        updatedAt: ctx.asOf,
+        draft: g,
+        createdAt,
+        updatedAt: editedAt ?? createdAt,
       });
     }
     return { md: r.md, gateCount: r.gates.length };
   };
 
+  const editedOf = (modifiedTime: number, createdAt: string): string | null => {
+    const modified = toDatetime(Number(modifiedTime));
+    return modified && modified > createdAt ? modified : null;
+  };
+
+  // 首帖 id 接在旧站全部帖子 pid 之后，按 tid 升序自增：与回帖（保留旧 pid，锚点 #p{pid} 已冻结）
+  // 永不冲突，也不复用任何已丢弃帖子的 pid；取全部旧帖的最大值，使其与过滤结果无关
+  let nextPostId = oldPosts.reduce((m, p) => Math.max(m, Number(p.pid)), 0);
+
   // ---- 主题与首帖 ----
   const migratedTids = new Set<number>();
   for (const t of [...oldThreads].sort((a, b) => Number(a.tid) - Number(b.tid))) {
     const tid = Number(t.tid);
-    let forumId = Number(t.fid);
-    if (!ctx.forumIds.has(forumId)) {
-      if (ctx.fallbackForumId === undefined) {
-        stats.droppedThreadsBadForum.push(tid);
-        continue;
-      }
-      stats.reassignedThreads.push({ tid, fromForum: forumId });
-      forumId = ctx.fallbackForumId;
+    const legacyState = stateOf(t.disabled, t.ifshield);
+    if (legacyState !== "visible") {
+      stats.threadsDropped[legacyState]++;
+      continue;
     }
-    const isSpam = ctx.spamTids.has(tid);
-    const state: ContentState = isSpam ? "spam" : stateOf(t.disabled, t.ifshield);
-    const createdAt = toDatetime(Number(t.created_time)) ?? ctx.asOf;
+    if (ctx.spamTids.has(tid)) {
+      stats.threadsDropped.spamShell++;
+      continue;
+    }
+    const forumId = Number(t.fid);
+    if (!ctx.forumIds.has(forumId)) {
+      stats.threadsDropped.badForum.push(tid);
+      continue;
+    }
     const authorId = Number(t.created_userid);
-    const fpId = isSpam ? null : firstPostId(tid);
+    if (authorId <= 0) {
+      stats.threadsDropped.noAuthor++;
+      continue;
+    }
 
+    const createdAt = toDatetime(Number(t.created_time)) ?? ctx.asOf;
+    const fpId = ++nextPostId;
+    const editedAt = editedOf(t.modified_time, createdAt);
     threads.push({
       id: tid,
       forumId,
       authorId,
-      authorNameLegacy: legacyName(t.created_username, authorId, ctx.userIds),
       title: String(t.subject ?? "")
         .trim()
         .slice(0, 255),
       prefixId: ctx.prefixIds.has(Number(t.topic_type)) ? Number(t.topic_type) : null,
       kind: String(t.special) === "poll" ? "poll" : "normal",
       firstPostId: fpId,
-      state,
-      topped: Number(t.topped) || 0,
-      digest: Number(t.digest) || 0,
+      pinLevel: pinLevelOf(t.topped),
+      isFeatured: Number(t.digest) > 0,
       viewCount: Number(t.hits) || 0,
       createdAt,
     });
     migratedTids.add(tid);
+    firstPostOf.set(tid, fpId);
     stats.threads++;
-    if (isSpam) {
-      stats.spamThreads++;
-      continue;
-    }
+    noteAuthor(placeholders, ctx.userIds, authorId, createdAt);
 
     if (!Number(t.has_content)) stats.emptyFirstPosts.push(tid);
-    const { md, gateCount } = convert(t.content, fpId!);
-    const modified = toDatetime(Number(t.modified_time));
+    const { md, gateCount } = convert(t.content, fpId, createdAt, editedAt);
     posts.push({
-      id: fpId!,
+      id: fpId,
       threadId: tid,
       floor: 1,
       authorId,
-      authorNameLegacy: legacyName(t.created_username, authorId, ctx.userIds),
       bodyMd: md,
       replyToPostId: null,
       hasGate: gateCount > 0,
-      state,
       createdAt,
-      editedAt: modified && modified > createdAt ? modified : null,
+      editedAt,
     });
-    stats.postsByState[state]++;
   }
 
-  // ---- 回帖：按 (created_time, pid) 稳定排序后分配楼层（首帖 = 1，回帖从 2 起）----
-  const byThread = new Map<number, OldPost[]>();
+  // ---- 回帖：只迁可见的；按 (created_time, pid) 稳定排序后分配楼层（首帖 = 1，回帖从 2 起，楼层连续）----
+  const oldPidThread = new Map<number, number>(); // 旧站全部帖子的 pid → tid，用于区分回复指针的去向
+  const kept = new Map<number, OldPost[]>();
   for (const p of oldPosts) {
+    const pid = Number(p.pid);
     const tid = Number(p.tid);
-    if (!migratedTids.has(tid) || ctx.spamTids.has(tid)) {
-      stats.orphanPosts++;
+    oldPidThread.set(pid, tid);
+    if (!migratedTids.has(tid)) {
+      stats.postsDropped.orphan++;
       continue;
     }
-    const list = byThread.get(tid) ?? [];
+    const legacyState = stateOf(p.disabled, p.ifshield);
+    if (legacyState !== "visible") {
+      stats.postsDropped[legacyState]++;
+      continue;
+    }
+    if (Number(p.created_userid) <= 0) {
+      stats.postsDropped.noAuthor++;
+      continue;
+    }
+    const list = kept.get(tid) ?? [];
     list.push(p);
-    byThread.set(tid, list);
+    kept.set(tid, list);
   }
-  const replyPids = new Map<number, number>(); // pid → tid
-  for (const [tid, list] of byThread) for (const p of list) replyPids.set(Number(p.pid), tid);
+  const keptPidThread = new Map<number, number>();
+  for (const [tid, list] of kept) for (const p of list) keptPidThread.set(Number(p.pid), tid);
 
-  for (const [tid, list] of [...byThread].sort((a, b) => a[0] - b[0])) {
+  for (const [tid, list] of [...kept].sort((a, b) => a[0] - b[0])) {
     list.sort(
       (a, b) => Number(a.created_time) - Number(b.created_time) || Number(a.pid) - Number(b.pid),
     );
@@ -277,35 +309,48 @@ export function transformContent(
       const pid = Number(p.pid);
       const authorId = Number(p.created_userid);
       const createdAt = toDatetime(Number(p.created_time)) ?? ctx.asOf;
-      const state = stateOf(p.disabled, p.ifshield);
       const rp = Number(p.rpid);
       let replyTo: number | null = null;
       if (rp > 0) {
-        const target = replyPids.get(rp);
+        const target = keptPidThread.get(rp);
         if (target === tid) replyTo = rp;
-        else if (target === undefined) stats.danglingReplyPointers++;
-        else stats.crossThreadReplyPointers++;
+        else if (target !== undefined) stats.replyPointers.crossThread++;
+        else if (oldPidThread.has(rp)) stats.replyPointers.droppedTarget++;
+        else stats.replyPointers.dangling++;
       }
-      const { md, gateCount } = convert(p.content, pid);
-      const modified = toDatetime(Number(p.modified_time));
+      const editedAt = editedOf(p.modified_time, createdAt);
+      noteAuthor(placeholders, ctx.userIds, authorId, createdAt);
+      const { md, gateCount } = convert(p.content, pid, createdAt, editedAt);
       posts.push({
         id: pid,
         threadId: tid,
         floor: i + 2,
         authorId,
-        authorNameLegacy: legacyName(p.created_username, authorId, ctx.userIds),
         bodyMd: md,
         replyToPostId: replyTo,
         hasGate: gateCount > 0,
-        state,
         createdAt,
-        editedAt: modified && modified > createdAt ? modified : null,
+        editedAt,
       });
-      stats.postsByState[state]++;
     }
   }
 
-  return { threads, posts, gates, stats };
+  posts.sort((a, b) => a.id - b.id);
+
+  // 门控 id：按 (post_id, 帖内序号) 升序自增 1..n，与扫描顺序无关
+  pendingGates.sort((a, b) => a.postId - b.postId || a.draft.seq - b.draft.seq);
+  const gates: GateRow[] = pendingGates.map((g, i) => ({
+    id: i + 1,
+    postId: g.postId,
+    gateKey: g.draft.key,
+    conditions: g.draft.conditions,
+    matchMode: g.draft.matchMode,
+    hiddenMd: g.draft.hiddenMd,
+    createdAt: g.createdAt,
+    updatedAt: g.updatedAt,
+  }));
+
+  return { threads, posts, gates, firstPostOf, placeholders, stats };
 }
 
 function collectWarning(stats: ContentStats, postId: number, w: ConvertWarning): void {
@@ -331,18 +376,19 @@ export interface UnlockRow {
   userId: number;
   pricePaid: number;
   authorIncome: number;
-  source: "migrated";
   unlockedAt: string;
 }
 
 /**
  * 旧购买按「帖子」计（pid=0 表示首帖）；新模型按「每个积分门控」计。
  * 同一帖里有多个积分门控时，一次购买展开成每个门控各一条解锁记录。
+ * 购买者必须是真实用户（占位账号只给内容作者建，孤儿购买者丢弃）。
  */
 export function transformUnlocks(
   buys: readonly OldBuy[],
   gates: readonly GateRow[],
   postIds: ReadonlySet<number>,
+  firstPostOf: ReadonlyMap<number, number>,
   userIds: ReadonlySet<number>,
   asOf: string,
 ): {
@@ -368,8 +414,8 @@ export function transformUnlocks(
   const rows: UnlockRow[] = [];
 
   for (const b of buys) {
-    const target = Number(b.pid) > 0 ? Number(b.pid) : firstPostId(Number(b.tid));
-    if (!postIds.has(target)) {
+    const target = Number(b.pid) > 0 ? Number(b.pid) : firstPostOf.get(Number(b.tid));
+    if (target === undefined || !postIds.has(target)) {
       stats.orphanTarget++;
       continue;
     }
@@ -398,7 +444,6 @@ export function transformUnlocks(
         userId: Number(b.created_userid),
         pricePaid: cost,
         authorIncome: cost,
-        source: "migrated",
         unlockedAt: toDatetime(Number(b.created_time)) ?? asOf,
       });
     }
@@ -434,19 +479,27 @@ export interface AttachmentDraft {
   createdAt: string;
 }
 
-/** 附件挂到所属回帖；pid=0 或回帖已不存在时挂到该主题的首帖；主题不存在则丢弃 */
+/**
+ * 附件挂到所属回帖；pid=0 或回帖未迁移时挂到该主题的首帖；主题未迁移则丢弃。
+ * 上传者缺失（uid 0）时记为所挂帖子的作者。
+ */
 export function transformAttachments(
   rows: readonly OldAttachment[],
   postIds: ReadonlySet<number>,
+  firstPostOf: ReadonlyMap<number, number>,
+  authorOf: ReadonlyMap<number, number>,
   asOf: string,
-): { rows: AttachmentDraft[]; stats: { orphan: number; reattachedToFirstPost: number } } {
-  const stats = { orphan: 0, reattachedToFirstPost: 0 };
+): {
+  rows: AttachmentDraft[];
+  stats: { orphan: number; reattachedToFirstPost: number; uploaderFromPostAuthor: number };
+} {
+  const stats = { orphan: 0, reattachedToFirstPost: 0, uploaderFromPostAuthor: 0 };
   const out: AttachmentDraft[] = [];
   for (const a of [...rows].sort((x, y) => Number(x.aid) - Number(y.aid))) {
     let target = Number(a.pid) > 0 && postIds.has(Number(a.pid)) ? Number(a.pid) : 0;
     if (!target) {
-      const fp = firstPostId(Number(a.tid));
-      if (Number(a.tid) > 0 && postIds.has(fp)) {
+      const fp = firstPostOf.get(Number(a.tid));
+      if (fp !== undefined && postIds.has(fp)) {
         target = fp;
         if (Number(a.pid) > 0) stats.reattachedToFirstPost++;
       }
@@ -455,9 +508,14 @@ export function transformAttachments(
       stats.orphan++;
       continue;
     }
+    let uploaderId = Number(a.created_userid);
+    if (uploaderId <= 0) {
+      uploaderId = authorOf.get(target) ?? 0;
+      stats.uploaderFromPostAuthor++;
+    }
     out.push({
       postId: target,
-      uploaderId: Number(a.created_userid) || 0,
+      uploaderId,
       originalName: String(a.name ?? "").slice(0, 255),
       sourcePath: String(a.path ?? "").slice(0, 255),
       downloads: Number(a.hits) || 0,

@@ -31,6 +31,15 @@ describe("存储键与扩展名", () => {
     expect(safeExt("a.p@ng")).toBe("bin");
   });
 
+  it("扩展名只认白名单：可执行/可脚本化类型与原型链键一律归为 bin（防存储型 XSS）", () => {
+    for (const name of ["x.html", "x.htm", "x.svg", "x.js", "x.swf", "x.xml", "x.php", "x.exe"]) {
+      expect(safeExt(name), name).toBe("bin");
+    }
+    expect(safeExt("x.constructor")).toBe("bin");
+    expect(safeExt("x.__proto__")).toBe("bin");
+    expect(mimeOfExt(safeExt("evil.html"))).toBe("application/octet-stream");
+  });
+
   it("MIME 由扩展名推断，未知为 octet-stream", () => {
     expect(mimeOfExt("jpg")).toBe("image/jpeg");
     expect(mimeOfExt("rar")).toBe("application/vnd.rar");

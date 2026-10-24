@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { firstPostId } from "./content.js";
 import {
   transformConversations,
   transformFollows,
@@ -51,12 +50,13 @@ describe("transformReactions", () => {
         { uid: 99, created_time: T, typeid: 2, fromid: 30 },
         { uid: 3, created_time: T, typeid: 1, fromid: 404 },
       ],
-      new Set([firstPostId(5), 30]),
+      new Set([5005, 30]),
+      new Map([[5, 5005]]),
       users,
       ASOF,
     );
     expect(r.rows.map((x) => [x.userId, x.postId])).toEqual([
-      [1, firstPostId(5)],
+      [1, 5005],
       [2, 30],
     ]);
     expect(r.stats).toEqual({ thread: 1, post: 1, orphan: 2, duplicate: 1 });

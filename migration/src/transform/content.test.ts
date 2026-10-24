@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
-  firstPostId,
+  noteAuthor,
   stateOf,
   transformAttachments,
   transformContent,
   transformTags,
   transformUnlocks,
   type ContentContext,
+  type GateRow,
   type OldPost,
   type OldThread,
 } from "./content.js";
@@ -65,32 +66,46 @@ describe("stateOf", () => {
 });
 
 describe("transformContent · 统一 post 模型", () => {
-  it("首帖 = floor 1，post id = 100000 + tid；回帖保留旧 pid，楼层从 2 起", () => {
+  it("首帖 = floor 1，id 接在全部旧 pid 之后按 tid 升序自增；回帖保留旧 pid，楼层从 2 起", () => {
     const r = transformContent(
-      [thread({ tid: 5 })],
+      [thread({ tid: 9 }), thread({ tid: 5 })],
       [
         post({ pid: 30, tid: 5, created_time: T0 + 200 }),
         post({ pid: 20, tid: 5, created_time: T0 + 100 }),
       ],
       ctx(),
     );
-    expect(r.threads[0]).toMatchObject({
-      id: 5,
-      firstPostId: firstPostId(5),
-      forumId: 10,
-      state: "visible",
-    });
-    expect(r.posts.map((p) => [p.id, p.floor])).toEqual([
-      [100005, 1],
-      [20, 2],
-      [30, 3],
+    expect(r.threads.map((t) => [t.id, t.firstPostId])).toEqual([
+      [5, 31],
+      [9, 32],
     ]);
-    expect(r.posts[0]).toMatchObject({
-      threadId: 5,
+    expect(r.firstPostOf).toEqual(
+      new Map([
+        [5, 31],
+        [9, 32],
+      ]),
+    );
+    expect(r.posts.map((p) => [p.id, p.threadId, p.floor])).toEqual([
+      [20, 5, 2],
+      [30, 5, 3],
+      [31, 5, 1],
+      [32, 9, 1],
+    ]);
+    expect(r.posts.find((p) => p.id === 31)).toMatchObject({
       authorId: 1,
       bodyMd: "首帖正文",
       replyToPostId: null,
     });
+  });
+
+  it("首帖 id 与过滤结果无关：最大旧 pid 取自全部旧帖（含不迁移的）", () => {
+    const r = transformContent(
+      [thread({ tid: 1 })],
+      [post({ pid: 500, tid: 1, disabled: 2 })],
+      ctx(),
+    );
+    expect(r.threads[0]?.firstPostId).toBe(501);
+    expect(r.posts.map((p) => p.id)).toEqual([501]);
   });
 
   it("楼层按 (created_time, pid) 稳定排序：同一秒用 pid 打破平局", () => {
@@ -102,15 +117,63 @@ describe("transformContent · 统一 post 模型", () => {
     expect(r.posts.filter((p) => p.floor > 1).map((p) => p.id)).toEqual([3, 9]);
   });
 
-  it("空壳主题 → state=spam，不生成首帖与帖子", () => {
+  it("只迁可见内容：回收站/屏蔽主题、空壳、版块不存在、无作者的主题都不迁，分别计数", () => {
     const r = transformContent(
-      [thread({ tid: 7, content: null, has_content: 0 })],
+      [
+        thread({ tid: 1 }),
+        thread({ tid: 2, disabled: 2 }),
+        thread({ tid: 3, ifshield: 1 }),
+        thread({ tid: 4, content: null, has_content: 0 }),
+        thread({ tid: 5, fid: 999 }),
+        thread({ tid: 6, created_userid: 0 }),
+      ],
       [],
-      ctx({ spamTids: new Set([7]) }),
+      ctx({ spamTids: new Set([4]) }),
     );
-    expect(r.threads[0]).toMatchObject({ state: "spam", firstPostId: null });
-    expect(r.posts).toEqual([]);
-    expect(r.stats.spamThreads).toBe(1);
+    expect(r.threads.map((t) => t.id)).toEqual([1]);
+    expect(r.stats.threadsDropped).toEqual({
+      deleted: 1,
+      hidden: 1,
+      spamShell: 1,
+      badForum: [5],
+      noAuthor: 1,
+    });
+  });
+
+  it("只迁可见回帖；主题未迁移的回帖记为孤儿，其余按状态/无作者计数", () => {
+    const r = transformContent(
+      [thread({ tid: 1 }), thread({ tid: 2, disabled: 2 })],
+      [
+        post({ pid: 1, tid: 1 }),
+        post({ pid: 2, tid: 1, disabled: 2 }),
+        post({ pid: 3, tid: 1, ifshield: 1 }),
+        post({ pid: 4, tid: 1, created_userid: 0 }),
+        post({ pid: 5, tid: 2 }),
+        post({ pid: 6, tid: 999 }),
+        post({ pid: 7, tid: 0 }),
+      ],
+      ctx(),
+    );
+    expect(r.posts.filter((p) => p.floor > 1).map((p) => p.id)).toEqual([1]);
+    expect(r.stats.postsDropped).toEqual({ orphan: 3, deleted: 1, hidden: 1, noAuthor: 1 });
+  });
+
+  it("楼层在丢弃之后保持连续（不留空洞）", () => {
+    const r = transformContent(
+      [thread({ tid: 1 })],
+      [
+        post({ pid: 1, tid: 1, created_time: T0 + 1 }),
+        post({ pid: 2, tid: 1, created_time: T0 + 2, disabled: 2 }),
+        post({ pid: 3, tid: 1, created_time: T0 + 3 }),
+      ],
+      ctx(),
+    );
+    expect(
+      r.posts
+        .filter((p) => p.threadId === 1)
+        .map((p) => p.floor)
+        .sort(),
+    ).toEqual([1, 2, 3]);
   });
 
   it("无正文但有回复的主题：补空首帖并记录", () => {
@@ -119,35 +182,11 @@ describe("transformContent · 统一 post 模型", () => {
       [post({ pid: 1, tid: 2 })],
       ctx(),
     );
-    expect(r.posts[0]).toMatchObject({ id: 100002, bodyMd: "", floor: 1 });
+    expect(r.posts.find((p) => p.floor === 1)).toMatchObject({ bodyMd: "" });
     expect(r.stats.emptyFirstPosts).toEqual([2]);
   });
 
-  it("孤儿回帖（主题不存在 / 属于空壳主题）丢弃并计数", () => {
-    const r = transformContent(
-      [thread({ tid: 7, content: null, has_content: 0 })],
-      [post({ pid: 1, tid: 999 }), post({ pid: 2, tid: 0 }), post({ pid: 3, tid: 7 })],
-      ctx({ spamTids: new Set([7]) }),
-    );
-    expect(r.posts).toEqual([]);
-    expect(r.stats.orphanPosts).toBe(3);
-  });
-
-  it("状态：回收站 → deleted，屏蔽 → hidden；首帖状态随主题", () => {
-    const r = transformContent(
-      [thread({ tid: 1, disabled: 2 }), thread({ tid: 2, ifshield: 1 })],
-      [post({ pid: 1, tid: 2, disabled: 2 }), post({ pid: 2, tid: 2, ifshield: 1 })],
-      ctx(),
-    );
-    const by = new Map(r.posts.map((p) => [p.id, p.state]));
-    expect(by.get(100001)).toBe("deleted");
-    expect(by.get(100002)).toBe("hidden");
-    expect(by.get(1)).toBe("deleted");
-    expect(by.get(2)).toBe("hidden");
-    expect(r.threads.map((t) => t.state)).toEqual(["deleted", "hidden"]);
-  });
-
-  it("回复指针：同主题保留；跨主题、悬空置空并分别计数", () => {
+  it("回复指针：同主题保留；跨主题、悬空、指向未迁移的帖置空并分别计数", () => {
     const r = transformContent(
       [thread({ tid: 1 }), thread({ tid: 2 })],
       [
@@ -156,6 +195,8 @@ describe("transformContent · 统一 post 模型", () => {
         post({ pid: 12, tid: 1, rpid: 20 }),
         post({ pid: 20, tid: 2 }),
         post({ pid: 13, tid: 1, rpid: 9999 }),
+        post({ pid: 14, tid: 1, rpid: 15 }),
+        post({ pid: 15, tid: 1, disabled: 2 }),
       ],
       ctx(),
     );
@@ -163,43 +204,54 @@ describe("transformContent · 统一 post 模型", () => {
     expect(by.get(11)).toBe(10);
     expect(by.get(12)).toBeNull();
     expect(by.get(13)).toBeNull();
-    expect(r.stats).toMatchObject({ crossThreadReplyPointers: 1, danglingReplyPointers: 1 });
+    expect(by.get(14)).toBeNull();
+    expect(r.stats.replyPointers).toEqual({ crossThread: 1, dangling: 1, droppedTarget: 1 });
   });
 
-  it("作者已注销：保留旧用户名到 author_name_legacy；存在的用户为 null", () => {
+  it("作者不在 userIds：记入占位账号清单（取其最早内容时间）；存在的用户不记", () => {
     const r = transformContent(
-      [thread({ tid: 1, created_userid: 999, created_username: " user-d " })],
-      [post({ pid: 1, tid: 1, created_userid: 2 })],
+      [thread({ tid: 1, created_userid: 999, created_time: T0 + 50 })],
+      [
+        post({ pid: 1, tid: 1, created_userid: 999, created_time: T0 + 10 }),
+        post({ pid: 2, tid: 1, created_userid: 2 }),
+      ],
       ctx(),
     );
-    expect(r.threads[0]).toMatchObject({ authorId: 999, authorNameLegacy: "user-d" });
-    expect(r.posts.find((p) => p.id === 1)?.authorNameLegacy).toBeNull();
+    expect([...r.placeholders.keys()]).toEqual([999]);
+    // 回帖（T0+10）早于主题（T0+50）：取较早者
+    expect(r.placeholders.get(999)).toBe("2011-03-13 15:06:50");
   });
 
-  it("前缀只保留被引用的；special=poll → kind=poll；标题与浏览数", () => {
+  it("置顶/精华/前缀/类型：topped→pinLevel（截断到 0–3），digest>0→精华", () => {
     const r = transformContent(
       [
-        thread({ tid: 1, topic_type: 7, special: "poll", subject: "  标题  ", hits: 42 }),
-        thread({ tid: 2, topic_type: 8 }),
+        thread({
+          tid: 1,
+          topic_type: 7,
+          special: "poll",
+          subject: "  标题  ",
+          hits: 42,
+          topped: 3,
+        }),
+        thread({ tid: 2, topic_type: 8, topped: 9, digest: 2 }),
       ],
       [],
       ctx(),
     );
-    expect(r.threads[0]).toMatchObject({ prefixId: 7, kind: "poll", title: "标题", viewCount: 42 });
-    expect(r.threads[1]).toMatchObject({ prefixId: null, kind: "normal" });
-  });
-
-  it("版块已删除：有归档版块则改挂（内容保留），否则丢弃", () => {
-    const rows = [thread({ tid: 1, fid: 999 }), thread({ tid: 2, fid: 0 })];
-    const kept = transformContent(rows, [], ctx({ fallbackForumId: 20 }));
-    expect(kept.threads.map((t) => t.forumId)).toEqual([20, 20]);
-    expect(kept.stats.reassignedThreads).toEqual([
-      { tid: 1, fromForum: 999 },
-      { tid: 2, fromForum: 0 },
-    ]);
-    const dropped = transformContent(rows, [], ctx());
-    expect(dropped.threads).toEqual([]);
-    expect(dropped.stats.droppedThreadsBadForum).toEqual([1, 2]);
+    expect(r.threads[0]).toMatchObject({
+      prefixId: 7,
+      kind: "poll",
+      title: "标题",
+      viewCount: 42,
+      pinLevel: 3,
+      isFeatured: false,
+    });
+    expect(r.threads[1]).toMatchObject({
+      prefixId: null,
+      kind: "normal",
+      pinLevel: 3,
+      isFeatured: true,
+    });
   });
 
   it("编辑时间：晚于创建才记录", () => {
@@ -212,28 +264,56 @@ describe("transformContent · 统一 post 模型", () => {
       ctx(),
     );
     const by = new Map(r.posts.map((p) => [p.id, p.editedAt]));
-    expect(by.get(100001)).not.toBeNull();
+    expect(by.get(3)).not.toBeNull(); // 首帖
     expect(by.get(1)).toBeNull();
     expect(by.get(2)).not.toBeNull();
+  });
+
+  it("noteAuthor：已有用户不记；重复记取较早时间", () => {
+    const seen = new Map<number, string>();
+    const users = new Set([1]);
+    noteAuthor(seen, users, 1, "2011-01-01 00:00:00");
+    noteAuthor(seen, users, 7, "2012-01-01 00:00:00");
+    noteAuthor(seen, users, 7, "2011-06-01 00:00:00");
+    noteAuthor(seen, users, 7, "2013-01-01 00:00:00");
+    expect(seen).toEqual(new Map([[7, "2011-06-01 00:00:00"]]));
   });
 });
 
 describe("transformContent · 门控", () => {
-  it("门控拆出：正文只留占位，gate id = 帖子 id × 16 + seq，隐藏内容不在公开正文里", () => {
+  it("门控拆出：key = g{序号}，id 按 (帖子 id, 序号) 自增 1..n，隐藏内容不在公开正文里", () => {
     const r = transformContent(
       [thread({ tid: 3, content: "前文[sell=5,]付费秘密[/sell]后文[post]回复秘密[/post]" })],
-      [],
+      [post({ pid: 77, tid: 3, content: "[sell=2,]y[/sell]" })],
       ctx(),
     );
-    const fp = firstPostId(3);
-    expect(r.gates.map((g) => [g.id, g.seq, g.conditions[0]])).toEqual([
-      [fp * 16 + 1, 1, { type: "points", price: 5 }],
-      [fp * 16 + 2, 2, { type: "reply" }],
+    expect(r.gates.map((g) => [g.id, g.postId, g.gateKey])).toEqual([
+      [1, 77, "g1"],
+      [2, 78, "g1"],
+      [3, 78, "g2"],
     ]);
-    expect(r.posts[0]?.hasGate).toBe(true);
-    expect(r.posts[0]?.bodyMd).not.toContain("付费秘密");
-    expect(r.posts[0]?.bodyMd).not.toContain("回复秘密");
-    expect(r.stats.gates).toEqual({ points: 1, reply: 1 });
+    expect(r.gates[1]?.conditions[0]).toEqual({ type: "points", price: 5 });
+    expect(r.gates[2]?.conditions[0]).toEqual({ type: "reply" });
+    const first = r.posts.find((p) => p.id === 78);
+    expect(first?.hasGate).toBe(true);
+    expect(first?.bodyMd).not.toContain("付费秘密");
+    expect(first?.bodyMd).not.toContain("回复秘密");
+    expect(r.stats.gates).toEqual({ points: 2, reply: 1 });
+  });
+
+  it("门控时间随所属帖子：创建=发帖时间，更新=编辑时间（无编辑则同创建）", () => {
+    const r = transformContent(
+      [thread({ tid: 1, content: "[sell=5,]x[/sell]", modified_time: T0 + 60 })],
+      [post({ pid: 5, tid: 1, content: "[sell=1,]y[/sell]" })],
+      ctx(),
+    );
+    const byPost = new Map(r.gates.map((g) => [g.postId, g]));
+    expect(byPost.get(5)).toMatchObject({
+      createdAt: "2011-03-13 15:08:20",
+      updatedAt: "2011-03-13 15:08:20",
+    });
+    expect(byPost.get(6)?.createdAt).toBe("2011-03-13 15:06:40");
+    expect(byPost.get(6)?.updatedAt).toBe("2011-03-13 15:07:40");
   });
 
   it("回帖里的门控同样拆出；告警明细带帖子 id", () => {
@@ -257,20 +337,25 @@ describe("transformContent · 门控", () => {
     expect(r.stats.nestedDropped).toEqual([{ postId: 5, detail: "POST in QUOTE" }]);
   });
 
-  it("表情展开与遗留表情码删除", () => {
-    const r = transformContent([thread({ tid: 1, content: "好[s:130]看[s:171]" })], [], ctx());
-    expect(r.posts[0]?.bodyMd).toBe("好![表情](/emoji/130.gif)看");
+  it("表情展开与遗留表情码删除；颜色字号等样式降级计入告警", () => {
+    const r = transformContent(
+      [thread({ tid: 1, content: "好[s:130]看[s:171][color=red]红字[/color]" })],
+      [],
+      ctx(),
+    );
+    expect(r.posts[0]?.bodyMd).toBe("好![表情](/emoji/130.gif)看红字");
     expect(r.stats.warnings.get("emoji-legacy-stripped")).toBe(1);
+    expect(r.stats.warnings.get("style-degraded")).toBe(1);
   });
 });
 
 describe("transformUnlocks", () => {
-  const gate = (id: number, postId: number, type: "points" | "reply") => ({
+  const gate = (id: number, postId: number, type: "points" | "reply"): GateRow => ({
     id,
     postId,
-    seq: 1,
+    gateKey: "g1",
     conditions: [type === "points" ? { type, price: 5 } : { type }],
-    matchMode: "all" as const,
+    matchMode: "all",
     hiddenMd: "x",
     createdAt: ASOF,
     updatedAt: ASOF,
@@ -283,26 +368,21 @@ describe("transformUnlocks", () => {
     cost: 5,
     ...over,
   });
-  const run = (
-    buys: ReturnType<typeof buy>[],
-    gates = [gate(1_600_001, firstPostId(1), "points")],
-  ) => transformUnlocks(buys, gates, new Set([firstPostId(1), 50]), new Set([1, 2]), ASOF);
+  const FIRST = 900;
+  const firstPostOf = new Map([[1, FIRST]]);
+  const run = (buys: ReturnType<typeof buy>[], gates = [gate(1, FIRST, "points")]) =>
+    transformUnlocks(buys, gates, new Set([FIRST, 50]), firstPostOf, new Set([1, 2]), ASOF);
 
-  it("pid=0 → 首帖；pid>0 → 该回帖；保留价格与时间，来源 migrated", () => {
+  it("pid=0 → 首帖；pid>0 → 该回帖；保留价格与时间，不带来源标记", () => {
     const r = run([buy({})]);
     expect(r.rows).toEqual([
-      expect.objectContaining({
-        gateId: 1_600_001,
-        userId: 1,
-        pricePaid: 5,
-        authorIncome: 5,
-        source: "migrated",
-      }),
+      { gateId: 1, userId: 1, pricePaid: 5, authorIncome: 5, unlockedAt: expect.any(String) },
     ]);
     const reply = transformUnlocks(
       [buy({ pid: 50 })],
       [gate(801, 50, "points")],
-      new Set([firstPostId(1), 50]),
+      new Set([FIRST, 50]),
+      firstPostOf,
       new Set([1]),
       ASOF,
     );
@@ -310,12 +390,12 @@ describe("transformUnlocks", () => {
   });
 
   it("一帖多个积分门控：一次购买展开成每个门控各一条", () => {
-    const gates = [gate(1, firstPostId(1), "points"), gate(2, firstPostId(1), "points")];
+    const gates = [gate(1, FIRST, "points"), gate(2, FIRST, "points")];
     expect(run([buy({})], gates).rows.map((r) => r.gateId)).toEqual([1, 2]);
   });
 
-  it("只有回复可见门控的购买（旧站把回复解锁也记入购买表）不生成解锁；无门控、孤儿购买者、重复分别计数", () => {
-    const replyOnly = run([buy({})], [gate(9, firstPostId(1), "reply")]);
+  it("只有回复可见门控的购买不生成解锁；无门控、孤儿购买者/目标、重复分别计数", () => {
+    const replyOnly = run([buy({})], [gate(9, FIRST, "reply")]);
     expect(replyOnly.rows).toEqual([]);
     expect(replyOnly.stats.replyOnly).toBe(1);
     const noGate = run([buy({})], []);
@@ -342,13 +422,23 @@ describe("transformAttachments", () => {
     created_time: T0,
     ...over,
   });
+  const FIRST = 900;
   const run = (rows: ReturnType<typeof att>[]) =>
-    transformAttachments(rows as never, new Set([firstPostId(1), 50]), ASOF);
+    transformAttachments(
+      rows as never,
+      new Set([FIRST, 50]),
+      new Map([[1, FIRST]]),
+      new Map([
+        [FIRST, 1],
+        [50, 2],
+      ]),
+      ASOF,
+    );
 
   it("挂到所属回帖；pid=0 挂首帖；记下旧站路径与下载数（文件本体交文件管线）", () => {
     const r = run([att({}), att({ aid: 2, pid: 50, name: "a.JPG", path: "Mon_1/a.jpg" })]);
     expect(r.rows[0]).toEqual({
-      postId: firstPostId(1),
+      postId: FIRST,
       uploaderId: 1,
       originalName: "字幕.zip",
       sourcePath: "1302/thread/a.zip",
@@ -358,10 +448,15 @@ describe("transformAttachments", () => {
     expect(r.rows[1]).toMatchObject({ postId: 50, sourcePath: "Mon_1/a.jpg" });
   });
 
-  it("回帖已不存在改挂首帖；主题不存在则丢弃", () => {
-    const r = run([att({ aid: 3, pid: 777 }), att({ aid: 4, tid: 404 })]);
-    expect(r.rows.map((x) => x.postId)).toEqual([firstPostId(1)]);
-    expect(r.stats).toEqual({ orphan: 1, reattachedToFirstPost: 1 });
+  it("回帖未迁移改挂首帖；主题未迁移则丢弃；上传者缺失记为所挂帖的作者", () => {
+    const r = run([
+      att({ aid: 3, pid: 777 }),
+      att({ aid: 4, tid: 404 }),
+      att({ aid: 5, created_userid: 0 }),
+    ]);
+    expect(r.rows.map((x) => x.postId)).toEqual([FIRST, FIRST]);
+    expect(r.rows[1]?.uploaderId).toBe(1);
+    expect(r.stats).toEqual({ orphan: 1, reattachedToFirstPost: 1, uploaderFromPostAuthor: 1 });
   });
 });
 

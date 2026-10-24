@@ -24,10 +24,14 @@ const MIME_BY_EXT: Record<string, string> = {
   torrent: "application/x-bittorrent",
 };
 
-/** 扩展名（小写，去点）；不合法的扩展名一律归为 bin，避免出现在存储路径里 */
+/**
+ * 扩展名（小写，去点），只认 MIME_BY_EXT 白名单，其余一律归为 bin。
+ * 存储路径里的扩展名可能被静态服务/反代当作 Content-Type 依据；旧站文件名是不可信输入，
+ * 放行 html / svg / js / swf 等可执行类型会让 /files/ 成为存储型 XSS 入口。
+ */
 export function safeExt(nameOrPath: string): string {
   const ext = extname(nameOrPath).slice(1).toLowerCase();
-  return /^[a-z0-9]{1,8}$/.test(ext) ? ext : "bin";
+  return Object.hasOwn(MIME_BY_EXT, ext) ? ext : "bin";
 }
 
 export const mimeOfExt = (ext: string): string => MIME_BY_EXT[ext] ?? "application/octet-stream";

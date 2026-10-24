@@ -1,5 +1,4 @@
 import { toDatetime } from "../config.js";
-import { firstPostId } from "./content.js";
 
 // ---------- 关注 ----------
 
@@ -86,6 +85,7 @@ export interface ReactionRow {
 export function transformReactions(
   likes: readonly { uid: number; created_time: number; typeid: number; fromid: number }[],
   postIds: ReadonlySet<number>,
+  firstPostOf: ReadonlyMap<number, number>,
   userIds: ReadonlySet<number>,
   asOf: string,
 ): {
@@ -97,7 +97,8 @@ export function transformReactions(
   const rows: ReactionRow[] = [];
   for (const l of likes) {
     const uid = Number(l.uid);
-    const postId = Number(l.typeid) === 1 ? firstPostId(Number(l.fromid)) : Number(l.fromid);
+    const postId =
+      Number(l.typeid) === 1 ? (firstPostOf.get(Number(l.fromid)) ?? 0) : Number(l.fromid);
     if (!userIds.has(uid) || !postIds.has(postId)) {
       stats.orphan++;
       continue;

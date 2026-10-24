@@ -53,10 +53,14 @@ export const head = (xs: readonly (string | number)[], n = 20) =>
 export const mapRows = <K>(m: Map<K, number>) =>
   [...m].sort((a, b) => String(a[0]).localeCompare(String(b[0]), "en", { numeric: true }));
 
-/** 单独运行后续步骤时，已迁用户集合从新库读取 */
+/**
+ * 单独运行后续步骤时，已迁用户集合从新库读取。
+ * 只含真实用户（state=active）：「已注销用户」占位账号只给内容作者/附件上传者建，
+ * 积分、关注、点赞、投票、购买等记录不会挂到占位账号上。
+ */
 export async function loadUserIds(ctx: Ctx): Promise<Set<number>> {
   if (ctx.userIds.size === 0) {
-    const rows = await newQuery<{ id: number }>("SELECT id FROM users");
+    const rows = await newQuery<{ id: number }>("SELECT id FROM users WHERE state = 'active'");
     ctx.userIds = new Set(rows.map((r) => Number(r.id)));
   }
   return ctx.userIds;
