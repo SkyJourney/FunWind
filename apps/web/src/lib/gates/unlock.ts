@@ -6,9 +6,9 @@ import { emit } from "@/modules/kernel/bus";
 import type { EventName, EventPayloads } from "@/modules/kernel/types";
 import { lockAccounts } from "@/lib/points/account";
 import { applyPointsInTx, builtinChannel } from "@/lib/points/apply";
-import { InsufficientPointsError } from "@/lib/points/errors";
-import { withDeadlockRetry } from "@/lib/points/retry";
-import { locateGate, type GateLocation } from "./service";
+import { InsufficientPointsError, PointsOverflowError } from "@/lib/points/errors";
+import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
+import { gateOpenReason, locateGate, type GateLocation } from "./service";
 import { parseConditions } from "./parse";
 
 /**
@@ -33,6 +33,8 @@ export type UnlockCode =
   | "own_content"
   | "insufficient"
   | "unavailable"
+  /** 门控已因购买以外的条件对该读者开放（如 any 模式下已回帖），无需也不应再扣款 */
+  | "already_open"
   /** 门控的当前价格与买家确认的价格（expectedPrice）不符 */
   | "price_changed";
 
@@ -82,6 +84,15 @@ export async function unlockGate(
   if ((await checkPermission(viewer, "forum.moderate", { forumId: target.forumId })).allowed) {
     return { ok: false, code: "own_content", target };
   }
+
+  // 已经能看（any 模式下已回帖等）就不该再扣款。reason=unlocked 是「买过了」，交给事务内的幂等路径处理
+  const openBy = await gateOpenReason(
+    viewer,
+    { id: target.threadId, forumId: target.forumId },
+    { id: target.postId, authorId: target.authorId },
+    gateId,
+  );
+  if (openBy === "replied") return { ok: false, code: "already_open", target };
 
   const db = getWebDb();
   const [authorRow] = await db
@@ -191,10 +202,12 @@ export async function unlockGate(
           payload: { gateId, userId: viewerId, authorId: target.authorId, price },
         });
         return { ok: true, alreadyUnlocked: false, pricePaid: price, events };
-      }),
+      }, POINTS_TX_OPTIONS),
     );
   } catch (e) {
     if (e instanceof InsufficientPointsError) return { ok: false, code: "insufficient", target };
+    // 作者账户已到余额上限、收益入不了账：整笔回滚（读者没有被扣费），对读者表现为暂不可购买而不是 500
+    if (e instanceof PointsOverflowError) return { ok: false, code: "unavailable", target };
     throw e;
   }
 

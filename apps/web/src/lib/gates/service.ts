@@ -5,7 +5,7 @@ import type { Subject } from "@/lib/authz/types";
 import { buildViewerScope, visiblePredicate } from "@/lib/queries/visibility";
 import { evaluateGate } from "./evaluate";
 import { parseConditions } from "./parse";
-import type { GateFacts, GateMeta, GateStats, GateView } from "./types";
+import type { GateFacts, GateMeta, GateStats, GateView, OpenReason } from "./types";
 
 /**
  * 门控读取服务——**隐藏正文（post_gates.hidden_md）的唯一读取点**（硬约定 3b，docs/GATES.md §2）。
@@ -146,6 +146,21 @@ export async function openGateIds(
   if (gateIds.size === 0) return new Set();
   const decisions = await decideGates(viewer, thread, postList, gateIds);
   return new Set(decisions.filter((d) => d.decision.open).map((d) => d.meta.id));
+}
+
+/**
+ * 某个门控对观众为什么开放（不读隐藏正文）；锁定返回 null。
+ * 解锁服务据此在扣款前拒绝「已因别的条件开放」的购买（如 any 模式下已回帖），避免白扣积分。
+ * 调用方须已确认该帖子对观众可见。
+ */
+export async function gateOpenReason(
+  viewer: Subject,
+  thread: { id: number; forumId: number },
+  post: PostCtx,
+  gateId: number,
+): Promise<OpenReason | null> {
+  const [item] = await decideGates(viewer, thread, [post], new Set([gateId]));
+  return item && item.decision.open ? item.decision.reason : null;
 }
 
 /**

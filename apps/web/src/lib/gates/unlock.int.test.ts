@@ -4,7 +4,7 @@
  * 夹具：门控 9001（首帖 900104，作者 alice，积分 10）；余额 alice 150 / xiaoyi 20 / member 100 / team 50；
  * member 已购买 9001；xiaoyi 是帖 900102 的作者。
  */
-import { eq, sql } from "drizzle-orm";
+import { eq, max, sql } from "drizzle-orm";
 import {
   DEMO,
   gateUnlocks,
@@ -12,6 +12,7 @@ import {
   pointAccounts,
   pointLedger,
   postGates,
+  posts,
   siteSettings,
   threads,
   users,
@@ -255,6 +256,89 @@ describe.skipIf(skipDb)("unlockGate · 真实 MySQL", () => {
         status: "locked",
         prompts: [{ kind: "reply" }],
       });
+    });
+  });
+
+  describe("已因其他条件开放的门控不再扣款（复查 A5）", () => {
+    const reply = async (u: number, thread = 900001) => {
+      const [row] = await db()
+        .select({ m: max(posts.floor) })
+        .from(posts)
+        .where(eq(posts.threadId, thread));
+      await db()
+        .insert(posts)
+        .values({
+          threadId: thread,
+          floor: (row?.m ?? 1) + 1,
+          authorId: u,
+          bodyMd: "我来回复",
+          state: "visible",
+          createdAt: "2026-10-21 00:00:00",
+        });
+    };
+
+    it("any 模式 + 已回帖：门控已开放，购买被拒绝（already_open），不扣费、不记账、不解锁", async () => {
+      const g = await mkGate(900101, [{ type: "points", price: 5 }, { type: "reply" }], "any");
+      await reply(DEMO.xiaoyi);
+      emitted.length = 0;
+      const before = await balance(DEMO.xiaoyi);
+      const ledgerBefore = (await ledger(DEMO.xiaoyi)).length;
+      const r = await run(xiaoyi, g);
+      expect(r).toMatchObject({ ok: false, code: "already_open" });
+      expect(await balance(DEMO.xiaoyi)).toBe(before);
+      expect((await ledger(DEMO.xiaoyi)).length).toBe(ledgerBefore);
+      expect(await unlockRow(g, DEMO.xiaoyi)).toBeUndefined();
+      expect(emitted).toEqual([]);
+    });
+
+    it("any 模式 + 没回帖：照常购买", async () => {
+      const g = await mkGate(900101, [{ type: "points", price: 3 }, { type: "reply" }], "any");
+      const before = await balance(DEMO.member);
+      expect(await run(member, g)).toMatchObject({ ok: true, pricePaid: 3 });
+      expect(await balance(DEMO.member)).toBe((before ?? 0) - 3);
+    });
+
+    it("all 模式 + 已回帖但没付费：门控未开放，照常购买（购买不要求其他条件先满足）", async () => {
+      const g = await mkGate(900101, [{ type: "points", price: 2 }, { type: "reply" }], "all");
+      await reply(DEMO.member);
+      const before = await balance(DEMO.member);
+      expect(await run(member, g)).toMatchObject({ ok: true, pricePaid: 2 });
+      expect(await balance(DEMO.member)).toBe((before ?? 0) - 2);
+    });
+
+    it("先买后回帖：开放原因记为「已购买」，再点走幂等路径返回 alreadyUnlocked，不被 already_open 抢先，也不重复扣费", async () => {
+      // 用 member 没回过帖的另一个主题（900003 / 首帖 900103），避免受前面用例遗留的回帖影响
+      const g = await mkGate(900103, [{ type: "points", price: 1 }, { type: "reply" }], "any");
+      const before = await balance(DEMO.member);
+      expect(await run(member, g)).toMatchObject({ ok: true, alreadyUnlocked: false });
+      expect(await balance(DEMO.member)).toBe((before ?? 0) - 1);
+      await reply(DEMO.member, 900003);
+      expect(await run(member, g)).toMatchObject({ ok: true, alreadyUnlocked: true });
+      expect(await balance(DEMO.member)).toBe((before ?? 0) - 1);
+    });
+  });
+
+  describe("作者账户已到余额上限（复查 B2）", () => {
+    it("收益入不了账：整笔回滚，读者没被扣费，对读者表现为 unavailable 而不是 500", async () => {
+      const g = await mkGate(900101, [{ type: "points", price: 5 }]);
+      const aliceBefore = (await balance(DEMO.alice))!;
+      const memberBefore = await balance(DEMO.member);
+      const ledgerBefore = (await ledger(DEMO.member)).length;
+      await db()
+        .update(pointAccounts)
+        .set({ balance: 4_294_967_295 })
+        .where(eq(pointAccounts.userId, DEMO.alice));
+      try {
+        expect(await run(member, g)).toMatchObject({ ok: false, code: "unavailable" });
+        expect(await balance(DEMO.member)).toBe(memberBefore);
+        expect((await ledger(DEMO.member)).length).toBe(ledgerBefore);
+        expect(await unlockRow(g, DEMO.member)).toBeUndefined();
+      } finally {
+        await db()
+          .update(pointAccounts)
+          .set({ balance: aliceBefore })
+          .where(eq(pointAccounts.userId, DEMO.alice));
+      }
     });
   });
 

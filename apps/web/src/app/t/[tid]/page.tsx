@@ -30,6 +30,7 @@ const GATE_NOTICES: Record<string, string> = {
   own_content: "你是该内容的作者或版主，无需购买。",
   unavailable: "该内容暂不可购买。",
   price_changed: "价格已变化，请确认新价格后重试。",
+  already_open: "你已经可以查看这段内容，无需购买。",
   rate: "操作过于频繁，请稍后再试。",
 };
 
