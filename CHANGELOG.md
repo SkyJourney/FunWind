@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+### Added（推送准备 · D：GitHub Actions CI）
+
+- 新增 `.github/workflows/ci.yml`（`push` 到 main 与 `pull_request` 触发，`permissions: contents: read`，不使用任何仓库密钥）：
+  - `verify`：MySQL 8.4 服务 → `check:secrets` / `test:scripts` / lint / format / typecheck / `pnpm test`（含真实 MySQL 集成测试与覆盖率门槛）/ build；
+  - `e2e`：MySQL 8.4 + MailPit 服务 → 安装 Playwright Chromium → `pnpm test:e2e:run`（dev E2E + 生产构建冒烟）；失败时上传 `apps/web/test-results`。
+- `test:e2e` 拆成 `test:e2e`（启动本机 MailPit 容器后调用）与 `test:e2e:run`（纯编排，CI 直接用）。
+- 推送前在本机用「移走 `.env`、只给环境变量」的方式模拟 CI：verify 全流程与 E2E（55 + 7）均通过，确认代码不隐性依赖 `.env`。
+
 ### Security（推送准备 · C：重写 git 历史）
 
 - 为推送公开仓库重写全部 44 个提交：清除旧库与本机开发库口令（原出现在 BLUEPRINT / README / compose 的历史里）、3 个真实用户邮箱、4 个第三方论坛用户名，并去掉提交信息里的 `Claude-Session:` 行（保留 `Co-Authored-By`）。

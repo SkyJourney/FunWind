@@ -41,6 +41,7 @@ pnpm --filter @funwind/web test             # web 单测 + 真实 MySQL 临时�
 pnpm --filter @funwind/content test         # 门控语法 + UBB 转换器 v2（含泄露不变量性质测试）
 pnpm migrate | verify:migration             # 青翼导入 v2（幂等）/ 对账 v2；报告写入 docs/reports/（入库）
                                             # 先用临时库演练：NEW_DB_NAME=… 并用 packages/db/scripts/e2e-reset.ts 建空库
+pnpm test:e2e:run              # 同上但不启动 MailPit 容器（CI 用：MailPit 由 GitHub Actions 服务容器提供）
 pnpm --filter @funwind/web test:e2e:prod                  # 仅生产构建冒烟（真实 next build + next start）
 pnpm --filter @funwind/web modules:toggle <id> <on|off>   # 模块启停（写 audit_log）
 pnpm --filter @funwind/web perf:lcp                       # 生产构建 LCP 门禁

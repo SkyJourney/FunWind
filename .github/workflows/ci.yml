@@ -1,0 +1,111 @@
+# CI：与本地 pre-push / verify:all 同一套门禁，外加自包含 E2E。
+#   verify —— 秘密扫描 / lint / 格式 / 类型 / 单测（含真实 MySQL 集成测试与覆盖率门槛）/ 构建
+#   e2e    —— Playwright：dev 服务器 E2E + 生产构建冒烟。库里只有 bootstrap + 演示种子 + E2E 夹具，不依赖任何真实迁移数据。
+# 不使用任何仓库密钥；MySQL 口令是只存在于 CI 容器里的一次性值。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 同一分支上的新提交取消旧的运行，省 CI 时间
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  HUSKY: "0" # CI 里不安装 git 钩子
+  NEW_DB_HOST: 127.0.0.1
+  NEW_DB_PORT: "3306"
+  NEW_DB_USER: root
+  NEW_DB_PASSWORD: ci-only-mysql-pass # 与下方 services.mysql 的 MYSQL_ROOT_PASSWORD 一致；一次性值，不是任何真实口令
+  TRUSTED_PROXY_HOPS: "0"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      mysql:
+        image: mysql:8.4 # 默认字符集即 utf8mb4 / utf8mb4_0900_ai_ci，与本地 compose 一致
+        env:
+          MYSQL_ROOT_PASSWORD: ci-only-mysql-pass
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -pci-only-mysql-pass --silent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6 # 版本取自 package.json 的 packageManager
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: 秘密扫描与脚本测试
+        run: pnpm check:secrets && pnpm test:scripts
+      - run: pnpm lint
+      - run: pnpm format:check
+      - run: pnpm typecheck
+      - name: 单元与集成测试（含覆盖率门槛）
+        run: pnpm test
+      - run: pnpm build
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      APP_URL: http://127.0.0.1:3200
+      SMTP_URL: smtp://127.0.0.1:1025
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-only-mysql-pass
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -pci-only-mysql-pass --silent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      mailpit:
+        image: axllent/mailpit:v1.32.0
+        ports:
+          - 1025:1025
+          - 8025:8025
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: 安装 Playwright Chromium
+        run: pnpm --filter @funwind/web exec playwright install --with-deps chromium
+      - name: 等待 MailPit 就绪
+        run: |
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8025/readyz && exit 0
+            sleep 2
+          done
+          echo "MailPit 未就绪" >&2
+          exit 1
+      - name: E2E（重置库 → bootstrap → 种子 → E2E 夹具 → dev E2E → 生产构建冒烟）
+        run: pnpm test:e2e:run
+      - name: 失败时上传 Playwright 现场
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-test-results
+          path: apps/web/test-results
+          if-no-files-found: ignore
+          retention-days: 7
