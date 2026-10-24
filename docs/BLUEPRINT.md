@@ -156,7 +156,7 @@ schema 演进：P0 期的 `migration/schema/schema.sql` 为基线底稿；**M1 �
 
 - `[b][i][u][s]` → Markdown 强调；`[color=]`/`[size=]` → 内联 HTML span（Markdown 允许内联 HTML）
 - `[quote]` → 递归转 blockquote；`[code]` → 围栏代码块；`[url=]`/`[img]` → MD 链接/图片
-- `[s:N]` → `![表情](/attachment/emotion/{folder}/{icon})`（查 emoticons 映射）
+- ~~`[s:N]` → `![表情](/attachment/emotion/{folder}/{icon})`~~（v1 做法，已被下文取代：表情展开为 `/emoji/{id}.gif` 静态图）
 - `[attach]` 类 → 附件链接；`[hide]/[buy]` → 折叠提示块（购买记录 threads_buy 保留）
 - 未知标签：剥壳留肉；`usehtml=1` 的极少数行原文保留走净化渲染
 - **双写**：`content_raw`（原始 UBB，永远可回滚）+ `content_md`
@@ -166,13 +166,13 @@ schema 演进：P0 期的 `migration/schema/schema.sql` 为基线底稿；**M1 �
 - 转换器迁入 `packages/content`，与线上保存共用同一套门控语法（`:::gate{…}` 容器指令，见 [GATES.md](GATES.md)）。
 - `[sell]`/`[post]`/`[hide]` → 门控：隐藏内容拆入 `post_gates.hidden_md`，`body_md` 只留占位。
 - `[s:N]` 表情 → 静态图片引用（`/emoji/…`，gif 随迁移拷入 `apps/web/public/emoji/`；原文档的 `/attachment/emotion/…` 以代码实际 `/emotion/…` 为准且在 v2 退役）；映射外遗留码尽力对应旧目录 `03`，对不上降级为文本。
-- 旧站内部链接 `job.php?action=topost&tid&pid` → `#p{pid}`；`p_w_picpath/`、`p_w_upload/` 相对图片 → `/attachment/…`。
+- 旧站内部链接 `job.php?action=topost&tid&pid` → `#p{pid}`；`p_w_picpath/`、`p_w_upload/` 相对图片 → 迁移期改写为 `/files/<storage_key>`（文件入内容寻址注册表，决策 #21）。
 - 样式标签（`color`/`size`/`backcolor`）按实测使用量（color 1,245 帖、size 915 帖）保留为受限 HTML；`font` 剥壳；`table` 转 Markdown 表格；`hr` → `---`；媒体标签（wmv/rmvb/flash 共约 120 帖）降级为文本链接。
 - `content_raw` 不再留在业务表；正文保真靠迁移对账（源库正文 md5 抽样）而非在线双写。
 - 实测依据（2026-10-23，旧库只读）：`[sell=N,K]` 的 N 与该帖购买记录的 `cost` 完全吻合（K 为积分类型，忽略）；
   `[hide=N]` 的 5 个实例全是发帖模板里的空示例；遗留表情码 170–180 无法还原（编号与图片文件不按序对应，03 目录对应分类已关闭，旧站自己也渲染不出）→ **直接删除**；
   `p_w_picpath/back.gif` 是旧站引用头里的「回到原帖」图标（包在 `job.php?action=topost;tid;pid` 链接中）→ `[↩ 原帖](/t/{tid}#p{pid})`；
-  `http://www.qingyisub.com/p_w_upload/photo/Mon_xxxx/…` 的文件实际位于 `attachment/photo/Mon_xxxx/…` → 按磁盘存在性改写为 `/attachment/…`。
+  `http://www.qingyisub.com/p_w_upload/photo/Mon_xxxx/…` 的文件实际位于 `attachment/photo/Mon_xxxx/…` → 按磁盘存在性改写为 `/files/<storage_key>`（磁盘上不存在的保留原地址并在报告中计数）。
 - 表情 50 枚（`emotion_id` 120–169）静态化为 `apps/web/public/emoji/{emotion_id}.gif`（约 1.4MB，入库提交），渲染白名单随 S4 增加 `/emoji/` 前缀与 `<sup>`/`<sub>`。
 - 门控标签**优先于其它标签**：交叉嵌套（`[color][sell]…[/color]…[/sell]`）时门控边界不变；孤立的门控闭合标签丢弃；表格单元格内的门控占位提升到表格之后。
 - 门控标签未闭合时**失败即封闭**（到容器末尾都归入隐藏内容，不进公开正文）；旧库 tid 2023 的未闭合 `[sell]` 有 22 条购买记录，证明旧站按付费帖处理。
@@ -186,7 +186,7 @@ schema 演进：P0 期的 `migration/schema/schema.sql` 为基线底稿；**M1 �
 |--------|------|------------------------|
 | `/f/{fid}` | 版块（`?page=N`、`?type={type_id}`） | `thread.php?fid=N`、`simple/?f=N` |
 | `/t/{tid}` | 帖子（`?page=N`、锚点 `#p{pid}`） | `read.php?tid=N`、`simple/?t=N` |
-| `/attachment/**`、`/emotion/**` | 静态资源（原相对路径不变） | 同路径 |
+| `/attachment/**`、`/emotion/**` | **已退役**（S4-4）：附件/头像/正文图片走 `/files/<storage_key>`（迁移已改写正文链接），表情走 `/emoji/{id}.gif` | 旧路径返回 404；旧外链的 301 表归 M13 评估 |
 
 旧站未启用伪静态（nginx conf 实证），301 源即原生 query string。**新格式自 M3 起冻结**：改动必须先迁移 301 表。
 
@@ -196,7 +196,7 @@ schema 演进：P0 期的 `migration/schema/schema.sql` 为基线底稿；**M1 �
 - **会话**：不透明令牌 cookie（HttpOnly+Lax，Secure 随站点协议），库内仅存 SHA-256；登录轮换、改密/重置吊销全部；封禁/过期即时失效。
 - **找回/认领**：同一邮件令牌管线（purpose 区分）；找回=已设密账户、认领=`password_hash IS NULL` 老账户（服务端强校验）；频控与统一话术防枚举。
 - **封禁**：v2 起统一为 `user_restrictions(kind=ban)`（`scope_id=0` 全局；`ends_at` 空 = 永久）；登录拦截+理由展示；全局封禁 → 站内只读横幅；版块级封禁由 authz 消费；设置/解除时发 `account.restricted` 通知。
-- **头像**：旧站算法 `avatar/{pad3(⌊uid/1e6⌋)}/{pad2(⌊uid/1e4⌋)}/{pad2(⌊uid/100⌋)}/{uid}[_middle|_small].jpg`，由 `/attachment/**` 直出。
+- **头像**：旧站算法 `avatar/{pad3(⌊uid/1e6⌋)}/{pad2(⌊uid/1e4⌋)}/{pad2(⌊uid/100⌋)}/{uid}[_middle|_small].jpg`，迁移期入库为 `files`（`user_profiles.avatar_file_id`），运行时经 `/files/<storage_key>` 公开访问。
 - **E2E**：独立库 `qysub_next_e2e` + 3200 端口 + MailPit（8025 API 抓信）；一键 `pnpm test:e2e`。
 
 ## 5. 附件策略（v2.1 修订）
@@ -224,7 +224,7 @@ schema 演进：P0 期的 `migration/schema/schema.sql` 为基线底稿；**M1 �
 | 垃圾内容误伤真实帖 | 规则保守（无正文且无回帖才判 spam），且只标记不删除 |
 | 密码不可迁移导致召回流失 | 召回邮件直达重置页；老帖页面常驻「认领账号」入口 |
 | 孤儿 uid（用户已删、帖还在） | UI 统一渲染「已注销」；不阻塞迁移 |
-| 旧附件热链失效 | 301 表 + `/attachment` 静态路由双保险（415 附件仅 1 个源盘即缺失） |
+| 旧附件热链失效 | 站内正文已在迁移期改写为 `/files/…`；站外热链旧路径 404，是否做 301 表归 M13 评估（415 附件仅 1 个源盘即缺失） |
 | 遗留表情码/截断正文 | 原样保留，content_raw 永久可考古 |
 
 ## 8. 功能插件化设计（模块注册表模式）
