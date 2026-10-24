@@ -47,6 +47,9 @@ export function safeHref(href: string): string | null {
   return PROTO_SAFE.test(t) ? t : null;
 }
 
+/** 代码围栏的语言 class：language-ts / language-c++ 之外的 class 一律剥掉 */
+export const CODE_LANGUAGE_CLASS_RE = /^language-[\w-]+$/;
+
 export function sanitizeSchema(): Schema {
   return {
     tagNames: [
@@ -85,8 +88,10 @@ export function sanitizeSchema(): Schema {
       div: ["style", "align"],
       th: ["style", "align"],
       td: ["style", "align"],
-      code: ["className"],
-      pre: ["className"],
+      // class 只放行代码围栏产生的 language-xxx（语法高亮用）。不限值会让作者注入站内已有的
+      // Tailwind 类（如 fixed inset-0 z-50 bg-background）整页覆盖做钓鱼（审查 P2-8）；逐个 class token 校验
+      code: [["className", CODE_LANGUAGE_CLASS_RE]],
+      pre: [["className", CODE_LANGUAGE_CLASS_RE]],
     },
     strip: ["script", "style", "iframe", "object", "embed", "form", "link", "meta"],
     clobber: [],
@@ -120,6 +125,14 @@ export function harden(tree: Root): Root {
         if (cleaned) props.style = cleaned;
         else delete props.style;
       }
+    }
+    // 逐 token 校验后 className 可能被剥空：不留空的 class 属性
+    if (
+      (el.tagName === "code" || el.tagName === "pre") &&
+      Array.isArray(props.className) &&
+      props.className.length === 0
+    ) {
+      delete props.className;
     }
     if (el.tagName === "a" && typeof props.href === "string") {
       const href = safeHref(props.href);

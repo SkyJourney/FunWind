@@ -148,6 +148,32 @@ describe("harden（HTML 级净化）", () => {
     expect(out).toContain('href="/files/ab/cd/x.rar"');
   });
 
+  it("code / pre 的 class 只放行 language-xxx：注入站内 Tailwind 类做整页覆盖被剥掉（审查 P2-8）", () => {
+    const overlay = "fixed inset-0 z-50 bg-background";
+    // HTML 直通：纯注入类 → 整个 class 属性消失
+    const a = renderHtml(`<pre class="${overlay}"><code class="${overlay}">x</code></pre>`);
+    expect(a).not.toContain("class");
+    expect(a).not.toContain("fixed");
+    // 合法语言类与注入类混写：只留 language-xxx
+    const b = renderHtml(`<pre><code class="language-ts ${overlay}">x</code></pre>`);
+    expect(b).toContain("language-ts");
+    expect(b).not.toContain("fixed");
+    expect(b).not.toContain("z-50");
+    // 看起来像语言类但夹带符号 / 空格后缀的也不行
+    const c = renderHtml(
+      '<pre><code class="language-ts&quot;onmouseover=&quot;x language-">x</code></pre>',
+    );
+    expect(c).not.toContain("onmouseover");
+    // 其他标签的 class 本来就不在白名单
+    expect(renderHtml(`<div class="${overlay}">x</div>`)).not.toContain("class");
+    expect(renderHtml(`<span class="${overlay}">x</span>`)).not.toContain("class");
+  });
+
+  it("Markdown 管线：代码围栏的 language-xxx 保留（语法高亮依赖它）", () => {
+    const out = renderMarkdown("```ts\nconst a = 1;\n```");
+    expect(out).toContain('class="language-ts"');
+  });
+
   it("Markdown 管线：脚本注入被净化", () => {
     const out = renderMarkdown("<script>alert(1)</script>\n\n正文");
     expect(out).not.toContain("script");

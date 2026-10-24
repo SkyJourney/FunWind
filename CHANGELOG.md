@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+### Security（M5.5 之后审查 · P2 小批 2/6：`code` / `pre` 的 class 白名单）
+
+- 净化器此前对 `code` / `pre` 放行任意 `class`，作者可注入站内已有的 Tailwind 类（如 `fixed inset-0 z-50 bg-background`）整页覆盖做钓鱼。现改为逐个 class token 校验 `/^language-[\w-]+$/`（代码围栏产生的语法高亮类仍保留）；token 被剥空后不留空的 `class=""`。
+- 回归：HTML 直通注入（纯注入类、与合法语言类混写、夹带引号的伪语言类）、其他标签 class 仍不在白名单、Markdown 围栏的 `language-ts` 保留；还原为旧配置后用例变红。迁移数据里没有内嵌 HTML 形式的 `code`/`pre` class（posts 与 gates 均 0 处），无误伤。
+
 ### Fixed（M5.5 之后审查 · P2 小批 1/6：小数页码 500）
 
 - `?page=2.5` 曾让游客触发 500：页码变成 `OFFSET 37.5`，MySQL 报语法错误。新增 `lib/queries/paging.ts` 的 `clampPage`（小数向零取整、NaN 回第 1 页、±Infinity 与越界收束到两端），`listThreads` 与 `listReplies` 共用。
