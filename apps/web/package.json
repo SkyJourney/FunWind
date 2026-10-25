@@ -14,6 +14,7 @@
     "test:e2e:prod": "playwright test -c playwright.prod.config.ts",
     "modules:toggle": "tsx scripts/modules-toggle.ts",
     "perf:lcp": "tsx scripts/lcp.ts",
+    "perf:posting": "tsx scripts/perf-posting.ts",
     "verify:render": "tsx scripts/verify-render.ts",
     "verify:fidelity": "tsx scripts/verify-fidelity.ts"
   },

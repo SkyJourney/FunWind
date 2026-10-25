@@ -100,10 +100,15 @@ async function viewContext(browser: import("@playwright/test").Browser, user: nu
   return ctx;
 }
 
-/** 扫描一个出口：返回是否命中 MARK */
-async function hits(request: APIRequestContext, url: string, rsc = false): Promise<boolean> {
+/** 扫描一个出口：返回是否命中标记（默认 MARK） */
+async function hits(
+  request: APIRequestContext,
+  url: string,
+  rsc = false,
+  mark = MARK,
+): Promise<boolean> {
   const res = await request.get(url, rsc ? { headers: { RSC: "1" } } : undefined);
-  return (await res.text()).includes(MARK);
+  return (await res.text()).includes(mark);
 }
 
 test.describe("五种视角扫描所有页面出口", () => {
@@ -167,5 +172,56 @@ test.describe("五种视角扫描所有页面出口", () => {
       ),
     );
     expect(audit, "应当存在删除的审计记录").toBeGreaterThanOrEqual(1);
+  });
+});
+
+/**
+ * M6.5 回归：作者修改隐藏正文后，新的隐藏内容只能经作者与版主的出口看到。
+ * 「内容更新于」「改价提示」「去回复」等新字段只携带时间与计数，不携带正文；这里用一个新标记验证它们没有把修改后的正文带出去。
+ * 与上面的用例共用 beforeAll 造出的主题（serial 模式，本组排在最后执行）。
+ */
+test.describe("修改隐藏正文后：新内容不经任何出口泄露", () => {
+  const MARK_EDIT = `SECRET-LEAK-EDIT-${stamp}`;
+
+  test("作者保存修改：五种视角的主题页 HTML、RSC、编辑页只有读者视角命中新标记", async ({
+    browser,
+  }) => {
+    const author = await viewContext(browser, USERS.alice);
+    const page = await author.newPage();
+    await page.goto(`/p/${firstA}/edit`);
+    await fillSource(
+      page,
+      `${PUBLIC_A}\n\n:::gate{key="g1" unlock="points" price="10"}\n${MARK_EDIT} 修改后的隐藏正文\n:::`,
+    );
+    await page.getByRole("button", { name: "保存修改" }).click();
+    await expect(page).toHaveURL(new RegExp(`${pathA}(\\?page=\\d+)?#p${firstA}$`));
+
+    for (const view of VIEWS) {
+      const ctx = await viewContext(browser, view.user);
+      const expected = view.mayRead;
+      expect(await hits(ctx.request, pathA, false, MARK_EDIT), `${view.name} HTML`).toBe(expected);
+      expect(await hits(ctx.request, pathA, true, MARK_EDIT), `${view.name} RSC`).toBe(expected);
+      expect(
+        await hits(ctx.request, `/p/${firstA}/edit`, false, MARK_EDIT),
+        `${view.name} 编辑页`,
+      ).toBe(expected);
+    }
+  });
+
+  test("修改后的日志：事件与审计中都不含新标记", async () => {
+    const [{ n: eventHits }] = await withE2eDb((q) =>
+      q.query<{ n: number }>(
+        "SELECT COUNT(*) AS n FROM event_log WHERE INSTR(CAST(payload AS CHAR) COLLATE utf8mb4_bin, ?) > 0",
+        [MARK_EDIT],
+      ),
+    );
+    const [{ n: auditHits }] = await withE2eDb((q) =>
+      q.query<{ n: number }>(
+        "SELECT COUNT(*) AS n FROM audit_log WHERE INSTR(CONCAT_WS('|', action, target_type, target_id, COALESCE(CAST(before_json AS CHAR), ''), COALESCE(CAST(after_json AS CHAR), '')) COLLATE utf8mb4_bin, ?) > 0",
+        [MARK_EDIT],
+      ),
+    );
+    expect(eventHits, "事件日志命中新标记").toBe(0);
+    expect(auditHits, "审计日志命中新标记").toBe(0);
   });
 });
