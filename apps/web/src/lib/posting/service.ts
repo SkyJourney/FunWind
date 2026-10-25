@@ -6,7 +6,11 @@ import { evaluate } from "@/lib/authz/evaluator";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
 import type { AuthzSnapshot, Subject } from "@/lib/authz/types";
 import { applyGateDrafts, type GatePermissions } from "@/lib/gates/write";
-import { registerSourceFiles, type AttachmentInput } from "@/lib/gates/attachments";
+import {
+  registerSourceFiles,
+  type AttachmentInput,
+  type UploadedAttachment,
+} from "@/lib/gates/attachments";
 import { limitsFor } from "@/lib/limits/load";
 import type { ResolvedLimits } from "@/lib/limits/config";
 import { POINTS_TX_OPTIONS, isDeadlock } from "@/lib/points/retry";
@@ -230,6 +234,7 @@ export async function createThread(
   const state = initialState(snap.tree.reviewPolicy(forumId).value, "thread", isModerator);
 
   // —— 事务内：持锁后做需要事实的判断 ——
+  let uploads: UploadedAttachment[] = [];
   try {
     const out = await withPostingRetry(() =>
       getWebDb().transaction(async (tx): Promise<PostingOk> => {
@@ -294,6 +299,7 @@ export async function createThread(
           canUpload,
         });
         if (!reg.ok) throw new Rollback(err(reg.code, reg.message));
+        uploads = reg.uploaded;
 
         const [created] = await tx
           .select({ at: posts.createdAt })
@@ -336,6 +342,12 @@ export async function createThread(
               { postId: out.postId, threadId: out.threadId, authorId, forumId, isThread: true },
             ],
       );
+    }
+    for (const u of uploads) {
+      await dispatch(deps.emitter ?? defaultEmitter, [
+        "attachment.uploaded",
+        { ...u, uploaderId: authorId },
+      ]);
     }
     return out;
   } catch (e) {
@@ -386,6 +398,7 @@ export async function createReply(
   const replyTo = input.replyToPostId ?? null;
 
   // —— 事务内 ——
+  let uploads: UploadedAttachment[] = [];
   try {
     const out = await withPostingRetry(() =>
       getWebDb().transaction(async (tx): Promise<PostingOk> => {
@@ -476,6 +489,7 @@ export async function createReply(
           canUpload,
         });
         if (!reg.ok) throw new Rollback(err(reg.code, reg.message));
+        uploads = reg.uploaded;
 
         const [created] = await tx
           .select({ at: posts.createdAt })
@@ -540,6 +554,12 @@ export async function createReply(
             ],
       );
     }
+    for (const u of uploads) {
+      await dispatch(deps.emitter ?? defaultEmitter, [
+        "attachment.uploaded",
+        { ...u, uploaderId: authorId },
+      ]);
+    }
     return out;
   } catch (e) {
     if (e instanceof Rollback) return e.result;
@@ -553,7 +573,8 @@ export async function dispatch(
   call:
     | ["thread.created", EventPayloads["thread.created"]]
     | ["thread.replied", EventPayloads["thread.replied"]]
-    | ["content.submitted", EventPayloads["content.submitted"]],
+    | ["content.submitted", EventPayloads["content.submitted"]]
+    | ["attachment.uploaded", EventPayloads["attachment.uploaded"]],
 ): Promise<void> {
   try {
     await (emitter as (n: string, p: unknown) => Promise<unknown>)(call[0], call[1]);

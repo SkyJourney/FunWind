@@ -132,11 +132,11 @@ describe.skipIf(skipDb)("登记正文引用与附件（临时库）", () => {
 
   it("归属通过：作者上传过的公开引用登记为 inline 行；重复保存幂等", async () => {
     const source = `正文 ![a](/files/${fileA.key})`;
-    expect(await register({ source })).toEqual({ ok: true });
+    expect(await register({ source })).toMatchObject({ ok: true });
     const once = await rowsOf("inline");
     expect(once).toHaveLength(1);
     expect(once[0]).toMatchObject({ fileId: fileA.fileId, gateId: null });
-    expect(await register({ source })).toEqual({ ok: true });
+    expect(await register({ source })).toMatchObject({ ok: true });
     expect(await rowsOf("inline")).toHaveLength(1);
   });
 
@@ -158,15 +158,15 @@ describe.skipIf(skipDb)("登记正文引用与附件（临时库）", () => {
       source: `![l](/files/${legacy.key})`,
       priorRefs: new Set([legacy.key]),
     });
-    expect(r).toEqual({ ok: true });
+    expect(r).toMatchObject({ ok: true });
     expect((await rowsOf("inline")).some((x) => x.fileId === legacy.fileId)).toBe(true);
   });
 
   it("旧引用已失效且未改动：不阻塞编辑，跳过登记；新增的失效引用仍拒绝", async () => {
     const gone = `aa/aa/${"aa".repeat(32)}.png`; // 合法形态（目录与哈希前缀一致），但库里没有
-    expect(await register({ source: `![g](/files/${gone})`, priorRefs: new Set([gone]) })).toEqual({
-      ok: true,
-    });
+    expect(
+      await register({ source: `![g](/files/${gone})`, priorRefs: new Set([gone]) }),
+    ).toMatchObject({ ok: true });
     expect(await register({ source: `![g](/files/${gone})` })).toMatchObject({
       code: "file_missing",
     });
@@ -174,7 +174,7 @@ describe.skipIf(skipDb)("登记正文引用与附件（临时库）", () => {
 
   it("门控映射：门控正文里的引用登记为该门控的 inline 行（gate_id 指向本帖门控）", async () => {
     const source = `${gate("g1", `![h](/files/${fileD.key})`)}`;
-    expect(await register({ source })).toEqual({ ok: true });
+    expect(await register({ source })).toMatchObject({ ok: true });
     const rows = (await rowsOf("inline")).filter((x) => x.fileId === fileD.fileId);
     expect(rows).toEqual([expect.objectContaining({ gateId: G1 })]);
   });
@@ -196,13 +196,13 @@ describe.skipIf(skipDb)("登记正文引用与附件（临时库）", () => {
         { fileId: fileD.fileId, gateKey: "g1", name: "d.zip" },
       ],
     });
-    expect(r1).toEqual({ ok: true });
+    expect(r1).toMatchObject({ ok: true });
     expect((await rowsOf("download")).map((r) => r.fileId).sort()).toEqual(
       [fileA.fileId, fileD.fileId].sort(),
     );
 
     // 字段缺失：保持不变
-    expect(await register({ source: "正文" })).toEqual({ ok: true });
+    expect(await register({ source: "正文" })).toMatchObject({ ok: true });
     expect((await rowsOf("download")).length).toBe(2);
 
     // 去掉 A、把 D 改为公开
@@ -214,7 +214,7 @@ describe.skipIf(skipDb)("登记正文引用与附件（临时库）", () => {
     expect(after).toEqual([expect.objectContaining({ fileId: fileD.fileId, gateId: null })]);
 
     // 空列表：清空
-    expect(await register({ source: "正文", attachments: [] })).toEqual({ ok: true });
+    expect(await register({ source: "正文", attachments: [] })).toMatchObject({ ok: true });
     expect(await rowsOf("download")).toEqual([]);
   });
 
@@ -274,9 +274,9 @@ describe.skipIf(skipDb)("登记正文引用与附件（临时库）", () => {
       },
     );
     // fileA 先由本帖正文引用（有 inline 行）：之后即使无上传权限，保存也不应因它被拒
-    expect(await register({ source: `![a](/files/${fileA.key})` })).toEqual({ ok: true });
-    expect(await register({ source: `![a](/files/${fileA.key})`, canUpload: false })).toEqual({
-      ok: true,
-    });
+    expect(await register({ source: `![a](/files/${fileA.key})` })).toMatchObject({ ok: true });
+    expect(await register({ source: `![a](/files/${fileA.key})`, canUpload: false })).toMatchObject(
+      { ok: true },
+    );
   });
 });

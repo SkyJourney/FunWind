@@ -275,7 +275,7 @@ export interface RegisterPostFilesInput {
 }
 
 export type RegisterResult =
-  | { ok: true }
+  | { ok: true; uploaded: UploadedAttachment[] }
   | {
       ok: false;
       code:
@@ -354,6 +354,7 @@ export async function registerPostFiles(
       id: attachments.id,
       fileId: attachments.fileId,
       gateId: attachments.gateId,
+      originalName: attachments.originalName,
       kind: attachments.kind,
     })
     .from(attachments)
@@ -439,7 +440,7 @@ export async function registerPostFiles(
   }
 
   // 5) download 行：按提交的列表对账（同一文件只留第一条；保留已有行的 downloads 计数）
-  if (input.attachments === undefined) return { ok: true };
+  if (input.attachments === undefined) return { ok: true, uploaded: [] };
   const desired = new Map<number, { gateId: number | null; name: string }>();
   for (const a of submitted) {
     if (desired.has(a.fileId)) continue;
@@ -455,25 +456,37 @@ export async function registerPostFiles(
       await tx.delete(attachments).where(eq(attachments.id, row.id));
       continue;
     }
-    if (want.gateId !== row.gateId) {
-      await tx.update(attachments).set({ gateId: want.gateId }).where(eq(attachments.id, row.id));
+    // 归属或展示名变了才写（保留 downloads 计数）
+    if (want.gateId !== row.gateId || want.name !== row.originalName) {
+      await tx
+        .update(attachments)
+        .set({ gateId: want.gateId, originalName: want.name })
+        .where(eq(attachments.id, row.id));
     }
     desired.delete(row.fileId);
   }
-  if (desired.size > 0) {
-    await tx.insert(attachments).values(
-      [...desired.entries()].map(([fileId, d]) => ({
-        postId,
-        gateId: d.gateId,
-        fileId,
-        uploaderId: authorId,
-        originalName: d.name,
-        kind: "download" as const,
-        createdAt: sql`NOW()`,
-      })),
-    );
+  // 逐条插入以取得每一行的 id（attachment.uploaded 的载荷需要）；附件数量有上限，代价可忽略
+  const uploaded: UploadedAttachment[] = [];
+  for (const [fileId, d] of desired) {
+    const [{ insertId }] = (await tx.insert(attachments).values({
+      postId,
+      gateId: d.gateId,
+      fileId,
+      uploaderId: authorId,
+      originalName: d.name,
+      kind: "download",
+      createdAt: sql`NOW()`,
+    })) as unknown as [{ insertId: number }];
+    uploaded.push({ attachmentId: Number(insertId), fileId, uploaderId: authorId });
   }
-  return { ok: true };
+  return { ok: true, uploaded };
+}
+
+/** 本次保存新建的下载附件（提交后派发 attachment.uploaded 用） */
+export interface UploadedAttachment {
+  attachmentId: number;
+  fileId: number;
+  uploaderId: number;
 }
 
 /** 提交的下载附件（表单 attachments 字段的一项） */

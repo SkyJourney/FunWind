@@ -5,7 +5,11 @@ import { evaluate } from "@/lib/authz/evaluator";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
 import type { Subject } from "@/lib/authz/types";
 import { applyGateDrafts } from "@/lib/gates/write";
-import { registerSourceFiles, type AttachmentInput } from "@/lib/gates/attachments";
+import {
+  registerSourceFiles,
+  type AttachmentInput,
+  type UploadedAttachment,
+} from "@/lib/gates/attachments";
 import { extractKeys } from "@funwind/content";
 import { limitsFor } from "@/lib/limits/load";
 import { POINTS_TX_OPTIONS } from "@/lib/points/retry";
@@ -397,6 +401,7 @@ export async function editPost(
   const body = prepareBody(input.source, limits.bodyMax);
   if (isError(body)) return body;
   const perms = gatePermissions(viewer, forumId, snap);
+  let uploads: UploadedAttachment[] = [];
 
   try {
     const out = await withPostingRetry(() =>
@@ -448,6 +453,7 @@ export async function editPost(
           canUpload,
         });
         if (!reg.ok) throw new Rollback(err(reg.code, reg.message));
+        uploads = reg.uploaded;
 
         const resubmit = decision.resubmit;
         const nextState = resubmit ? "pending" : (p.state as "visible" | "pending");
@@ -492,6 +498,10 @@ export async function editPost(
       }, POINTS_TX_OPTIONS),
     );
     const isThread = out.kind === "thread";
+    // 本次保存新建的下载附件：提交之后派发（与其它事件一样，失败只记日志）
+    for (const u of uploads) {
+      await notify(deps, "attachment.uploaded", { ...u, uploaderId: viewer.userId! });
+    }
     if (out.resubmitted) {
       await notify(deps, "content.submitted", {
         postId: out.postId,
