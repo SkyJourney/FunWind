@@ -35,6 +35,14 @@ describe("积分奖励配置（points.reward）", () => {
     expect(zero.error).toBeUndefined();
     expect(zero.config.post).toBe(0);
   });
+
+  it("上限小于奖励额的组合整体无效（渠道会静默失效）", () => {
+    const bad = parsePointReward({ post: 5, reply: 1, postDailyCap: 3, replyDailyCap: 0 });
+    expect(bad.config).toEqual(DEFAULT_POINT_REWARD_CONFIG);
+    expect(bad.error).toContain("发帖日上限");
+    const ok = parsePointReward({ post: 5, reply: 1, postDailyCap: 5, replyDailyCap: 0 });
+    expect(ok.error).toBeUndefined();
+  });
 });
 
 describe("签到奖励配置（punch.reward）", () => {

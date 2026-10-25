@@ -1,4 +1,4 @@
-import { asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { eventOutbox, getWebDb } from "@funwind/db";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import type { DbExecutor } from "@/lib/audit";
@@ -7,14 +7,15 @@ import { isEventName, validateEventPayload } from "@/modules/kernel/event-names"
 import type { EventName, EventPayloads } from "@/modules/kernel/types";
 
 /**
- * 事务性 outbox（M7 拍板，docs/MODULES.md §outbox）：业务事务内 enqueue，提交后同步派发为快路径，
- * 崩溃留下的 pending 行由 drain 补派。语义是 **at-least-once**：
+ * 事务性 outbox（M7 拍板，docs/MODULES.md §8）：业务事务内 enqueue，提交后同步派发为快路径，
+ * 崩溃或**消费失败**留下的 pending 行由 drain 补派。语义是 **at-least-once**：
  *  · 快路径「派发成功→标记」之间崩溃 → 重放；
- *  · 并发 drain / 重放不互斥，同一事件可能派发多次——消费端以既有幂等键吸收
- *    （台账 idempotency_key、checkins / user_badges 联合主键）；
+ *  · 消费者抛错（emit 只把错误记进 EmitResult.errors / event_log.errorJson，不抛出）→ 行保持 pending 补派；
+ *  · 并发 drain / 重放不互斥，同一事件可能派发多次——消费端以既有幂等键吸收（台账 idempotency_key 等）；
+ *  · 重复失败的行按 dispatch_error.attempts 退避（首次失败立即重试），持续失败由 db:verify 滞留检查报警；
  *  · 重放与重复派发照常写 event_log，source="outbox" 可与首次派发区分。
- * 覆盖范围（M7）：posting 事件族（thread.created / thread.replied / content.submitted / attachment.uploaded）；
- * gate / message 等其余事件的可靠派发仍归 M8-1。
+ * 覆盖范围（M7）：posting 事件族（thread.created / thread.replied / content.submitted / attachment.uploaded，
+ * 发主题 / 回帖 / 编辑三处）——gate / message 等其余事件的可靠派发仍归 M8-1。
  */
 
 export interface EnqueuedEvent {
@@ -80,7 +81,13 @@ export async function dispatchOutboxRows(
           actorId: row.actorId ?? undefined,
         }));
     try {
-      await emitFn(row.name, row.payload as never);
+      const result = await emitFn(row.name, row.payload as never);
+      // 内核 emit 吞掉消费者异常（只进 EmitResult.errors 与 event_log.errorJson）——
+      // 那也是「消费失败」：行保持 pending 等补派，而不是标记完成（否则奖励静默丢失）
+      if (hasConsumerErrors(result)) {
+        await recordDispatchError(row.id, new Error(describeConsumerErrors(result)));
+        continue;
+      }
     } catch (e) {
       await recordDispatchError(row.id, e);
       continue;
@@ -97,13 +104,44 @@ export async function dispatchOutboxRows(
   }
 }
 
+/**
+ * 内核 emit 的返回值里带消费者错误数组（EmitResult.errors）；注入的 emitter 不返回该形状。
+ * 有消费者错误 = 本次消费没有完成 = 不能标记已派发。
+ */
+function hasConsumerErrors(result: unknown): boolean {
+  return (
+    typeof result === "object" &&
+    result !== null &&
+    Array.isArray((result as { errors?: unknown }).errors) &&
+    (result as { errors: unknown[] }).errors.length > 0
+  );
+}
+
+function describeConsumerErrors(result: unknown): string {
+  const errors = (result as { errors: { moduleId: string; message: string }[] }).errors;
+  return `消费者失败: ${errors.map((e) => `${e.moduleId}: ${e.message}`).join("; ")}`;
+}
+
 async function recordDispatchError(id: number, e: unknown): Promise<void> {
   const message = e instanceof Error ? e.message : String(e);
   console.error(`[outbox] #${id} 派发失败（保持 pending，等待补派）: ${message}`);
   try {
+    // 累计尝试次数：退避只针对「重复失败」的行（首次失败立即补派，瞬态故障不被延迟）
+    const [prev] = await getWebDb()
+      .select({ err: eventOutbox.dispatchError })
+      .from(eventOutbox)
+      .where(eq(eventOutbox.id, id))
+      .limit(1);
+    const prevErr = (prev?.err ?? null) as { attempts?: number } | null;
     await getWebDb()
       .update(eventOutbox)
-      .set({ dispatchError: { message, at: nowBeijingWallTime() } })
+      .set({
+        dispatchError: {
+          message,
+          at: nowBeijingWallTime(),
+          attempts: (typeof prevErr?.attempts === "number" ? prevErr.attempts : 0) + 1,
+        },
+      })
       .where(eq(eventOutbox.id, id));
   } catch (e2) {
     console.error(`[outbox] #${id} 派发错误摘要写入失败:`, e2);
@@ -130,6 +168,9 @@ export async function drainOutbox(
   deps: { emitter?: OutboxEmitter; limit?: number } = {},
 ): Promise<DrainSummary> {
   const limit = deps.limit ?? DRAIN_BATCH;
+  // 毒行退避：**重复失败**（attempts ≥ 2）且最近 10 分钟内失败过的行本轮跳过——
+  // 否则 id ASC 的批首会被持续失败的行永久占住，更新的合法行饿死。
+  // 首次失败不退避：瞬态故障（连接抖动等）应当被下一次巡检立即重试。
   const pending = await getWebDb()
     .select({
       id: eventOutbox.id,
@@ -139,7 +180,14 @@ export async function drainOutbox(
       source: eventOutbox.source,
     })
     .from(eventOutbox)
-    .where(isNull(eventOutbox.dispatchedAt))
+    .where(
+      and(
+        isNull(eventOutbox.dispatchedAt),
+        sql`(dispatch_error IS NULL
+             OR JSON_EXTRACT(dispatch_error, '$.attempts') < 2
+             OR CAST(JSON_UNQUOTE(JSON_EXTRACT(dispatch_error, '$.at')) AS DATETIME) < NOW() - INTERVAL 10 MINUTE)`,
+      ),
+    )
     .orderBy(asc(eventOutbox.id))
     .limit(limit);
 
@@ -156,13 +204,19 @@ export async function drainOutbox(
     try {
       // 补派：source="outbox" 标记重放；actorId 用入队时的动作发起者（payload 映射仅在缺省时兜底）。
       // 注入 emitter（测试/收集器）时不写 event_log，语义由注入方负责
+      let result: unknown;
       if (deps.emitter) {
-        await deps.emitter(name, row.payload as never);
+        result = await deps.emitter(name, row.payload as never);
       } else {
-        await emit(name, row.payload as never, {
+        result = await emit(name, row.payload as never, {
           source: "outbox",
           actorId: row.actorId ?? undefined,
         });
+      }
+      if (hasConsumerErrors(result)) {
+        await recordDispatchError(row.id, new Error(describeConsumerErrors(result)));
+        failed++;
+        continue;
       }
       dispatched++;
     } catch (e) {

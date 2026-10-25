@@ -1,6 +1,7 @@
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { badgeDictionary, userBadgesOf } from "@/lib/badges/service";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { grantBadgeAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +19,8 @@ export default async function AdminBadgesPage({
   await requireAdmin("admin.badges");
   const sp = await searchParams;
   const dictionary = await badgeDictionary();
-  const lastHolder = sp.uid ? await userBadgesOf(Number(sp.uid)) : null;
+  const uid = sp.uid !== undefined && /^\d+$/.test(sp.uid) ? Number(sp.uid) : null;
+  const lastHolder = uid !== null ? await userBadgesOf(uid) : null;
 
   return (
     <div className="space-y-6">
@@ -53,12 +55,12 @@ export default async function AdminBadgesPage({
                 ))}
               </select>
             </label>
-            <button
-              type="submit"
-              className="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            <SubmitButton
+              className="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+              pendingText="授予中…"
             >
               授予
-            </button>
+            </SubmitButton>
           </form>
           {lastHolder !== null && (
             <p className="mt-3 text-xs text-muted-foreground">

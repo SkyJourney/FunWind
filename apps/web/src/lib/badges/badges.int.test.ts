@@ -58,17 +58,44 @@ describe.skipIf(skipDb)("徽章授予（M7）", () => {
       .limit(1);
     expect(audit.targetId).toBe(String(DEMO.alice));
 
-    const [ev] = await db().select().from(eventLog).where(eq(eventLog.eventName, "badge.awarded"));
-    expect(ev.source).toBe("badges");
+    const [ev] = await db()
+      .select()
+      .from(eventLog)
+      .where(and(eq(eventLog.eventName, "badge.awarded"), eq(eventLog.source, "badges")))
+      .orderBy(sql`id DESC`)
+      .limit(1);
+    expect(ev, "badge.awarded 的首派 event_log 行").toBeDefined();
     expect(ev.actorId).toBe(DEMO.admin);
   });
 
-  it("展示查询：持有者在列；停用徽章不显示", async () => {
+  it("展示查询：持有者在列；停用徽章与已过期徽章不显示", async () => {
     const id = await badgeId();
     expect((await userBadgesOf(DEMO.alice)).map((b) => b.badgeId)).toContain(id);
+
+    // 停用不显示
     await db().update(badges).set({ isActive: false }).where(eq(badges.id, id));
     expect((await userBadgesOf(DEMO.alice)).map((b) => b.badgeId)).not.toContain(id);
     await db().update(badges).set({ isActive: true }).where(eq(badges.id, id));
+
+    // 过期不显示（expiresAt 只能由迁移/导入数据写入——授予恒为 null，该分支的数据形态在此钉住）
+    await db()
+      .insert(userBadges)
+      .values({
+        userId: DEMO.xiaoyi,
+        badgeId: id,
+        awardedAt: "2026-01-01 00:00:00",
+        expiresAt: "2026-01-02 00:00:00",
+      })
+      .onDuplicateKeyUpdate({ set: { expiresAt: "2026-01-02 00:00:00" } });
+    expect((await userBadgesOf(DEMO.xiaoyi)).map((b) => b.badgeId)).not.toContain(id);
+    await db()
+      .update(userBadges)
+      .set({ expiresAt: "2099-01-01 00:00:00" })
+      .where(and(eq(userBadges.userId, DEMO.xiaoyi), eq(userBadges.badgeId, id)));
+    expect((await userBadgesOf(DEMO.xiaoyi)).map((b) => b.badgeId)).toContain(id);
+
+    // 自清理：本用例给 xiaoyi 造的持有行不留给后续用例（并发授予用例以同一徽章为夹具）
+    await db().delete(userBadges).where(eq(userBadges.userId, DEMO.xiaoyi));
   });
 
   it("重复授予（串行）：AdminError 已持有", async () => {
@@ -89,7 +116,8 @@ describe.skipIf(skipDb)("徽章授予（M7）", () => {
     expect(fulfilled).toHaveLength(1);
     const rejected = results.filter((r) => r.status === "rejected");
     expect(rejected).toHaveLength(1);
-    expect((rejected[0] as { reason: unknown }).reason).toBeInstanceOf(AdminError);
+    const reasons = rejected.map((r) => (r as { reason: unknown }).reason);
+    expect(reasons[0]).toBeInstanceOf(AdminError);
     const rows = await db()
       .select()
       .from(userBadges)

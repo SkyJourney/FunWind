@@ -17,6 +17,8 @@ import {
 } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { emit } from "@/modules/kernel/bus";
+import { setModuleEnabled } from "@/modules/kernel/state";
+import { CLI_ACTOR } from "@/lib/audit";
 import { adjustPointsByAdmin } from "./adjust";
 import { awardEarn, awardForThreadCreated, awardForThreadReplied } from "./earn";
 import { InsufficientPointsError, InvalidDeltaError } from "./errors";
@@ -211,7 +213,44 @@ describe.skipIf(skipDb)("发帖/回帖奖励（earn）", () => {
     await setReward();
   });
 
-  it("对账：全库 SUM(台账) = SUM(余额)，抽样用户台账重放 balanceAfter 逐条衔接", async () => {
+  it("模块停用：渠道解析失败 → channel_unavailable（业务性跳过，非静默吞错）", async () => {
+    await setModuleEnabled("points", false, CLI_ACTOR);
+    try {
+      const before = await balanceOf(UID);
+      const r = await awardEarn({
+        userId: UID,
+        channel: "earn.post",
+        idempotencyKey: "thread:509999",
+        refId: 509999,
+      });
+      expect(r).toEqual({ awarded: false, reason: "channel_unavailable" });
+      expect(await balanceOf(UID)).toBe(before);
+    } finally {
+      await setModuleEnabled("points", true, CLI_ACTOR);
+    }
+  });
+
+  it("earn.reply 的日上限独立生效（replyDailyCap）", async () => {
+    await setReward({ post: 3, reply: 4, replyDailyCap: 4 });
+    const u = DEMO.team;
+    let r = await awardEarn({
+      userId: u,
+      channel: "earn.reply",
+      idempotencyKey: "reply:600001",
+      refId: 600001,
+    });
+    expect(r.awarded).toBe(true); // 0+4 ≤ 4
+    r = await awardEarn({
+      userId: u,
+      channel: "earn.reply",
+      idempotencyKey: "reply:600002",
+      refId: 600002,
+    });
+    expect(r).toEqual({ awarded: false, reason: "daily_cap" }); // 4+4 > 4
+    await setReward();
+  });
+
+  it("对账：全库 SUM(台账) = SUM(余额)，**全部账户**台账重放 balanceAfter 逐条衔接", async () => {
     const [mismatch] = await db()
       .select({ n: sql<number>`COUNT(*)` })
       .from(pointAccounts)
@@ -222,15 +261,19 @@ describe.skipIf(skipDb)("发帖/回帖奖励（earn）", () => {
       );
     expect(Number(mismatch?.n ?? 0)).toBe(0);
 
-    const rows = await db()
-      .select({ id: pointLedger.id, delta: pointLedger.delta, after: pointLedger.balanceAfter })
-      .from(pointLedger)
-      .where(eq(pointLedger.userId, UID))
-      .orderBy(pointLedger.id);
-    let running = 0;
-    for (const r of rows) {
-      running += r.delta;
-      expect(r.after).toBe(running);
+    const accounts = await db().select({ userId: pointAccounts.userId }).from(pointAccounts);
+    expect(accounts.length).toBeGreaterThanOrEqual(4);
+    for (const { userId } of accounts) {
+      const rows = await db()
+        .select({ delta: pointLedger.delta, after: pointLedger.balanceAfter })
+        .from(pointLedger)
+        .where(eq(pointLedger.userId, userId))
+        .orderBy(pointLedger.id);
+      let running = 0;
+      for (const r of rows) {
+        running += r.delta;
+        expect(r.after, `用户 ${userId} 台账重放`).toBe(running);
+      }
     }
   });
 });

@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { cache } from "react";
-import { badges, files, getWebDb, userBadges } from "@funwind/db";
+import { badges, files, getWebDb, userBadges, users } from "@funwind/db";
 import type { ConfigActor } from "@/lib/audit";
 import { writeAudit } from "@/lib/audit";
 import { nowBeijingWallTime } from "@/lib/datetime";
@@ -83,10 +83,20 @@ export async function grantBadgeByAdmin(
   admin: ConfigActor & { userId: number },
   req: GrantBadgeRequest,
 ): Promise<void> {
-  const enqueued: EnqueuedEvent[] = [];
+  let enqueued: EnqueuedEvent[] = [];
   try {
     await withDeadlockRetry(() =>
       getWebDb().transaction(async (tx) => {
+        // 每次尝试都从空开始（与 posting 同纪律）
+        enqueued = [];
+        // 目标用户必须存在且未注销（user_badges 无外键；service 层自带此不变量，不依赖调用方）
+        const [holder_user] = await tx
+          .select({ id: users.id })
+          .from(users)
+          .where(and(eq(users.id, req.userId), eq(users.state, "active")))
+          .limit(1);
+        if (!holder_user) throw new AdminError("目标用户不存在或已注销");
+
         const [badge] = await tx
           .select({ id: badges.id, name: badges.name, isActive: badges.isActive })
           .from(badges)

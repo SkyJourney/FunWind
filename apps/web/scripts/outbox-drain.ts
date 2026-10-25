@@ -24,3 +24,10 @@ for (let round = 1; round <= MAX_ROUNDS; round++) {
   }
 }
 console.log(`补派结束：共派发 ${totalDispatched} 条`);
+if (totalDispatched === 0) {
+  console.error("注意：本轮没有派发任何行——若 db:verify 的 outbox 检查仍在报滞留，");
+  console.error(
+    "说明存在持续失败的行（见 event_outbox.dispatch_error），需要人工修复消费方或数据。",
+  );
+  process.exit(1);
+}

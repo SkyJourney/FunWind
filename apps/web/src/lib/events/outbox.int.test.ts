@@ -2,6 +2,8 @@
 import { eq, isNull } from "drizzle-orm";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { eventLog, eventOutbox, getWebDb } from "@funwind/db";
+import { registerModule } from "@/modules/kernel/registry";
+import { defineModule } from "@/modules/kernel/types";
 import { setupTempDb, skipDb } from "@/test/temp-db";
 import {
   countPendingOutbox,
@@ -11,6 +13,20 @@ import {
   sweepPending,
   type OutboxEmitter,
 } from "./outbox";
+
+// 真实内核路径的消费者失败用例（P1 回归）：streak=666 的 checkin.done 让消费者抛错，
+// 内核 emit 把它吞进 EmitResult.errors 而**不抛出**——outbox 必须识别并保持 pending
+registerModule(
+  defineModule({
+    id: "test-flaky-consumer",
+    description: "测试：对特定载荷抛错的消费者",
+    events: {
+      "checkin.done": (p) => {
+        if (p.streak === 666) throw new Error("消费者炸了（测试注入）");
+      },
+    },
+  }),
+);
 
 describe.skipIf(skipDb)("事务性 outbox", () => {
   beforeAll(async () => {
@@ -150,6 +166,44 @@ describe.skipIf(skipDb)("事务性 outbox", () => {
     expect(summary.failed).toBe(1);
     expect(summary.pendingLeft).toBe(1);
     expect(c.payloads).toHaveLength(0);
+  });
+
+  it("真实内核路径：消费者抛错 → 行保持 pending（P1：emit 不抛错但 errors 非空）", async () => {
+    await enqueueEventInTx(getWebDb(), "checkin.done", { userId: 90005, streak: 666 });
+    // 默认 emit：消费者抛错被内核吞成 errors[]，outbox 必须识别并保持 pending
+    const summary = await drainOutbox();
+    expect(summary.dispatched).toBe(0);
+    expect(summary.failed).toBe(1);
+    expect(await countPendingOutbox()).toBe(1);
+    const [row] = await getWebDb()
+      .select({ error: eventOutbox.dispatchError })
+      .from(eventOutbox)
+      .where(isNull(eventOutbox.dispatchedAt));
+    expect(row.error).toMatchObject({ message: /消费者失败.*消费者炸了/ });
+  });
+
+  it("毒行退避：重复失败（第 2 次起）10 分钟内跳过，批内其它行不受队头阻塞", async () => {
+    // 毒行（666，真实消费者会抛错）比健康行（42）更老——id ASC 下它占批首
+    await enqueueEventInTx(getWebDb(), "checkin.done", { userId: 90005, streak: 666 });
+    await enqueueEventInTx(getWebDb(), "checkin.done", { userId: 90005, streak: 42 });
+
+    // 第 1 轮：毒行首次失败（attempts=1），健康行照常派发——首次失败不退避，队头不阻塞
+    const r1 = await drainOutbox();
+    expect(r1.dispatched).toBe(1);
+    expect(r1.failed).toBe(1);
+    expect(await countPendingOutbox()).toBe(1);
+
+    // 第 2 轮：毒行被立即重试（首次失败不退避），再次失败 → attempts=2
+    const r2 = await drainOutbox();
+    expect(r2.dispatched).toBe(0);
+    expect(r2.failed).toBe(1);
+
+    // 第 3 轮：attempts≥2 且 10 分钟内失败过 → 退避跳过，不再刷错误
+    const r3 = await drainOutbox();
+    expect(r3.dispatched).toBe(0);
+    expect(r3.failed).toBe(0);
+    expect(r3.pendingLeft).toBe(1);
+    expect(await countPendingOutbox()).toBe(1);
   });
 
   it("sweepPending 吞错不反噬业务；捎带后 pending 有界", async () => {

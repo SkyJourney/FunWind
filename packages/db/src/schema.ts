@@ -814,9 +814,11 @@ export const eventLog = mysqlTable(
 
 /**
  * 事务性 outbox（M7，拍板记录见 docs/milestones/M7-gamification.md）：业务事务内 enqueue，
- * 提交后同步派发为快路径；崩溃留下的 pending 行由 drain 补派（SKIP LOCKED 防并发争抢）。
- * at-least-once 投递 + 消费端幂等（台账幂等键 / checkins / user_badges 联合主键）= 不重不丢。
- * dispatched_at 非空即已派发；重放经事件总线照常写 event_log（source="outbox" 区分）。
+ * 提交后同步派发为快路径；崩溃或**消费失败**留下的 pending 行由 drain 补派（无行锁——
+ * 并发巡检可能重复派发，见 docs/MODULES.md §8）。
+ * 派发语义是 at-least-once（重复投递由消费端幂等吸收：台账 idempotency_key 等），
+ * 消费者持续失败的行按 dispatch_error.attempts 退避并由 db:verify 滞留检查报警。
+ * dispatched_at 非空即已派发（且消费无错误）；重放经事件总线照常写 event_log（source="outbox" 区分）。
  */
 export const eventOutbox = mysqlTable(
   "event_outbox",

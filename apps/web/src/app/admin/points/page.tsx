@@ -2,6 +2,7 @@ import { requireAdmin } from "@/lib/authz/require-admin";
 import { getPointsName } from "@/lib/auth/settings";
 import { getPointRewardConfig } from "@/lib/points/reward-load";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { adjustPointsAction, saveRewardAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -29,7 +30,7 @@ export default async function AdminPointsPage({
       )}
       {sp.saved && (
         <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
-          奖励规则已保存（变更已记入审计日志）。
+          奖励规则已保存（值有变化时记入审计日志）。
         </p>
       )}
       {sp.adjusted && (
@@ -72,6 +73,7 @@ export default async function AdminPointsPage({
                   type="number"
                   defaultValue={reward.postDailyCap}
                   min={0}
+                  required
                   className={numField}
                 />
               </label>
@@ -92,6 +94,7 @@ export default async function AdminPointsPage({
                   type="number"
                   defaultValue={reward.replyDailyCap}
                   min={0}
+                  required
                   className={numField}
                 />
               </label>
@@ -99,12 +102,12 @@ export default async function AdminPointsPage({
             <p className="text-xs text-muted-foreground">
               初值来自旧站实测（发帖 +3 / 回帖 +1，无日上限）。数值改动会记入审计日志。
             </p>
-            <button
-              type="submit"
-              className="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            <SubmitButton
+              className="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+              pendingText="保存中…"
             >
               保存规则
-            </button>
+            </SubmitButton>
           </form>
         </CardContent>
       </Card>
@@ -138,12 +141,12 @@ export default async function AdminPointsPage({
                 required
               />
             </label>
-            <button
-              type="submit"
-              className="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            <SubmitButton
+              className="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+              pendingText="执行中…"
             >
               执行调整
-            </button>
+            </SubmitButton>
           </form>
         </CardContent>
       </Card>

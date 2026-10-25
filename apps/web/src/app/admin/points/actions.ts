@@ -21,20 +21,24 @@ import {
 
 const BACK = "/admin/points";
 
-/** 业务校验错误统一转成可展示的 AdminError 跳回 */
-function toAdminError(e: unknown): never {
-  if (e instanceof AdminError) throw e;
+/** 业务错误统一转成可读提示并跳回（与 admin/badges 同法）；其余异常照常抛出 */
+function toAdminErrorBack(e: unknown): never {
+  if (e instanceof AdminError) redirect(`${BACK}?error=${encodeURIComponent(e.message)}`);
   if (
     e instanceof InvalidDeltaError ||
     e instanceof InsufficientPointsError ||
     e instanceof PointsOverflowError
   ) {
-    throw new AdminError(e.message);
+    redirect(`${BACK}?error=${encodeURIComponent(e.message)}`);
   }
   throw e as never;
 }
 
-const amount = z.coerce.number().int().min(0).max(1_000_000);
+/** 数值输入：空串按缺失处理（zod 缺字段 → defineAction 404），不得 coerce 成 0 静默关闭奖励 */
+const amount = z.preprocess(
+  (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+  z.coerce.number().int().min(0).max(1_000_000),
+);
 
 const saveRewardInput = z.object({
   name: z.string().trim().min(1, "显示名不能为空").max(32),
@@ -66,7 +70,7 @@ export const saveRewardAction = defineAction({
         { userId: ctx.admin!.userId, via: "admin", ip: ctx.admin!.ip },
       );
     } catch (e) {
-      toAdminError(e);
+      toAdminErrorBack(e);
     }
     revalidatePath("/admin/points");
     revalidatePath("/points");
@@ -97,7 +101,7 @@ export const adjustPointsAction = defineAction({
         { userId, delta: input.delta, note: input.note },
       );
     } catch (e) {
-      toAdminError(e);
+      toAdminErrorBack(e);
     }
     revalidatePath("/admin/points");
     redirect(`${BACK}?adjusted=1`);

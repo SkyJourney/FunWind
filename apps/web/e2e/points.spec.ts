@@ -25,7 +25,7 @@ test.beforeAll(async () => {
   await withE2eDb(async (q) => {
     // 复位：member 的奖励/调整台账清空，余额回夹具值 100；奖励规则回默认（+3/+1，不限）
     await q.exec(
-      "DELETE FROM point_ledger WHERE user_id = ? AND channel IN ('earn.post','earn.reply','adjust.admin')",
+      "DELETE FROM point_ledger WHERE user_id = ? AND channel IN ('earn.post','earn.reply','adjust.admin','earn.checkin')",
       [USERS.member],
     );
     await q.exec(

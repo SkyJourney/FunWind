@@ -29,17 +29,27 @@ test("发主题带附件：积分入账（真实消费方）且 outbox 全部标
     await page.goto("/points");
     await expect(page.getByText("发帖奖励").first()).toBeVisible();
 
-    // outbox：本主题的 thread.created 与附件事件都已标记派发（快路径）
+    // outbox：thread.created 已标记派发（快路径）
     await withE2eDb(async (q) => {
-      const rows = await q.query<{ event_name: string; dispatched_at: string | null }>(
-        `SELECT o.event_name, o.dispatched_at FROM event_outbox o
-         WHERE o.event_name IN ('thread.created','attachment.uploaded')
-           AND JSON_EXTRACT(o.payload, '$.title') = ?`,
+      const created = await q.query<{ dispatched_at: string | null }>(
+        `SELECT dispatched_at FROM event_outbox
+         WHERE event_name = 'thread.created' AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.title')) = ?`,
         [title],
       );
-      const created = rows.find((r) => r.event_name === "thread.created");
-      expect(created, "thread.created 的 outbox 行").toBeDefined();
-      expect(created!.dispatched_at).not.toBeNull();
+      expect(created, "thread.created 的 outbox 行").toHaveLength(1);
+      expect(created[0].dispatched_at).not.toBeNull();
+    });
+
+    // outbox：attachment.uploaded 经发帖人过滤（附件载荷无 title），同样已标记派发
+    await withE2eDb(async (q) => {
+      const rows = await q.query<{ dispatched_at: string | null }>(
+        `SELECT dispatched_at FROM event_outbox
+         WHERE event_name = 'attachment.uploaded' AND actor_id = ?
+         ORDER BY id DESC LIMIT 1`,
+        [USERS.member],
+      );
+      expect(rows, "本会员最近一条 attachment.uploaded 的 outbox 行").toHaveLength(1);
+      expect(rows[0].dispatched_at).not.toBeNull();
     });
   } finally {
     await restore();

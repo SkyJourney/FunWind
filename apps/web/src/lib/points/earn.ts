@@ -5,6 +5,7 @@ import type { EventPayloads } from "@/modules/kernel/types";
 import { emit } from "@/modules/kernel/bus";
 import { lockAccount } from "./account";
 import { applyPointsInTx, resolveChannelOrThrow, type ApplyPointsResult } from "./apply";
+import { UnregisteredChannelError } from "./errors";
 import { getPointRewardConfig } from "./reward-load";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "./retry";
 
@@ -55,7 +56,12 @@ async function earnedToday(tx: DbTx, userId: number, channel: string): Promise<n
  * 调用方（模块消费者）在事件派发链上运行——它自己不再嵌套在外层事务里。
  */
 export async function awardEarn(req: EarnRequest): Promise<EarnResult> {
-  const channel = await resolveChannelOrThrow(req.channel).catch(() => null);
+  // 只把「渠道未注册/停用」当业务性跳过；读库等基础设施错误必须抛出——
+  // 否则消费者正常返回，event_log 无任何错误痕迹，outbox 也不会补派
+  const channel = await resolveChannelOrThrow(req.channel).catch((e) => {
+    if (e instanceof UnregisteredChannelError) return null;
+    throw e;
+  });
   if (!channel) return { awarded: false, reason: "channel_unavailable" };
 
   const config = await getPointRewardConfig();

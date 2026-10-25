@@ -23,7 +23,14 @@ export const pointRewardSchema = z
     /** 回帖奖励北京时间自然日上限；0 = 不限 */
     replyDailyCap: amount,
   })
-  .strict();
+  .strict()
+  // 上限小于奖励额 = 该渠道永远不可能发放（首笔即超限），静默失效；显式拒绝这种组合
+  .refine((v) => v.postDailyCap === 0 || v.postDailyCap >= v.post, {
+    message: "发帖日上限不能小于发帖奖励额（0 = 不限）",
+  })
+  .refine((v) => v.replyDailyCap === 0 || v.replyDailyCap >= v.reply, {
+    message: "回帖日上限不能小于回帖奖励额（0 = 不限）",
+  });
 
 export type PointReward = z.infer<typeof pointRewardSchema>;
 

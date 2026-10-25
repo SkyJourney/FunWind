@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lt, lte, sql } from "drizzle-orm";
 import { checkins, getWebDb } from "@funwind/db";
 import { isDuplicateKey } from "@/lib/auth/register";
 import { nowBeijingWallTime } from "@/lib/datetime";
@@ -9,6 +9,7 @@ import {
   type EnqueuedEvent,
 } from "@/lib/events/outbox";
 import { applyPointsInTx, resolveChannelOrThrow, type ApplyPointsResult } from "@/lib/points/apply";
+import { UnregisteredChannelError } from "@/lib/points/errors";
 import { IdempotencyConflictError } from "@/lib/points/errors";
 import { getPunchRewardConfig } from "@/lib/points/reward-load";
 import { randomPunchReward } from "@/lib/points/reward-config";
@@ -64,15 +65,34 @@ export function streakFromDates(
   return streak;
 }
 
-/** 该用户全部签到日（连签与日历共用；签到数据量小，一次取回） */
+/**
+ * 该用户「今天以前」的签到日（连签计算用）。按 1000 行一页向前翻页：
+ * 只要最旧一页的首日与前一日连续（链条未断）就继续取——迁移数据里存在 1000 天以上的长连签，
+ * 单页截断会把 streak 恒算成 1000。翻页上限 10 万行（274 年）作护栏。
+ */
 async function datesOf(tx: DbTx, userId: number): Promise<Set<string>> {
-  const rows = await tx
-    .select({ d: checkins.checkinDate })
-    .from(checkins)
-    .where(eq(checkins.userId, userId))
-    .orderBy(desc(checkins.checkinDate))
-    .limit(1000);
-  return new Set(rows.map((r) => r.d));
+  const dates = new Set<string>();
+  let cursor: string | null = null; // keyset：已取到的最旧日期
+  for (let page = 0; page < 100; page++) {
+    const condition =
+      cursor === null
+        ? eq(checkins.userId, userId)
+        : and(eq(checkins.userId, userId), lt(checkins.checkinDate, cursor))!;
+    const rows: { d: string }[] = await tx
+      .select({ d: checkins.checkinDate })
+      .from(checkins)
+      .where(condition)
+      .orderBy(desc(checkins.checkinDate))
+      .limit(1000);
+    if (rows.length === 0) break;
+    for (const r of rows) dates.add(r.d);
+    const oldest = rows[rows.length - 1].d;
+    // 链条已断（最旧行的前一天不在集合里）→ 不可能再有更长的连续段
+    if (!dates.has(previousDay(oldest))) break;
+    cursor = oldest;
+    if (rows.length < 1000) break;
+  }
+  return dates;
 }
 
 /** 重复签到：抛出以回滚整个事务（签到行与奖励都不留），外层还原成固定错误码 */
@@ -87,16 +107,22 @@ export async function checkin(
   opts: { today?: string } = {},
 ): Promise<CheckinResult> {
   const today = opts.today ?? todayBeijing();
-  const channel = await resolveChannelOrThrow("earn.checkin").catch(() => null);
+  // 只把「渠道未注册/停用」当业务性跳过；基础设施错误照常抛出（见 lib/points/earn.ts 同款说明）
+  const channel = await resolveChannelOrThrow("earn.checkin").catch((e) => {
+    if (e instanceof UnregisteredChannelError) return null;
+    throw e;
+  });
   if (!channel) return { ok: false, code: "channel_unavailable" };
   const config = await getPunchRewardConfig();
   const reward = randomPunchReward(config);
 
-  const enqueued: EnqueuedEvent[] = [];
+  let enqueued: EnqueuedEvent[] = [];
   try {
     const result = await withDeadlockRetry(() =>
       getWebDb().transaction(
         async (tx): Promise<{ reward: number; streak: number; balance?: ApplyPointsResult }> => {
+          // 每次尝试都从空开始（与 posting 同纪律）：被回滚尝试的事件不得带进派发
+          enqueued = [];
           // 先写签到行：联合主键兜底重复签到（并发第二笔在这里撞键 → 整体回滚）
           try {
             await tx.insert(checkins).values({ userId, checkinDate: today, reward });
@@ -199,8 +225,10 @@ export async function getCheckinStatus(
   };
 }
 
-/** 月份日历（签到页/迷你日历用）：某年某月该用户的签到日；month = "YYYY-MM" */
+/** 月份日历（签到页/迷你日历用）：某年某月该用户的签到日；month = "YYYY-MM"。上界用次月 1 日（短月的 -31 是非法 DATE） */
 export async function getMonthCheckins(userId: number, month: string): Promise<string[]> {
+  const [y, m] = [Number(month.slice(0, 4)), Number(month.slice(5, 7))];
+  const nextMonth = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`;
   const rows = await getWebDb()
     .select({ d: checkins.checkinDate })
     .from(checkins)
@@ -208,7 +236,7 @@ export async function getMonthCheckins(userId: number, month: string): Promise<s
       and(
         eq(checkins.userId, userId),
         gte(checkins.checkinDate, `${month}-01`),
-        lte(checkins.checkinDate, `${month}-31`),
+        lt(checkins.checkinDate, nextMonth),
       ),
     )
     .orderBy(checkins.checkinDate);

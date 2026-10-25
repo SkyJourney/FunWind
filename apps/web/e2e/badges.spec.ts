@@ -76,7 +76,8 @@ test("模块停用：两个展示位消失（作者行与资料页），恢复�
   // 自包含：直接给 alice 造一条持有（授予路径已在用例 1 验证）
   await withE2eDb(async (q) => {
     await q.exec(
-      "INSERT INTO user_badges (user_id, badge_id, awarded_at) SELECT 90001, id, NOW() FROM badges WHERE `key` = 'demo-pioneer' ON DUPLICATE KEY UPDATE awarded_at = awarded_at",
+      "INSERT INTO user_badges (user_id, badge_id, awarded_at) SELECT ?, id, NOW() FROM badges WHERE `key` = 'demo-pioneer' ON DUPLICATE KEY UPDATE awarded_at = awarded_at",
+      [USERS.alice],
     );
     // 显式建行切换（upsert），避免「无行=默认启用」的歧义
     await q.exec(

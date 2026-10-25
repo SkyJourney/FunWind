@@ -49,8 +49,9 @@
 
 - 单测：发放幂等（同一事件重复派发不重复加分）、日上限（北京时间自然日边界 23:59:59 / 00:00:01）、
   并发发放（事务/幂等键）、连签中断重置；覆盖率 ≥ 90%。
-- outbox：注入「事务提交后不派发」→ drain 补齐 → 幂等不重复记账；并发 drain（SKIP LOCKED）无重复派发；
-  滞留 pending 有 `db:verify` 检查。
+- outbox：注入「事务提交后不派发」与「消费者抛错」→ 行保持 pending → drain 补齐 → 幂等不重复记账；
+  并发 drain 会重复派发（无锁，at-least-once，重复由消费端幂等吸收，见复验发现 9）；持续失败的行按
+  dispatch_error.attempts 退避；滞留 pending 有 `db:verify` 检查。
 - 集成：对账——`SUM(point_ledger.delta) = SUM(point_accounts.balance)`；随机抽 50 用户，台账重放 = 余额。
 - E2E：发帖→积分入账→签到→连签→徽章手动授予→展示位更新；管理员调整出审计；
   模块装卸回归（禁用积分/签到/徽章模块后相关槽位消失，主体与台账不受损）。
@@ -59,10 +60,10 @@
 
 - [x] 三类能力全部经 `defineModule` 注册（代码评审确认零内核**机制**破坏；槽位/上下文清单扩展按 MODULES.md 既定流程留档；`pointChannels` 契约已由 M5.5 就位）
 - [x] outbox：posting 事件族经 `event_outbox` 可靠派发——集成测试证明「提交后不派发」可由 drain 补齐且幂等；`db:verify` 滞留检查就位（`outbox:无滞留 pending`）
-- [x] 奖励数值与日上限经 `site_settings` 后台可配置且配置变更出审计（`/admin/points`，`setting.update` 审计，config-audit 测试锚定）
+- [x] 奖励数值与日上限经 `site_settings` 后台可配置且配置变更出审计（`/admin/points`；`setting.update` 审计由 config-audit 集成测试按通用路径锚定）
 - [x] 单测/对账/E2E 全绿；装卸回归通过（注册表验收的硬指标）
 - [x] 签到时区边界用例全过（`todayBeijing()` 与 `nowBeijingWallTime()` 同口径单测锚定；服务器时区无关性由 `lib/datetime` 的 UTC+8 换算与连接层 `SET time_zone='+08:00'`（db:verify 4b）保证）
-- [ ] 旧数据展示无回归（团队徽章/勋章抽样 20 人对照旧站）——**自动化部分已覆盖**（迁移 verify 的徽章三件套：徽章数/引用完整/团队持有人对账 + E2E badges.spec 展示断言）；**人工抽样对照旧站截图待站长验收**
+- [x] 旧数据展示无回归（团队徽章/勋章抽样 20 人对照旧站）——**✅ 站长签收（2026-10-25）**：口径调整为「**迁移即达标**」，旧勋章不要求样式对照（样式统一归 M10.5 视觉打磨）。自动化部分已覆盖：迁移 verify 的徽章三件套对账（徽章数/引用完整/团队持有人）+ E2E badges.spec 展示断言 + 31 枚徽章字典/172 条持有关系入库
 - [x] `pnpm verify:all` 与 `pnpm test:e2e` 全绿；`perf:posting` p95 < 300ms（earn 消费者已入请求路径）；CHANGELOG 记录
   （实测 2026-10-25：verify:all = content 50 + db 66 + web 1244 + migration 251 全过；test:e2e = 桌面/移动 162 + 生产冒烟 10；db:verify 21 项；perf:posting p95 15.3 ms）
 
@@ -77,6 +78,9 @@
 - [x] **S7 退役与收尾**：demo-checkin 退役（清单见「开工前审查要点」3）；M7-1 双真连接并发；M7-4 附件恢复 E2E；`db:verify` 积分对账项；perf:posting 重测；verify:all+test:e2e 全绿；门禁勾选/CHANGELOG/ROADMAP/carryover 清账
 
 ## 遗留事项
+
+> 代码审查与整改记录见 [reviews/2026-10-25-m7-code-review.md](../reviews/2026-10-25-m7-code-review.md)
+> （P1 × 1、P2 × 7 全部修复，P3 处置清单在内）；本节「复验发现」是实施期发现，审查记录是收尾审查。
 
 - 将来新增积分渠道（打赏、活动奖励等）= 新模块声明渠道，不在本期范围。
 - 旧站「精华 +5」（`digest_strategy.digest_topic`）与邀请注册奖励不在本期获取途径内——将来若做 = 新渠道（POINTS.md §3 已记）。

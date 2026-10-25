@@ -15,6 +15,13 @@ import { extractKeys } from "@funwind/content";
 import { limitsFor } from "@/lib/limits/load";
 import { POINTS_TX_OPTIONS } from "@/lib/points/retry";
 import { emit } from "@/modules/kernel/bus";
+import {
+  dispatchOutboxRows,
+  enqueueEventInTx,
+  sweepPending,
+  type EnqueuedEvent,
+  type OutboxEmitter,
+} from "@/lib/events/outbox";
 import type { EventName } from "@/modules/kernel/types";
 import { transitionContent } from "./transition";
 import { lockForum, lockThread, lockUserStats } from "./locks";
@@ -405,10 +412,14 @@ export async function editPost(
   if (isError(body)) return body;
   const perms = gatePermissions(author, forumId, snap);
   let uploads: UploadedAttachment[] = [];
+  let enqueued: EnqueuedEvent[] = [];
 
   try {
     const out = await withPostingRetry(() =>
       getWebDb().transaction(async (tx): Promise<EditOk> => {
+        // 每次尝试都从空开始：被回滚尝试的附件与事件不得带进派发
+        uploads = [];
+        enqueued = [];
         await lockUserStats(tx, hit.authorId);
         await lockThread(tx, hit.threadId);
         // 纯编辑不改版块计数，不取版块锁；状态迁移（transitionContent）会自己按需取版块锁。
@@ -458,6 +469,17 @@ export async function editPost(
         });
         if (!reg.ok) throw new Rollback(err(reg.code, reg.message));
         uploads = reg.uploaded;
+        // outbox（M7）：本次保存新建的附件与重新提审事件在事务内登记（编辑路径与发帖同机制）
+        for (const u of uploads) {
+          enqueued.push(
+            await enqueueEventInTx(
+              tx,
+              "attachment.uploaded",
+              { attachmentId: u.attachmentId, fileId: u.fileId, uploaderId: viewer.userId! },
+              { actorId: viewer.userId ?? undefined, source: "posting" },
+            ),
+          );
+        }
 
         const resubmit = decision.resubmit;
         const nextState = resubmit ? "pending" : (p.state as "visible" | "pending");
@@ -490,6 +512,22 @@ export async function editPost(
             after: { threadId: hit.threadId, kind, reason },
           });
         }
+        if (resubmit) {
+          enqueued.push(
+            await enqueueEventInTx(
+              tx,
+              "content.submitted",
+              {
+                postId: hit.postId,
+                threadId: hit.threadId,
+                authorId: hit.authorId,
+                forumId,
+                isThread: kind === "thread",
+              },
+              { actorId: viewer.userId ?? undefined, source: "posting" },
+            ),
+          );
+        }
         return {
           ok: true,
           postId: hit.postId,
@@ -502,19 +540,12 @@ export async function editPost(
       }, POINTS_TX_OPTIONS),
     );
     const isThread = out.kind === "thread";
-    // 本次保存新建的下载附件：提交之后派发（与其它事件一样，失败只记日志）
-    for (const u of uploads) {
-      await notify(deps, "attachment.uploaded", { ...u, uploaderId: viewer.userId! });
-    }
-    if (out.resubmitted) {
-      await notify(deps, "content.submitted", {
-        postId: out.postId,
-        threadId: out.threadId,
-        authorId: hit.authorId,
-        forumId,
-        isThread,
-      });
-    } else if (out.state === "visible") {
+    // 编辑路径的 outbox 族事件（附件/重提审）：快路径派发并标记，失败留给补派
+    await dispatchOutboxRows(enqueued, {
+      emitter: deps.emitter ? (deps.emitter as unknown as OutboxEmitter) : undefined,
+    });
+    await sweepPending();
+    if (!out.resubmitted && out.state === "visible") {
       await notify(
         deps,
         isThread ? "thread.edited" : "post.edited",
