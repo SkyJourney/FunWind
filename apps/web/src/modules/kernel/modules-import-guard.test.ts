@@ -130,7 +130,7 @@ describe('入口必须 import "@/modules"（硬约定 9）', () => {
 
   it("守卫没有空转：真实仓库里能发现已知的内核触点与入口", () => {
     expect(result.kernelTouching).toEqual(
-      expect.arrayContaining(["lib/authz/admin.ts", "lib/gates/unlock.ts", "lib/points/apply.ts"]),
+      expect.arrayContaining(["lib/authz/admin.ts", "lib/events/outbox.ts", "lib/points/apply.ts"]),
     );
     expect(result.entries).toEqual(
       expect.arrayContaining([

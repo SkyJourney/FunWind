@@ -4,6 +4,7 @@ import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { logoutAction } from "@/app/actions/auth";
 import { LogoutForm } from "@/components/auth/logout-form";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { getCurrentUser } from "@/lib/auth/session";
 // 模块注册表求值（注册 + 封板）：任何内核调用前加载
 import "@/modules";
@@ -34,6 +35,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <div className="flex items-center gap-3 text-sm">
                 {user ? (
                   <>
+                    <NotificationBell />
                     <Link href={`/u/${user.id}`} className="font-medium hover:text-primary">
                       {user.username}
                     </Link>
