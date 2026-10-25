@@ -74,7 +74,7 @@ checkPermission(subject, "resource.action", { forumId? }) → { allowed, reason 
   词汇表每个键都必须显式归入写类或非写类，单测校验完备性（新增权限点漏分类会红）。
 - **作用域语义**：`user_roles.scope_id` 与 `role_grants.scope_id` 同义——0 全局，>0 只在该版块子树内生效；评估器只有一种“链上命中”。
 - **`restricted` 的授权只认版块作用域**（全局基线不算）；授权可来自目标版块或其祖先；更高级别隐含低级别（moderate ⊃ write ⊃ read）。
-- **写之前先过读**：`forum.write` 先通过 `forum.read` 判定。
+- **写之前先过读**：`forum.write` 与 `attachment.upload`（M6.4b 起）先通过 `forum.read` 判定，看不见的版块一律拒绝；`attachment.upload` 再按版块写策略（`restricted` 须版块作用域授权）判定。无版块的上传（头像）不做版块判定。
 - **封禁语义**：生效中的全站 `ban` 使会话失效、禁止登录（登录页显示理由与期限）；评估器对 ban 同样拦写类，作为纵深防御。
 - **邮箱未验证**只在 `register.mode = open` 时拦写类；邮件令牌（reset/claim/verify）被成功消费即记 `email_verified_at`，
   因此已认领的迁移用户切到开放注册后不会被拦。

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { rateLimit, rateLimitRefund } from "@/lib/auth/ratelimit";
 import { getCurrentUser } from "@/lib/auth/session";
+import { readBodyBytes } from "@/lib/net/read-body";
 import { previewHtml } from "@/lib/posting/preview";
 
 /**
@@ -46,8 +47,9 @@ export async function POST(request: Request): Promise<Response> {
     return json({ error: "rate_limited" }, 429);
   }
 
-  const text = await readBodyCapped(request, BODY_MAX_BYTES);
-  if (text === null) return json({ error: "too_large" }, 413);
+  const bytes = await readBodyBytes(request, BODY_MAX_BYTES);
+  if (bytes === null) return json({ error: "too_large" }, 413);
+  const text = bytes.toString("utf8");
 
   let parsedJson: unknown;
   try {
@@ -59,29 +61,4 @@ export async function POST(request: Request): Promise<Response> {
   if (!parsed.success) return json({ error: "bad_request" }, 400);
 
   return json({ html: previewHtml(parsed.data.source) }, 200);
-}
-
-/**
- * 按字节上限读取请求体。先看声明的 Content-Length 快速拒绝；再逐块计数，超限即取消读取。
- * 返回 null 表示超限。
- */
-async function readBodyCapped(request: Request, maxBytes: number): Promise<string | null> {
-  const declared = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(declared) && declared > maxBytes) return null;
-  if (request.body === null) return "";
-
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel();
-      return null;
-    }
-    chunks.push(value);
-  }
-  return Buffer.concat(chunks).toString("utf8");
 }

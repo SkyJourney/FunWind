@@ -26,6 +26,9 @@ if (hasDom)
     }),
   });
 
+// jsdom 未实现 scrollIntoView；Tiptap 在命令执行后会异步调用它，缺失时会以未捕获异常让整次运行失败（toolbar 测试偶发）
+if (hasDom && !Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {};
+
 // next-themes 持久化依赖 localStorage（jsdom 自带，但清理保证用例独立）
 beforeEach(() => {
   if (!hasDom) return;

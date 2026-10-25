@@ -529,3 +529,23 @@ describe("写入的容器与冻结：分区 / 归档 / 主题锁定（M6.1）", 
     expect(ev(member, "forum.write", {}).allowed).toBe(true);
   });
 });
+
+describe("attachment.upload 须先过版块读判定（M6.4b）", () => {
+  const member = user();
+  const ev = (s: Subject, key: string, ctx: { forumId?: number } = {}) =>
+    evaluate(s, key, ctx, snap);
+  it("看不见的版块（受限、无授权）：拒绝上传，即使持有全局上传基线", () => {
+    // 版块 3 为受限读：普通会员没有该版块的读授权，不能往里传文件
+    expect(ev(member, "attachment.upload", { forumId: 3 }).allowed).toBe(false);
+    expect(ev(member, "forum.read", { forumId: 3 }).allowed).toBe(false);
+  });
+
+  it("可读的版块：普通会员可以上传；管理员始终可以", () => {
+    expect(ev(member, "attachment.upload", { forumId: 2 }).allowed).toBe(true);
+    expect(ev(user([role("admin")]), "attachment.upload", { forumId: 3 }).allowed).toBe(true);
+  });
+
+  it("未指定版块（头像等无版块场景）：不做版块读判定，仅看授权", () => {
+    expect(ev(member, "attachment.upload").allowed).toBe(true);
+  });
+});

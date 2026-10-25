@@ -147,6 +147,18 @@ export function evaluate(
     return decision;
   }
 
+  // 上传附件属于版块内的写动作：与 forum.write 一样先过读判定（看不见的版块不能往里传文件），再按版块写策略判定
+  if (permissionKey === "attachment.upload" && ctx.forumId !== undefined) {
+    const read = readDecision(subject, ctx.forumId, snap, (k) => hasGrant(k, forumScoped));
+    if (!read.allowed) return deny("无权访问该版块");
+    if (tree.writePolicy(ctx.forumId).value === "restricted") {
+      return hasGrant("attachment.upload", forumScoped)
+        ? allow("版块上传授权")
+        : deny("该版块仅限授权角色上传");
+    }
+    return hasGrant("attachment.upload", anyScope) ? allow("授权") : deny("无上传权限");
+  }
+
   // 级联合并：适用作用域（全局 ∪ 链上）内任一授权命中即允许（含级别隐含，如 moderate ⊃ write ⊃ read）
   return hasGrant(permissionKey, anyScope) ? allow("授权") : deny("默认拒绝");
 }
