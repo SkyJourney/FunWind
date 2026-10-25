@@ -41,14 +41,15 @@ applyPoints({ userId, channel, delta, ref?, idempotencyKey, note? })
 
 ```ts
 pointChannels: [
-  { key: "earn.post",    direction: "earn",  label: "发帖奖励",   dailyCap: true },
-  { key: "earn.reply",   direction: "earn",  label: "回帖奖励",   dailyCap: true },
-  { key: "earn.checkin", direction: "earn",  label: "签到奖励" },
-  { key: "earn.gate_sale",   direction: "earn",  label: "门控收益" },
-  { key: "spend.gate_unlock", direction: "spend", label: "解锁内容" },
+  { key: "earn.post",    direction: "earn",   label: "发帖奖励",   dailyCap: true },
+  { key: "earn.reply",   direction: "earn",   label: "回帖奖励",   dailyCap: true },
+  { key: "earn.checkin", direction: "earn",   label: "签到奖励" },
+  { key: "adjust.admin", direction: "adjust", label: "管理员调整" },
 ]
 ```
 
+- 门控两侧（`spend.gate_unlock` / `earn.gate_sale`）与期初 `opening` 是**内置渠道**（`kernel/builtin.ts`，
+  随积分核心、不随模块启停），模块**不得**重复声明——注册期重名校验直接失败（2026-10-25 修正：本示例此前误列了这两个渠道）。
 - 未注册的渠道调用 `applyPoints` 直接拒绝（防拼写错误与未审查的新渠道）。
 - 渠道规则（奖励数值、日上限）读 `site_settings`，M7 提供配置界面；`dailyCap` 的计数基于台账（按北京时间自然日聚合）。
 - 将来的打赏、商城、活动奖励 = 新模块声明新渠道，积分核心零改动。
