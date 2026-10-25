@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { resetRateLimiter } from "@/lib/auth/ratelimit";
+import { rateLimit, resetRateLimiter } from "@/lib/auth/ratelimit";
 import { getCurrentUser } from "@/lib/auth/session";
 import { markdownCacheSize, renderMarkdown } from "@/lib/markdown";
 import { POST } from "./route";
@@ -98,6 +98,14 @@ describe("POST /api/preview", () => {
     expect((await POST(post({ source: "x" }))).status).toBe(429);
     asUser(2);
     expect((await POST(post({ source: "x" }))).status).toBe(200);
+  });
+
+  it("用户超限的请求不占全局额度：61 次里只有 60 次消耗全局桶", async () => {
+    asUser(1);
+    for (let i = 0; i < 61; i++) await POST(post({ source: "x" }));
+    // 探针：全局桶已占用的次数 = 600 - remaining - 1（探针本身占用一次）
+    const probe = rateLimit("preview:global", 600, 60_000);
+    expect(probe.remaining).toBe(600 - 60 - 1);
   });
 
   it("预览不污染共享渲染缓存：大量不同输入之后，缓存条目数不变", async () => {

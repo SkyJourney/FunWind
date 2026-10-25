@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { rateLimit } from "@/lib/auth/ratelimit";
+import { rateLimit, rateLimitRefund } from "@/lib/auth/ratelimit";
 import { getCurrentUser } from "@/lib/auth/session";
 import { previewHtml } from "@/lib/posting/preview";
 
@@ -35,11 +35,14 @@ export async function POST(request: Request): Promise<Response> {
   const user = await getCurrentUser();
   if (!user) return json({ error: "unauthorized" }, 401);
 
-  // 先全局、后每用户：全局桶只计总量，保证即使所有人都绕过用户桶，渲染 CPU 也有上限
-  if (!rateLimit("preview:global", GLOBAL_PER_MINUTE, WINDOW_MS).allowed) {
+  // 先每用户、后全局：被用户桶拒绝的请求不占全局额度，单个用户无法耗尽全站的预览额度（审查复查）。
+  // 全局桶拒绝时退还刚占用的用户额度，避免全站拥堵时把用户自己的额度也烧掉。
+  const userKey = `preview:user:${user.id}`;
+  if (!rateLimit(userKey, USER_PER_MINUTE, WINDOW_MS).allowed) {
     return json({ error: "rate_limited" }, 429);
   }
-  if (!rateLimit(`preview:user:${user.id}`, USER_PER_MINUTE, WINDOW_MS).allowed) {
+  if (!rateLimit("preview:global", GLOBAL_PER_MINUTE, WINDOW_MS).allowed) {
+    rateLimitRefund(userKey);
     return json({ error: "rate_limited" }, 429);
   }
 
