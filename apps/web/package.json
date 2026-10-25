@@ -15,6 +15,7 @@
     "modules:toggle": "tsx scripts/modules-toggle.ts",
     "perf:lcp": "tsx scripts/lcp.ts",
     "perf:posting": "tsx scripts/perf-posting.ts",
+    "outbox:drain": "tsx scripts/outbox-drain.ts",
     "verify:render": "tsx scripts/verify-render.ts",
     "verify:fidelity": "tsx scripts/verify-fidelity.ts"
   },

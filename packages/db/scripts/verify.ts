@@ -269,6 +269,20 @@ try {
     Number(seed.builtin) >= 3 && Number(seed.perms) >= PERMISSION_DEFINITIONS.length,
     `内置角色 ${seed.builtin} / 权限点 ${seed.perms}（词汇表 ${PERMISSION_DEFINITIONS.length}）`,
   );
+
+  // 6. outbox 滞留（M7）：快路径失败或崩溃留下的 pending 行——补派脚本可清，但长期滞留须人工过目
+  const [staleOutbox] = await pool.query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS n, TIMESTAMPDIFF(MINUTE, MIN(created_at), NOW()) AS staleMinutes
+     FROM event_outbox WHERE dispatched_at IS NULL AND created_at < NOW() - INTERVAL 60 MINUTE`,
+  );
+  const outbox = staleOutbox[0] as { n: number; staleMinutes: number | null };
+  add(
+    "outbox:无滞留 pending",
+    Number(outbox.n) === 0,
+    Number(outbox.n) === 0
+      ? "无超过 60 分钟未派发的 outbox 行"
+      : `${outbox.n} 行滞留（最早 ${outbox.staleMinutes} 分钟）——用 pnpm outbox:drain 补派后复核`,
+  );
 } finally {
   await pool.end();
 }

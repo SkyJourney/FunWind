@@ -98,6 +98,14 @@ M9 后由管理后台管理）。
 6. **API 路由与页面是两棵模块图**：任何使用内核的 route handler **与 Server Action** 必须自行 `import "@/modules"`（凡传递引用会触及内核的代码都算；`modules-import-guard.test.ts` 静态分析守护，漏写直接变红）。
 7. **外部入口校验**：emit 本身是类型安全的内部 API；任何**外部**入口（dev API、未来的表单/开放接口）
    必须先经 `validateEventPayload`（REQUIRED_PAYLOAD_KEYS）校验 payload 必填键再派发。
+8. **事务性 outbox（M7 拍板）**：posting 事件族（`thread.created` / `thread.replied` / `content.submitted` /
+   `attachment.uploaded`）在业务事务内经 `enqueueEventInTx`（`lib/events/outbox.ts`）登记 `event_outbox`——
+   提交成功则事件必在，回滚则一并消失；提交后同步派发为快路径（event_log `source` 沿用入队声明，如 `posting`），
+   失败/崩溃留下的 pending 行由巡检补派（`drainOutbox`；业务快路径后捎带小批自愈 + `pnpm outbox:drain` 脚本；
+   `db:verify` 检查滞留）。补派与重复投递的 event_log `source="outbox"`。
+   语义是 **at-least-once**：并发巡检/快路径与标记间隙都可能重复派发，消费端以幂等键吸收
+   （台账 `idempotency_key`、`checkins` / `user_badges` 联合主键）；巡检不加行锁、不久借连接（与 applyPoints 同纪律）。
+   gate / message 等其余事件的可靠派发仍归 M8-1（接入 = 业务事务内 enqueue，机制零改动）。
 
 ## 消费者实现清单
 

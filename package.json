@@ -23,6 +23,7 @@
     "db:seed": "pnpm --filter @funwind/db seed",
     "db:e2e-fixtures": "pnpm --filter @funwind/db e2e-fixtures",
     "db:verify": "pnpm --filter @funwind/db verify",
+    "outbox:drain": "pnpm --filter @funwind/web outbox:drain",
     "db:recount": "pnpm --filter @funwind/db recount",
     "db:gc-files": "pnpm --filter @funwind/db gc-files",
     "migrate": "pnpm --filter @funwind/db build && pnpm --filter @funwind/content build && pnpm --filter @funwind/migration migrate",

@@ -15,8 +15,14 @@ import { limitsFor } from "@/lib/limits/load";
 import type { ResolvedLimits } from "@/lib/limits/config";
 import { POINTS_TX_OPTIONS, isDeadlock } from "@/lib/points/retry";
 import { isDuplicateKey } from "@/lib/auth/register";
-import { emit } from "@/modules/kernel/bus";
-import type { EventName, EventPayloads } from "@/modules/kernel/types";
+import {
+  dispatchOutboxRows,
+  enqueueEventInTx,
+  sweepPending,
+  type EnqueuedEvent,
+  type OutboxEmitter,
+} from "@/lib/events/outbox";
+import type { EventPayloads } from "@/modules/kernel/types";
 import { applyCounterDelta } from "./transition";
 import { counterDelta } from "./counters";
 import { lockForum, lockThread, lockUserStats } from "./locks";
@@ -97,12 +103,9 @@ export type PostingEmitter = <K extends "thread.created" | "thread.replied" | "c
 ) => Promise<unknown>;
 
 export interface PostingDeps {
-  /** 事件派发（单测注入；缺省走内核总线） */
+  /** 事件派发（单测注入；缺省走内核总线——快路径 source="posting"，补派 source="outbox"） */
   emitter?: PostingEmitter;
 }
-
-export const defaultEmitter: PostingEmitter = (name, payload) =>
-  emit(name as EventName, payload as never, { source: "posting" });
 
 export const err = (code: PostingErrorCode, message: string): PostingError => ({
   ok: false,
@@ -235,11 +238,13 @@ export async function createThread(
 
   // —— 事务内：持锁后做需要事实的判断 ——
   let uploads: UploadedAttachment[] = [];
+  let enqueued: EnqueuedEvent[] = [];
   try {
     const out = await withPostingRetry(() =>
       getWebDb().transaction(async (tx): Promise<PostingOk> => {
-        // 每次尝试都从空开始：上一次被回滚的尝试不得把它的附件带进派发
+        // 每次尝试都从空开始：上一次被回滚的尝试不得把它的附件与事件带进派发
         uploads = [];
+        enqueued = [];
         await lockUserStats(tx, authorId);
         await lockForum(tx, forumId);
 
@@ -331,30 +336,35 @@ export async function createThread(
             isLatest: true,
           }),
         );
+        // outbox（M7）：与业务同事务登记——提交成功则事件必在，崩溃由补派兜底
+        enqueued.push(
+          await enqueueEventInTx(
+            tx,
+            state === "visible" ? "thread.created" : "content.submitted",
+            state === "visible"
+              ? { threadId, postId, forumId, authorId, title: title.value }
+              : { postId, threadId, authorId, forumId, isThread: true },
+            { actorId: authorId, source: "posting" },
+          ),
+        );
+        for (const u of uploads) {
+          enqueued.push(
+            await enqueueEventInTx(
+              tx,
+              "attachment.uploaded",
+              { attachmentId: u.attachmentId, fileId: u.fileId, uploaderId: authorId },
+              { actorId: authorId, source: "posting" },
+            ),
+          );
+        }
         return { ok: true, threadId, postId, floor: 1, state, duplicate: false };
       }, POINTS_TX_OPTIONS),
     );
-    if (!out.duplicate) {
-      const emitter = deps.emitter ?? defaultEmitter;
-      await dispatch(
-        emitter,
-        out.state === "visible"
-          ? [
-              "thread.created",
-              { threadId: out.threadId, postId: out.postId, forumId, authorId, title: title.value },
-            ]
-          : [
-              "content.submitted",
-              { postId: out.postId, threadId: out.threadId, authorId, forumId, isThread: true },
-            ],
-      );
-    }
-    for (const u of uploads) {
-      await dispatch(deps.emitter ?? defaultEmitter, [
-        "attachment.uploaded",
-        { ...u, uploaderId: authorId },
-      ]);
-    }
+    // 快路径：派发并标记；失败留在 outbox，捎带巡检顺手补一小批积压
+    await dispatchOutboxRows(enqueued, {
+      emitter: deps.emitter ? (deps.emitter as unknown as OutboxEmitter) : undefined,
+    });
+    await sweepPending();
     return out;
   } catch (e) {
     if (e instanceof Rollback) return e.result;
@@ -405,11 +415,15 @@ export async function createReply(
 
   // —— 事务内 ——
   let uploads: UploadedAttachment[] = [];
+  let enqueued: EnqueuedEvent[] = [];
+  let replyToAuthorId: number | undefined;
   try {
     const out = await withPostingRetry(() =>
       getWebDb().transaction(async (tx): Promise<PostingOk> => {
-        // 每次尝试都从空开始：上一次被回滚的尝试不得把它的附件带进派发
+        // 每次尝试都从空开始：上一次被回滚的尝试不得把它的附件与事件带进派发
         uploads = [];
+        enqueued = [];
+        replyToAuthorId = undefined;
         await lockUserStats(tx, authorId);
         const thread = await lockThread(tx, input.threadId);
         if (!thread) throw new Rollback(err("not_found", "主题不存在"));
@@ -465,12 +479,14 @@ export async function createReply(
 
         if (replyTo !== null) {
           const [target] = await tx
-            .select({ id: posts.id })
+            .select({ id: posts.id, authorId: posts.authorId })
             .from(posts)
             .where(
               and(eq(posts.id, replyTo), eq(posts.threadId, thread.id), eq(posts.state, "visible")),
             );
           if (!target) throw new Rollback(err("reply_target_invalid", "引用的回帖不存在或不可见"));
+          // thread.replied 的载荷在事务内补齐（outbox 行必须携带完整载荷，见 enqueueEventInTx）
+          replyToAuthorId = target.authorId;
         }
 
         const [maxRow] = await tx
@@ -529,69 +545,46 @@ export async function createReply(
             isLatest: true,
           }),
         );
+        // outbox（M7）：与业务同事务登记；threadAuthorId 来自锁内的主题行，不借第二条连接
+        enqueued.push(
+          await enqueueEventInTx(
+            tx,
+            state === "visible" ? "thread.replied" : "content.submitted",
+            state === "visible"
+              ? {
+                  threadId: thread.id,
+                  postId,
+                  forumId: thread.forumId,
+                  authorId,
+                  threadAuthorId: thread.authorId,
+                  replyToPostId: replyTo ?? undefined,
+                  replyToAuthorId,
+                }
+              : { postId, threadId: thread.id, authorId, forumId: thread.forumId, isThread: false },
+            { actorId: authorId, source: "posting" },
+          ),
+        );
+        for (const u of uploads) {
+          enqueued.push(
+            await enqueueEventInTx(
+              tx,
+              "attachment.uploaded",
+              { attachmentId: u.attachmentId, fileId: u.fileId, uploaderId: authorId },
+              { actorId: authorId, source: "posting" },
+            ),
+          );
+        }
         return { ok: true, threadId: thread.id, postId, floor, state, duplicate: false };
       }, POINTS_TX_OPTIONS),
     );
-    if (!out.duplicate) {
-      const emitter = deps.emitter ?? defaultEmitter;
-      // 楼主与被引用帖的作者只在派发时需要：提交之后一次读取，不占用事务
-      const [t] = await getWebDb()
-        .select({ authorId: threads.authorId })
-        .from(threads)
-        .where(eq(threads.id, out.threadId));
-      const [target] =
-        replyTo === null
-          ? [undefined]
-          : await getWebDb()
-              .select({ authorId: posts.authorId })
-              .from(posts)
-              .where(eq(posts.id, replyTo));
-      await dispatch(
-        emitter,
-        out.state === "visible"
-          ? [
-              "thread.replied",
-              {
-                threadId: out.threadId,
-                postId: out.postId,
-                forumId,
-                authorId,
-                threadAuthorId: t!.authorId,
-                replyToPostId: replyTo ?? undefined,
-                replyToAuthorId: target?.authorId,
-              },
-            ]
-          : [
-              "content.submitted",
-              { postId: out.postId, threadId: out.threadId, authorId, forumId, isThread: false },
-            ],
-      );
-    }
-    for (const u of uploads) {
-      await dispatch(deps.emitter ?? defaultEmitter, [
-        "attachment.uploaded",
-        { ...u, uploaderId: authorId },
-      ]);
-    }
+    // 快路径：派发并标记；失败留在 outbox，捎带巡检顺手补一小批积压
+    await dispatchOutboxRows(enqueued, {
+      emitter: deps.emitter ? (deps.emitter as unknown as OutboxEmitter) : undefined,
+    });
+    await sweepPending();
     return out;
   } catch (e) {
     if (e instanceof Rollback) return e.result;
     throw e;
-  }
-}
-
-/** 提交后派发：失败只记日志，不反噬已提交的发帖（与 unlockGate 的做法一致） */
-export async function dispatch(
-  emitter: PostingEmitter,
-  call:
-    | ["thread.created", EventPayloads["thread.created"]]
-    | ["thread.replied", EventPayloads["thread.replied"]]
-    | ["content.submitted", EventPayloads["content.submitted"]]
-    | ["attachment.uploaded", EventPayloads["attachment.uploaded"]],
-): Promise<void> {
-  try {
-    await (emitter as (n: string, p: unknown) => Promise<unknown>)(call[0], call[1]);
-  } catch (e) {
-    console.error(`[posting] ${call[0]} 派发失败（发帖已提交）:`, e);
   }
 }
