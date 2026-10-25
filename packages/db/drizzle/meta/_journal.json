@@ -43,6 +43,13 @@
       "when": 1792924948742,
       "tag": "0005_outbox_and_point_rewards",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1792944000000,
+      "tag": "0006_fulltext_ngram",
+      "breakpoints": true
     }
   ]
 }
