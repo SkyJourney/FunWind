@@ -42,4 +42,39 @@ describe("POST /api/views", () => {
     expect((await POST(post({ tid: -1 }))).status).toBe(400);
     expect((await POST(post({}))).status).toBe(400);
   });
+
+  it("拿不到可信 IP：换 User-Agent 不能绕过限额（共用 unknown 桶，第 121 次 429）", async () => {
+    const { recordThreadView } = await import("@/lib/views/record");
+    for (let i = 0; i < 120; i++) {
+      expect((await POST(post({ tid: 900101 }, { "user-agent": `ua-${i}` }))).status).toBe(204);
+    }
+    expect((await POST(post({ tid: 900101 }, { "user-agent": "fresh" }))).status).toBe(429);
+    // 被拒的请求不会进入记录逻辑
+    expect(vi.mocked(recordThreadView)).toHaveBeenCalledTimes(120);
+    expect(vi.mocked(recordThreadView).mock.calls[0]![0]).toMatchObject({ ip: null });
+  });
+
+  it("登录用户按账号限额：换 IP（XFF）也不能无限刷，第 121 次 429", async () => {
+    vi.stubEnv("TRUSTED_PROXY_HOPS", "1");
+    try {
+      vi.mocked(getCurrentSubject).mockResolvedValue({
+        userId: 5,
+        roles: [{ key: "member", scopeId: 0 }],
+        restrictions: [],
+        emailVerified: true,
+        registerMode: "invite",
+      });
+      for (let i = 0; i < 120; i++) {
+        expect(
+          (await POST(post({ tid: 900101 }, { "x-forwarded-for": `198.51.100.${i % 250}` })))
+            .status,
+        ).toBe(204);
+      }
+      expect(
+        (await POST(post({ tid: 900101 }, { "x-forwarded-for": "203.0.113.99" }))).status,
+      ).toBe(429);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });

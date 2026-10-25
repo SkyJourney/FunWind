@@ -18,7 +18,7 @@ const views = async () =>
   (await getWebDb().select({ n: threads.viewCount }).from(threads).where(eq(threads.id, TID)))[0]!
     .n;
 const rec = (s: Subject, ip: string | null = "203.0.113.7", now?: number) =>
-  recordThreadView({ subject: s, threadId: TID, ip, userAgent: "ua", now });
+  recordThreadView({ subject: s, threadId: TID, ip, now });
 
 describe.skipIf(skipDb)("浏览量记录 · 真实 MySQL", () => {
   beforeAll(async () => {

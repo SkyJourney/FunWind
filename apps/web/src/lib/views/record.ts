@@ -45,22 +45,21 @@ export function viewRuntime(): { counter: ViewCounter; dedupe: ViewDedupe } {
   return g.__fwViews;
 }
 
-/** 访客标识：登录用户按账号；游客按 IP（取不到时按 UA），哈希后入内存 */
-export function visitorKey(
-  userId: number | null,
-  ip: string | null,
-  userAgent: string | null,
-): string {
+/**
+ * 访客标识：登录用户按账号；游客按可信 IP 哈希后入内存。
+ * 取不到可信 IP 时统一归入固定的 `g:unknown`：不得用 User-Agent 等请求头代替身份——那些值由攻击者任意构造，
+ * 换一个 UA 就能变成一个新访客，浏览量可无限刷高。代价是这些游客在同一主题上共享去重窗口（只会少计，不会多计）。
+ */
+export function visitorKey(userId: number | null, ip: string | null): string {
   if (userId !== null) return `u:${userId}`;
-  const basis = ip ?? `ua:${userAgent ?? ""}`;
-  return `g:${createHash("sha256").update(basis).digest("hex").slice(0, 32)}`;
+  if (ip === null) return "g:unknown";
+  return `g:${createHash("sha256").update(ip).digest("hex").slice(0, 32)}`;
 }
 
 export async function recordThreadView(input: {
   subject: Subject;
   threadId: number;
   ip: string | null;
-  userAgent: string | null;
   now?: number;
 }): Promise<RecordResult> {
   const { subject, threadId } = input;
@@ -83,7 +82,7 @@ export async function recordThreadView(input: {
   if (subject.userId !== null && subject.userId === row.authorId) return "skipped";
 
   const { counter, dedupe } = viewRuntime();
-  const key = `${threadId}:${visitorKey(subject.userId, input.ip, input.userAgent)}`;
+  const key = `${threadId}:${visitorKey(subject.userId, input.ip)}`;
   if (!dedupe.admit(key, input.now ?? Date.now())) return "deduped";
   counter.add(threadId);
   return "counted";
