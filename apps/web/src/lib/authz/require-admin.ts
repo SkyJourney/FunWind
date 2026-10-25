@@ -1,3 +1,4 @@
+import { getModeratedForumIds } from "@/lib/authz/service";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
@@ -36,5 +37,18 @@ export async function requireAdmin(...extra: AdminPermission[]): Promise<AdminAc
   for (const perm of new Set<AdminPermission>(["site.admin", ...extra])) {
     if (!(await checkPermission(subject, perm)).allowed) notFound();
   }
+  return { userId: user.id, ip: clientIpFrom(await headers()) };
+}
+
+/**
+ * 版主入口门禁（M9）：未登录 redirect(/login)；已登录但不持任一版块的 forum.moderate → 404
+ * （admin-entry-guard 同纪律：页面自身第一道门，防局部渲染跳过 layout）。site.admin 亦放行。
+ */
+export async function requireModerator(): Promise<AdminActor> {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+  const subject = await loadSubject(user.id);
+  const moderated = await getModeratedForumIds(subject);
+  if (moderated.length === 0) notFound();
   return { userId: user.id, ip: clientIpFrom(await headers()) };
 }

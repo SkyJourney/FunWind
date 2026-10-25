@@ -5,8 +5,10 @@ import { Toaster } from "@/components/ui/sonner";
 import { logoutAction } from "@/app/actions/auth";
 import { LogoutForm } from "@/components/auth/logout-form";
 import { NotificationBell } from "@/components/notifications/notification-bell";
+import { AnnouncementBanner } from "@/components/site/announcement-banner";
 import { getEnabledModuleIds } from "@/modules/kernel/state";
 import { getCurrentUser } from "@/lib/auth/session";
+import { bannerAnnouncement, getSiteChrome } from "@/lib/site-chrome";
 // 模块注册表求值（注册 + 封板）：任何内核调用前加载
 import "@/modules";
 import "./globals.css";
@@ -20,6 +22,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const user = await getCurrentUser();
   // 通知模块停用时铃铛不渲染（模块装卸语义；读取契约对停用模块的存量数据无意义）
   const notificationsOn = user !== null && (await getEnabledModuleIds()).has("notifications");
+  const [chrome, banner] = await Promise.all([getSiteChrome(), bannerAnnouncement(user !== null)]);
 
   return (
     <html lang="zh-CN" suppressHydrationWarning>
@@ -30,15 +33,30 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           enableSystem
           disableTransitionOnChange
         >
+          <AnnouncementBanner banner={banner} />
           <header className="border-b">
-            <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
-              <Link href="/" className="font-semibold tracking-tight hover:text-primary">
-                青翼字幕组
-              </Link>
-              <div className="flex items-center gap-3 text-sm">
-                <Link href="/search" className="text-muted-foreground hover:text-foreground">
-                  搜索
+            <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3 sm:px-6 lg:px-8">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                <Link href="/" className="font-semibold tracking-tight hover:text-primary">
+                  青翼字幕组
                 </Link>
+                {/* 站点导航（管理可配；空则不渲染） */}
+                <nav className="flex flex-wrap items-center gap-3 text-sm" aria-label="站点导航">
+                  {chrome.nav.map((n) => (
+                    <Link
+                      key={`${n.label}:${n.href}`}
+                      href={n.href}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      {n.label}
+                    </Link>
+                  ))}
+                  <Link href="/search" className="text-muted-foreground hover:text-foreground">
+                    搜索
+                  </Link>
+                </nav>
+              </div>
+              <div className="flex items-center gap-3 text-sm">
                 {user ? (
                   <>
                     {notificationsOn && <NotificationBell />}
@@ -80,6 +98,30 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </div>
           </header>
           {children}
+          {chrome.links.length > 0 && (
+            <footer className="mt-12 border-t py-6">
+              <div className="mx-auto max-w-5xl space-y-2 px-4 sm:px-6 lg:px-8">
+                <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">友情链接</span>
+                  {chrome.links.map((l) => (
+                    <a
+                      key={`${l.label}:${l.href}`}
+                      href={l.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hover:text-primary"
+                      title={l.description}
+                    >
+                      {l.label}
+                    </a>
+                  ))}
+                </p>
+                {chrome.footerText && (
+                  <p className="text-xs text-muted-foreground">{chrome.footerText}</p>
+                )}
+              </div>
+            </footer>
+          )}
           <Toaster position="top-center" />
         </ThemeProvider>
       </body>

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { getModeratedForumIds } from "@/lib/authz/service";
+import { requireModerator } from "@/lib/authz/require-admin";
 import { removedContent, reviewQueue } from "@/lib/moderation/review";
 import { restorePostAction } from "@/app/actions/posts";
 import { SubmitButton } from "@/components/ui/submit-button";
@@ -19,11 +20,14 @@ type Params = {
  * 可见性：版主（持任一版块 forum.moderate）或 admin.recycle；队列内容按版主作用域过滤（服务层）。
  */
 export default async function ReviewPage({ searchParams }: Params) {
+  // 入口门禁双保险（admin-entry-guard 约定：页面自身第一个 await 必须是鉴权）：
+  // 审核页版主可达（不持 site.admin），用 requireModerator（未登录 redirect；否则要求持任一版主作用域）
+  await requireModerator();
   const sp = await searchParams;
   const subject = await getCurrentSubject();
   if (subject.userId === null) notFound();
   const moderated = await getModeratedForumIds(subject);
-  if (moderated.length === 0) notFound(); // 无版主权限也不持有 admin.recycle 的游客/会员 → 404
+  if (moderated.length === 0) notFound(); // 无版主权限的会员 → 404
 
   const tab = sp.tab === "removed" ? "removed" : "pending";
   const items = tab === "pending" ? await reviewQueue(subject) : await removedContent(subject);

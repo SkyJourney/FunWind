@@ -71,6 +71,10 @@ export function defineActionBodies(src: string): Map<string, string> {
 export const declaresAdminAuth = (body: string): boolean =>
   /\bauth\s*:\s*\{\s*admin\s*:/.test(body);
 
+// 版主作用域入口豁免：review/actions 的鉴权是帖子版块的 forum.moderate（在 lib/moderation 服务内判定），
+// 不持 site.admin 的版主也要能用——defineAction 声明 auth:"user" 是有意为之（M9 拍板，越权矩阵 E2E 覆盖）。
+const MODERATOR_SCOPE_EXEMPT = new Set(["review/actions.ts"]);
+
 const files = walk(ADMIN_DIR)
   .filter((p) => /(^|[\\/])(page|layout)\.tsx$|(^|[\\/])actions\.ts$/.test(p))
   .map((p) => ({ rel: relative(ADMIN_DIR, p).split(sep).join("/"), src: readFileSync(p, "utf8") }));
@@ -96,11 +100,16 @@ describe("/admin 入口必须先鉴权（审查 P2-15）", () => {
       const fns = entryBodies(f.rel, f.src);
       const das = defineActionBodies(f.src);
       for (const [name, body] of fns) {
-        if (firstAwaitedCall(body) !== "requireAdmin") offenders.push(`${f.rel} › ${name}`);
+        // requireModerator 是版主可达页（review）的等价门禁（M9；未登录 redirect、无权限 404，同纪律）
+        const first = firstAwaitedCall(body);
+        if (first !== "requireAdmin" && first !== "requireModerator")
+          offenders.push(`${f.rel} › ${name}`);
       }
       for (const [name, body] of das) {
         if (!declaresAdminAuth(body))
-          offenders.push(`${f.rel} › ${name}（defineAction 未声明 admin 鉴权）`);
+          if (!MODERATOR_SCOPE_EXEMPT.has(f.rel)) {
+            offenders.push(`${f.rel} › ${name}（defineAction 未声明 admin 鉴权）`);
+          }
       }
       // 页面 / 布局 / actions 文件一个入口都找不到：多半是写法变了而守卫没跟上，宁可报错也不悄悄通过
       if (fns.size + das.size === 0) offenders.push(`${f.rel} › （没有识别到任何入口）`);

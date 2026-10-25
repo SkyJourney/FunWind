@@ -20,7 +20,7 @@ export interface UnreadSummary {
 }
 
 /** 有效公告：NOW() ∈ [starts_at, ends_at]（ends_at 空为长期）且受众匹配（游客只看 all） */
-function validAnnouncementWhere(viewerLoggedIn: boolean) {
+export function validAnnouncementWhere(viewerLoggedIn: boolean) {
   return and(
     sql`${announcements.startsAt} <= NOW()`,
     sql`(${announcements.endsAt} IS NULL OR ${announcements.endsAt} > NOW())`,
