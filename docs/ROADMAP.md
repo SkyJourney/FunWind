@@ -20,7 +20,7 @@
 | [M5](milestones/M5-authz.md) | 权限内核（RBAC/ABAC） | M03 | 一·骨架 | ✅ 2026-10-23（复验发现由 M5.5 清账） |
 | [M5.5](milestones/M5.5-schema-v2.md) | **重构：数据模型 v2 与迁移 v2** | M01–M07 数据层 + 缺陷清账 | 一·骨架 | ✅ 2026-10-24（分支 `feat/m5.5-schema-v2` 全部门禁实测通过，已合并 main；2026-10-24 已重写 git 历史（站长决定不轮换口令）） |
 | [M5.6](milestones/M5.6-prelaunch-hardening.md) | **上线前加固与渲染修复**（M6 的前置） | M5.5 + 审查与复查遗留项 | 一·骨架 | ✅ 2026-10-24（S1–S5；本地硬门禁 `verify:render` / `verify:fidelity` 全 0，认证与安全加固带变异验证） |
-| [M6](milestones/M6-posting.md) | 发帖与内容生产（含编辑器、门控创作与购买） | M01 交互层 | 二·核心 | ⬜ |
+| [M6](milestones/M6-posting.md) | 发帖与内容生产（含编辑器、门控创作与购买） | M01 交互层 | 二·核心 | ✅ 2026-10-25（M6.1–M6.5；代码审查与整改见 [审查记录](reviews/2026-10-25-m6-code-review.md)） |
 | [M7](milestones/M7-gamification.md) | 积分与荣誉（积分台账/签到/荣誉徽章） | M07 | 二·核心 | ⬜ |
 | [M8](milestones/M8-interact-search.md) | 互动套件、**通知中心后端与顶栏铃铛**、检索 | M05/M06 | 二·核心 | ⬜ |
 | [M9](milestones/M9-admin.md) | 管理后台（含审核队列、公告管理）与站点框架 | M10/M11/M13 | 三·完善 | ⬜ |

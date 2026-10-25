@@ -9,7 +9,7 @@
   **M5.5 重构（设计先行）已完成，已合并 `main`**。站长思路：**先定目标模型（`docs/DESIGN-MODEL.md`，schema v2.1 共 43 表，含通知中心），旧数据向它靠拢，迁移只是适配层**。
   进度：R1 文档 ✅ → R2 `packages/db` 与 `packages/content` 重做 ✅ → R3 迁移适配层重做并重建开发库 ✅ → S4 应用适配 ✅ → **S5 E2E 与全量门禁 ✅（2026-10-24）**；之后进入 M6 发帖。
   **M5.6 上线前加固与渲染修复（M6 的前置，见 `docs/milestones/M5.6-prelaunch-hardening.md`）**：S1 渲染补精简 GFM ✅ → E0 编辑器选型（Tiptap + CodeMirror + react-image-crop）✅ → S1b 转换器⇄渲染器语法契约与转换器修复、重导开发库 ✅ → S2 登录时序与频控 ✅ → S3 认证杂项 ✅ → S4 安全响应头与 `/files` 穿越矩阵 ✅ → S5 文档漂移清账 ✅。
-  **M6 发帖与内容生产**：M6.1 写路径底座 ✅ → M6.2 薄切片（发主题 / 回帖 / 编辑 / 删除 / 恢复）✅ → M6.3 编辑器 ✅（真机清单已通过，见 `docs/milestones/M6.3-editor.md`）→ **M6.4 上传与图片** ✅（真机清单已通过，见 `docs/milestones/M6.4-uploads.md` §14）→ **M6.5 门控创作收尾** ✅（见 `docs/milestones/M6.5-gates-polish.md`）。M6 总验收与遗留清账见 `docs/milestones/M6-posting.md`；下一里程碑 M7。
+  **M6 发帖与内容生产**：M6.1 写路径底座 ✅ → M6.2 薄切片（发主题 / 回帖 / 编辑 / 删除 / 恢复）✅ → M6.3 编辑器 ✅（真机清单已通过，见 `docs/milestones/M6.3-editor.md`）→ **M6.4 上传与图片** ✅（真机清单已通过，见 `docs/milestones/M6.4-uploads.md` §14）→ **M6.5 门控创作收尾** ✅（见 `docs/milestones/M6.5-gates-polish.md`）。**M6 ✅（2026-10-25）**：总验收与遗留清账见 `docs/milestones/M6-posting.md`，代码审查与整改见 `docs/reviews/2026-10-25-m6-code-review.md`；下一里程碑 M7。
 - **分支**：M5.5 已合入 `main`（`feat/m5.5-schema-v2` 仅本地保留，不推送）。类型检查 / lint / 单测 / 构建 / E2E 全部真实通过（`pnpm verify:all` 与 `pnpm test:e2e` 均已连续多次实测）。
   2026-10-24 已重写 git 历史（清除口令、真实邮箱、第三方用户名与 `Claude-Session:` 行），随后已把 `main` 推送到 GitHub 公开仓库 `SkyJourney/FunWind`（CI：`.github/workflows/ci.yml`，`verify` + 自包含 `e2e` 两个作业，首轮修复构建产物步骤后全绿）；重写前的完整备份在站长本机 `~/FunWind-pre-rewrite.bundle`（含旧口令，**不得上传**）。
 - 开发库：`qysub_next` = v2 **纯导入**（`verify:migration` 110 项对账只对它有意义）；`qysub_next_e2e` = 空库 + 演示种子（`db:seed`，id ≥ 90000）+ E2E 夹具（`db:e2e-fixtures`，id ≥ 950000），**不含迁移数据**（CI 同样如此），`pnpm test:e2e` 每次自动重建它。
@@ -36,10 +36,10 @@ docker/          qysub-next（MySQL 8.4 @33621）、dev（web 容器 + MailPit�
 ```bash
 pnpm dev                      # http://127.0.0.1:3100
 pnpm verify:all               # lint + format:check + typecheck + test(覆盖率) + build
-pnpm test:e2e                 # 重置并重建 qysub_next_e2e（bootstrap + 种子 + E2E 夹具，无迁移）→ dev 服务器 3200 的 E2E（138 项，含移动项目）→ 生产构建冒烟 3201（10 项）；需要 MailPit(8025)；约 40s
+pnpm test:e2e                 # 重置并重建 qysub_next_e2e（bootstrap + 种子 + E2E 夹具，无迁移）→ dev 服务器 3200 的 E2E（150 项，含移动项目）→ 生产构建冒烟 3201（10 项）；需要 MailPit(8025)；约 40s
 pnpm db:bootstrap | db:seed | db:e2e-fixtures | db:verify   # 零数据路径：建表+系统种子 / 演示夹具 / E2E 专用夹具 / schema 对账（19 项：结构 + 孤儿引用 + 楼层唯一 + 首帖指针 + 主题与首帖状态 + 缓存计数）
 pnpm db:recount                # 全量重算缓存计数（幂等，默认直接修正；--check 只读，有漂移非零退出）
-pnpm db:gc-files --dry-run     # 孤儿文件巡检（只报告：无附件 / 头像 / 徽章引用、正文也无 /files 链接、超过 24 小时）
+pnpm db:gc-files --dry-run     # 孤儿文件巡检（只报告、不删除：库内无引用的文件 + 磁盘有、库里无的孤儿；超过 24 小时）
 pnpm --filter @funwind/db test              # db 包单测 + 真实 MySQL 临时库集成测试（SKIP_DB_TESTS=1 可跳过）
 pnpm --filter @funwind/web test             # web 单测 + 真实 MySQL 临时库集成测试（同样认 SKIP_DB_TESTS=1）；git push 前由 .husky/pre-push 自动跑类型检查 + 全部测试
 pnpm --filter @funwind/content test         # 门控语法 + 正文切段 + 转换器⇄渲染器语法契约的完整性（UBB 转换器及其泄露不变量性质测试在 migration/，用 pnpm --filter @funwind/migration test）
@@ -86,13 +86,13 @@ pnpm --filter @funwind/web perf:posting                   # 发帖性能基准�
 - **写入的容器与限制**（M6.1）：评估器对 `forum.write` 先判分区 / 归档（含 admin 也拒），回帖带 `threadLocked` 时还需 `thread.replyLocked`；发帖限制在 `site_settings.limits`（`lib/limits/`，zod 校验，无效回落默认；**0 = 不限**，多角色每项取最宽松，缺字段整体无效而不是补 0）。门控条件固定为内置 `points` / `reply`，库里的未知类型一律 fail-closed（含购买侧不扣费）。
 - **权限/可见性**（`lib/authz` + `lib/queries/visibility.ts`）：评估器是纯函数（显式 `Subject`，零 SQL）；版块树与授权表常驻内存快照（管理动作后 `invalidateAuthzSnapshot()`）；
   查询层用 `readableForumIds`/`moderatedForumIds` 在**取数前**过滤，不取出来再逐行判断。
-- **上传**（M6.4，`lib/uploads`、`app/api/upload`、`components/upload`）：嗅探不信扩展名；图片经 sharp 定向、去元数据、重编码（GIF 不重编码）；内容寻址落盘（临时文件再 rename）；配额在事务内持 `user_stats` 行锁检查（去重命中也计数）。图片可见性按引用它的帖子鉴权（游客视角单独计算，见 `resolveFileGrant`）。保存帖子时在同一事务内登记正文引用（`inline`）与附件（`download`）。
+- **上传**（M6.4，`lib/uploads`、`app/api/upload`、`components/upload`）：嗅探不信扩展名；图片经 sharp 定向、去元数据、重编码（GIF 不重编码，只去除注释与非动画扩展块）；内容寻址落盘（临时文件再 rename）；配额在事务内持 `user_stats` 行锁检查（去重命中也计数）。版块参数走查询参数 `forumId`，权限在读取请求体之前判定；同一账号同时进行中的上传不超过 3 个。图片可见性按引用它的帖子鉴权（游客视角单独计算，见 `resolveFileGrant`）。保存帖子时在同一事务内登记正文引用（`inline`）与附件（`download`）。
 - **积分与门控的并发约定**（`lib/points`、`lib/gates`，教训来自真实复现的死锁/连接池饥饿）：① 事务内不得再借第二条连接（连接池仅 8 条）——渠道解析、权限检查等一律在开事务前完成；
   ② 加锁顺序固定「门控行 → 账户行（user_id 升序）」；③ 账户行用 `SELECT … FOR UPDATE` 加锁（不存在才 `INSERT IGNORE`），**禁止**用 `INSERT … ON DUPLICATE KEY UPDATE` 当加锁手段（共享锁升级死锁）；
   ④ 先拿账户锁再查幂等/已解锁。⑤ **积分与解锁事务一律 READ COMMITTED**（`POINTS_TX_OPTIONS`）：默认 REPEATABLE READ 下对「不存在的键」`FOR UPDATE` 会加间隙锁，不同新用户并发首次建账户互相死锁（实测 640 次并发 139 次失败）；任何包含 `lockAccount` / `applyPointsInTx` 的新事务都必须以它开启。积分表只能经 `lib/points` 写，隐藏正文只能经 `lib/gates/service.ts` 读，附件表只能经 `lib/gates/attachments.ts` 读写，均有守卫测试。
 
 - **编辑器**（M6.3，`components/editor`）：所见即所得（Tiptap 3）默认，可切 CodeMirror 源码；操作**完整源码**（含门控隐藏正文）。**未编辑的旧帖保留原文，绝不重新序列化**；往返不等价的帖强制源码模式（`lib/posting/roundtrip-check.ts`，判定为渲染等价）。预览走 `POST /api/preview`（Route Handler，门控只显示占位）。
-- **草稿**（`components/editor/draft.ts`）：`localStorage`，键 `funwind:draft:<userId>:<kind>:<id>`，每次变化即写。**提交即暂存**：submit 时主键移到 `…:sent`，失败跳回从暂存键恢复，成功后主键为空；登出（`LogoutForm`）清除全部草稿键。草稿只是个人便利，读写都包在 try/catch 里。
+- **草稿**（`components/editor/draft.ts`）：`localStorage`，键 `funwind:draft:<userId>:<kind>:<id>`，每次变化即写。**提交即暂存**：submit 时主键移到 `…:sent`，失败跳回从暂存键恢复，成功后主键为空；登出（`LogoutForm`）清除全部草稿键。草稿只是个人便利，读写都包在 try/catch 里。暂存键只在失败或冲突跳回时读取，进入页面时过期即清理；编辑冲突时正文与附件的暂存版本以提示交给作者选择。
 
 ## 已知坑
 
@@ -100,6 +100,9 @@ pnpm --filter @funwind/web perf:posting                   # 发帖性能基准�
 - **E2E 存储隔离**：`test:e2e` 设置 `STORAGE_DIR=<仓库根>/storage-e2e`（每次运行前清空）；E2E 用例读写文件请用同一变量，不要硬编码 `storage/`。
 - **jsdom 缺几何接口**：Tiptap / ProseMirror 滚动到选区时需要 `scrollIntoView`、`getClientRects`、`Range.getBoundingClientRect`，缺失会以未捕获异常让整次运行失败（垫片在 `vitest.setup.ts`）。
 - **裁剪的最小边长是 32 像素**：1×1 的测试图无法框出合法裁剪区域（会显示「裁剪区域太小」，这是正确行为）。E2E 裁剪用例用 96×96 的图。
+- **浏览量身份不读 User-Agent**：UA 由攻击者任意构造，换一个就是新访客。拿不到可信 IP 时统一为 `g:unknown` 并共用限额桶（代价是直连部署下计数偏少）。
+- **解锁事务的复核顺序**：定位在事务外完成，持锁前必须对主题加共享锁并复核帖子状态（否则可能为已隐藏的内容扣费）；锁序「主题 → 门控 → 账户」不得颠倒。
+- **上传的版块参数在查询字符串里**：不要改回表单字段，否则权限判定会排在读取请求体之后（整改记录 U-1）。
 - **守卫按文本匹配，注释也会命中**：`hidden-md-guard.test.ts` 扫描的是源码文本，注释里写 `hidden_md` 同样会红。注释里用中文描述。
 
 - **部署在反向代理后**：Server Action 比对 Origin 与 Host / X-Forwarded-Host，代理必须正确透传，否则同源提交也会被误拒（M13 上线核对项；复查 A3 已验证跨站被拒、同源放行）。
