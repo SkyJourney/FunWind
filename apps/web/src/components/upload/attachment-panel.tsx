@@ -181,9 +181,8 @@ function AttachmentEditor({
     itemsRef.current = next;
     setItems(next);
     if (draftKey !== null) {
-      const k = attachmentsKey(draftKey);
-      if (next.length === 0) removeDraft(k);
-      else writeDraft(k, JSON.stringify(next));
+      // 空列表也写入：清空全部附件是有效修改，冲突后必须能恢复（M7-4）；与 initial 的差异由恢复逻辑比较
+      writeDraft(attachmentsKey(draftKey), JSON.stringify(next));
     }
   };
 

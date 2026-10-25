@@ -52,6 +52,14 @@ test.beforeAll(async () => {
        VALUES (960401, ?, 'g1', ?, 'all', ?, '2026-10-21 10:00:00', '2026-10-21 10:00:00')`,
       [GATED_FIRST, JSON.stringify([{ type: "points", price: 10 }]), `${SECRET} 门控里的隐藏正文`],
     );
+    // M7-4：回帖挂一个下载附件（复用库内任一文件的 storage 行）
+    await q.exec("DELETE FROM attachments WHERE post_id = ?", [REPLY]);
+    await q.exec(
+      `INSERT INTO attachments (post_id, file_id, uploader_id, original_name, kind, created_at)
+       SELECT ?, file_id, ?, 'E2E 冲突附件.txt', 'download', '2026-10-21 10:01:00'
+       FROM attachments WHERE kind = 'download' LIMIT 1`,
+      [REPLY, USERS.alice],
+    );
   });
 });
 
@@ -151,5 +159,49 @@ test.describe("编辑帖子", () => {
     await page.getByRole("button", { name: "保存修改" }).click();
     await expect(page).toHaveURL(new RegExp(`#p${REPLY}$`));
     await expect(page.getByText(text)).toBeVisible();
+  });
+
+  test("附件冲突恢复（M7-4）：两窗口编辑，后提交者恢复附件修改后保存成功，列表与提交版本一致", async ({
+    context,
+  }) => {
+    await loginAs(context, USERS.alice);
+    const a = await context.newPage();
+    const b = await context.newPage();
+    await a.goto(`/p/${REPLY}/edit`);
+    await b.goto(`/p/${REPLY}/edit`);
+    await expect(b.getByRole("region", { name: "附件" })).toBeVisible();
+    await expect(b.getByLabel("移除附件：E2E 冲突附件.txt")).toBeVisible();
+
+    // 窗口 A 先保存（只改正文）→ 胜出
+    const winner = `窗口 A 先保存 ${Date.now()}`;
+    await fillBody(a, winner);
+    await a.getByRole("button", { name: "保存修改" }).click();
+    await expect(a).toHaveURL(new RegExp(`#p${REPLY}$`));
+
+    // 窗口 B：移除附件 + 改正文 → 保存被拒（版本冲突）
+    await b.getByLabel("移除附件：E2E 冲突附件.txt").click();
+    const bText = `窗口 B 的正文 ${Date.now()}`;
+    await fillBody(b, bText);
+    await b.getByRole("button", { name: "保存修改" }).click();
+    await expect(b.locator('p[role="alert"]')).toHaveText(
+      "这条内容刚刚被修改过，请刷新页面后再编辑。",
+    );
+    // 恢复提交失败的那一版（草稿 + 附件列表）
+    await b.getByRole("button", { name: "恢复草稿" }).click();
+    await b.getByRole("button", { name: "恢复附件" }).click();
+    await expect(b.getByLabel("移除附件：E2E 冲突附件.txt")).toHaveCount(0);
+
+    // 保存成功：正文为 B 的版本，附件列表与提交版本一致（B 已移除 → 帖子上无附件）
+    await b.getByRole("button", { name: "保存修改" }).click();
+    await expect(b).toHaveURL(new RegExp(`#p${REPLY}$`));
+    await expect(b.getByText(bText)).toBeVisible();
+    await withE2eDb(async (q) => {
+      const rows = await q.query<{ id: number }>("SELECT id FROM attachments WHERE post_id = ?", [
+        REPLY,
+      ]);
+      expect(rows).toHaveLength(0);
+    });
+    await b.close();
+    await a.close();
   });
 });

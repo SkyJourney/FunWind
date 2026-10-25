@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getCheckinStatus, type CheckinStatus } from "@/lib/checkin/service";
-import { checkinAction } from "@/app/actions/checkin";
 import { defineModule } from "../kernel/types";
 
 /**
@@ -69,6 +68,8 @@ async function renderCheckinBar() {
       </div>
     );
   }
+  // 渲染期动态 import：静态引入会构成「模块 → defineAction → "@/modules"」的求值环（见 actions/checkin.ts 说明）
+  const { checkinAction } = await import("@/app/actions/checkin");
   const status = await getCheckinStatus(user.id);
   return (
     <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border bg-card px-4 py-3">

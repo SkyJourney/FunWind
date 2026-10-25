@@ -270,6 +270,22 @@ try {
     `内置角色 ${seed.builtin} / 权限点 ${seed.perms}（词汇表 ${PERMISSION_DEFINITIONS.length}）`,
   );
 
+  // 5b. 积分对账（M7）：台账只增不改不删，余额快照必须恒等于其台账之和
+  const [pointsMismatch] = await pool.query<RowDataPacket[]>(
+    `SELECT
+       (SELECT COUNT(*) FROM point_accounts a
+          WHERE a.balance <> (SELECT COALESCE(SUM(delta),0) FROM point_ledger WHERE user_id = a.user_id)) AS mismatch,
+       (SELECT COUNT(*) FROM point_accounts WHERE balance < 0) AS negative`,
+  );
+  const pts = pointsMismatch[0] as { mismatch: number; negative: number };
+  add(
+    "points:对账",
+    Number(pts.mismatch) === 0 && Number(pts.negative) === 0,
+    Number(pts.mismatch) === 0 && Number(pts.negative) === 0
+      ? "全部账户余额 = 台账之和，无负余额"
+      : `余额与台账不一致 ${pts.mismatch} 户 / 负余额 ${pts.negative} 户`,
+  );
+
   // 6. outbox 滞留（M7）：快路径失败或崩溃留下的 pending 行——补派脚本可清，但长期滞留须人工过目
   const [staleOutbox] = await pool.query<RowDataPacket[]>(
     `SELECT COUNT(*) AS n, TIMESTAMPDIFF(MINUTE, MIN(created_at), NOW()) AS staleMinutes

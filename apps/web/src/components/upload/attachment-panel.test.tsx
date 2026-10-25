@@ -120,7 +120,7 @@ describe("AttachmentPanel", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("草稿：列表随编辑写入 :attachments 键；清空后删除该键", async () => {
+  it("草稿：列表随编辑写入 :attachments 键；清空后键存空数组（冲突恢复可表达「全部移除」）", async () => {
     const user = userEvent.setup();
     mount({ draftKey: KEY, initial: [] });
     vi.stubGlobal(
@@ -135,7 +135,7 @@ describe("AttachmentPanel", () => {
     await act(async () => {
       await user.click(screen.getByRole("button", { name: "移除附件：d.zip" }));
     });
-    expect(window.localStorage.getItem(`${KEY}:attachments`)).toBeNull();
+    expect(JSON.parse(window.localStorage.getItem(`${KEY}:attachments`)!)).toEqual([]);
   });
 
   it("失败跳回：从提交前的暂存恢复列表", async () => {

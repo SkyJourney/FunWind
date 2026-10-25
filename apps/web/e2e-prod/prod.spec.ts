@@ -24,7 +24,7 @@ test.describe("生产构建", () => {
     expect(
       (
         await request.post("/api/dev/modules/toggle", {
-          data: { id: "demo-checkin", enabled: false },
+          data: { id: "checkin", enabled: false },
         })
       ).status(),
     ).toBe(404);
@@ -32,9 +32,9 @@ test.describe("生产构建", () => {
   });
 
   test("dev 入口的 404 不是空操作：模块启停状态没有被 POST 改动", async ({ request }) => {
-    await request.post("/api/dev/modules/toggle", { data: { id: "demo-checkin", enabled: false } });
+    await request.post("/api/dev/modules/toggle", { data: { id: "checkin", enabled: false } });
     const rows = await withE2eDb((q) =>
-      q.query("SELECT enabled FROM module_state WHERE module_id = 'demo-checkin' AND enabled = 0"),
+      q.query("SELECT enabled FROM module_state WHERE module_id = 'checkin' AND enabled = 0"),
     );
     expect(rows).toEqual([]);
   });

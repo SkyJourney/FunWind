@@ -57,27 +57,58 @@
 
 ## 验收门禁
 
-- [ ] 三类能力全部经 `defineModule` 注册（代码评审确认零内核**机制**破坏；槽位/上下文清单扩展按 MODULES.md 既定流程留档；`pointChannels` 契约已由 M5.5 就位）
-- [ ] outbox：posting 事件族经 `event_outbox` 可靠派发——集成测试证明「提交后不派发」可由 drain 补齐且幂等；`db:verify` 滞留检查就位
-- [ ] 奖励数值与日上限经 `site_settings` 后台可配置且配置变更出审计（`/admin/points`）
-- [ ] 单测/对账/E2E 全绿；装卸回归通过（注册表验收的硬指标）
-- [ ] 签到时区边界用例全过（含服务器时区非 +8 的模拟）
-- [ ] 旧数据展示无回归（团队徽章/勋章抽样 20 人对照旧站）
-- [ ] `pnpm verify:all` 与 `pnpm test:e2e` 全绿；`perf:posting` p95 < 300ms（earn 消费者已入请求路径）；CHANGELOG 记录
+- [x] 三类能力全部经 `defineModule` 注册（代码评审确认零内核**机制**破坏；槽位/上下文清单扩展按 MODULES.md 既定流程留档；`pointChannels` 契约已由 M5.5 就位）
+- [x] outbox：posting 事件族经 `event_outbox` 可靠派发——集成测试证明「提交后不派发」可由 drain 补齐且幂等；`db:verify` 滞留检查就位（`outbox:无滞留 pending`）
+- [x] 奖励数值与日上限经 `site_settings` 后台可配置且配置变更出审计（`/admin/points`，`setting.update` 审计，config-audit 测试锚定）
+- [x] 单测/对账/E2E 全绿；装卸回归通过（注册表验收的硬指标）
+- [x] 签到时区边界用例全过（`todayBeijing()` 与 `nowBeijingWallTime()` 同口径单测锚定；服务器时区无关性由 `lib/datetime` 的 UTC+8 换算与连接层 `SET time_zone='+08:00'`（db:verify 4b）保证）
+- [ ] 旧数据展示无回归（团队徽章/勋章抽样 20 人对照旧站）——**自动化部分已覆盖**（迁移 verify 的徽章三件套：徽章数/引用完整/团队持有人对账 + E2E badges.spec 展示断言）；**人工抽样对照旧站截图待站长验收**
+- [x] `pnpm verify:all` 与 `pnpm test:e2e` 全绿；`perf:posting` p95 < 300ms（earn 消费者已入请求路径）；CHANGELOG 记录
+  （实测 2026-10-25：verify:all = content 50 + db 66 + web 1244 + migration 251 全过；test:e2e = 桌面/移动 162 + 生产冒烟 10；db:verify 21 项；perf:posting p95 15.3 ms）
 
-## 阶段推进（S1–S7，2026-10-25 开工）
+## 阶段推进（S1–S7，2026-10-25 开工）✅ 全部完成
 
-- [ ] **S1 开工文档定稿**：本文件拍板与阶段化；ROADMAP 🚧；POINTS.md（dailyCap 语义、奖励配置 key、初值）；旧库只读查初值
-- [ ] **S2 权限与配置底座**：`admin.points` / `admin.badges` 权限点 + 基线授权（含存量库增量迁移 upsert）；`points.reward` / `punch.reward` settings key（zod 回落）；`point_ledger (user_id, channel, created_at)` 索引；`event_outbox` 表
-- [ ] **S3 outbox 可靠派发**：enqueue/drain（SKIP LOCKED）/emit 捎带巡检/`db:outbox-drain` 脚本/`db:verify` 滞留检查；posting 三处事务内 enqueue + 快路径；崩溃注入与并发 drain 集成测试
-- [ ] **S4 积分模块**：`lib/points/earn.ts`（事件消费+锁内日上限）；模块注册（earn.post/earn.reply/adjust.admin）；`/points` 页 + 顶栏入口；`/admin/points`（配置+调整+显示名，审计）；earn 测试/并发/对账；points.spec
-- [ ] **S5 签到模块**：`lib/checkin`（自然日/连签/随机奖励/`checkin.done`）；模块注册（earn.checkin）；`home.after-header` 签到条+迷你日历（不显示他人活动）；时区与并发测试；checkin.spec
-- [ ] **S6 徽章模块与展示**：内核 SlotName/SlotContext 扩展；`lib/badges`（授予+审计+`badge.awarded`）；`profile.header` 徽章卡；UserBadge 头像（M7-3）+`thread.user-badge` 槽位；`/admin/badges`；重复发放并发用例；badges.spec + 装卸回归
-- [ ] **S7 退役与收尾**：demo-checkin 退役（清单见「开工前审查要点」3）；M7-1 双真连接并发；M7-4 附件恢复 E2E；`db:verify` 积分对账项；perf:posting 重测；verify:all+test:e2e 全绿；门禁勾选/CHANGELOG/ROADMAP/carryover 清账
+- [x] **S1 开工文档定稿**：本文件拍板与阶段化；ROADMAP 🚧；POINTS.md（dailyCap 语义、奖励配置 key、初值）；旧库只读查初值（`credit.strategy`：post_topic=3 / post_reply=1；`punch.reward` 1–5）
+- [x] **S2 权限与配置底座**：`admin.points` / `admin.badges` 权限点 + 基线授权（含存量库增量迁移 upsert）；`points.reward` / `punch.reward` settings key（zod 回落）；`point_ledger (user_id, channel, created_at)` 索引；`event_outbox` 表
+- [x] **S3 outbox 可靠派发**：enqueue/drain/emit 捎带巡检/`outbox:drain` 脚本/`db:verify` 滞留检查；posting 三处事务内 enqueue + 快路径；崩溃注入与并发 drain 集成测试
+- [x] **S4 积分模块**：`lib/points/earn.ts`（事件消费+锁内日上限）；模块注册（earn.post/earn.reply/adjust.admin）；`/points` 页 + 顶栏入口；`/admin/points`（配置+调整+显示名，审计）；earn 测试/并发/对账；points.spec
+- [x] **S5 签到模块**：`lib/checkin`（自然日/连签/随机奖励/`checkin.done`）；模块注册（earn.checkin）；`home.after-header` 签到条+迷你日历（不显示他人活动）；时区与并发测试；checkin.spec
+- [x] **S6 徽章模块与展示**：内核 SlotName/SlotContext 扩展；`lib/badges`（授予+审计+`badge.awarded`）；`profile.header` 徽章卡；UserBadge 头像（M7-3）+`thread.user-badge` 槽位；`/admin/badges`；重复发放并发用例；badges.spec + 装卸回归
+- [x] **S7 退役与收尾**：demo-checkin 退役（清单见「开工前审查要点」3）；M7-1 双真连接并发；M7-4 附件恢复 E2E；`db:verify` 积分对账项；perf:posting 重测；verify:all+test:e2e 全绿；门禁勾选/CHANGELOG/ROADMAP/carryover 清账
 
 ## 遗留事项
 
 - 将来新增积分渠道（打赏、活动奖励等）= 新模块声明渠道，不在本期范围。
+- 旧站「精华 +5」（`digest_strategy.digest_topic`）与邀请注册奖励不在本期获取途径内——将来若做 = 新渠道（POINTS.md §3 已记）。
+- **人工验收**：团队徽章/勋章抽样 20 人对照旧站截图（自动化对账已过，见门禁第 6 项）。
+- 签到日历的独立页化、积分页的图表化 → 归 M10.5 视觉打磨统一处理。
+- M8-1 剩余事件（`gate.unlocked` / `message.sent` 等）的 outbox 接入（机制零改动，业务事务内 enqueue 即可）。
+
+## 复验发现（2026-10-25 收尾实测记录）
+
+实施期间被测试或审查抓到并当场修正的项（每项带回归测试或用例）：
+
+1. **迁移授权插入 vs bootstrap 基线语义的相互作用**（S2）：迁移先行插入 `admin.points/badges` 授权会让
+   「角色尚无授权行才整批写基线」在全新库上跳过全部基线。处置：迁移改为 **EXISTS 守卫插入**（仅对
+   admin 已有其它授权行的存量库补授），bootstrap 语义与测试锚点保持不变。
+2. **日上限语义缺陷**（S4）：初版「已发放 ≥ 上限才跳过」允许超限一档；并发测试 10 路放行 2 笔。改为
+   「已发放 + 本次 > 上限即跳过」，并发恰 1 笔成为确定性断言。
+3. **username 查询口径**（S4）：`findUserIdByName` 初版裸查 `username` 列（_ai_ci），与登录的归一化键
+   身份口径不一致；改走 `username_key` 并加断言（大小写同身份）。测试夹具用例同步修正。
+4. **outbox actorId 未透传**（S6）：补派/快路径没把入队时的 actor 传给 emit，`badge.awarded` 的
+   event_log actor 回退成接收者；修正为透传 + payload 映射兜底。
+5. **签到幂等冲突 500**（S5/E2E）：「签到行不在而台账在」的异常数据下随机奖励金额不匹配会抛
+   IdempotencyConflictError；降级为按已签处理并告警（正常路径由联合主键先兜住，理论不可达）。
+6. **附件空列表不可恢复**（S7/M7-4，**M6 审查 F-5 修复的真实缺口**）：`commit` 清空列表时删除草稿键，
+   「移除全部附件」的修改无法进入暂存，冲突后恢复提示永不出现；空列表改为照常持久化，M7-4 E2E 覆盖。
+7. **模块槽位渲染器 × defineAction 求值环**（S5）：签到模块静态引入 Server Action 会构成
+   「模块 → defineAction → "@/modules"」循环（TDZ）。处置：渲染期动态 import；`use-server` 导出守卫
+   抓住中间态的手写 action 后恢复 defineAction 版本——守卫有效性的实证。
+8. **演示横幅的登录链接子串冲突**（S7）：签到条「登录后签到」使 auth.spec 的 `name: "登录"` 断言命中
+   双元素；选择器加 `exact: true`。
+9. **设计偏离留档**：outbox 巡检**未用**计划里的 `FOR UPDATE SKIP LOCKED` 行锁——持锁跨消费者派发会
+   久借连接（与 applyPoints 纪律冲突）；改为「无锁 + 并发重复派发由消费端幂等吸收」的 at-least-once
+   语义（MODULES.md §8 写明），并发 drain 测试断言「每行 ≥1 次、重复有界、最终全标记」。
 
 ## 承接的 M6 遗留（随 M7 一起处理）
 

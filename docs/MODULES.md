@@ -61,7 +61,7 @@ M9 后由管理后台管理）。
 | `post.mentioned` | `{ postId, authorId, mentionedUserId }` | M6 保存时解析 @ |
 | `reaction.added` | `{ userId, postId, kind }` | M8 点赞 |
 | `message.sent` | `{ conversationId, messageId, senderId, recipientId }` | M10 私信 |
-| `attachment.uploaded` | `{ attachmentId, fileId, uploaderId }` | M6.5c 已接线：保存事务提交后，为每条新建的下载附件各派发一次（`lib/posting/service.ts` 发主题 / 回帖，`lib/posting/mutate.ts` 编辑）；载荷不含文件名与正文 |
+| `attachment.uploaded` | `{ attachmentId, fileId, uploaderId }` | M6.5c 已接线：保存事务提交后，为每条新建的下载附件各派发一次；**M7 起经事务性 outbox**（与 thread.created/replied 同，见语义与边界 §8），载荷不含文件名与正文 |
 | `restriction.changed` | `{ userId, kind, action: created\|lifted, operatorId, reason?, endsAt? }` | M9 限制管理 |
 | `role.changed` | `{ userId, roleKey, scopeId, action: granted\|revoked, operatorId }` | M9 角色管理 |
 | `announcement.published` | `{ announcementId, createdBy }` | M9 公告管理 |
@@ -115,8 +115,10 @@ M9 后由管理后台管理）。
 
 | 消费者 | 状态 |
 |--------|------|
-| demo-checkin（演示：user.logged_in 消费 + home.footer-notice 横幅；M6.5c 起另订阅 thread.created / thread.replied / attachment.uploaded，进程内计数显示在首页页脚） | ✅ M2；✅ M6.5c 业务事件验收（M7 由真实签到替换） |
-| 积分规则 / 签到 / 荣誉徽章 真实模块（等级引擎已取消） | M7 |
+| points（积分：消费 thread.created / thread.replied → earn.post / earn.reply；渠道 earn.post/earn.reply/adjust.admin） | ✅ M7 |
+| checkin（签到：home.after-header 签到条；渠道 earn.checkin；checkin.done 经 outbox 派发） | ✅ M7 |
+| badges（徽章：profile.header / thread.user-badge 展示位；badge.awarded 经 outbox 派发） | ✅ M7 |
+| demo-checkin（演示模块，M6.5c 业务事件验收载体） | 已于 M7 退役（真实模块替换；其验收迁移到 events.spec / modules.spec / 各模块 E2E） |
 | 权限点汇聚 → authz | M5 |
 | 导航汇聚 → 站点框架 | M10 |
 | cron 调度 → 基建 | M13 |

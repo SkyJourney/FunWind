@@ -5,6 +5,32 @@
 
 ## [Unreleased]
 
+### Added（M7：积分与荣誉——积分台账 / 每日签到 / 荣誉徽章，含事务性 outbox）
+
+完整记录见 [docs/milestones/M7-gamification.md](docs/milestones/M7-gamification.md)。
+
+- **事务性 outbox**（站长拍板提前，原 M8-1 的一部分）：posting 事件族（`thread.created` / `thread.replied` / `content.submitted` / `attachment.uploaded`）在业务事务内登记 `event_outbox`（迁移 0005），提交后同步派发为快路径，失败/崩溃由巡检补派（`pnpm outbox:drain`；`db:verify` 滞留检查）。at-least-once 投递 + 消费端幂等；补派 event_log `source="outbox"`。语义见 `docs/MODULES.md` §8。
+- **积分模块**（`defineModule` 首个真实生产-消费闭环）：消费发帖/回帖事件自动发放 `earn.post`（+3）/ `earn.reply`（+1，均为旧站实测初值），幂等键 `thread:{id}` / `reply:{postId}`；日上限在账户行锁内按「已发放额+本次不得超过上限」判定（北京时间自然日，0=不限）；管理员手工调整 `adjust.admin`（强制备注，台账与 `audit_log` 同事务）。
+- **积分页 `/points`**（余额+累计+台账分页）与**后台 `/admin/points`**（`admin.points` 权限点：显示名、奖励数值与日上限配置——变更经 `setting.update` 审计；手工调整）。
+- **签到模块**：北京时间自然日签到 + 连签（迁移历史 4,004 行驱动）+ 随机奖励 `earn.checkin`（`punch.reward` 1–5，旧站语义；min=max=0 可关闭）；重复签到由 `checkins` 联合主键兜底；`checkin.done` 经 outbox。首页 `home.after-header` 签到条 + 本月迷你日历（只显示本人状态，不显示他人活动——继承 post-m5.5 审查教训）。
+- **荣誉徽章模块**：`/admin/badges`（`admin.badges` 权限点）按用户名手动授予（审计同事务，`badge.awarded` 经 outbox；重复发放由联合主键兜底）；资料页 `profile.header` 徽章卡与帖子页作者行 `thread.user-badge` 图标位（内核槽位清单扩展 + `SlotContext.userId`，均留档 MODULES.md）；旧勋章与团队徽章展示（图标缺失的 4 枚首字占位）。
+- **帖子页头像**（M7-3）：`UserBadge` 升级为异步服务端组件——有头像显示图片、无则首字母；荣誉徽章经槽位挂作者行。
+- **权限词汇表 +2**：`admin.points` / `admin.badges`（存量库由迁移 0005 的 EXISTS 守卫插入补授，基线授权语义不变）。
+- **demo-checkin 退役**：演示模块由真实积分/签到/徽章模块替换；装卸与事件验收迁移到 `modules.spec` / `events.spec` / 各模块 E2E。
+
+### Fixed（M7 期间发现并修复）
+
+- **附件空列表不可恢复（M6 审查 F-5 的缺口）**：清空全部附件时草稿键被删除，冲突后「恢复附件」永远不出现；现空列表也持久化，E2E M7-4（两窗口冲突→恢复→保存→列表一致）覆盖。
+- **签到幂等冲突降级**：「签到行不在而台账在」的异常数据不再以 500 暴露，按已签处理并告警。
+- **outbox 行 actorId 透传**：补派/快路径把入队时的动作发起者传给 emit，事件审计的 actor 不再回退到 payload 字段映射。
+
+### Tests（M7）
+
+- 单测/集成：发放幂等与重放、日上限边界（昨日 23:59:59 不计入今日）与并发（cap 内恰 N 笔）、`POINTS_TX_OPTIONS` 口径统一；outbox 崩溃注入补派、并发 drain 不丢行、载荷逐字一致；签到连签/中断/闰年/20 路并发恰 1 成功；徽章并发重复发放恰 1 路成功且失败侧审计不落行；M7-1 双真连接「购买 vs 隐藏」15 轮随机交错（成功⟹先买后藏且扣款完整；not_found⟹不扣费）。
+- E2E：`points.spec`（发帖入账/台账/规则配置驱动/管理调整审计）、`checkin.spec`（签到/连签/装卸）、`badges.spec`（授予/展示位/重复授予/装卸）、`edit.spec` 附件冲突恢复（M7-4）；`modules.spec` / `events.spec` 改挂真实模块与 outbox 留痕。
+- 对账：`db:verify` 新增 `points:对账`（余额=台账之和、无负余额，现 21 项）。
+- 性能：`perf:posting` 复测 p95 15.3 ms（outbox+积分消费者在请求路径上；通过线 300 ms）。
+
 ### Security / Fixed（M6 代码审查整改，2026-10-25）
 
 完整记录见 [docs/reviews/2026-10-25-m6-code-review.md](docs/reviews/2026-10-25-m6-code-review.md)。无 P0；P1 3 项、P2 27 项、安全中危 1 项，全部核实后整改。

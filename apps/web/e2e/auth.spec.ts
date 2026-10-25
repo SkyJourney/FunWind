@@ -90,7 +90,7 @@ test.describe("M4 · 用户与认证", () => {
 
     // 退出
     await page.getByRole("button", { name: "退出" }).click();
-    await expect(page.getByRole("link", { name: "登录" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "登录", exact: true })).toBeVisible();
   });
 
   test("重复使用同一邀请码被拒", async ({ page }) => {
