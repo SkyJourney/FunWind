@@ -176,6 +176,20 @@ describe.skipIf(skipDb)("POST /api/upload（临时库 + 临时存储）", () => 
     expect([body.width, body.height, body.mime]).toEqual([240, 240, "image/webp"]);
   });
 
+  it("头像：被封禁的账号不得上传（写类权限，与版块上传同一判定，审查复查）", async () => {
+    await asUser(DEMO.banned);
+    const jpeg = await sharp({
+      create: { width: 200, height: 200, channels: 3, background: "#123456" },
+    })
+      .jpeg()
+      .toBuffer();
+    const res = await upload("avatar", {
+      file: new File([jpeg], "a.jpg", { type: "image/jpeg" }),
+      crop: JSON.stringify({ x: 0, y: 0, width: 200, height: 200 }),
+    });
+    expect(res.status).toBe(403);
+  });
+
   it("非图片不接受裁剪参数：400", async () => {
     await asUser(DEMO.member);
     const res = await upload("attachment", {

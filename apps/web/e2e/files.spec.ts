@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "@playwright/test";
+import sharp from "sharp";
 import { withE2eDb } from "./support/db";
 import { FIX } from "./support/fixtures";
 import { USERS, loginAs } from "./support/session";
@@ -14,8 +15,10 @@ import { USERS, loginAs } from "./support/session";
  * 受限版块 904 的帖 900105 的附件由用例造（含真实文件落盘，结束后清理）。
  */
 
-// 存储根目录：与 web 服务器相同的默认值（<仓库根>/storage）
-const STORAGE = path.resolve(__dirname, "../../../storage");
+// 存储根目录：与 web 服务器同一个 STORAGE_DIR（根脚本 test:e2e:run 导出，指向 <仓库根>/storage-e2e，与开发目录隔离）
+const STORAGE = process.env.STORAGE_DIR
+  ? path.resolve(process.env.STORAGE_DIR)
+  : path.resolve(__dirname, "../../../storage-e2e");
 const SECRET_BODY = "SECRET-ZIP-E2E-内部资料";
 const SECRET_SHA = createHash("sha256").update(SECRET_BODY).digest("hex");
 const SECRET_KEY = `${SECRET_SHA.slice(0, 2)}/${SECRET_SHA.slice(2, 4)}/${SECRET_SHA}.zip`;
@@ -176,4 +179,57 @@ test.describe("附件（须有权限）", () => {
     await loginAs(context, USERS.admin);
     expect((await page.request.get(`/files/${SECRET_KEY}`)).status()).toBe(200);
   });
+});
+
+test("受限版块的内联图与缩略图（M6.4c）：游客与普通会员 404；团队成员 200 且私有；缩略图鉴权与原图一致", async ({
+  browser,
+  request,
+}) => {
+  const buf = await sharp({
+    create: { width: 600, height: 400, channels: 3, background: "#336699" },
+  })
+    .png()
+    .toBuffer();
+  const sha = createHash("sha256").update(buf).digest("hex");
+  const key = `${sha.slice(0, 2)}/${sha.slice(2, 4)}/${sha}.png`;
+  mkdirSync(path.join(STORAGE, sha.slice(0, 2), sha.slice(2, 4)), { recursive: true });
+  writeFileSync(path.join(STORAGE, key), buf);
+  await withE2eDb(async (q) => {
+    await q.exec("DELETE FROM files WHERE sha256 = ?", [sha]);
+    const f = await q.exec(
+      "INSERT INTO files (sha256, storage_key, size_bytes, mime, width, height, created_at) VALUES (?, ?, ?, 'image/png', 600, 400, NOW())",
+      [sha, key, buf.length],
+    );
+    await q.exec(
+      "INSERT INTO attachments (post_id, file_id, uploader_id, original_name, kind, created_at) VALUES (900105, ?, ?, 'inline.png', 'inline', NOW())",
+      [f.insertId, USERS.team],
+    );
+  });
+  try {
+    // 匿名与普通会员：原图与缩略图都是 404
+    expect((await request.get(`/files/${key}`)).status()).toBe(404);
+    expect((await request.get(`/files/${key}?w=320`)).status()).toBe(404);
+    const member = await browser.newContext();
+    await loginAs(member, USERS.member);
+    expect((await member.request.get(`/files/${key}?w=320`)).status()).toBe(404);
+    await member.close();
+
+    // 团队成员：200，私有缓存，不带 ETag；缩略图宽度正确
+    const team = await browser.newContext();
+    await loginAs(team, USERS.team);
+    const res = await team.request.get(`/files/${key}?w=320`);
+    expect(res.status()).toBe(200);
+    expect(res.headers()["cache-control"]).toBe("private, no-store");
+    expect(res.headers()["etag"]).toBeUndefined();
+    expect((await sharp(await res.body()).metadata()).width).toBe(320);
+    await team.close();
+  } finally {
+    await withE2eDb(async (q) => {
+      await q.exec(
+        "DELETE FROM attachments WHERE original_name = 'inline.png' AND post_id = 900105",
+      );
+      await q.exec("DELETE FROM files WHERE sha256 = ?", [sha]);
+    });
+    rmSync(path.join(STORAGE, key), { force: true });
+  }
 });

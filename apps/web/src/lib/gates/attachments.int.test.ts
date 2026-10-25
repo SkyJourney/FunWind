@@ -245,6 +245,29 @@ describe.skipIf(skipDb)("门控附件 · 真实 MySQL", () => {
     expect(await downloads()).toBe(base + 2);
   });
 
+  it("内联图（kind=inline）不进帖末附件列表；同帖的下载附件照常列出（M6.4c）", async () => {
+    await addAttachment("inl-dl", 900101, null, "png", "image/png");
+    const [f] = await getWebDb()
+      .select()
+      .from(files)
+      .where(eq(files.storageKey, fx["inl-dl"]!.key));
+    await getWebDb().insert(attachments).values({
+      postId: 900101,
+      gateId: null,
+      fileId: f!.id,
+      uploaderId: DEMO.alice,
+      originalName: "inl.png",
+      kind: "inline",
+      createdAt: "2026-10-01 00:00:00",
+    });
+    const view =
+      (await listAttachments(guest, THREAD, [{ id: 900101, authorId: DEMO.alice }])).get(900101) ??
+      [];
+    const names = view.flatMap((v) => (v.status === "open" ? [v.originalName] : []));
+    expect(names).toContain("inl-dl.png");
+    expect(names).not.toContain("inl.png");
+  });
+
   it("空输入：没有帖子 → 空结果；没有附件的帖子不出现", async () => {
     expect((await listAttachments(guest, THREAD, [])).size).toBe(0);
     expect(

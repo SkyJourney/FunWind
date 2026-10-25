@@ -1,6 +1,7 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { attachments, files, getWebDb, postGates, posts, threads } from "@funwind/db";
 import { checkPermission } from "@/lib/authz/service";
+import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
 import type { DbExecutor } from "@/lib/audit";
 import { buildViewerScope, visiblePredicate } from "@/lib/queries/visibility";
@@ -72,9 +73,13 @@ export async function listAttachments(
       and(eq(postGates.id, attachments.gateId), eq(postGates.postId, attachments.postId)),
     )
     .where(
-      inArray(
-        attachments.postId,
-        postList.map((p) => p.id),
+      and(
+        inArray(
+          attachments.postId,
+          postList.map((p) => p.id),
+        ),
+        // inline 行是正文里的内联图，不属于帖末附件列表（M6.4）
+        eq(attachments.kind, "download"),
       ),
     )
     .orderBy(asc(attachments.id));
@@ -105,19 +110,24 @@ export async function listAttachments(
 
 /** /files 对某个文件的放行结论 */
 export type FileGrant =
-  /** 图片公开快路径：没有附件行，或有任何一条未绑定门控的引用（内容本来就已公开） */
+  /** 图片公开快路径（长缓存）：没有任何附件行，或存在一条未绑门控、所在帖子对游客可见的引用 */
   | { kind: "public" }
-  /** 经某条附件行放行；gated=true 表示是经由门控放行的（响应不得进共享缓存） */
+  /**
+   * 经某条附件行放行，响应只能是私有的（不进共享缓存）。
+   * gated=true 表示经门控放行；图片经由「帖子对观众可见」放行时 gated=false，但同样不得公开缓存。
+   */
   | { kind: "granted"; attachmentId: number; originalName: string; gated: boolean };
 
 /**
  * 解析观众对某个文件的访问权（/files 用）。无权 → null（调用方一律 404）。
  *
- * 规则（docs/ATTACHMENT-GATES.md §5）：
- *  · 图片：没有任何附件行，或存在**未绑定门控**的引用 → 公开（与此前一致）；
- *    所有引用都绑定了门控 → 必须经某条附件行放行。图片本身不要求 attachment.download。
+ * 规则（docs/ATTACHMENT-GATES.md §5，M6.4 修订）：
+ *  · 图片：没有任何附件行 → 公开；存在一条 gate_id 为空、且所在帖子对**游客**可见的引用 → 公开（长缓存，不论 kind）；
+ *    否则必须经某条附件行放行，放行的图片响应一律私有（它依赖于观众能看到哪些帖子）。
+ *    图片本身不要求 attachment.download。
  *  · 非图片：必须经某条附件行放行——所在帖子与主题对观众可见、版块持有 attachment.download。
  *  · 附件行绑定了门控的，还要求该门控对观众开放。同一文件被多行引用时，任意一行放行即可。
+ * 游客视角的判定单独计算（buildViewerScope(guest)），不能复用观众的 scope，否则会员看得到的受限帖会被当成公开缓存。
  */
 export async function resolveFileGrant(
   viewer: Subject,
@@ -125,11 +135,35 @@ export async function resolveFileGrant(
 ): Promise<FileGrant | null> {
   const db = getWebDb();
   if (file.isImage) {
-    const refs = await db
-      .select({ gateId: attachments.gateId })
+    const [anyRef] = await db
+      .select({ id: attachments.id })
       .from(attachments)
-      .where(eq(attachments.fileId, file.id));
-    if (refs.length === 0 || refs.some((r) => r.gateId === null)) return { kind: "public" };
+      .where(eq(attachments.fileId, file.id))
+      .limit(1);
+    if (!anyRef) return { kind: "public" };
+
+    const guestScope = await buildViewerScope(await loadSubject(null));
+    const [publicRef] = await db
+      .select({ id: attachments.id })
+      .from(attachments)
+      .innerJoin(posts, eq(posts.id, attachments.postId))
+      .innerJoin(threads, eq(threads.id, posts.threadId))
+      .where(
+        and(
+          eq(attachments.fileId, file.id),
+          isNull(attachments.gateId),
+          visiblePredicate(
+            { forumId: threads.forumId, state: threads.state, authorId: threads.authorId },
+            guestScope,
+          ),
+          visiblePredicate(
+            { forumId: threads.forumId, state: posts.state, authorId: posts.authorId },
+            guestScope,
+          ),
+        ),
+      )
+      .limit(1);
+    if (publicRef) return { kind: "public" };
   }
 
   const scope = await buildViewerScope(viewer);

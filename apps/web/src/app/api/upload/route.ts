@@ -81,7 +81,10 @@ export async function POST(request: Request): Promise<Response> {
 
   let forumId: number | null = null;
   if (purpose === "avatar") {
-    // 头像不属于任何版块；no_avatar 是全站限制（评估器不处理它，这里直接判断）
+    // 头像不属于任何版块，但仍是写类动作：封禁 / 禁言 / 未验证邮箱（开放注册）同样不得上传（审查复查）
+    const decision = await checkPermission(subject, "attachment.upload", {});
+    if (!decision.allowed) return json({ error: "forbidden" }, 403);
+    // no_avatar 是全站限制，评估器不处理它，这里直接判断
     if (subject.restrictions.some((r) => r.kind === "no_avatar" && r.scopeId === 0)) {
       return json({ error: "avatar_restricted" }, 403);
     }

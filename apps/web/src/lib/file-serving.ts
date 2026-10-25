@@ -6,6 +6,8 @@ import type { Subject } from "@/lib/authz/types";
 import { recordDownload, resolveFileGrant } from "@/lib/gates/attachments";
 import { resolveStaticPath } from "@/lib/static-files";
 import { getStorageDir } from "@/lib/storage";
+import { THUMB_WIDTHS } from "@/lib/uploads/types";
+import { ensureThumb, isThumbable } from "@/lib/uploads/thumbnail";
 
 /**
  * /files/<storage_key> 的请求处理（docs/DESIGN-MODEL.md §5）。路由文件只做薄薄一层，逻辑在这里以便脱离 Next 做集成测试。
@@ -62,8 +64,8 @@ export type FileAccess =
       kind: "image";
       sha256: string;
       mime: string;
-      /** 经门控放行的图片：响应依赖会话，不得被共享缓存存下来，也不走 ETag 304 */
-      gated: boolean;
+      /** 经鉴权放行的图片（非公开快路径）：响应依赖会话，不得被共享缓存存下来，也不走 ETag 304 */
+      guarded: boolean;
     }
   | {
       kind: "attachment";
@@ -91,7 +93,7 @@ export async function resolveFileAccess(viewer: Subject, key: string): Promise<F
       kind: "image",
       sha256: file.sha256,
       mime,
-      gated: grant.kind === "granted" && grant.gated,
+      guarded: grant.kind === "granted",
     };
   }
   // 非图片必然经附件行放行（public 只会出现在图片分支）
@@ -107,8 +109,12 @@ export async function resolveFileAccess(viewer: Subject, key: string): Promise<F
 
 const notFound = () => new Response("not found", { status: 404 });
 
-/** 构造响应头（纯函数，便于断言） */
-export function fileHeaders(access: FileAccess, size: number): Record<string, string> {
+/** 构造响应头（纯函数，便于断言）。variant = 缩略图宽度（公开图片时 ETag 带宽度，与原图区分） */
+export function fileHeaders(
+  access: FileAccess,
+  size: number,
+  variant?: number,
+): Record<string, string> {
   const base: Record<string, string> = {
     "content-type": access.mime,
     "content-length": String(size),
@@ -116,14 +122,14 @@ export function fileHeaders(access: FileAccess, size: number): Record<string, st
     "content-security-policy": "default-src 'none'; sandbox",
   };
   if (access.kind === "image") {
-    if (access.gated) {
-      // 门控图片的放行依赖会话：不带 ETag，不进共享缓存
+    if (access.guarded) {
+      // 经鉴权放行的图片依赖会话：不带 ETag，不进共享缓存
       return { ...base, "content-disposition": "inline", "cache-control": "private, no-store" };
     }
     return {
       ...base,
       "content-disposition": "inline",
-      etag: `"${access.sha256}"`,
+      etag: `"${imageEtagValue(access.sha256, variant)}"`,
       "cache-control": "public, max-age=31536000, immutable",
     };
   }
@@ -133,6 +139,19 @@ export function fileHeaders(access: FileAccess, size: number): Record<string, st
     // 附件鉴权依赖会话，不得被共享缓存存下来
     "cache-control": "private, no-store",
   };
+}
+
+/** 公开图片的 ETag 值：原图为 sha，缩略图为 sha-w<宽度>（同一文件不同变体不得共用 ETag） */
+export function imageEtagValue(sha256: string, variant?: number): string {
+  return variant === undefined ? sha256 : `${sha256}-w${variant}`;
+}
+
+/** 解析 ?w=：只接受白名单宽度，其它值一律忽略（返回原图） */
+export function requestedThumbWidth(req: Request): number | undefined {
+  const raw = new URL(req.url).searchParams.get("w");
+  if (raw === null) return undefined;
+  const w = Number(raw);
+  return (THUMB_WIDTHS as readonly number[]).includes(w) ? w : undefined;
 }
 
 export async function handleFileRequest(
@@ -146,19 +165,39 @@ export async function handleFileRequest(
   const access = await resolveFileAccess(viewer, key);
   if (!access) return notFound();
 
+  // 缩略图只对可缩放的光栅图生效；其余（GIF、附件、非白名单宽度）一律返回原图
+  const wanted = requestedThumbWidth(req);
+  const variant =
+    access.kind === "image" && wanted !== undefined && isThumbable(access.mime)
+      ? wanted
+      : undefined;
+
   if (
     access.kind === "image" &&
-    !access.gated &&
-    req.headers.get("if-none-match") === `"${access.sha256}"`
+    !access.guarded &&
+    req.headers.get("if-none-match") === `"${imageEtagValue(access.sha256, variant)}"`
   ) {
-    return new Response(null, { status: 304, headers: { etag: `"${access.sha256}"` } });
+    return new Response(null, {
+      status: 304,
+      headers: { etag: `"${imageEtagValue(access.sha256, variant)}"` },
+    });
   }
 
   const full = resolveStaticPath(storageDir, key.split("/"));
   if (!full) return notFound();
+  let servePath = full;
+  let servedVariant: number | undefined;
+  if (variant !== undefined) {
+    // 缩略图生成失败时回退原图（变体取消），不影响鉴权结论
+    const thumb = await ensureThumb(storageDir, full, access.sha256, access.mime, variant);
+    if (thumb !== null) {
+      servePath = thumb;
+      servedVariant = variant;
+    }
+  }
   let size: number;
   try {
-    const stat = await fs.stat(full);
+    const stat = await fs.stat(servePath);
     if (!stat.isFile()) return notFound();
     size = stat.size;
   } catch {
@@ -171,6 +210,6 @@ export async function handleFileRequest(
     await recordDownload(access.attachmentId);
   }
 
-  const body = Readable.toWeb(createReadStream(full)) as ReadableStream;
-  return new Response(body, { status: 200, headers: fileHeaders(access, size) });
+  const body = Readable.toWeb(createReadStream(servePath)) as ReadableStream;
+  return new Response(body, { status: 200, headers: fileHeaders(access, size, servedVariant) });
 }

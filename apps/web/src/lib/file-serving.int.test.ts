@@ -4,11 +4,12 @@
  * 夹具帖子：900101（公开版块 901 的首帖）/ 900105（受限版块 904 的首帖，仅团队可读）。
  */
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq, sql } from "drizzle-orm";
-import { DEMO, attachments, files, getWebDb, posts } from "@funwind/db";
+import { DEMO, attachments, files, getWebDb, posts, threads } from "@funwind/db";
+import sharp from "sharp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { invalidateAuthzSnapshot } from "@/lib/authz/snapshot";
 import { loadSubject } from "@/lib/authz/subject";
@@ -227,5 +228,237 @@ describe.skipIf(skipDb)("/files · 真实 MySQL", () => {
   it("数据库有记录但磁盘上缺文件 → 404（不抛 500）", async () => {
     const f = await putFile("GONE", "png", "image/png", false);
     expect((await get(guest, f.key)).status).toBe(404);
+  });
+  // ───────── M6.4c：图片可见性矩阵与缩略图 ─────────
+  // 夹具：公开版块 901 的一个帖（visible / pending / deleted 各一）、受限版块 904 的一个帖
+  const T_PUB = 990301,
+    T_RES = 990302;
+  const P_VISIBLE = 990311,
+    P_PENDING = 990312,
+    P_DELETED = 990313,
+    P_RESTRICTED = 990314;
+  const INLINE_KIND = "inline" as const;
+
+  async function mkThread(id: number, forumId: number): Promise<void> {
+    await getWebDb()
+      .insert(threads)
+      .values({
+        id,
+        forumId,
+        authorId: DEMO.alice,
+        title: `可见性矩阵 ${id}`,
+        firstPostId: id + 10,
+        state: "visible",
+        createdAt: "2026-10-01 00:00:00",
+        lastPostedAt: "2026-10-01 00:00:00",
+      });
+  }
+  async function mkPost(
+    id: number,
+    threadId: number,
+    floor: number,
+    state: "visible" | "pending" | "deleted",
+    authorId: number = DEMO.alice,
+  ) {
+    await getWebDb()
+      .insert(posts)
+      .values({
+        id,
+        threadId,
+        floor,
+        authorId,
+        bodyMd: `矩阵帖 ${id}`,
+        hasGate: false,
+        state,
+        createdAt: "2026-10-01 00:00:00",
+      });
+  }
+  /** 真实的光栅图落盘并登记 files 行（缩略图需要可解码的图片） */
+  async function putImage(buf: Buffer, mime: string, ext: string) {
+    const sha = createHash("sha256").update(buf).digest("hex");
+    const key = `${sha.slice(0, 2)}/${sha.slice(2, 4)}/${sha}.${ext}`;
+    mkdirSync(join(storage, sha.slice(0, 2), sha.slice(2, 4)), { recursive: true });
+    writeFileSync(join(storage, key), buf);
+    const [{ insertId }] = (await getWebDb().insert(files).values({
+      sha256: sha,
+      storageKey: key,
+      sizeBytes: buf.length,
+      mime,
+      width: 600,
+      height: 400,
+      createdAt: "2026-10-01 00:00:00",
+    })) as unknown as [{ insertId: number }];
+    return { key, sha, fileId: Number(insertId) };
+  }
+  const attachInline = (postId: number, fileId: number, gateId: number | null = null) =>
+    getWebDb().insert(attachments).values({
+      postId,
+      fileId,
+      gateId,
+      uploaderId: DEMO.alice,
+      originalName: "inline.png",
+      kind: INLINE_KIND,
+      createdAt: "2026-10-01 00:00:00",
+    });
+
+  it("夹具：公开 / 受限 / 待审 / 已删帖子各一，受限帖在版块 904", async () => {
+    await mkThread(T_PUB, 901);
+    await mkThread(T_RES, 904);
+    await mkPost(P_VISIBLE, T_PUB, 1, "visible");
+    await mkPost(P_PENDING, T_PUB, 2, "pending", DEMO.member);
+    await mkPost(P_DELETED, T_PUB, 3, "deleted");
+    await mkPost(P_RESTRICTED, T_RES, 1, "visible");
+    expect((await getWebDb().select().from(posts).where(eq(posts.id, P_PENDING)))[0]?.state).toBe(
+      "pending",
+    );
+  });
+
+  it("矩阵：引用只在受限 / 待审 / 已删帖里 → 游客与无权者 404；作者 / 有权者 / 版主 200 且私有", async () => {
+    const restrictedOnly = await putFile("矩阵-受限图", "png", "image/png");
+    await getWebDb()
+      .update(files)
+      .set({ mime: "image/png" })
+      .where(eq(files.id, restrictedOnly.fileId));
+    await attachInline(P_RESTRICTED, restrictedOnly.fileId);
+    expect((await get(guest, restrictedOnly.key)).status).toBe(404);
+    expect((await get(member, restrictedOnly.key)).status).toBe(404);
+    const team_ = await get(team, restrictedOnly.key);
+    expect(team_.status).toBe(200);
+    expect(team_.headers.get("cache-control")).toBe("private, no-store");
+    expect((await get(admin, restrictedOnly.key)).status).toBe(200);
+  });
+
+  it("矩阵：待审帖的图片：游客 404；作者 200 私有；版主 200", async () => {
+    const pendingImg = await putFile("矩阵-待审图", "png", "image/png");
+    await attachInline(P_PENDING, pendingImg.fileId);
+    expect((await get(guest, pendingImg.key)).status).toBe(404);
+    expect((await get(member, pendingImg.key)).status).toBe(200); // 作者本人
+    expect((await get(admin, pendingImg.key)).status).toBe(200);
+  });
+
+  it("矩阵：已删帖的图片：游客与普通会员 404；版主 200", async () => {
+    const deletedImg = await putFile("矩阵-已删图", "png", "image/png");
+    await attachInline(P_DELETED, deletedImg.fileId);
+    expect((await get(guest, deletedImg.key)).status).toBe(404);
+    expect((await get(member, deletedImg.key)).status).toBe(404);
+    expect((await get(admin, deletedImg.key)).status).toBe(200);
+  });
+
+  it("矩阵：同一张图既被受限帖又被公开帖引用 → 公开（任一游客可见引用即公开长缓存）", async () => {
+    const shared = await putFile("矩阵-共享图", "png", "image/png");
+    await attachInline(P_RESTRICTED, shared.fileId);
+    await attachInline(P_VISIBLE, shared.fileId);
+    const res = await get(guest, shared.key);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+  });
+
+  it("矩阵：只被门控内的内联图引用（gate_id 非空）→ 游客 404（门控 fail-closed，与旧规则一致）", async () => {
+    const gatedInline = await putFile("矩阵-门控内图", "png", "image/png");
+    // gate_id 指向不存在的门控：读取侧按锁定处理
+    await attachInline(P_VISIBLE, gatedInline.fileId, 999999);
+    expect((await get(guest, gatedInline.key)).status).toBe(404);
+  });
+
+  it("迁移形态：图片附件行（download，无门控）挂在公开帖上 → 游客公开长缓存（不因 kind 失去缓存）", async () => {
+    const legacy = await putFile("矩阵-迁移图", "png", "image/png");
+    await attach(900101, legacy.fileId, "图.png");
+    const res = await get(guest, legacy.key);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+  });
+
+  it("缩略图：白名单宽度返回同格式缩小图，ETag 带宽度且与原图不同，公开图仍长缓存", async () => {
+    const buf = await sharp({
+      create: { width: 600, height: 400, channels: 3, background: "#336699" },
+    })
+      .png()
+      .toBuffer();
+    const img = await putImage(buf, "image/png", "png");
+    await attachInline(P_VISIBLE, img.fileId);
+    const res = await handleFileRequest(
+      new Request(`http://x/files/${img.key}?w=320`),
+      img.key.split("/"),
+      guest,
+      storage,
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("etag")).toBe(`"${img.sha}-w320"`);
+    expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    const meta = await sharp(Buffer.from(await res.arrayBuffer())).metadata();
+    expect(meta.width).toBe(320);
+    expect(existsSync(join(storage, ".cache", "thumbs", `${img.sha}-320.png`))).toBe(true);
+  });
+
+  it("缩略图：非白名单宽度（999）返回原图，ETag 为原图", async () => {
+    const buf = await sharp({
+      create: { width: 500, height: 300, channels: 3, background: "#884433" },
+    })
+      .png()
+      .toBuffer();
+    const img = await putImage(buf, "image/png", "png");
+    await attachInline(P_VISIBLE, img.fileId);
+    const res = await handleFileRequest(
+      new Request(`http://x/files/${img.key}?w=999`),
+      img.key.split("/"),
+      guest,
+      storage,
+    );
+    expect(res.headers.get("etag")).toBe(`"${img.sha}"`);
+    expect((await sharp(Buffer.from(await res.arrayBuffer())).metadata()).width).toBe(500);
+  });
+
+  it("缩略图的鉴权与原图一致：受限图的缩略图对游客 404，对团队 200 私有", async () => {
+    const buf = await sharp({
+      create: { width: 400, height: 400, channels: 3, background: "#22aa22" },
+    })
+      .png()
+      .toBuffer();
+    const img = await putImage(buf, "image/png", "png");
+    await attachInline(P_RESTRICTED, img.fileId);
+    const url = `http://x/files/${img.key}?w=320`;
+    expect(
+      (await handleFileRequest(new Request(url), img.key.split("/"), guest, storage)).status,
+    ).toBe(404);
+    const ok = await handleFileRequest(new Request(url), img.key.split("/"), team, storage);
+    expect(ok.status).toBe(200);
+    expect(ok.headers.get("cache-control")).toBe("private, no-store");
+    expect(ok.headers.get("etag")).toBeNull();
+  });
+
+  it("缩略图：支持 If-None-Match 返回 304（ETag 带宽度）", async () => {
+    const buf = await sharp({
+      create: { width: 360, height: 240, channels: 3, background: "#7755aa" },
+    })
+      .png()
+      .toBuffer();
+    const img = await putImage(buf, "image/png", "png");
+    await attachInline(P_VISIBLE, img.fileId);
+    const res = await handleFileRequest(
+      new Request(`http://x/files/${img.key}?w=320`, {
+        headers: { "if-none-match": `"${img.sha}-w320"` },
+      }),
+      img.key.split("/"),
+      guest,
+      storage,
+    );
+    expect(res.status).toBe(304);
+  });
+
+  it("GIF 不生成缩略图：?w= 返回原字节", async () => {
+    const gif = await sharp({
+      create: { width: 300, height: 200, channels: 3, background: "#ffaa00" },
+    })
+      .gif()
+      .toBuffer();
+    const img = await putImage(gif, "image/gif", "gif");
+    await attachInline(P_VISIBLE, img.fileId);
+    const res = await handleFileRequest(
+      new Request(`http://x/files/${img.key}?w=320`),
+      img.key.split("/"),
+      guest,
+      storage,
+    );
+    expect(Buffer.from(await res.arrayBuffer()).equals(gif)).toBe(true);
   });
 });
