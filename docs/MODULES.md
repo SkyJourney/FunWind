@@ -65,6 +65,7 @@ M9 后由管理后台管理）。
 | `restriction.changed` | `{ userId, kind, action: created\|lifted, operatorId, reason?, endsAt? }` | M9 限制管理 |
 | `role.changed` | `{ userId, roleKey, scopeId, action: granted\|revoked, operatorId }` | M9 角色管理 |
 | `announcement.published` | `{ announcementId, createdBy }` | M9 公告管理 |
+| `post.mentioned` 派发 | M8 接线：正文 `@用户名` 解析（归一化键精确匹配，失败按普通文本），发帖/回帖/编辑三处经事务性 outbox |
 | `points.changed` | `{ userId, channel, delta }` | M5.5 积分核心 `applyPoints` |
 | `gate.unlocked` | `{ gateId, userId, authorId, price }` | M5.5 `unlockGate`（M6 交互） |
 | `badge.awarded` | `{ userId, badgeId }` | M7 徽章（原 `medal.awarded`） |

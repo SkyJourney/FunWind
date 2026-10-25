@@ -119,6 +119,18 @@ flowchart LR
 事件到通知的映射由各模块在注册 `events` 消费者时调用 `notify({ type, recipients, actor, target, data })`；
 `notify` 负责：查偏好、聚合、写库、分发给已注册渠道。通知写入失败**不得**影响主流程（沿用事件总线的隔离语义）。
 
+> **M8 实现决定（2026-10-25）**：
+> 1. **`defaultChannels` / `render` 不进内核类型**（`NotificationTypeDef` 保持 `{key, category, aggregate, mandatory}`）：
+>    渲染文案收口在 `lib/notifications/render.ts`（类型→模板，同 `POINT_CHANNEL_LABELS` 模式）；
+>    渠道默认值按 §3 语义实现（无记录 = 站内开、其它渠道关），无需逐类型声明。MODULES.md 已留档。
+> 2. **`in_app` 渠道 = 写 `notifications` 表本体**（builtin 保留键），`deliver` 不再单独注册；模块自注册的
+>    `notificationChannels` 是写库之外的额外投递面（M8 无实现，接口留给 email/push）。
+> 3. **mandatory 短路偏好**：强制类型跳过偏好查询直接投递；非强制类型无偏好行 = in_app 开。
+> 4. **聚合语义**：同 groupKey 的未读行原位 UPDATE（`data.count` SQL 端递增、`data.actors` 追加最近触发者并
+>    截断、`created_at` 刷新），已读后新事件新开一行；并发的同键更新靠「未读行条件 UPDATE」原子化。
+> 5. **notify 抛错 = 消费失败**：经 outbox 派发的事件（发帖/点赞/关注/提及/购买/徽章）由补派兜底；
+>    裸 emit 事件（M8-1 未接入前）只能尽力而为。
+
 ## 6. 读取契约（后端，M8）
 
 | 接口 | 语义 |
