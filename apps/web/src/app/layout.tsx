@@ -37,6 +37,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                     <Link href={`/u/${user.id}`} className="font-medium hover:text-primary">
                       {user.username}
                     </Link>
+                    <Link href="/points" className="text-muted-foreground hover:text-foreground">
+                      积分
+                    </Link>
                     <Link
                       href="/settings/avatar"
                       className="text-muted-foreground hover:text-foreground"

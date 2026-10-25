@@ -35,8 +35,8 @@ applyPoints({ userId, channel, delta, ref?, idempotencyKey, note? })
 - **守卫测试** `no-direct-points-write.test.ts`：`lib/points/` 之外的运行时代码不得 insert/update/delete `point_ledger` / `point_accounts`（含手写 SQL）。
 - 模块声明的渠道随模块启停（停用即拒绝）；内置渠道 `opening` / `spend.gate_unlock` / `earn.gate_sale` 属于核心。
 - **日上限执行（M7）**：仅对声明 `dailyCap: true` 的渠道生效——发放事务内（账户行锁后、插台账前）按
-  `(user_id, channel, 北京自然日)` 聚合当日已发放额，超限则本次跳过（不发不记账）。依赖 `point_ledger`
-  增量索引 `(user_id, channel, created_at)`。
+  `(user_id, channel, 北京自然日)` 聚合当日已发放额，「已发放额 + 本次金额」**超过上限则跳过**（上限不可逾越）。
+  依赖 `point_ledger` 增量索引 `(user_id, channel, created_at)`。
 
 ## 3. 渠道注册（`pointChannels`）
 

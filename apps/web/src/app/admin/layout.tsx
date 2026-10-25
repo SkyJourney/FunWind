@@ -19,6 +19,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <Link href="/admin/authz" className="hover:text-primary">
             角色与授权
           </Link>
+          <Link href="/admin/points" className="hover:text-primary">
+            积分
+          </Link>
           <Link href="/" className="text-muted-foreground hover:text-primary">
             ← 返回社区
           </Link>
