@@ -3,11 +3,12 @@ import { withE2eDb } from "./support/db";
 import { FIX } from "./support/fixtures";
 import { relaxPostInterval } from "./support/limits";
 import { USERS, loginAs } from "./support/session";
+import { fillSource } from "./support/editor";
 
 /**
  * 隐藏内容泄露专项 v1（M6.2 第 6 步，计划中的「隐藏内容泄露专项」）。
  * 作者 alice 通过界面发一条门控主题，隐藏正文里放唯一标记 MARK。以五种视角扫描所有出口：
- *   页面 HTML、RSC 载荷、编辑页、事件日志、审计日志。
+ *   页面 HTML、RSC 载荷、编辑页、编辑器预览接口（/api/preview）、事件日志、审计日志。
  * 结论要求：只有作者与版主（两个有权读隐藏正文的视角）能在出口里看到 MARK；
  * 其它视角（游客、未购买的会员、未解锁的回帖者）任何出口都不能出现。
  * 正向对照：作者与版主的扫描必须真的命中 MARK，否则扫描本身可能是空转的，用例直接失败。
@@ -43,7 +44,7 @@ async function createGatedThread(
   const page = await ctx.newPage();
   await page.goto(`/f/${FIX.compose.id}/new`);
   await page.locator("#thread-title").fill(title);
-  await page.locator("#thread-source").fill(gatedSource(publicText));
+  await fillSource(page, gatedSource(publicText));
   await page.getByRole("button", { name: "发布主题" }).click();
   await expect(page).toHaveURL(/\/t\/\d+$/);
   const path = new URL(page.url()).pathname;
@@ -118,6 +119,21 @@ test.describe("五种视角扫描所有页面出口", () => {
       // 标题不是隐藏内容：任何视角都能看到，但标记不能出现在 <title>（已由 HTML 扫描覆盖）
     });
   }
+
+  test("编辑器预览接口：五种视角都只拿到占位，不含隐藏正文（正向对照：公开前言必须出现）", async ({
+    browser,
+  }) => {
+    // 预览由作者在编辑器里触发，但接口对任何视角都不得返回门控正文：门控在结果里只显示占位
+    const source = gatedSource(PUBLIC_A);
+    for (const view of VIEWS) {
+      const ctx = await viewContext(browser, view.user);
+      const res = await ctx.request.post("/api/preview", { data: { source } });
+      expect(res.status(), `${view.name} 预览状态码`).toBe(200);
+      const text = await res.text();
+      expect(text.includes(PUBLIC_A), `${view.name} 正向对照：公开前言应出现`).toBe(true);
+      expect(text.includes(MARK), `${view.name} 预览不得含隐藏正文`).toBe(false);
+    }
+  });
 
   test("事件日志与审计日志：任何行都不含隐藏正文标记", async () => {
     const [{ n: eventHits }] = await withE2eDb((q) =>

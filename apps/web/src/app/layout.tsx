@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { logoutAction } from "@/app/actions/auth";
+import { LogoutForm } from "@/components/auth/logout-form";
 import { getCurrentUser } from "@/lib/auth/session";
 // 模块注册表求值（注册 + 封板）：任何内核调用前加载
 import "@/modules";
@@ -36,11 +37,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                     <Link href={`/u/${user.id}`} className="font-medium hover:text-primary">
                       {user.username}
                     </Link>
-                    <form action={logoutAction}>
+                    <LogoutForm action={logoutAction}>
                       <button type="submit" className="text-muted-foreground hover:text-foreground">
                         退出
                       </button>
-                    </form>
+                    </LogoutForm>
                   </>
                 ) : (
                   <>

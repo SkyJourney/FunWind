@@ -3,6 +3,7 @@ import type { Subject } from "@/lib/authz/types";
 import { loadEditableGates } from "@/lib/gates/service";
 import { locatePost } from "@/lib/queries/locate-post";
 import { readEditView } from "./mutate";
+import { richEditReason } from "./roundtrip-check";
 
 /**
  * 编辑页的加载结果（M6.2 第 4 步）。
@@ -30,6 +31,8 @@ export type EditPageModel =
       resubmit: boolean;
       /** 驳回理由（仅驳回后的修改有；没有理由则 null） */
       reviewNote: string | null;
+      /** 往返不等价：只能源码编辑，这里是原因（null = 可以所见即所得） */
+      forceSource: string | null;
     };
 
 export async function loadEditPage(viewer: Subject, postId: number): Promise<EditPageModel> {
@@ -74,5 +77,6 @@ export async function loadEditPage(viewer: Subject, postId: number): Promise<Edi
     reasonRequired: view.decision.reasonRequired,
     resubmit: view.decision.resubmit,
     reviewNote: view.decision.resubmit ? view.reviewNote : null,
+    forceSource: richEditReason(source),
   };
 }

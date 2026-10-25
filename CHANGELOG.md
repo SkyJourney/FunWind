@@ -5,6 +5,34 @@
 
 ## [Unreleased]
 
+### Added / Changed（M6.3：编辑器——所见即所得、源码模式、门控块、预览、草稿）
+
+- **编辑器栈**（依据 E0 选型，精确版本）：Tiptap `3.31.4`（`@tiptap/react` / `core` / `pm` / `starter-kit` / `markdown` / `extension-table` / `extension-image` / `extension-hard-break`）、`marked` `17.0.6`（与 `@tiptap/markdown` 同版本）、CodeMirror `@codemirror/state 6.7.6` / `view 6.43.14` / `commands 6.11.1` / `language 6.13.1` / `lang-markdown 6.5.2`。**偏离两周发布规则**：E0 选用的 Tiptap `3.32.0` 与 CodeMirror view `6.43.15` 发布不足两周，改用上一个稳定版本。
+- **Markdown 纯层**（`components/editor/markdown/`）：自定义 `del`（只认 `~~x~~`，与渲染端的 `singleTilde: false` 一致）、软换行 `br` 规则（软换行在往返中保留为换行，不变成硬换行）、`inlineText` 截断到换行；`roundtripMarkdown` 供服务端与单测复用。
+- **门控节点视图**（`markdown/gate.ts`）：`:::gate{key unlock price}` 渲染为带下拉（付费可见 / 回复可见）与价格输入的块；价格只对付费门控显示；正文区交给 ProseMirror，头部控件自己处理事件；节点类型不同时拒绝原地更新。
+- **组件**：`RichEditor`（所见即所得）、`SourceEditor`（CodeMirror，`next/dynamic` 按需加载，只在切到源码时下载）、`EditorToolbar`（加粗 / 斜体 / 删除线 / 列表 / 引用 / 代码块 / 表格 / 分隔线 / 换行 / 插入门控块 / 撤销重做；图片按钮占位，M6.4 接入）、`EditorShell`（组合两种模式、预览、草稿与隐藏字段）。
+- **隐藏字段与表单**：`EditorShell` 通过 `HiddenSource`（`memo` 包裹的 `<input type=hidden>`）把 Markdown 交给表单，避免外壳重渲染时 React 把值写回原文。
+- **预览**：`POST /api/preview`（Route Handler，偏离原设计的 Server Action，因为 `defineAction` 返回 void）。同源检查、按 IP 限流（60 次 / 分钟）、零库访问；`previewHtml` 把门控正文替换为占位，结果经 `renderMarkdown` 净化管线输出。
+- **往返保护**（`lib/posting/roundtrip-check.ts`）：判定标准是**渲染等价**（服务端 `renderMarkdown(原文) === renderMarkdown(编辑后源码)`）。未编辑的旧帖保留原文，绝不重新序列化；往返不等价的帖强制源码模式，并在界面说明原因（`SOURCE_ONLY_REASON`）。实测语料：文本逐字一致 62.7%、渲染等价 86.6%。
+- **草稿**（`components/editor/draft.ts`）：`localStorage`，键 `funwind:draft:<userId>:<kind>:<id>`，每次变化即写入（不做防抖）。载入时存在与原文不同的草稿则提示「恢复 / 丢弃」，不静默覆盖；草稿经 `useSyncExternalStore` 在挂载后读取。**提交即暂存**：表单 submit 时草稿移到 `…:sent`、主键清空，服务端校验失败跳回时从暂存键恢复，成功后不残留提示。**登出清除全部草稿**（`LogoutForm`，提交前同步清理）。存储不可用时静默降级。
+- **接入**：发主题（`/f/[fid]/new`）、快速回复（`/t/[tid]`）、编辑（`/p/[pid]/edit`）全部换成编辑器；编辑页的 `forceSource` 由 `richEditReason` 决定。
+- **移动端**：工具栏按钮移动端触控目标 44px，桌面 36px。
+
+### Fixed（M6.3 实施中发现并修复，未发布过）
+
+- **水合失败**：草稿提示最初在 `useState` 初始化函数里读 `localStorage`，服务端无提示、客户端有提示，E2E 日志出现 `Hydration failed`。改为 `useSyncExternalStore`（服务端快照为空）。
+- **HiddenSource 值被重置**：外壳状态变化时 React 会把 `defaultValue` 写回隐藏字段，覆盖刚同步的正文。以 `memo` 隔离。
+- **成功回帖后草稿残留**：提交后草稿仍在主键，再次进入会误弹「发现未发送的草稿」。改为提交即暂存（见上）。
+- **未编辑的旧帖被改写**：编辑器创建时的序列化可能与原文细微不同，原先会把未编辑的正文改写成编辑器格式。现在只在起点不是原文时同步。
+
+### Tests（M6.3）
+
+- **单测**：编辑器目录 67 项（`components/editor/**`，含 jsdom 真实 Tiptap / CodeMirror 实例）；门控节点视图的事件归属与更新分支；工具栏命令逐个点击；预览成功 / 进行中 / HTTP 错误 / 网络异常 / 再次预览清错误；草稿读写清理与存储异常降级；提交暂存。`src/lib/posting/preview.test.ts`（含 `SECRET-PREVIEW` 泄露回归）、`roundtrip-check.test.ts`、`app/api/preview/route.test.ts`。
+- **覆盖率**（`vitest.config.ts`）：统计范围扩到 `src/components/editor/**`，阈值 行 90 / 分支 85 / 函数 90 / 语句 90；实测 语句 94.76 / 分支 90 / 函数 91.07 / 行 96.45。
+- **E2E**：`e2e/support/editor.ts`（`bodyEditor` / `fillBody` / `fillSource`，按可访问名称定位，不依赖具体 DOM）；`edit.spec` 增加门控可视块、源码模式、往返不等价旧帖的说明与禁用切换；`reply.spec` 增加草稿恢复（含水合错误断言）与成功后不残留；`leak-sweep.spec` 增加五种视角的 `/api/preview` 扫描（带公开前言的正向对照）。
+- **验证**：`pnpm verify:all` 通过（web 单测 1023 项，包 251 项，lint / 格式 / 类型 / 构建）；`pnpm test:e2e` 通过（桌面 + 移动 131 项，生产冒烟 10 项，水合错误 0）；`pnpm check:secrets` 通过。
+- **未完成**：真机清单（iOS / Android 的拼音、手写、语音输入）尚待站长签字后勾选验收；M6.4 的图片上传与裁剪。
+
 ### Added / Changed（M6.1 第 4 步：写路径底座——重算、对账、预言机并发测试）
 
 - **共享重算 `recountAll`**（`packages/db/src/recount.ts`）：计数列（`threads` 回复数与最后回复指针、`forums` 计数与最后发表、`user_stats`、`posts.like_count`、`tags.thread_count`）由明细整体推导，口径与写路径预言机逐条一致。单事务，按 `user_stats → threads → posts → tags → forums` 的加锁顺序执行；每组先建临时快照，执行后比对，给出每表、每列的修正行数。干跑时比对后回滚。迁移的 `countersStep` 改为调用它；对已迁移的开发库做干跑，全部表、全部列零漂移，说明新口径与迁移产出一致。

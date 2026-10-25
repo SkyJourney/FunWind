@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { FIX } from "./support/fixtures";
 import { USERS, loginAs } from "./support/session";
+import { bodyEditor, fillBody } from "./support/editor";
 
 /**
  * 发主题 E2E（M6.2 第 2 步，桌面）。
@@ -32,7 +33,7 @@ test.describe("发新主题", () => {
 
     const title = `E2E 发帖 ${Date.now()}`;
     await page.locator("#thread-title").fill(title);
-    await page.locator("#thread-source").fill("这是 E2E 发出的正文。");
+    await fillBody(page, "这是 E2E 发出的正文。");
     await page.getByRole("button", { name: "发布主题" }).click();
 
     await expect(page).toHaveURL(/\/t\/\d+$/);
@@ -48,12 +49,12 @@ test.describe("发新主题", () => {
     await page.goto(`/f/${COMPOSE}/new`);
 
     const body = `草稿正文 ${Date.now()}`;
-    await page.locator("#thread-source").fill(body);
+    await fillBody(page, body);
     await page.getByRole("button", { name: "发布主题" }).click();
 
     await expect(page.locator('p[role="alert"]')).toHaveText("请填写标题。");
     // 失败跳回后草稿恢复：正文还在，且 URL 里没有正文（只带固定错误码）
-    await expect(page.locator("#thread-source")).toHaveValue(body);
+    await expect(bodyEditor(page)).toContainText(body);
     await expect(page).not.toHaveURL(new RegExp(body));
 
     const title = `E2E 补标题 ${Date.now()}`;
@@ -73,7 +74,7 @@ test.describe("发新主题", () => {
 
     const title = `E2E 待审 ${Date.now()}`;
     await page.locator("#thread-title").fill(title);
-    await page.locator("#thread-source").fill("待审正文");
+    await fillBody(page, "待审正文");
     await page.getByRole("button", { name: "发布主题" }).click();
 
     await expect(page).toHaveURL(/\/t\/\d+$/);

@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { withE2eDb } from "./support/db";
 import { FIX } from "./support/fixtures";
 import { USERS, loginAs } from "./support/session";
+import { bodyEditor } from "./support/editor";
 
 /**
  * 移动端版式与触达检查（M6.2 第 6 步）：375px 视口，只在 mobile 项目中运行。
@@ -75,7 +76,7 @@ test("会员：版块页的发帖入口可见可点，发帖表单的输入框�
   await page.goto(`/f/${FIX.compose.id}/new`);
   await expectNoHorizontalScroll(page);
   await expectInViewport(page, page.locator("#thread-title"));
-  await expectInViewport(page, page.locator("#thread-source"));
+  await expectInViewport(page, bodyEditor(page));
   await expectInViewport(page, page.getByRole("button", { name: "发布主题" }));
 });
 
@@ -83,7 +84,7 @@ test("主题页：快速回复表单在视口内，没有横向滚动", async ({
   await loginAs(context, USERS.xiaoyi);
   await page.goto(`/t/${T}`);
   await expectNoHorizontalScroll(page);
-  await expectInViewport(page, page.locator("#reply-source"));
+  await expectInViewport(page, bodyEditor(page));
   await expectInViewport(page, page.getByRole("button", { name: "发表回复" }));
 });
 
@@ -91,10 +92,10 @@ test("编辑与删除确认页：没有横向滚动，保存 / 删除按钮在�
   await loginAs(context, USERS.member);
   await page.goto(`/p/${FIRST}/edit`);
   await expectNoHorizontalScroll(page);
-  await expectInViewport(page, page.locator("#edit-source"));
+  await expectInViewport(page, bodyEditor(page));
   await expectInViewport(page, page.getByRole("button", { name: "保存修改" }));
 
   await page.goto(`/p/${REPLY}/edit`);
-  await expect(page.locator("#edit-source")).toHaveCount(0); // 不是作者：404，不渲染表单
+  await expect(bodyEditor(page)).toHaveCount(0); // 不是作者：404，不渲染表单
   expect((await page.goto(`/p/${REPLY}/edit`))?.status()).toBe(404);
 });

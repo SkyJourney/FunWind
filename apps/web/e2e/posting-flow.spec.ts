@@ -2,6 +2,7 @@ import { expect, test, type Browser, type BrowserContext } from "@playwright/tes
 import { FIX } from "./support/fixtures";
 import { relaxPostInterval } from "./support/limits";
 import { USERS, loginAs } from "./support/session";
+import { fillBody } from "./support/editor";
 
 /**
  * 全流程 E2E（M6.2 第 6 步）：发主题 → 回帖 → 编辑 → 删除 → 恢复。
@@ -46,7 +47,7 @@ test("1 会员在 E2E 发帖区发主题，跳到主题页", async ({ browser })
   await page.goto(`/f/${FIX.compose.id}`);
   await page.getByRole("link", { name: "发新主题" }).click();
   await page.locator("#thread-title").fill(TITLE);
-  await page.locator("#thread-source").fill(FIRST_BODY);
+  await fillBody(page, FIRST_BODY);
   await page.getByRole("button", { name: "发布主题" }).click();
 
   await expect(page).toHaveURL(/\/t\/\d+$/);
@@ -58,7 +59,7 @@ test("2 回帖者在主题下回帖，作者视角能看到", async ({ browser }
   const ctx = await session(browser, USERS.xiaoyi);
   const page = await ctx.newPage();
   await page.goto(threadPath);
-  await page.locator("#reply-source").fill(REPLY_BODY);
+  await fillBody(page, REPLY_BODY);
   await page.getByRole("button", { name: "发表回复" }).click();
 
   await expect(page).toHaveURL(new RegExp(`${threadPath}#p(\\d+)$`));
@@ -80,7 +81,7 @@ test("3 作者编辑首帖，其他人看到新版本", async ({ browser }) => {
   const editHref = await page.locator('a[href^="/p/"][href$="/edit"]').first().getAttribute("href");
   expect(editHref).toBeTruthy();
   await page.goto(editHref!);
-  await page.locator("#edit-source").fill(FIRST_EDITED);
+  await fillBody(page, FIRST_EDITED);
   await page.getByRole("button", { name: "保存修改" }).click();
 
   await expect(page).toHaveURL(new RegExp(`${threadPath}(#p\\d+)?$`));

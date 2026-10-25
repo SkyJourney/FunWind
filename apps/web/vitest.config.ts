@@ -15,9 +15,17 @@ export default defineConfig({
       // 仍排除的只有两类“宿主壳”，原因逐条写明：
       //   · slot.tsx   —— RSC 宿主组件（异步服务端组件），无法在 jsdom 渲染，由 E2E 覆盖
       //   · mailer.ts  —— nodemailer SMTP 传输薄封装，真实投递由 E2E + MailPit 覆盖
-      include: ["src/lib/**", "src/modules/kernel/**"],
+      // 编辑器组件目录（M6.3）：与 lib 同口径统计。组件以 jsdom + 真实 Tiptap / CodeMirror 实例测试
+      include: ["src/lib/**", "src/modules/kernel/**", "src/components/editor/**"],
       exclude: ["src/modules/kernel/slot.tsx", "src/lib/auth/mailer.ts"],
-      thresholds: { lines: 90, branches: 85, functions: 90, statements: 90 },
+      thresholds: {
+        lines: 90,
+        branches: 85,
+        functions: 90,
+        statements: 90,
+        // 编辑器组件目录单独设阈值（站长既定：编辑器组件 ≥ 90%，M6-posting 测试规则）
+        "src/components/editor/**": { lines: 90, branches: 85, functions: 90, statements: 90 },
+      },
     },
   },
   resolve: {

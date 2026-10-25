@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { FIX } from "./support/fixtures";
 import { withE2eDb } from "./support/db";
 import { USERS, loginAs } from "./support/session";
+import { bodyEditor, fillBody } from "./support/editor";
 
 /**
  * 编辑帖子 E2E（M6.2 第 4 步，桌面）。
@@ -61,9 +62,9 @@ test.describe("编辑帖子", () => {
     await expect(page.locator(`a[href="/p/${REPLY}/edit"]`)).toBeVisible();
 
     await page.goto(`/p/${REPLY}/edit`);
-    await expect(page.locator("#edit-source")).toHaveValue("回帖原文");
+    await expect(bodyEditor(page)).toContainText("回帖原文");
     const text = `E2E 改后的回帖 ${Date.now()}`;
-    await page.locator("#edit-source").fill(text);
+    await fillBody(page, text);
     await page.getByRole("button", { name: "保存修改" }).click();
 
     await expect(page).toHaveURL(new RegExp(`/t/${THREAD}(\\?page=\\d+)?#p${REPLY}$`));
@@ -79,17 +80,17 @@ test.describe("编辑帖子", () => {
     await b.goto(`/p/${REPLY}/edit`);
 
     const winner = `窗口 A 的修改 ${Date.now()}`;
-    await a.locator("#edit-source").fill(winner);
+    await fillBody(a, winner);
     await a.getByRole("button", { name: "保存修改" }).click();
     await expect(a).toHaveURL(new RegExp(`#p${REPLY}$`));
 
     // 窗口 B 仍持有旧版本号：保存被拒，提示冲突，输入框是最新版本而不是 B 自己的草稿
-    await b.locator("#edit-source").fill("窗口 B 的覆盖尝试");
+    await fillBody(b, "窗口 B 的覆盖尝试");
     await b.getByRole("button", { name: "保存修改" }).click();
     await expect(b.locator('p[role="alert"]')).toHaveText(
       "这条内容刚刚被修改过，请刷新页面后再编辑。",
     );
-    await expect(b.locator("#edit-source")).toHaveValue(winner);
+    await expect(bodyEditor(b)).toContainText(winner);
     await b.close();
     await a.close();
   });
@@ -97,9 +98,33 @@ test.describe("编辑帖子", () => {
   test("门控帖：作者打开编辑页，正文是完整源码（含门控的隐藏正文）", async ({ page, context }) => {
     await loginAs(context, USERS.alice);
     await page.goto(`/p/${GATED_FIRST}/edit`);
-    const value = await page.locator("#edit-source").inputValue();
-    expect(value).toContain(SECRET);
-    expect(value).toContain(":::gate");
+    // 所见即所得：门控是可视块，隐藏正文在块内
+    await expect(page.locator(".fw-gate")).toBeVisible();
+    await expect(page.locator(".fw-gate")).toContainText(SECRET);
+    // 源码模式：完整的门控语法（含隐藏正文），与服务端保存的源码一致
+    await page.getByRole("button", { name: "切换到源码" }).click();
+    const source = await page.locator(".cm-content").innerText();
+    expect(source).toContain(SECRET);
+    expect(source).toContain(":::gate");
+  });
+
+  test("往返不等价的旧帖：强制源码模式，并说明原因（不能切回所见即所得）", async ({
+    page,
+    context,
+  }) => {
+    // 原始 HTML 的旧帖：编辑器的往返会改变渲染结果，因此只能以源码编辑
+    await withE2eDb((q) =>
+      q.exec(
+        `INSERT INTO posts (id, thread_id, floor, author_id, body_md, has_gate, state, created_at)
+         VALUES (960304, ?, 3, ?, '旧帖正文<sup>[1]</sup>结束', 0, 'visible', '2026-10-21 10:02:00')`,
+        [THREAD, USERS.alice],
+      ),
+    );
+    await loginAs(context, USERS.alice);
+    await page.goto("/p/960304/edit");
+    await expect(page.getByRole("note")).toContainText("无法完整还原");
+    await expect(page.getByRole("button", { name: "切换到所见即所得" })).toBeDisabled();
+    await expect(page.locator(".cm-content")).toContainText("<sup>[1]</sup>");
   });
 
   test("无编辑权限的人：编辑页返回 404，不暴露帖子存在性", async ({ page, context }) => {
@@ -114,14 +139,14 @@ test.describe("编辑帖子", () => {
     await page.goto(`/p/${REPLY}/edit`);
     await expect(page.locator("#edit-reason")).toBeVisible();
 
-    await page.locator("#edit-source").fill(`版主改写 ${Date.now()}`);
+    await fillBody(page, `版主改写 ${Date.now()}`);
     await page.getByRole("button", { name: "保存修改" }).click();
     await expect(page.locator('p[role="alert"]')).toHaveText(
       "版主编辑他人的内容须填写理由（会写入审计记录）。",
     );
 
     const text = `版主改后的内容 ${Date.now()}`;
-    await page.locator("#edit-source").fill(text);
+    await fillBody(page, text);
     await page.locator("#edit-reason").fill("E2E 清理");
     await page.getByRole("button", { name: "保存修改" }).click();
     await expect(page).toHaveURL(new RegExp(`#p${REPLY}$`));

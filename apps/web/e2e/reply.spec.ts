@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import { FIX } from "./support/fixtures";
 import { withE2eDb } from "./support/db";
 import { USERS, loginAs } from "./support/session";
+import { bodyEditor, fillBody } from "./support/editor";
 
 /**
  * 快速回复 E2E（M6.2 第 3 步，桌面）。
@@ -42,7 +43,7 @@ test.describe("快速回复", () => {
   test("游客：主题页只提示登录，不渲染回复表单", async ({ page }) => {
     await page.goto(`/t/${OPEN}`);
     await expect(page.getByText("登录后可回复。")).toBeVisible();
-    await expect(page.locator("#reply-source")).toHaveCount(0);
+    await expect(bodyEditor(page)).toHaveCount(0);
     await expect(page.getByRole("link", { name: "去登录" })).toHaveAttribute("href", "/login");
   });
 
@@ -51,7 +52,7 @@ test.describe("快速回复", () => {
     await page.goto(`/t/${OPEN}`);
 
     const body = `E2E 回复 ${Date.now()}`;
-    await page.locator("#reply-source").fill(body);
+    await fillBody(page, body);
     await page.getByRole("button", { name: "发表回复" }).click();
 
     await expect(page).toHaveURL(new RegExp(`/t/${OPEN}(\\?page=\\d+)?#p\\d+$`));
@@ -67,11 +68,11 @@ test.describe("快速回复", () => {
 
     // 超过 50000 字的上限：在提交前由 createReply 的正文校验拒绝，不占用发帖间隔
     const body = "x".repeat(50_001);
-    await page.locator("#reply-source").fill(body);
+    await fillBody(page, body);
     await page.getByRole("button", { name: "发表回复" }).click();
 
     await expect(page.locator('p[role="alert"]')).toHaveText("正文太长了，请精简后再发。");
-    await expect(page.locator("#reply-source")).toHaveValue(body);
+    await expect(bodyEditor(page)).toContainText(body);
     // URL 里只带固定错误码，不带正文
     await expect(page).toHaveURL(/reply=body_too_long#reply$/);
   });
@@ -80,13 +81,55 @@ test.describe("快速回复", () => {
     await loginAs(context, USERS.alice);
     await page.goto(`/t/${LOCKED}`);
     await expect(page.getByText("主题已锁定，暂不接受回复。")).toBeVisible();
-    await expect(page.locator("#reply-source")).toHaveCount(0);
+    await expect(bodyEditor(page)).toHaveCount(0);
   });
 
   test("归档版块的主题：说明归档，不渲染回复表单", async ({ page, context }) => {
     await loginAs(context, USERS.alice);
     await page.goto(`/t/${ARCHIVED}`);
     await expect(page.getByText("该版块已归档，暂不接受新内容。")).toBeVisible();
-    await expect(page.locator("#reply-source")).toHaveCount(0);
+    await expect(bodyEditor(page)).toHaveCount(0);
+  });
+
+  test("草稿：留有未发送的草稿，再次进入时提示恢复；选择恢复后正文回到编辑器", async ({
+    page,
+    context,
+  }) => {
+    await loginAs(context, USERS.alice);
+    // 水合错误会被 React 静默地重渲染成功，用例本身看不出来：显式收集页面异常
+    const pageErrors: string[] = [];
+    page.on("pageerror", (e) => pageErrors.push(e.message));
+    await page.goto(`/t/${OPEN}`);
+    // 草稿键与页面一致：funwind:draft:<uid>:reply:<tid>（localStorage 是每个用例独立的上下文）
+    const draft = `E2E 未发送的草稿 ${Date.now()}`;
+    await page.evaluate(
+      ([key, value]) => window.localStorage.setItem(key, value),
+      [`funwind:draft:${USERS.alice}:reply:${OPEN}`, draft],
+    );
+    await page.reload();
+
+    await expect(page.getByRole("status")).toContainText("发现一份未发送的草稿。");
+    await page.getByRole("button", { name: "恢复草稿" }).click();
+    await expect(bodyEditor(page)).toContainText(draft);
+    await expect(page.getByRole("status")).toHaveCount(0);
+    expect(pageErrors.filter((m) => m.includes("Hydration"))).toEqual([]);
+  });
+
+  test("回帖成功后草稿不残留：再次进入不提示恢复（提交时已暂存，成功后主键为空）", async ({
+    page,
+    context,
+  }) => {
+    // 版主不受发帖间隔限制，避免与本文件里的会员用例互相挤占
+    await loginAs(context, USERS.admin);
+    await page.goto(`/t/${OPEN}`);
+    const body = `E2E 成功后不残留 ${Date.now()}`;
+    await fillBody(page, body);
+    await page.getByRole("button", { name: "发表回复" }).click();
+    await expect(page).toHaveURL(new RegExp(`/t/${OPEN}(\\?page=\\d+)?#p\\d+$`));
+    await expect(page.getByText(body)).toBeVisible();
+
+    await page.goto(`/t/${OPEN}`);
+    await expect(bodyEditor(page)).toBeVisible();
+    await expect(page.getByRole("status")).toHaveCount(0);
   });
 });

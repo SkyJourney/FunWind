@@ -10,6 +10,7 @@ import { limitsFor } from "@/lib/limits/load";
 import { loadComposeAccess } from "@/lib/posting/compose-access";
 import { postingNoticeText, REVIEW_HINT } from "@/lib/posting/compose";
 import { getForumView } from "@/lib/queries/forums";
+import { draftKey } from "@/components/editor/draft";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "发新主题" };
@@ -91,7 +92,7 @@ export default async function NewThreadPage({ params, searchParams }: Params) {
               <ThreadComposer
                 action={createThreadAction}
                 forumId={forum.id}
-                draftKey={`funwind:draft:thread:${viewer.userId ?? "guest"}:${forum.id}`}
+                draftKey={draftKey(viewer.userId, "thread", forum.id)}
                 restore={error !== undefined}
                 titleMax={limits.titleMax}
                 bodyMax={limits.bodyMax}

@@ -8,7 +8,8 @@
 - 阶段一·骨架 M1–M5 已交付，但 2026-10-23 审查发现其数据模型与多项门禁勾选需重做/更正。
   **M5.5 重构（设计先行）已完成，已合并 `main`**。站长思路：**先定目标模型（`docs/DESIGN-MODEL.md`，schema v2.1 共 43 表，含通知中心），旧数据向它靠拢，迁移只是适配层**。
   进度：R1 文档 ✅ → R2 `packages/db` 与 `packages/content` 重做 ✅ → R3 迁移适配层重做并重建开发库 ✅ → S4 应用适配 ✅ → **S5 E2E 与全量门禁 ✅（2026-10-24）**；之后进入 M6 发帖。
-  **M5.6 上线前加固与渲染修复（M6 的前置，见 `docs/milestones/M5.6-prelaunch-hardening.md`）**：S1 渲染补精简 GFM ✅ → E0 编辑器选型（Tiptap + CodeMirror + react-image-crop）✅ → S1b 转换器⇄渲染器语法契约与转换器修复、重导开发库 ✅ → S2 登录时序与频控 ✅ → S3 认证杂项 ✅ → S4 安全响应头与 `/files` 穿越矩阵 ✅ → S5 文档漂移清账 ✅；之后进入 M6.1。
+  **M5.6 上线前加固与渲染修复（M6 的前置，见 `docs/milestones/M5.6-prelaunch-hardening.md`）**：S1 渲染补精简 GFM ✅ → E0 编辑器选型（Tiptap + CodeMirror + react-image-crop）✅ → S1b 转换器⇄渲染器语法契约与转换器修复、重导开发库 ✅ → S2 登录时序与频控 ✅ → S3 认证杂项 ✅ → S4 安全响应头与 `/files` 穿越矩阵 ✅ → S5 文档漂移清账 ✅。
+  **M6 发帖与内容生产**：M6.1 写路径底座 ✅ → M6.2 薄切片（发主题 / 回帖 / 编辑 / 删除 / 恢复）✅ → **M6.3 编辑器**（实施完成，待真机清单签字，见 `docs/milestones/M6.3-editor.md`）→ M6.4 上传与裁剪 → M6.5 门控创作收尾。
 - **分支**：M5.5 已合入 `main`（`feat/m5.5-schema-v2` 仅本地保留，不推送）。类型检查 / lint / 单测 / 构建 / E2E 全部真实通过（`pnpm verify:all` 与 `pnpm test:e2e` 均已连续多次实测）。
   2026-10-24 已重写 git 历史（清除口令、真实邮箱、第三方用户名与 `Claude-Session:` 行），随后已把 `main` 推送到 GitHub 公开仓库 `SkyJourney/FunWind`（CI：`.github/workflows/ci.yml`，`verify` + 自包含 `e2e` 两个作业，首轮修复构建产物步骤后全绿）；重写前的完整备份在站长本机 `~/FunWind-pre-rewrite.bundle`（含旧口令，**不得上传**）。
 - 开发库：`qysub_next` = v2 **纯导入**（`verify:migration` 110 项对账只对它有意义）；`qysub_next_e2e` = 空库 + 演示种子（`db:seed`，id ≥ 90000）+ E2E 夹具（`db:e2e-fixtures`，id ≥ 950000），**不含迁移数据**（CI 同样如此），`pnpm test:e2e` 每次自动重建它。
@@ -87,6 +88,9 @@ pnpm --filter @funwind/web perf:lcp                       # 生产构建 LCP 门
   ② 加锁顺序固定「门控行 → 账户行（user_id 升序）」；③ 账户行用 `SELECT … FOR UPDATE` 加锁（不存在才 `INSERT IGNORE`），**禁止**用 `INSERT … ON DUPLICATE KEY UPDATE` 当加锁手段（共享锁升级死锁）；
   ④ 先拿账户锁再查幂等/已解锁。⑤ **积分与解锁事务一律 READ COMMITTED**（`POINTS_TX_OPTIONS`）：默认 REPEATABLE READ 下对「不存在的键」`FOR UPDATE` 会加间隙锁，不同新用户并发首次建账户互相死锁（实测 640 次并发 139 次失败）；任何包含 `lockAccount` / `applyPointsInTx` 的新事务都必须以它开启。积分表只能经 `lib/points` 写，隐藏正文只能经 `lib/gates/service.ts` 读，附件表只能经 `lib/gates/attachments.ts` 读写，均有守卫测试。
 
+- **编辑器**（M6.3，`components/editor`）：所见即所得（Tiptap 3）默认，可切 CodeMirror 源码；操作**完整源码**（含门控隐藏正文）。**未编辑的旧帖保留原文，绝不重新序列化**；往返不等价的帖强制源码模式（`lib/posting/roundtrip-check.ts`，判定为渲染等价）。预览走 `POST /api/preview`（Route Handler，门控只显示占位）。
+- **草稿**（`components/editor/draft.ts`）：`localStorage`，键 `funwind:draft:<userId>:<kind>:<id>`，每次变化即写。**提交即暂存**：submit 时主键移到 `…:sent`，失败跳回从暂存键恢复，成功后主键为空；登出（`LogoutForm`）清除全部草稿键。草稿只是个人便利，读写都包在 try/catch 里。
+
 ## 已知坑
 
 - **部署在反向代理后**：Server Action 比对 Origin 与 Host / X-Forwarded-Host，代理必须正确透传，否则同源提交也会被误拒（M13 上线核对项；复查 A3 已验证跨站被拒、同源放行）。
@@ -105,6 +109,10 @@ pnpm --filter @funwind/web perf:lcp                       # 生产构建 LCP 门
 - `next dev` 每次启动会生成 `apps/web/AGENTS.md`（已 `.gitignore`）；`.next/` 里过期的生成类型会让 `tsc` 报已删除路由，用 `pnpm --filter @funwind/web exec next typegen` 刷新。
 - **安全响应头**（`lib/security-headers.ts`）：CSP 目前只是 **Report-Only**，违规会 POST 到 `/api/csp-report` 并记成一行 `[csp-report]` 日志；`script-src` 仍含 `'unsafe-inline'`（Next 的 RSC 载荷是内联脚本，nonce 需要中间件）。`/files/**` 被全站头排除（自带 `default-src 'none'; sandbox`）。HSTS 只在生产且 `APP_URL` 是 https 时下发。新增页面类型后，`e2e/security-headers.spec.ts` 的「零违规」页面清单要同步。
 - 迁移与对账的临时库演练：`NEW_DB_NAME=… pnpm --filter @funwind/db exec tsx scripts/e2e-reset.ts` 建空库再 `pnpm migrate`；`STORAGE_DIR` 可指向临时目录避免污染 `storage/`。
+
+- **浏览器专属状态不能在 `useState` 初始化里读**（如 `localStorage`）：服务端渲染与客户端首次渲染不一致会水合失败，且 jsdom 单测看不出来（不走 SSR）。应改用 `useSyncExternalStore`（服务端快照返回空值）；`react-hooks/set-state-in-effect` 也禁止在 effect 里同步 setState。E2E 的草稿用例显式收集 `pageerror` 并断言无 `Hydration` 错误，因为 React 会静默重渲染成功。
+- **隐藏字段与 React 重渲染**：非受控 `<input type=hidden defaultValue>` 会在父组件每次重渲染时被写回 `defaultValue`，覆盖 ref 写入的值。用 `memo` 组件隔离（见 `editor-shell.tsx` 的 `HiddenSource`）。
+- **macOS 没有 `timeout` 命令**：本机跑长命令直接用工具的超时参数，不要套 `timeout`。
 
 ## M0–M5 审查缺口的处置状态（2026-10-23 审查 → M5.5 修复）
 

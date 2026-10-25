@@ -8,6 +8,7 @@ import { UserBadge } from "@/components/content/user-badge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { ReplyComposer } from "@/components/posting/reply-composer";
+import { draftKey } from "@/components/editor/draft";
 import { createReplyAction } from "@/app/actions/replies";
 import { getPointsName } from "@/lib/auth/settings";
 import { checkPermission } from "@/lib/authz/service";
@@ -352,7 +353,7 @@ export default async function ThreadPage({ params, searchParams }: Params) {
                 action={createReplyAction}
                 threadId={tid}
                 page={replies.page}
-                draftKey={`funwind:draft:reply:${viewer.userId ?? "guest"}:${tid}`}
+                draftKey={draftKey(viewer.userId, "reply", tid)}
                 restore={replyCode !== undefined}
                 bodyMax={limits.bodyMax}
               />

@@ -9,6 +9,7 @@ import { getCurrentSubject } from "@/lib/authz/subject";
 import { limitsFor } from "@/lib/limits/load";
 import { postingNoticeText } from "@/lib/posting/compose";
 import { loadEditPage } from "@/lib/posting/edit-page";
+import { draftKey } from "@/components/editor/draft";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "编辑" };
@@ -90,7 +91,8 @@ export default async function EditPostPage({ params, searchParams }: Params) {
             reasonRequired={model.reasonRequired}
             resubmit={model.resubmit}
             reviewNote={model.reviewNote}
-            draftKey={`funwind:draft:edit:${viewer.userId ?? "guest"}:${model.postId}`}
+            forceSource={model.forceSource}
+            draftKey={draftKey(viewer.userId, "edit", model.postId)}
             restore={error !== undefined && error !== "conflict"}
             titleMax={limits.titleMax}
             bodyMax={limits.bodyMax}
