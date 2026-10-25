@@ -97,9 +97,12 @@ export default async function ThreadPage({ params, searchParams }: Params) {
   const canRestorePost = (state: string): boolean =>
     canModerate && (state === "deleted" || state === "hidden");
   const hasPostActions = (authorId: number, state: string): boolean =>
-    canEditPost(authorId, state) || canRestorePost(state);
+    canEditPost(authorId, state) || canRestorePost(state) || (canReport && state === "visible");
   const canHidePost = (authorId: number, state: string): boolean =>
     canModerate && state === "visible";
+  // 举报入口：登录 + forum.report（member 基线）；按帖子状态在 postActions 内判定
+  const canReport =
+    viewer.userId !== null && (await checkPermission(viewer, "forum.report")).allowed;
   const postActions = (postId: number, authorId: number, state: string) => (
     <>
       {canEditPost(authorId, state) && (
@@ -120,6 +123,11 @@ export default async function ThreadPage({ params, searchParams }: Params) {
       {canRestorePost(state) && (
         <Link href={`/p/${postId}/restore`} className="text-primary hover:underline">
           恢复
+        </Link>
+      )}
+      {canReport && state === "visible" && (
+        <Link href={`/p/${postId}/report`} className="text-muted-foreground hover:text-primary">
+          举报
         </Link>
       )}
     </>
