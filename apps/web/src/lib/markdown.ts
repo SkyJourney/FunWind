@@ -65,9 +65,18 @@ function cached(key: string, render: () => string): string {
   return value;
 }
 
-/** 渲染 Markdown 为净化后的 HTML 片段。输入不可信（用户内容），输出可直接 dangerouslySetInnerHTML */
-export function renderMarkdown(md: string): string {
+/**
+ * 渲染 Markdown 为净化后的 HTML 片段。输入不可信（用户内容），输出可直接 dangerouslySetInnerHTML。
+ * `cache: false`：不读写共享缓存。预览等由任意输入触发的渲染必须用它，否则攻击者可用大量内容挤掉真实帖子的缓存。
+ */
+export function renderMarkdown(md: string, options: { cache?: boolean } = {}): string {
   const trimmed = md.trim();
   if (trimmed === "") return "";
-  return cached(trimmed, () => String(getProcessor().processSync(trimmed)));
+  const render = () => String(getProcessor().processSync(trimmed));
+  return options.cache === false ? render() : cached(trimmed, render);
+}
+
+/** 当前共享缓存的条目数（观测与测试用） */
+export function markdownCacheSize(): number {
+  return cache.size;
 }

@@ -15,5 +15,6 @@ export function previewHtml(source: string): string {
   const md = splitByGatePlaceholders(publicMd)
     .map((seg) => (seg.kind === "md" ? seg.text : GATE_PREVIEW_NOTE))
     .join("\n\n");
-  return renderMarkdown(md);
+  // 预览的输入来自任意作者的草稿，不进入全站渲染缓存（否则会挤掉真实帖子的缓存条目）
+  return renderMarkdown(md, { cache: false });
 }

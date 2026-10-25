@@ -1,40 +1,84 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { rateLimit } from "@/lib/auth/ratelimit";
-import { clientIpFrom } from "@/lib/net/client-ip";
+import { getCurrentUser } from "@/lib/auth/session";
 import { previewHtml } from "@/lib/posting/preview";
 
 /**
  * 编辑器预览（M6.3 §5）。POST JSON `{ source }`，返回站点渲染器输出的净化 HTML。
  * - 不读库、不写库：只渲染请求体里的文本；门控正文不出现在结果里（见 lib/posting/preview.ts）；
  * - 同源检查：Origin 存在且与本站不一致 → 403（POST 的跨站提交拿不到结果，但仍不接受）；
- * - 限流：按可信 IP 限制渲染次数（渲染有 CPU 成本）；超限 429。
+ * - 必须登录：编辑器只对登录用户开放，游客无需也拿不到渲染能力（401）；
+ * - 限流：先过全局总量桶（不依赖可信 IP，取不到 IP 时也有上限），再过每用户桶；超限 429；
+ * - 字节上限：流式计数，超出 413（分块传输无法靠 Content-Length 拦住）；
+ * - 渲染不进共享缓存（见 previewHtml）。
  * 不走 defineAction：它的返回值约定是 void，而预览需要返回 HTML。
  */
 const bodySchema = z.object({ source: z.string().max(200_000) });
 
-const PREVIEW_MAX = 60;
-const PREVIEW_WINDOW_MS = 60_000;
+/** 请求体字节上限：20 万字符的 UTF-8 最多约 80 万字节，再留余量给 JSON 结构 */
+const BODY_MAX_BYTES = 900_000;
+const USER_PER_MINUTE = 60;
+const GLOBAL_PER_MINUTE = 600;
+const WINDOW_MS = 60_000;
+
+function json(body: unknown, status: number): Response {
+  return NextResponse.json(body, { status });
+}
 
 export async function POST(request: Request): Promise<Response> {
   const origin = request.headers.get("origin");
   if (origin !== null && origin !== new URL(request.url).origin) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    return json({ error: "forbidden" }, 403);
   }
 
-  const ip = clientIpFrom(request.headers);
-  if (ip !== null && !rateLimit(`preview:${ip}`, PREVIEW_MAX, PREVIEW_WINDOW_MS).allowed) {
-    return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+  const user = await getCurrentUser();
+  if (!user) return json({ error: "unauthorized" }, 401);
+
+  // 先全局、后每用户：全局桶只计总量，保证即使所有人都绕过用户桶，渲染 CPU 也有上限
+  if (!rateLimit("preview:global", GLOBAL_PER_MINUTE, WINDOW_MS).allowed) {
+    return json({ error: "rate_limited" }, 429);
+  }
+  if (!rateLimit(`preview:user:${user.id}`, USER_PER_MINUTE, WINDOW_MS).allowed) {
+    return json({ error: "rate_limited" }, 429);
   }
 
-  let json: unknown;
+  const text = await readBodyCapped(request, BODY_MAX_BYTES);
+  if (text === null) return json({ error: "too_large" }, 413);
+
+  let parsedJson: unknown;
   try {
-    json = await request.json();
+    parsedJson = JSON.parse(text);
   } catch {
-    return NextResponse.json({ error: "bad_request" }, { status: 400 });
+    return json({ error: "bad_request" }, 400);
   }
-  const parsed = bodySchema.safeParse(json);
-  if (!parsed.success) return NextResponse.json({ error: "bad_request" }, { status: 400 });
+  const parsed = bodySchema.safeParse(parsedJson);
+  if (!parsed.success) return json({ error: "bad_request" }, 400);
 
-  return NextResponse.json({ html: previewHtml(parsed.data.source) });
+  return json({ html: previewHtml(parsed.data.source) }, 200);
+}
+
+/**
+ * 按字节上限读取请求体。先看声明的 Content-Length 快速拒绝；再逐块计数，超限即取消读取。
+ * 返回 null 表示超限。
+ */
+async function readBodyCapped(request: Request, maxBytes: number): Promise<string | null> {
+  const declared = Number(request.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declared) && declared > maxBytes) return null;
+  if (request.body === null) return "";
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }

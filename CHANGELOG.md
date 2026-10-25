@@ -12,7 +12,7 @@
 - **门控节点视图**（`markdown/gate.ts`）：`:::gate{key unlock price}` 渲染为带下拉（付费可见 / 回复可见）与价格输入的块；价格只对付费门控显示；正文区交给 ProseMirror，头部控件自己处理事件；节点类型不同时拒绝原地更新。
 - **组件**：`RichEditor`（所见即所得）、`SourceEditor`（CodeMirror，`next/dynamic` 按需加载，只在切到源码时下载）、`EditorToolbar`（加粗 / 斜体 / 删除线 / 列表 / 引用 / 代码块 / 表格 / 分隔线 / 换行 / 插入门控块 / 撤销重做；图片按钮占位，M6.4 接入）、`EditorShell`（组合两种模式、预览、草稿与隐藏字段）。
 - **隐藏字段与表单**：`EditorShell` 通过 `HiddenSource`（`memo` 包裹的 `<input type=hidden>`）把 Markdown 交给表单，避免外壳重渲染时 React 把值写回原文。
-- **预览**：`POST /api/preview`（Route Handler，偏离原设计的 Server Action，因为 `defineAction` 返回 void）。同源检查、按 IP 限流（60 次 / 分钟）、零库访问；`previewHtml` 把门控正文替换为占位，结果经 `renderMarkdown` 净化管线输出。
+- **预览**：`POST /api/preview`（Route Handler，偏离原设计的 Server Action，因为 `defineAction` 返回 void）。同源检查、**必须登录**（游客 401）、每用户 60 次 / 分钟加全局 600 次 / 分钟的限流（不依赖可信 IP）、流式字节上限 900 KB（超出 413）、零库访问；渲染不进共享缓存（`renderMarkdown(md, { cache: false })`）；`previewHtml` 把门控正文替换为占位，结果经净化管线输出。
 - **往返保护**（`lib/posting/roundtrip-check.ts`）：判定标准是**渲染等价**（服务端 `renderMarkdown(原文) === renderMarkdown(编辑后源码)`）。未编辑的旧帖保留原文，绝不重新序列化；往返不等价的帖强制源码模式，并在界面说明原因（`SOURCE_ONLY_REASON`）。实测语料：文本逐字一致 62.7%、渲染等价 86.6%。
 - **草稿**（`components/editor/draft.ts`）：`localStorage`，键 `funwind:draft:<userId>:<kind>:<id>`，每次变化即写入（不做防抖）。载入时存在与原文不同的草稿则提示「恢复 / 丢弃」，不静默覆盖；草稿经 `useSyncExternalStore` 在挂载后读取。**提交即暂存**：表单 submit 时草稿移到 `…:sent`、主键清空，服务端校验失败跳回时从暂存键恢复，成功后不残留提示。**登出清除全部草稿**（`LogoutForm`，提交前同步清理）。存储不可用时静默降级。
 - **接入**：发主题（`/f/[fid]/new`）、快速回复（`/t/[tid]`）、编辑（`/p/[pid]/edit`）全部换成编辑器；编辑页的 `forceSource` 由 `richEditReason` 决定。

@@ -120,14 +120,20 @@ test.describe("五种视角扫描所有页面出口", () => {
     });
   }
 
-  test("编辑器预览接口：五种视角都只拿到占位，不含隐藏正文（正向对照：公开前言必须出现）", async ({
+  test("编辑器预览接口：游客 401；登录的四种视角只拿到占位，不含隐藏正文（正向对照：公开前言必须出现）", async ({
     browser,
   }) => {
-    // 预览由作者在编辑器里触发，但接口对任何视角都不得返回门控正文：门控在结果里只显示占位
+    // 预览要求登录（编辑器只对登录用户开放）：游客直接 401，连渲染都不发生
+    // 登录视角：接口对任何人都不得返回门控正文，门控在结果里只显示占位
     const source = gatedSource(PUBLIC_A);
     for (const view of VIEWS) {
       const ctx = await viewContext(browser, view.user);
       const res = await ctx.request.post("/api/preview", { data: { source } });
+      if (view.user === null) {
+        expect(res.status(), `${view.name} 应为 401`).toBe(401);
+        expect((await res.text()).includes(MARK), `${view.name} 不得含隐藏正文`).toBe(false);
+        continue;
+      }
       expect(res.status(), `${view.name} 预览状态码`).toBe(200);
       const text = await res.text();
       expect(text.includes(PUBLIC_A), `${view.name} 正向对照：公开前言应出现`).toBe(true);
