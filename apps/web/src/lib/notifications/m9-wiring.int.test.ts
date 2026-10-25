@@ -29,7 +29,7 @@ beforeAll(async () => {
   await getWebDb()
     .insert(roleGrants)
     .values({ roleKey: "demo-team", permissionKey: "forum.moderate", scopeId: 904 })
-    .onDuplicateKeyUpdate({ set: { roleKey: roleGrants.roleKey } });
+    .onDuplicateKeyUpdate({ set: { scopeId: 904 } });
   invalidateAuthzSnapshot();
 });
 

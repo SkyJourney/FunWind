@@ -1,0 +1,270 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { requireAdmin } from "@/lib/authz/require-admin";
+import { adminUserDetail } from "@/lib/authz/restrictions-admin";
+import { listRoles } from "@/lib/authz/admin";
+import { getLedgerPage } from "@/lib/points/ledger";
+import { userBadgesOf } from "@/lib/badges/service";
+import { getPointsName } from "@/lib/auth/settings";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SubmitButton } from "@/components/ui/submit-button";
+import {
+  assignRoleAction,
+  createRestrictionAction,
+  liftRestrictionAction,
+  revokeRoleAction,
+} from "../actions";
+
+export const dynamic = "force-dynamic";
+
+type Params = {
+  params: Promise<{ uid: string }>;
+  searchParams: Promise<{ error?: string; restricted?: string; lifted?: string; role?: string }>;
+};
+
+const KIND_LABELS: Record<string, string> = {
+  ban: "封禁",
+  mute: "禁言",
+  no_avatar: "禁头像",
+  no_signature: "禁签名",
+};
+
+/** 用户详情（M9，admin.users）：资料/积分台账/徽章/会话/限制管理/角色调整 */
+export default async function AdminUserDetailPage({ params, searchParams }: Params) {
+  await requireAdmin("admin.users");
+  const uid = Number((await params).uid);
+  if (!Number.isInteger(uid) || uid <= 0) notFound();
+  const [detail, roles, ledger, badges, pointsName] = await Promise.all([
+    adminUserDetail(uid),
+    listRoles(),
+    getLedgerPage(uid, 1),
+    userBadgesOf(uid),
+    getPointsName(),
+  ]);
+  if (!detail) notFound();
+  const sp = await searchParams;
+
+  return (
+    <div className="space-y-4">
+      {sp.error && (
+        <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {sp.error}
+        </p>
+      )}
+      {sp.restricted && (
+        <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
+          限制已生效（当事人会收到通知）。
+        </p>
+      )}
+      {sp.lifted && (
+        <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
+          限制已解除（当事人会收到通知）。
+        </p>
+      )}
+      {sp.role && (
+        <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
+          角色已更新。
+        </p>
+      )}
+
+      <Card>
+        <CardContent className="flex flex-wrap gap-x-8 gap-y-1 pt-6 text-sm">
+          <span className="font-medium">{detail.username}</span>
+          <span className="text-muted-foreground">uid {detail.id}</span>
+          <span className="text-muted-foreground">{detail.email ?? "（无邮箱）"}</span>
+          <span className="text-muted-foreground">注册于 {detail.createdAt}</span>
+          <span className="text-muted-foreground">最近登录 {detail.lastLoginAt ?? "从未"}</span>
+          <span>
+            {pointsName} {detail.points ?? 0}
+          </span>
+          <Link href={`/u/${detail.id}`} className="text-primary hover:underline">
+            公开资料 →
+          </Link>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        {/* 限制管理 */}
+        <Card>
+          <CardHeader>
+            <CardTitle>限制管理</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <form action={createRestrictionAction} className="space-y-2">
+              <input type="hidden" name="userId" value={detail.id} />
+              <div className="flex flex-wrap gap-2">
+                <select
+                  name="kind"
+                  className="rounded-lg border bg-background px-2.5 py-1.5 text-sm"
+                  aria-label="限制类型"
+                >
+                  {Object.entries(KIND_LABELS).map(([k, label]) => (
+                    <option key={k} value={k}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="datetime-local"
+                  name="endsAt"
+                  aria-label="结束时间（空为永久）"
+                  className="rounded-lg border bg-background px-2.5 py-1.5 text-sm"
+                />
+              </div>
+              <input
+                name="reason"
+                required
+                maxLength={255}
+                placeholder="理由（必填，写入审计与通知）"
+                className="w-full rounded-lg border bg-background px-2.5 py-1.5 text-sm"
+              />
+              <SubmitButton
+                className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+                pendingText="…"
+              >
+                施加限制
+              </SubmitButton>
+            </form>
+
+            {detail.restrictions.length > 0 && (
+              <ul className="space-y-2 border-t pt-3">
+                {detail.restrictions.map((r) => (
+                  <li key={r.id} className="text-sm">
+                    <p>
+                      <span className="font-medium">{KIND_LABELS[r.kind] ?? r.kind}</span>（
+                      {r.startsAt} ~ {r.endsAt ?? "永久"}）：{r.reason}
+                    </p>
+                    {r.endsAt !== null &&
+                    r.endsAt > new Date().toISOString().slice(0, 19).replace("T", " ") ? null : (
+                      <form action={liftRestrictionAction} className="mt-1 flex gap-1">
+                        <input type="hidden" name="restrictionId" value={r.id} />
+                        <input type="hidden" name="userId" value={detail.id} />
+                        <input
+                          name="note"
+                          required
+                          maxLength={255}
+                          placeholder="解除说明（必填）"
+                          className="w-52 rounded-lg border bg-background px-2.5 py-1 text-xs"
+                        />
+                        <SubmitButton
+                          className="rounded-lg border px-2.5 py-1 text-xs hover:bg-accent disabled:opacity-60"
+                          pendingText="…"
+                        >
+                          解除
+                        </SubmitButton>
+                      </form>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* 角色调整 */}
+        <Card>
+          <CardHeader>
+            <CardTitle>角色</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <ul className="space-y-1 text-sm">
+              {detail.roles.map((r) => (
+                <li key={`${r.roleKey}:${r.scopeId}`} className="flex items-center justify-between">
+                  <span>
+                    {r.roleKey}
+                    {r.scopeId > 0 ? `（版块 ${r.scopeId}）` : ""}
+                    {r.expiresAt ? ` 至 ${r.expiresAt}` : ""}
+                  </span>
+                  <form action={revokeRoleAction}>
+                    <input type="hidden" name="userId" value={detail.id} />
+                    <input type="hidden" name="roleKey" value={r.roleKey} />
+                    <input type="hidden" name="scopeId" value={r.scopeId} />
+                    <SubmitButton
+                      className="text-xs text-destructive hover:underline disabled:opacity-60"
+                      pendingText="…"
+                    >
+                      撤销
+                    </SubmitButton>
+                  </form>
+                </li>
+              ))}
+              {detail.roles.length === 0 && (
+                <li className="text-sm text-muted-foreground">
+                  仅隐式 member/guest（无显式角色绑定）
+                </li>
+              )}
+            </ul>
+            <form action={assignRoleAction} className="flex flex-wrap gap-2 border-t pt-3">
+              <input type="hidden" name="userId" value={detail.id} />
+              <select
+                name="roleKey"
+                aria-label="角色"
+                className="rounded-lg border bg-background px-2.5 py-1.5 text-sm"
+              >
+                {roles.map((r) => (
+                  <option key={r.key} value={r.key}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                name="scopeId"
+                min={0}
+                defaultValue={0}
+                aria-label="版块作用域（0=全局）"
+                className="w-32 rounded-lg border bg-background px-2.5 py-1.5 text-sm"
+              />
+              <SubmitButton
+                className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+                pendingText="…"
+              >
+                授予
+              </SubmitButton>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>最近会话</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-1 text-sm text-muted-foreground">
+              {detail.sessions.map((s, i) => (
+                <li key={i}>
+                  {s.lastSeenAt ?? s.createdAt} · {s.ip ?? "无 IP"}
+                </li>
+              ))}
+              {detail.sessions.length === 0 && <li>无活跃会话记录</li>}
+            </ul>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              {pointsName}台账（最近 {ledger.items.length} 条）与徽章（{badges.length}）
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-1 text-sm text-muted-foreground">
+              {ledger.items.slice(0, 5).map((l) => (
+                <li key={l.id}>
+                  {l.createdAt} {l.channel} {l.delta > 0 ? `+${l.delta}` : l.delta}
+                </li>
+              ))}
+              {ledger.items.length === 0 && <li>无台账记录</li>}
+            </ul>
+            <p className="mt-2 text-xs">
+              徽章：
+              {badges.length > 0 ? badges.map((b) => b.name).join("、") : "无"}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}

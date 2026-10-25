@@ -19,7 +19,15 @@ import { loadSubject } from "./subject";
  * 语义：始终先要求 `site.admin`（后台总开关），再按需叠加更细的权限点；未登录 → 跳登录页；
  * 缺任一权限 → 404（硬约定 7：越权不暴露后台存在）。返回的 AdminActor 供写操作记审计。
  */
-export type AdminPermission = "site.admin" | "admin.roles" | "admin.points" | "admin.badges";
+export type AdminPermission =
+  | "site.admin"
+  | "admin.roles"
+  | "admin.points"
+  | "admin.badges"
+  | "admin.users"
+  | "admin.reports"
+  | "admin.logs"
+  | "admin.recycle";
 
 export async function requireAdmin(...extra: AdminPermission[]): Promise<AdminActor> {
   const user = await getCurrentUser();
