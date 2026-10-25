@@ -24,8 +24,11 @@ describe("schema 结构规则（真实 schema）", () => {
     expect(checkSchemaRules(schema)).toEqual([]);
   });
 
-  it("可空唯一列白名单仅 users.email_key", () => {
-    expect([...NULLABLE_UNIQUE_ALLOWLIST]).toEqual(["users.email_key"]);
+  it("可空唯一列白名单精确枚举（email_key 单列键；open_group_key 是生成列语义例外）", () => {
+    expect([...NULLABLE_UNIQUE_ALLOWLIST]).toEqual([
+      "users.email_key",
+      "notifications.open_group_key",
+    ]);
   });
 });
 

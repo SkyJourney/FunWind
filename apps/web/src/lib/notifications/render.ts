@@ -60,7 +60,7 @@ export const NOTIFICATION_TYPE_SPECS: NotificationTypeSpec[] = [
     category: "interaction",
     aggregate: true,
     mandatory: false,
-    template: "{actor} 购买了你的付费内容（+{amount}）",
+    template: "{actor} 购买了你的付费内容（+{price}）",
   },
   // ---- 私信（M10 接线）----
   {

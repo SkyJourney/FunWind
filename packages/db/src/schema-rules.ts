@@ -15,7 +15,16 @@ export interface RuleViolation {
  * 允许出现在唯一键里的可空列：仅限「单列唯一，且『空值 = 没有』本身是期望语义」。
  * 多个 NULL 不冲突正是 email_key 想要的行为（无邮箱用户不应互相冲突）。
  */
-export const NULLABLE_UNIQUE_ALLOWLIST = new Set(["users.email_key"]);
+/**
+ * 允许可空列参与唯一键的例外（逐列精确豁免，须附理由）：
+ *  · users.email_key——无邮箱用户互不冲突（单列唯一键）；
+ *  · notifications.open_group_key——生成列（未读=group_key/已读=NULL），复合唯一键 (user_id,type,open_group_key)
+ *    **正是靠 NULL 不去重**实现「非聚合行与已读行不受限、同键未读全局唯一」（M8 审查整改，迁移 0007）。
+ */
+export const NULLABLE_UNIQUE_ALLOWLIST = new Set([
+  "users.email_key",
+  "notifications.open_group_key",
+]);
 
 /** 业务表禁止出现的归档列（旧行 JSON / 原始 UBB 正文双写已于 M5.5 取消） */
 const FORBIDDEN_COLUMNS = new Set(["raw", "content_raw"]);
@@ -83,7 +92,7 @@ export function checkSchemaRules(schemaModule: Record<string, unknown>): RuleVio
       for (const colName of cols) {
         const col = byName.get(colName);
         if (!col || col.notNull) continue;
-        const allowed = cols.length === 1 && NULLABLE_UNIQUE_ALLOWLIST.has(`${name}.${colName}`);
+        const allowed = NULLABLE_UNIQUE_ALLOWLIST.has(`${name}.${colName}`);
         if (!allowed) {
           add(
             name,

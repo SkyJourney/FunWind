@@ -57,18 +57,21 @@
 - [x] 搜索中日文用例集全过（search.spec 3 例：青翼=标题命中、刀剣乱舞=正文命中、字幕分工=受限词零命中/团队命中）；可见性排除专项通过（search.int：受限 904/隐藏/is_listed=0/门控隐藏正文 4 类不可见）
 - [x] 互动计数与列表页展示一致性抽查（随机 20 帖 like_count↔reactions、全库 follower_count↔follows，interact.int）
 - [x] `pnpm verify:all` 与 `pnpm test:e2e` 全绿；CHANGELOG 记录
-  （实测 2026-10-26：verify:all = content 55 + db 66 + web 1281 + migration 251；test:e2e = 桌面/移动 169 + 生产冒烟 10；perf:lcp 含 /search 32ms 全达标）
+  （实测 2026-10-26：verify:all = content 55 + db 66 + web 1291 + migration 251；test:e2e = 桌面/移动 172 + 生产冒烟 10（整改后）；perf:lcp 含 /search 32ms 全达标）
 
 ## 阶段推进（S1–S8）✅ 全部完成（2026-10-26）
 
 - [x] S1 开工文档定稿（拍板三条 + 勘误四处 + NOTIFICATIONS 实现决定）
 - [x] S2 互动写路径与 UI（点赞/关注 toggle + 计数同步 + outbox、标签 composer/云/筛选、/follows 动态页）
 - [x] S3 @提及（content 包解析器 + 三处接线 + 编辑差集）
-- [x] S4 通知核心（notify 管线、21 类型全注册、7 事件消费者、读取契约）
+- [x] S4 通知核心（notify 管线、27 类型全注册、7 事件消费者、读取契约）
 - [x] S5 gate/adjust 事件入事务性 outbox（M8-1 部分；收益通知不丢单测试）
 - [x] S6 顶栏铃铛与精简 /notifications 页（bell/read API、聚焦刷新、点击已读）
 - [x] S7 站内搜索（迁移 0006 FULLTEXT ngram、可见性硬约束、/search 页）
 - [x] S8 收尾（notify:storm、计数抽查、verify:all/test:e2e/perf:lcp 全绿、文档）
+
+> 收尾代码审查与整改记录见 [reviews/2026-10-26-m8-code-review.md](../reviews/2026-10-26-m8-code-review.md)
+> （P1 × 3、P2 × 11 全修——含聚合并发唯一索引迁移 0007、interact E2E 补齐；P3 修复 12 项，取舍清单在其 §4）。
 
 ## 复验发现（实施期实测记录）
 
