@@ -14,6 +14,7 @@ import {
 import { extractKeys } from "@funwind/content";
 import { limitsFor } from "@/lib/limits/load";
 import { replaceThreadTags, resolveTagIds } from "@/lib/interact/tags";
+import { resolveMentionUserIds } from "@/lib/posting/mentions";
 import { POINTS_TX_OPTIONS } from "@/lib/points/retry";
 import { emit } from "@/modules/kernel/bus";
 import {
@@ -482,6 +483,22 @@ export async function editPost(
             );
           }
           await replaceThreadTags(tx, hit.threadId, tagRes.tagIds);
+        }
+        // @提及（M8）：编辑只对**新增**的提及发事件（与旧正文对比），重复编辑不重复打扰
+        for (const mentionedUserId of await resolveMentionUserIds(
+          tx,
+          body.publicMd,
+          hit.authorId,
+          p.bodyMd ?? "",
+        )) {
+          enqueued.push(
+            await enqueueEventInTx(
+              tx,
+              "post.mentioned",
+              { postId: hit.postId, authorId: hit.authorId, mentionedUserId },
+              { actorId: viewer.userId ?? undefined, source: "posting" },
+            ),
+          );
         }
         // outbox（M7）：本次保存新建的附件与重新提审事件在事务内登记（编辑路径与发帖同机制）
         for (const u of uploads) {

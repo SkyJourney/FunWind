@@ -3,3 +3,4 @@ export * from "./body-segments.js";
 export * from "./gate-syntax.js";
 export * from "./syntax-contract.js";
 export * from "./file-refs.js";
+export * from "./mentions.js";

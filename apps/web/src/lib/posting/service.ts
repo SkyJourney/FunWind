@@ -13,6 +13,7 @@ import {
 } from "@/lib/gates/attachments";
 import { limitsFor } from "@/lib/limits/load";
 import { replaceThreadTags, resolveTagIds } from "@/lib/interact/tags";
+import { resolveMentionUserIds } from "@/lib/posting/mentions";
 import type { ResolvedLimits } from "@/lib/limits/config";
 import { POINTS_TX_OPTIONS, isDeadlock } from "@/lib/points/retry";
 import { isDuplicateKey } from "@/lib/auth/register";
@@ -316,6 +317,18 @@ export async function createThread(
           await replaceThreadTags(tx, threadId, tagRes.tagIds);
         }
 
+        // @提及（M8）：解析公开正文，逐人登记 post.mentioned（outbox；self 已在解析层排除）
+        for (const mentionedUserId of await resolveMentionUserIds(tx, body.publicMd, authorId)) {
+          enqueued.push(
+            await enqueueEventInTx(
+              tx,
+              "post.mentioned",
+              { postId, authorId, mentionedUserId },
+              { actorId: authorId, source: "posting" },
+            ),
+          );
+        }
+
         const gateRes = await applyGateDrafts(tx, postId, body.gates, perms);
         if (!gateRes.ok) throw new Rollback(err("gate_permission", gateRes.error.message));
         const reg = await registerSourceFiles(tx, {
@@ -523,6 +536,18 @@ export async function createReply(
           createdAt: sql`NOW()`,
         })) as unknown as [{ insertId: number }];
         const postId = Number(p.insertId);
+
+        // @提及（M8）：公开正文逐人登记（self 已排除）
+        for (const mentionedUserId of await resolveMentionUserIds(tx, body.publicMd, authorId)) {
+          enqueued.push(
+            await enqueueEventInTx(
+              tx,
+              "post.mentioned",
+              { postId, authorId, mentionedUserId },
+              { actorId: authorId, source: "posting" },
+            ),
+          );
+        }
 
         const gateRes = await applyGateDrafts(tx, postId, body.gates, perms);
         if (!gateRes.ok) throw new Rollback(err("gate_permission", gateRes.error.message));
