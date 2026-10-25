@@ -1,7 +1,7 @@
 # M8 · 互动套件与检索
 
 - 阶段：二·核心 ｜ 覆盖模块：M05 / M06 ｜ 依赖：M6（M5.5 已迁入点赞/关注/标签数据）
-- 状态：🚧 2026-10-25 开工
+- 状态：✅ 2026-10-26 完成
 
 > **开工拍板（2026-10-25 站长）**：
 > 1. **精简 `/notifications` 页随本期交付**——铃铛「查看全部」的真实去处（合并时间线 + 游标分页 + 点击已读）；
@@ -51,11 +51,35 @@
 
 ## 验收门禁
 
-- [ ] 互动类通知端到端不丢单（压力脚本 1,000 事件抽样断言）；聚合与未读数口径与 NOTIFICATIONS.md 一致
-- [ ] 铃铛面板：未读数、最近 10 条聚合、标记已读 E2E 通过
-- [ ] 搜索中日文用例集全过；可见性排除专项通过
-- [ ] 互动计数与列表页展示一致性抽查（20 帖对照）
-- [ ] `pnpm verify:all` 与 `pnpm test:e2e` 全绿；CHANGELOG 记录
+- [x] 互动类通知端到端不丢单（压力脚本 `notify:storm`：1,000 事件、聚合 count 与非聚合行数全对账，实测均值 1.8ms/事件）；聚合与未读数口径与 NOTIFICATIONS.md 一致（含实现决定 1–5）
+- [x] 铃铛面板：未读数、最近 10 条聚合、标记已读 E2E 通过（notifications.spec 4 例：游客无铃铛/真实回帖→未读/单条与全部已读/公告合并）
+- [x] 搜索中日文用例集全过（search.spec 3 例：青翼=标题命中、刀剣乱舞=正文命中、字幕分工=受限词零命中/团队命中）；可见性排除专项通过（search.int：受限 904/隐藏/is_listed=0/门控隐藏正文 4 类不可见）
+- [x] 互动计数与列表页展示一致性抽查（随机 20 帖 like_count↔reactions、全库 follower_count↔follows，interact.int）
+- [x] `pnpm verify:all` 与 `pnpm test:e2e` 全绿；CHANGELOG 记录
+  （实测 2026-10-26：verify:all = content 55 + db 66 + web 1281 + migration 251；test:e2e = 桌面/移动 169 + 生产冒烟 10；perf:lcp 含 /search 32ms 全达标）
+
+## 阶段推进（S1–S8）✅ 全部完成（2026-10-26）
+
+- [x] S1 开工文档定稿（拍板三条 + 勘误四处 + NOTIFICATIONS 实现决定）
+- [x] S2 互动写路径与 UI（点赞/关注 toggle + 计数同步 + outbox、标签 composer/云/筛选、/follows 动态页）
+- [x] S3 @提及（content 包解析器 + 三处接线 + 编辑差集）
+- [x] S4 通知核心（notify 管线、21 类型全注册、7 事件消费者、读取契约）
+- [x] S5 gate/adjust 事件入事务性 outbox（M8-1 部分；收益通知不丢单测试）
+- [x] S6 顶栏铃铛与精简 /notifications 页（bell/read API、聚焦刷新、点击已读）
+- [x] S7 站内搜索（迁移 0006 FULLTEXT ngram、可见性硬约束、/search 页）
+- [x] S8 收尾（notify:storm、计数抽查、verify:all/test:e2e/perf:lcp 全绿、文档）
+
+## 复验发现（实施期实测记录）
+
+1. **markRead(all) 只清公告不清通知**（S8，E2E 抓到）：`all` 分支被 `category !== undefined` 守卫跳过——
+   「全部已读」后账号类通知仍挂未读。修正为 all 时全分类 UPDATE，int 断言 total=0（此前只断言公告）。
+2. **E2E 库缺 0006 迁移导致搜索 500**（S7）：notifications 一轮重置发生在创建迁移之前——单独 bootstrap 即复，
+   完整编排天然包含；记录提醒「对已重置库跑新迁移后需 bootstrap」。
+3. **hidden-md 唯一读取点守卫抓到注释字面量**（S7）：search.ts 注释里写了 `post_gates.hidden_md`——
+   改写为不引用列名（守卫按字面量扫描，含注释）。
+4. **React hooks lint：effect 内直呼 refresh 触发 setState-in-effect**（S6）：首拉延后到宏任务（setTimeout 0）。
+5. **modules-import-guard 自检锚点过期**（S5）：unlock.ts 改走 outbox 后不再触内核——锚点换成 outbox.ts
+   （守卫本身工作正常，这正是它该抓的变化）。
 
 ## 遗留事项
 

@@ -14,7 +14,7 @@ import type { ThreadListItem } from "./threads";
  *  · 结果经 visiblePredicate（版块可读 + state 过滤）——body 命中路径额外限定 posts.state='visible'
  *    （作者本人的 pending/rejected 帖标题可命中，正文命中只看 visible）；
  *  · is_listed=0 版块不进聚合（ForumTree 过滤，与首页最新同口径）；
- *  · 索引只含 body_md（公开正文），门控隐藏内容只在 post_gates.hidden_md，天然不可搜。
+ *  · 索引只含 body_md（公开正文）——门控隐藏正文不存于 posts（唯一读取点纪律，lib/gates），天然不可搜；
  *
  * 排序：默认按相关度（MATCH score 降序）；?sort=time 切换最近回复。
  * 结果以**主题**为单位（帖子命中折叠到主题，标题命中直接返回）。

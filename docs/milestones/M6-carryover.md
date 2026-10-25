@@ -28,8 +28,8 @@ M7 是积分与荣誉（积分台账、签到、荣誉徽章）。下列事项�
 
 | 编号 | 事项 | 来源 | 建议归属 | 说明 |
 |---|---|---|---|---|
-| M8-1 | **业务事件的可靠派发（outbox）** | M6.1 §11 | M8（通知中心上线前） | **部分已解决（M7）**：posting 事件族（`thread.created`/`thread.replied`/`content.submitted`/`attachment.uploaded`）已经事务性 outbox 可靠派发（`event_outbox`，见 MODULES.md §8）。剩余：`gate.unlocked`、`message.sent` 等事件的接入（机制零改动，业务事务内 enqueue 即可），M8 通知中心上线前决定是否全量接入 |
-| M8-2 | **`gate.unlocked` 的通知消费** | `docs/MODULES.md` | M8 | 解锁事件已派发（`lib/gates/unlock.ts`），目前没有任何消费者；M8 通知中心据此向作者发收益通知 |
+| M8-1 | **业务事件的可靠派发（outbox）** | M6.1 §11 | ✅ 已完成（M7+M8） | posting 事件族（M7）+ `gate.unlocked`/购买双分录/adjust 的 `points.changed` + `reaction.added`/`user.followed`/`post.mentioned`（M8）全部经事务性 outbox。剩余仅 `message.sent`（M10 私信接入时 enqueue 即可，机制零改动） |
+| M8-2 | **`gate.unlocked` 的通知消费** | `docs/MODULES.md` | ✅ 已完成（M8） | notifications 模块消费 `gate.unlocked` → `gate.sold` 通知（聚合 `gate:{id}:sold`，data 含收益）；事件已入事务性 outbox |
 | M9-1 | **编辑绕审** | M6.1 §11（2026-10-24 方案 A） | M9（审核队列） | 作者编辑已通过审核的帖子不会重新送审。M9 落地时二选一：编辑后转回待审（经 `transitionContent`），或由版主批准编辑 |
 | M9-2 | **版主替作者编辑时的门控权限语义** | M6 审查 G-4；站长已确认保留 | M9（观察） | 当前：新增门控须具备作者的权限。若 M9 的版主权限模型变化，需复核 `docs/GATES.md` 中的规定 |
 | M13-1 | **进程内限流、并发闸、浏览量计数改为共享存储** | M4、M6.4、M6.5 | M13（多实例前） | 涉及：上传/预览/视图/登录的请求限流（`lib/auth/ratelimit.ts`）、上传并发闸（`api/upload`）、浏览量计数与去重（`lib/views`）、权限快照失效通道 |

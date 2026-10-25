@@ -273,9 +273,10 @@ describe.skipIf(skipDb)("读取契约", () => {
       expect((await unreadSummary(ALICE)).total).toBe(unreadBefore - 1);
     }
 
-    // markRead all（公告全部已读 → 公告未读清零）
+    // markRead all：全部分类的通知与公告一并清零（E2E 曾抓到 all 只清公告的缺陷）
     await markRead(ALICE, { all: true });
     expect((await unreadSummary(ALICE)).announcement).toBe(0);
+    expect((await unreadSummary(ALICE)).total).toBe(0);
   });
 
   it("游客：只有 audience=all 的公告，total=公告数", async () => {

@@ -244,7 +244,13 @@ export async function markRead(
       );
     return;
   }
-  if (scope.category !== undefined && scope.category !== "announcement") {
+  if (scope.all) {
+    // 全部：所有分类的通知一并标记
+    await db
+      .update(notifications)
+      .set({ readAt: nowBeijingWallTime() })
+      .where(and(eq(notifications.userId, userId), isNull(notifications.readAt)));
+  } else if (scope.category !== undefined && scope.category !== "announcement") {
     await db
       .update(notifications)
       .set({ readAt: nowBeijingWallTime() })

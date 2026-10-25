@@ -226,3 +226,33 @@ describe.skipIf(skipDb)("标签（tags）", () => {
     expect((r2 as { code: string }).code).toBe("tag_denied");
   });
 });
+
+describe.skipIf(skipDb)(
+  "计数一致性抽查（M8 门禁 4：随机 20 帖 like_count ↔ reactions 明细）",
+  () => {
+    it("全部抽样帖子的缓存计数与明细 COUNT 一致", async () => {
+      const rows = await db()
+        .select({ id: posts.id, likeCount: posts.likeCount })
+        .from(posts)
+        .orderBy(sql`RAND()`)
+        .limit(20);
+      expect(rows.length).toBeGreaterThan(0);
+      for (const row of rows) {
+        const [{ n }] = await db()
+          .select({ n: sql<number>`COUNT(*)` })
+          .from(reactions)
+          .where(and(eq(reactions.postId, row.id), eq(reactions.kind, "like")));
+        expect(Number(n), `帖子 ${row.id}`).toBe(row.likeCount);
+      }
+    });
+
+    it("粉丝计数一致：全部用户 follower_count ↔ follows 明细", async () => {
+      const result = await db().execute(
+        sql`SELECT u.user_id FROM user_stats u
+          WHERE u.follower_count <> (SELECT COUNT(*) FROM follows f WHERE f.target_type = 'user' AND f.target_id = u.user_id)`,
+      );
+      const rows = (Array.isArray(result) ? result[0] : result) as unknown as unknown[];
+      expect(rows).toHaveLength(0);
+    });
+  },
+);

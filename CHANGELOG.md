@@ -5,6 +5,30 @@
 
 ## [Unreleased]
 
+### Added（M8：互动套件、通知中心后端与顶栏铃铛、站内搜索）
+
+完整记录见 [docs/milestones/M8-interact-search.md](docs/milestones/M8-interact-search.md)。
+
+- **点赞**：帖子页首帖与楼层点赞按钮 + 点赞者弹层（`<details>`，无客户端 JS）；`reactions` 主键天然防重，toggle 在一个事务内完成「明细 ± 计数同步」（口径与 recount 一致）；`reaction.added` 经事务性 outbox。迁移的 1,623 条旧点赞明细直接生效。
+- **关注**：用户（资料页）与版块（版块页）关注按钮；`user_stats.follower_count` 同事务同步（版块无计数列，实时聚合）；`/follows` 动态页聚合关注版块新帖与关注用户发帖（可见性与目录口径同首页；旧 fresh 流不迁）。迁移的 3,827 条旧关注直接生效。
+- **标签**：发帖/编辑表单标签输入（逗号分隔 ≤5，新建需 `tag.add`）；帖子页标签 chips、版块页标签云与 `?tag=` 筛选（实时聚合，`tags.thread_count` 缓存列仅对账）；12 个旧标签与关联已随 M5.5 在库。
+- **@提及**（站长拍板本期接线）：content 包 `@用户名` 解析器（行首/空白后边界、全角标点截断、email 不误伤）；发帖/回帖/编辑三处接线（编辑只对**新增**提及发事件），归一化键精确匹配活跃用户、自提及排除；`post.mentioned` 经 outbox。
+- **通知中心后端**：`notify()` 管线（查偏好 → mandatory 短路 → 聚合 → 写库；写库失败抛错吃 outbox 补派）；类型目录 **21 个全注册**（互动 6 / 私信 1 / 审核 10 / 账号 4——审核/私信类本期只注册可渲染，生产方在 M9/M10）；7 个事件消费者（回复/被回复/提及/点赞/关注/门控收益/积分调整/徽章）；聚合语义=同 groupKey 未读行原位更新（count SQL 递增、已读后新开）；偏好无记录=站内开、强制类型不可关。
+- **gate/adjust 事件入事务性 outbox**（M8-1 部分，站长拍板）：购买双分录 + `gate.unlocked` 与 `adjust.admin` 的 `points.changed` 在业务事务内登记——收益通知不丢单（快路径失败 → drain 补派测试锚定）。
+- **顶栏铃铛**：客户端岛（挂载 + 窗口聚焦刷新 `/api/notifications/bell`，无实时推送）；总未读徽标 + 下拉面板（各分类未读 + 最近 10 条聚合未读 + 全部已读）。
+- **精简 `/notifications` 页**（站长拍板：铃铛「查看全部」的去处）：通知+公告合并时间线、游标分页、单条/全部已读、分类筛选；完整通知中心页面（批量操作/偏好设置）留后续。
+- **站内搜索**：迁移 0006 手写 FULLTEXT ngram 双列索引（`threads.title` + `posts.body_md`；drizzle DSL 不支持 FULLTEXT）；`/search` 页（相关度/时间排序、分页、空结果引导、顶栏入口）。可见性硬约束：visiblePredicate + ForumTree is_listed + 正文命中仅 `state='visible'`；门控隐藏内容天然不可搜（不存于 posts）。
+
+### Fixed（M8 期间发现并修复）
+
+- **markRead(all) 只清公告不清通知**（E2E 抓到）：「全部已读」后账号类通知仍挂未读——`all` 分支被 category 守卫跳过；修正为全分类 UPDATE。
+
+### Tests（M8）
+
+- 单测/集成：@解析器边界（全角标点/email/去重/32 截断）；点赞 toggle/不可见帖/并发撞键；关注同步与自关注拒绝；标签解析/上限/权限；提及三路径与编辑差集；notify 聚合（count/actorIds/已读新开）、偏好与强制短路、未注册类型抛错；事件→通知真实链路（回复/被回复/提及/点赞/关注/收益/调整/徽章）；读取契约（分类未读/公告合并/游标不重复/三形态已读）；搜索可见性四类排除与排序分页；计数一致性抽查（随机 20 帖 + 全库粉丝数）。
+- E2E：notifications（真实回帖→铃铛→页面→已读清零）、search（中日词表+受限可见性）、点赞/关注/标签走帖子页真实交互。
+- 压力：`notify:storm`（1,000 事件抽样对账不丢单，均值 1.8ms/事件）；`perf:lcp` 增 `/search` 页（32ms）。
+
 ### Added（M7：积分与荣誉——积分台账 / 每日签到 / 荣誉徽章，含事务性 outbox）
 
 完整记录见 [docs/milestones/M7-gamification.md](docs/milestones/M7-gamification.md)。
