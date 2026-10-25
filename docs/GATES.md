@@ -104,6 +104,13 @@ body_md → remark(+指令) → sanitize → 公开 HTML 片段（与用户无�
 - `getGateContent` 先确认门控所在的帖子与主题对观众可见（版块可读 + 状态矩阵），不可见一律 `null`——知道门控 id 也读不到。
 - 渲染：`PostBody` 按占位切分（`packages/content` 的 `splitByGatePlaceholders`），`GateBlock` 渲染五种状态；占位在 `post_gates` 里查不到对应行时显示“门控数据异常”。
 
+### 4.2 界面提示（M6.5a：只携带时间与计数，不携带正文）
+
+- **「内容更新于」**：`post_gates.content_updated_at` 只在隐藏正文真的变化时推进（写入器的 `UPDATE` 用 `IF(hidden_md <=> 新值, content_updated_at, NOW())`，同一条语句内比较旧值）。改价、改解锁条件不推进；从未变过（NULL）不回填，界面不显示。
+  它只是一个时间点，**不含新旧正文、不含差异**。显示规则（`lib/gates/update-note.ts`，纯函数）：作者与版主不显示；已解锁且解锁时间不早于最近更新的读者不显示；其它情况显示，包括未解锁的访客，以及以回复等条件开放、没有解锁时间的读者（无法判断是否看到了最新版本，保守地显示）。
+- **改价提示**：编辑页对已有购买记录的门控显示「已有 N 人解锁：改价只影响之后的购买，已购买者不退差价；不能改变解锁方式或删除该门控。」（`edit-composer.tsx`，`role="note"`）。解锁人数经 `unlockCountsByGateKey` 按门控 key 计数，只读计数，不取正文。
+- **「回复可见」的去回复引导**：未满足条件的读者在锁卡片上看到「回复本帖后可见 · 去回复」，链接指向 `#reply`。它只是导航，不改变判定（仍按 `reply` 条件计算）。
+
 ## 5. 解锁事务（`unlockGate`）
 
 `points` 条件的购买在**单个数据库事务**内完成：

@@ -5,6 +5,28 @@
 
 ## [Unreleased]
 
+### Added（M6.5：门控创作收尾、浏览量、业务事件、频控与性能验收）
+
+- **门控「内容更新于」**（迁移 0004，`post_gates.content_updated_at`）：只在隐藏正文真的变化时推进，改价与改条件不推进；从未变过不回填。显示规则见 `lib/gates/update-note.ts`（作者与版主不显示；已解锁且解锁不早于更新的读者不显示；其它情况显示，包括回复类条件的读者，保守地显示）。文案只有时间，不含新旧正文。
+- **改价提示**：编辑页对已有购买记录的门控显示解锁人数与「改价只影响之后的购买，已购买者不退差价」。解锁人数只读计数（`unlockCountsByGateKey`）。
+- **「回复可见」去回复引导**：锁卡片的「回复本帖后可见 · 去回复」链接到 `#reply`，只是导航，判定不变。
+- **浏览量** `POST /api/views`（204 对外一律；跨站 403、格式错 400、超限 429）：客户端信标（`components/content/view-beacon.tsx`，主题页挂载后发送一次）；同一访客 30 分钟计一次（登录用户按 userId，游客按 IP 哈希）；作者本人与不可见的主题不计；进程内累加，每 10 秒批量 `UPDATE`。按 IP 每分钟 120 次、全局每分钟 6000 次。浏览量是估计值，不参与任何权限或账目。
+- **`attachment.uploaded` 派发**：保存事务提交后，为每条新建的下载附件各派发一次（载荷 `{attachmentId, fileId, uploaderId}`，无文件名与正文）。发主题 / 回帖 / 编辑三处接入（`lib/posting/service.ts`、`lib/posting/mutate.ts`）。
+- **演示消费方**：`demo-checkin` 另订阅 `thread.created`、`thread.replied`、`attachment.uploaded`，进程内计数显示在首页页脚（纯演示，不改业务数据）。
+
+### Changed（M6.5）
+
+- `registerPostFiles` 返回每条新建附件的 id（`uploaded`），供派发使用；更新已有附件的原始文件名时一并更新。
+- `demo-checkin` 的页脚文案由单一横幅扩展为「横幅 + 业务事件计数」。
+
+### Tests（M6.5）
+
+- 单测：浏览量去重窗口、作者本人不计、隐藏主题不计；「内容更新于」的时间比较；改价提示的解锁人数；演示模块的计数。
+- 集成：`content_updated_at` 只在隐藏正文变化时推进（改价不推进）；`attachment.uploaded` 派发与 `event_log` 载荷（不含文件名）；浏览量 30 路并发记录与两次并发刷入后恰好计数 30。
+- E2E：门控改价提示、「内容更新于」（解锁后的读者视角）、「去回复」跳转；浏览量信标计数；发主题带附件后演示页计数变化；频控三条提示（发帖间隔、每日主题、每日上传，`e2e/limits.spec.ts`）；泄露专项补充「修改隐藏正文后」两项（五视角 HTML / RSC / 编辑页，以及事件与审计日志）。
+- 性能：`pnpm --filter @funwind/web perf:posting`（服务层顺序 `createReply`，N=200，仅允许 `qysub_next_e2e`），实测 p95 10.0 ms（两次运行一致），失败线 300 ms，记录见 `docs/milestones/M6.5-gates-polish.md` §14。
+- 门禁（真实输出）：`verify:all` 通过（web 单测 1185 项，db 65，content 50，migration 251）；`test:e2e` 通过（桌面 + 移动 148 项，生产冒烟 10 项）；`db:verify` 19 项；`verify:migration` 110 项（含 fidelity）；`check:secrets` 与格式检查通过。
+
 ### Added（M6.4：上传、图片与裁剪）
 
 - **上传接口** `POST /api/upload?purpose=inline|attachment|avatar`（Route Handler）：同源 → 登录 → 限流（用户桶 30/分钟、全局桶 600/分钟，被用户桶拒绝的不占全局额度）→ 按用途的字节上限（413）→ 版块权限（越权 404；头像另查 `no_avatar` 与封禁 / 禁言）→ 嗅探与准入（415）→ 图片处理（400 / 413）→ 配额与落盘登记（429）。

@@ -58,6 +58,18 @@ describe.skipIf(skipDb)("浏览量记录 · 真实 MySQL", () => {
     expect(await rec(alice, "198.51.100.1")).toBe("skipped");
   });
 
+  it("并发：30 个互不相同的访客同时阅读，并发刷入两次，数据库增量恰好为 30", async () => {
+    const before = await views();
+    // 每个游客用不同的 IP，访客键各不相同，不会被去重吞掉
+    const results = await Promise.all(
+      Array.from({ length: 30 }, (_, i) => rec(guest, `192.0.2.${i + 1}`)),
+    );
+    expect(results.every((r) => r === "counted")).toBe(true);
+    // 两个刷入并发执行：计数器每次取走当前增量，不得重复写入
+    await Promise.all([viewRuntime().counter.flush(), viewRuntime().counter.flush()]);
+    expect(await views()).toBe(before + 30);
+  });
+
   it("隐藏的主题不计入（即使版主也不计）；恢复后再计", async () => {
     const before = await views();
     await getWebDb().update(threads).set({ state: "hidden" }).where(eq(threads.id, TID));

@@ -9,7 +9,7 @@
   **M5.5 重构（设计先行）已完成，已合并 `main`**。站长思路：**先定目标模型（`docs/DESIGN-MODEL.md`，schema v2.1 共 43 表，含通知中心），旧数据向它靠拢，迁移只是适配层**。
   进度：R1 文档 ✅ → R2 `packages/db` 与 `packages/content` 重做 ✅ → R3 迁移适配层重做并重建开发库 ✅ → S4 应用适配 ✅ → **S5 E2E 与全量门禁 ✅（2026-10-24）**；之后进入 M6 发帖。
   **M5.6 上线前加固与渲染修复（M6 的前置，见 `docs/milestones/M5.6-prelaunch-hardening.md`）**：S1 渲染补精简 GFM ✅ → E0 编辑器选型（Tiptap + CodeMirror + react-image-crop）✅ → S1b 转换器⇄渲染器语法契约与转换器修复、重导开发库 ✅ → S2 登录时序与频控 ✅ → S3 认证杂项 ✅ → S4 安全响应头与 `/files` 穿越矩阵 ✅ → S5 文档漂移清账 ✅。
-  **M6 发帖与内容生产**：M6.1 写路径底座 ✅ → M6.2 薄切片（发主题 / 回帖 / 编辑 / 删除 / 恢复）✅ → M6.3 编辑器 ✅（真机清单已通过，见 `docs/milestones/M6.3-editor.md`）→ **M6.4 上传与图片** ✅（真机清单已通过，见 `docs/milestones/M6.4-uploads.md` §14）→ M6.5 门控创作收尾。
+  **M6 发帖与内容生产**：M6.1 写路径底座 ✅ → M6.2 薄切片（发主题 / 回帖 / 编辑 / 删除 / 恢复）✅ → M6.3 编辑器 ✅（真机清单已通过，见 `docs/milestones/M6.3-editor.md`）→ **M6.4 上传与图片** ✅（真机清单已通过，见 `docs/milestones/M6.4-uploads.md` §14）→ **M6.5 门控创作收尾** ✅（见 `docs/milestones/M6.5-gates-polish.md`）。M6 总验收与遗留清账见 `docs/milestones/M6-posting.md`；下一里程碑 M7。
 - **分支**：M5.5 已合入 `main`（`feat/m5.5-schema-v2` 仅本地保留，不推送）。类型检查 / lint / 单测 / 构建 / E2E 全部真实通过（`pnpm verify:all` 与 `pnpm test:e2e` 均已连续多次实测）。
   2026-10-24 已重写 git 历史（清除口令、真实邮箱、第三方用户名与 `Claude-Session:` 行），随后已把 `main` 推送到 GitHub 公开仓库 `SkyJourney/FunWind`（CI：`.github/workflows/ci.yml`，`verify` + 自包含 `e2e` 两个作业，首轮修复构建产物步骤后全绿）；重写前的完整备份在站长本机 `~/FunWind-pre-rewrite.bundle`（含旧口令，**不得上传**）。
 - 开发库：`qysub_next` = v2 **纯导入**（`verify:migration` 110 项对账只对它有意义）；`qysub_next_e2e` = 空库 + 演示种子（`db:seed`，id ≥ 90000）+ E2E 夹具（`db:e2e-fixtures`，id ≥ 950000），**不含迁移数据**（CI 同样如此），`pnpm test:e2e` 每次自动重建它。
@@ -49,6 +49,7 @@ pnpm test:e2e:run              # 同上但不启动 MailPit 容器（CI 用：Ma
 pnpm --filter @funwind/web test:e2e:prod                  # 仅生产构建冒烟（真实 next build + next start）
 pnpm --filter @funwind/web modules:toggle <id> <on|off>   # 模块启停（写 audit_log）
 pnpm --filter @funwind/web perf:lcp                       # 生产构建 LCP 门禁
+pnpm --filter @funwind/web perf:posting                   # 发帖性能基准（服务层 createReply×200，p95 < 300ms）；须显式 NEW_DB_NAME=qysub_next_e2e
 ```
 
 改了 `packages/db` 后，web 依赖的是其 **构建产物**（`dist/`），先 `pnpm db:build`（`dev`/`build`/`migrate` 脚本已自带）。
@@ -112,7 +113,8 @@ pnpm --filter @funwind/web perf:lcp                       # 生产构建 LCP 门
 - Next 16.4.2 的 `title.template` 对子页字符串标题疑似未生效（M1 遗留，升级后复验）。
 - E2E 必须用独立库与 3200 端口，别和 dev 服务抢端口。
 - zsh 下 `grep --include=*.ts` 要加引号，否则报 `no matches found`。
-- 频控与权限快照都是进程内存实现（单实例语义），多实例前须换 Redis / 共享失效通道（M13）。
+- 频控与权限快照都是进程内存实现（单实例语义），多实例前须换 Redis / 共享失效通道（M13）。浏览量计数（`lib/views`，每 10 秒批量刷入）同样是进程内，数字只是估计值。
+- `perf:posting` 拒绝任何非 `qysub_next_e2e` 的库名：根 `.env` 里的 `NEW_DB_NAME` 指向开发库，必须在命令行显式指定。
 - `TRUSTED_PROXY_HOPS`：生产环境必须显式设置（直连填 0，nginx 之后填层数），漏配会在首次取 IP 时报错；取不到可信 IP 时跳过 IP 级限额，只留账号/邮箱级。
 - `next dev` 每次启动会生成 `apps/web/AGENTS.md`（已 `.gitignore`）；`.next/` 里过期的生成类型会让 `tsc` 报已删除路由，用 `pnpm --filter @funwind/web exec next typegen` 刷新。
 - **安全响应头**（`lib/security-headers.ts`）：CSP 目前只是 **Report-Only**，违规会 POST 到 `/api/csp-report` 并记成一行 `[csp-report]` 日志；`script-src` 仍含 `'unsafe-inline'`（Next 的 RSC 载荷是内联脚本，nonce 需要中间件）。`/files/**` 被全站头排除（自带 `default-src 'none'; sandbox`）。HSTS 只在生产且 `APP_URL` 是 https 时下发。新增页面类型后，`e2e/security-headers.spec.ts` 的「零违规」页面清单要同步。
