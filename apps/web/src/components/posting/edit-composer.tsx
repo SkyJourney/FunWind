@@ -34,6 +34,8 @@ interface Props {
   forumId: number;
   /** 本帖现有的下载附件 */
   initialAttachments: AttachmentItem[];
+  /** 主题标签初值（仅 threadKind==="thread" 显示；逗号分隔输入，保存即整体替换） */
+  initialTags: string;
   draftKey: string | null;
   restore: boolean;
   /** 编辑冲突跳回：草稿提示恢复的是作者提交失败的那一版 */
@@ -56,6 +58,7 @@ export function EditComposer({
   gateUnlocks,
   forumId,
   initialAttachments,
+  initialTags,
   draftKey,
   restore,
   recoverStaged = false,
@@ -153,6 +156,18 @@ export function EditComposer({
             placeholder="例如：删除广告链接"
             autoComplete="off"
           />
+        </div>
+      )}
+
+      {threadKind === "thread" && (
+        <div className="space-y-1.5">
+          <label htmlFor="edit-tags" className="text-sm font-medium">
+            标签{" "}
+            <span className="text-xs text-muted-foreground">
+              （逗号分隔，最多 5 个；保存即整体替换）
+            </span>
+          </label>
+          <Input id="edit-tags" name="tags" defaultValue={initialTags} autoComplete="off" />
         </div>
       )}
 

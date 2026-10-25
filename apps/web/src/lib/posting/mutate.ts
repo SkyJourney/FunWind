@@ -13,6 +13,7 @@ import {
 } from "@/lib/gates/attachments";
 import { extractKeys } from "@funwind/content";
 import { limitsFor } from "@/lib/limits/load";
+import { replaceThreadTags, resolveTagIds } from "@/lib/interact/tags";
 import { POINTS_TX_OPTIONS } from "@/lib/points/retry";
 import { emit } from "@/modules/kernel/bus";
 import {
@@ -67,6 +68,9 @@ export interface EditInput {
   reason?: string;
   /** 下载附件的完整列表（提交即替换；缺省视为不变更附件由调用方传入现有列表） */
   attachments?: readonly AttachmentInput[];
+  /** 主题标签（名称）；提供即整体替换（空数组 = 清空）。新标签的创建须 canAddTags（按作者权限） */
+  tags?: readonly string[];
+  canAddTags?: boolean;
 }
 
 export interface EditOk {
@@ -469,6 +473,16 @@ export async function editPost(
         });
         if (!reg.ok) throw new Rollback(err(reg.code, reg.message));
         uploads = reg.uploaded;
+        // 标签（M8）：编辑即整体替换；新标签的创建须作者 tag.add（与门控/附件同口径——权限归作者）
+        if (input.tags !== undefined) {
+          const tagRes = await resolveTagIds(tx, input.tags, input.canAddTags === true);
+          if (!tagRes.ok) {
+            throw new Rollback(
+              err(tagRes.code, tagRes.code === "tag_denied" ? "无权创建新标签" : "标签数量超限"),
+            );
+          }
+          await replaceThreadTags(tx, hit.threadId, tagRes.tagIds);
+        }
         // outbox（M7）：本次保存新建的附件与重新提审事件在事务内登记（编辑路径与发帖同机制）
         for (const u of uploads) {
           enqueued.push(

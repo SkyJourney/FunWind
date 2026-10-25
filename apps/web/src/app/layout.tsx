@@ -40,6 +40,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                     <Link href="/points" className="text-muted-foreground hover:text-foreground">
                       积分
                     </Link>
+                    <Link href="/follows" className="text-muted-foreground hover:text-foreground">
+                      动态
+                    </Link>
                     <Link
                       href="/settings/avatar"
                       className="text-muted-foreground hover:text-foreground"

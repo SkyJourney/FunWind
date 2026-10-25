@@ -6,6 +6,9 @@ import { notFound } from "next/navigation";
 import { Pagination } from "@/components/content/pagination";
 import { PostBody } from "@/components/content/post-body";
 import { UserBadge } from "@/components/content/user-badge";
+import { LikeButton } from "@/components/interact/like-button";
+import { likedPostIds } from "@/lib/interact/reactions";
+import { tagsOfThreads } from "@/lib/interact/tags";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { ReplyComposer } from "@/components/posting/reply-composer";
@@ -125,6 +128,22 @@ export default async function ThreadPage({ params, searchParams }: Params) {
     loadGateViews(viewer, thread, gatePosts),
     getPointsName(),
   ]);
+  const [likedSet, threadTags] = await Promise.all([
+    viewer.userId !== null
+      ? likedPostIds(viewer.userId, [thread.first.id, ...replies.items.map((r) => r.id)])
+      : Promise.resolve(new Set<number>()),
+    tagsOfThreads([thread.id]),
+  ]);
+  const likeProps = (postId: number) => ({
+    postId,
+    liked: likedSet.has(postId),
+    likeCount:
+      postId === thread.first.id
+        ? thread.first.likeCount
+        : (replies.items.find((r) => r.id === postId)?.likeCount ?? 0),
+    back: `/t/${thread.id}${replies.page > 1 ? `?page=${replies.page}` : ""}`,
+    canLike: viewer.userId !== null,
+  });
 
   const attachmentList = (postId: number) => {
     const list = attachments.get(postId) ?? [];
@@ -240,6 +259,20 @@ export default async function ThreadPage({ params, searchParams }: Params) {
         </div>
       </header>
 
+      {(threadTags.get(thread.id)?.length ?? 0) > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          {(threadTags.get(thread.id) ?? []).map((t) => (
+            <Link
+              key={t.id}
+              href={`/f/${thread.forumId}?tag=${encodeURIComponent(t.name)}`}
+              className="rounded-full border bg-card px-2.5 py-0.5 text-muted-foreground hover:text-primary"
+            >
+              #{t.name}
+            </Link>
+          ))}
+        </div>
+      )}
+
       {/* 首帖（楼主）：每一页都固定在顶部 */}
       <Card id={`p${thread.first.id}`} className="scroll-mt-20">
         <CardContent className="pt-6">
@@ -251,12 +284,15 @@ export default async function ThreadPage({ params, searchParams }: Params) {
             returnPage={replies.page}
           />
           {attachmentList(thread.first.id)}
-          {(thread.first.editedAt || hasPostActions(thread.authorId, thread.state)) && (
-            <p className="mt-3 flex items-center gap-3 text-xs text-muted-foreground">
-              {thread.first.editedAt && <span>最后编辑于 {thread.first.editedAt}</span>}
-              {postActions(thread.first.id, thread.authorId, thread.state)}
-            </p>
-          )}
+          <div className="mt-3 flex items-center gap-3 text-xs">
+            <LikeButton {...likeProps(thread.first.id)} />
+            {(thread.first.editedAt || hasPostActions(thread.authorId, thread.state)) && (
+              <span className="flex items-center gap-3 text-muted-foreground">
+                {thread.first.editedAt && <span>最后编辑于 {thread.first.editedAt}</span>}
+                {postActions(thread.first.id, thread.authorId, thread.state)}
+              </span>
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -302,13 +338,16 @@ export default async function ThreadPage({ params, searchParams }: Params) {
                   returnPage={replies.page}
                 />
                 {attachmentList(f.id)}
-                <p className="flex items-center gap-3 text-xs text-muted-foreground">
-                  <span>
-                    {f.createdAt}
-                    {f.editedAt && ` · 编辑于 ${f.editedAt}`}
+                <div className="flex items-center gap-3 text-xs">
+                  <LikeButton {...likeProps(f.id)} />
+                  <span className="flex items-center gap-3 text-muted-foreground">
+                    <span>
+                      {f.createdAt}
+                      {f.editedAt && ` · 编辑于 ${f.editedAt}`}
+                    </span>
+                    {postActions(f.id, f.authorId, f.state)}
                   </span>
-                  {postActions(f.id, f.authorId, f.state)}
-                </p>
+                </div>
               </CardContent>
             </Card>
           );

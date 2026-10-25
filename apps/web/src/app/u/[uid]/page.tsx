@@ -5,6 +5,9 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Slot } from "@/modules/kernel/slot";
+import { FollowButton } from "@/components/interact/follow-button";
+import { isFollowing } from "@/lib/interact/follows";
+import { getCurrentUser } from "@/lib/auth/session";
 import { fileUrl } from "@/lib/files";
 import { getProfile } from "@/lib/queries/users";
 
@@ -27,6 +30,9 @@ export default async function ProfilePage({ params }: { params: Promise<{ uid: s
   // 不存在或已注销（含迁移生成的“已注销用户”占位账号）→ 404，占位账号不开个人页
   const profile = await getProfile(uid);
   if (!profile) notFound();
+  const viewer = await getCurrentUser();
+  const following =
+    viewer !== null && viewer.id !== uid ? await isFollowing(viewer.id, "user", uid) : false;
 
   return (
     <main className="mx-auto max-w-3xl space-y-4 px-4 py-8 sm:px-6">
@@ -50,10 +56,19 @@ export default async function ProfilePage({ params }: { params: Promise<{ uid: s
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-xl font-bold tracking-tight">{profile.username}</h1>
               {profile.ban && <Badge variant="destructive">已封禁</Badge>}
+              {viewer !== null && viewer.id !== uid && (
+                <FollowButton
+                  targetType="user"
+                  targetId={uid}
+                  following={following}
+                  back={`/u/${uid}`}
+                />
+              )}
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
               注册于 {profile.createdAt} · 主题 {profile.threadCount} · 帖子 {profile.postCount} ·
-              精华 {profile.featuredCount} · {profile.pointsName} {profile.points}
+              精华 {profile.featuredCount} · 粉丝 {profile.followerCount} · {profile.pointsName}{" "}
+              {profile.points}
             </p>
             {profile.ban && (
               <p className="mt-2 text-sm text-destructive">

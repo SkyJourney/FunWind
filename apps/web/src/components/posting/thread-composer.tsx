@@ -77,6 +77,16 @@ export function ThreadComposer({ action, forumId, draftKey, restore, titleMax, b
         <p className="text-xs text-muted-foreground">最多 {bodyMax} 字</p>
       </div>
 
+      <div className="space-y-1.5">
+        <label htmlFor="thread-tags" className="text-sm font-medium">
+          标签{" "}
+          <span className="text-xs text-muted-foreground">
+            （选填，逗号分隔，最多 5 个；新建标签需要权限）
+          </span>
+        </label>
+        <Input id="thread-tags" name="tags" placeholder="例如：字幕, 日剧" autoComplete="off" />
+      </div>
+
       <Button type="submit">发布主题</Button>
     </form>
   );

@@ -1,5 +1,5 @@
 import { cache } from "react";
-import { and, count, desc, eq, gt, inArray, or } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import { contentReviews, forumPrefixes, getWebDb, posts, threads, users } from "@funwind/db";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
 import { getCurrentSubject } from "@/lib/authz/subject";
@@ -58,16 +58,20 @@ const LIST_SELECTION = {
 
 type ListRow = Awaited<ReturnType<typeof selectList>>[number];
 
-function toItem(r: ListRow): ThreadListItem {
+export function toItem(r: ListRow): ThreadListItem {
   const { authorState, ...rest } = r;
   return { ...rest, authorDeleted: authorState === "deleted" };
 }
 
-const threadCols = { forumId: threads.forumId, state: threads.state, authorId: threads.authorId };
-const threadScope = (scope: ViewerScope) => visiblePredicate(threadCols, scope);
+export const threadCols = {
+  forumId: threads.forumId,
+  state: threads.state,
+  authorId: threads.authorId,
+};
+export const threadScope = (scope: ViewerScope) => visiblePredicate(threadCols, scope);
 
 /** 以列表选择集查询（作者与前缀两个 left join） */
-function selectList(where: ReturnType<typeof threadScope>) {
+export function selectList(where: ReturnType<typeof threadScope>) {
   return getWebDb()
     .select(LIST_SELECTION)
     .from(threads)
@@ -95,14 +99,18 @@ export interface ThreadListPage {
 export async function listThreads(
   viewer: Subject,
   fid: number,
-  opts: { page: number; prefixId?: number },
+  opts: { page: number; prefixId?: number; tagId?: number },
 ): Promise<ThreadListPage> {
   const scope = await buildViewerScope(viewer);
   if (!scope.readable.includes(fid)) {
     return { pinned: [], items: [], total: 0, page: 1, totalPages: 1 };
   }
   const prefixed = opts.prefixId !== undefined && opts.prefixId > 0;
-  const base = and(threadScope(scope), eq(threads.forumId, fid));
+  const tagFilter =
+    opts.tagId !== undefined && opts.tagId > 0
+      ? sql`EXISTS (SELECT 1 FROM thread_tags tt WHERE tt.thread_id = ${threads.id} AND tt.tag_id = ${opts.tagId})`
+      : undefined;
+  const base = and(threadScope(scope), eq(threads.forumId, fid), tagFilter);
   const where = prefixed
     ? and(base, eq(threads.prefixId, opts.prefixId!))!
     : and(base, eq(threads.pinLevel, 0))!;
@@ -122,7 +130,7 @@ export async function listThreads(
     .offset((page - 1) * THREADS_PER_PAGE);
 
   let pinned: ThreadListItem[] = [];
-  if (page === 1 && !prefixed) {
+  if (page === 1 && !prefixed && !tagFilter) {
     const { tree } = await getAuthzSnapshot();
     const section = tree.chain(fid).find((id) => tree.get(id)?.kind === "section");
     const sectionIds = section !== undefined ? tree.subtree(section) : [fid];

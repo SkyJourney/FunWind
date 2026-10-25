@@ -9,6 +9,7 @@ import { getCurrentSubject } from "@/lib/authz/subject";
 import { limitsFor } from "@/lib/limits/load";
 import { postingNoticeText } from "@/lib/posting/compose";
 import { loadEditPage } from "@/lib/posting/edit-page";
+import { tagsOfThreads } from "@/lib/interact/tags";
 import { draftKey } from "@/components/editor/draft";
 
 export const dynamic = "force-dynamic";
@@ -85,6 +86,14 @@ export default async function EditPostPage({ params, searchParams }: Params) {
             action={editPostAction}
             postId={model.postId}
             threadKind={model.threadKind}
+            initialTags={
+              model.threadKind === "thread"
+                ? ((await tagsOfThreads([model.threadId]))
+                    .get(model.threadId)
+                    ?.map((t) => t.name)
+                    .join("，") ?? "")
+                : ""
+            }
             title={model.title}
             source={model.source}
             editedAt={model.editedAt}

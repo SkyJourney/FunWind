@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { attachmentsField } from "@/lib/uploads/attachments-field";
 import { defineAction } from "@/lib/actions/define-action";
+import { checkPermission } from "@/lib/authz/service";
 import { createThread } from "@/lib/posting/service";
 
 /**
@@ -20,6 +21,7 @@ const createThreadInput = z.object({
   title: z.string().max(1000).default(""),
   source: z.string().max(200_000).default(""),
   attachments: attachmentsField,
+  tags: z.string().max(500).default(""),
 });
 
 export const createThreadAction = defineAction({
@@ -27,11 +29,17 @@ export const createThreadAction = defineAction({
   auth: "user",
   input: createThreadInput,
   async run(ctx, input) {
+    const canAddTags = (await checkPermission(ctx.subject, "tag.add")).allowed;
     const r = await createThread(ctx.subject, {
       forumId: input.forumId,
       title: input.title,
       source: input.source,
       attachments: input.attachments,
+      tags: input.tags
+        .split(/[,，]/)
+        .map((t) => t.trim())
+        .filter((t) => t.length > 0),
+      canAddTags,
     });
     if (r.ok) redirect(`/t/${r.threadId}`);
     redirect(`/f/${input.forumId}/new?error=${r.code}`);

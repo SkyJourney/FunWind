@@ -23,6 +23,8 @@ export interface Profile {
   threadCount: number;
   postCount: number;
   featuredCount: number;
+  /** 粉丝数（M8） */
+  followerCount: number;
   points: number;
   /** 积分显示名（site_settings.points.name，默认“积分”，青翼导入后为“青翼币”） */
   pointsName: string;
@@ -41,6 +43,7 @@ export async function getProfile(uid: number): Promise<Profile | null> {
       threadCount: userStats.threadCount,
       postCount: userStats.postCount,
       featuredCount: userStats.featuredCount,
+      followerCount: userStats.followerCount,
       points: pointAccounts.balance,
     })
     .from(users)
@@ -58,6 +61,7 @@ export async function getProfile(uid: number): Promise<Profile | null> {
     threadCount: r.threadCount ?? 0,
     postCount: r.postCount ?? 0,
     featuredCount: r.featuredCount ?? 0,
+    followerCount: r.followerCount ?? 0,
     points: r.points ?? 0,
     pointsName: await getPointsName(),
     ban: await findActiveGlobalBan(uid),

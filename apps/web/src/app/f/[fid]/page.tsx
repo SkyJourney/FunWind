@@ -7,6 +7,10 @@ import { Pagination } from "@/components/content/pagination";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { getForumTree } from "@/lib/authz/snapshot";
 import { loadComposeAccess } from "@/lib/posting/compose-access";
+import { forumTagCloud, tagByName } from "@/lib/interact/tags";
+import { isFollowing } from "@/lib/interact/follows";
+import { FollowButton } from "@/components/interact/follow-button";
+import { getCurrentUser } from "@/lib/auth/session";
 import { getForumView } from "@/lib/queries/forums";
 import { getLatestThreads, listThreads } from "@/lib/queries/threads";
 
@@ -14,7 +18,7 @@ export const dynamic = "force-dynamic";
 
 type Params = {
   params: Promise<{ fid: string }>;
-  searchParams: Promise<{ page?: string; type?: string }>;
+  searchParams: Promise<{ page?: string; type?: string; tag?: string }>;
 };
 
 const parseFid = (raw: string): number | null => {
@@ -32,7 +36,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 export default async function ForumPage({ params, searchParams }: Params) {
   const fid = parseFid((await params).fid);
   if (!fid) notFound();
-  const { page: pageRaw, type: typeRaw } = await searchParams;
+  const { page: pageRaw, type: typeRaw, tag: tagRaw } = await searchParams;
 
   const viewer = await getCurrentSubject();
   const forum = await getForumView(viewer, fid);
@@ -40,13 +44,21 @@ export default async function ForumPage({ params, searchParams }: Params) {
   if (!forum || forum.kind === "section") notFound();
 
   const prefixId = Number(typeRaw ?? "0") || 0;
-  const [list, latest, tree, access] = await Promise.all([
-    listThreads(viewer, fid, { page: Math.max(1, Number(pageRaw ?? "1") || 1), prefixId }),
+  const tag = typeof tagRaw === "string" && tagRaw ? await tagByName(tagRaw) : null;
+  const [list, latest, tree, access, tagCloud] = await Promise.all([
+    listThreads(viewer, fid, {
+      page: Math.max(1, Number(pageRaw ?? "1") || 1),
+      prefixId,
+      tagId: tag?.id,
+    }),
     getLatestThreads(viewer, 5),
     getForumTree(),
     loadComposeAccess(viewer, fid, forum.kind),
+    forumTagCloud(fid),
   ]);
-  const basePath = `/f/${fid}${prefixId > 0 ? `?type=${prefixId}` : ""}`;
+  const user = await getCurrentUser();
+  const following = user !== null && (await isFollowing(user.id, "forum", fid));
+  const basePath = `/f/${fid}${prefixId > 0 ? `?type=${prefixId}` : ""}${tag ? `&tag=${encodeURIComponent(tag.name)}` : ""}`;
 
   return (
     <main className="mx-auto max-w-5xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
@@ -82,8 +94,40 @@ export default async function ForumPage({ params, searchParams }: Params) {
               发新主题
             </Link>
           )}
+          {user && (
+            <FollowButton
+              targetType="forum"
+              targetId={fid}
+              following={following}
+              back={`/f/${fid}`}
+            />
+          )}
         </div>
       </header>
+
+      {tagCloud.length > 0 && (
+        <nav className="flex flex-wrap gap-1.5" aria-label="标签云">
+          {tagCloud.map((t) => (
+            <Link
+              key={t.id}
+              href={`/f/${fid}?tag=${encodeURIComponent(t.name)}`}
+              className={`rounded-full border px-2.5 py-0.5 text-xs ${
+                tag?.id === t.id
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-primary"
+              }`}
+            >
+              #{t.name} <span className="opacity-70">{t.count}</span>
+            </Link>
+          ))}
+        </nav>
+      )}
+
+      {tagRaw !== undefined && !tag && (
+        <p className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">
+          没有名为「{tagRaw}」的标签。
+        </p>
+      )}
 
       {forum.prefixes.length > 0 && (
         <nav className="flex flex-wrap gap-1.5" aria-label="主题分类">

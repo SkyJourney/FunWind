@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { attachmentsField } from "@/lib/uploads/attachments-field";
 import { defineAction } from "@/lib/actions/define-action";
+import { checkPermission } from "@/lib/authz/service";
 import { deletePost, editPost, restorePost } from "@/lib/posting/mutate";
 import { locatePost, postPath } from "@/lib/queries/locate-post";
 
@@ -22,6 +23,7 @@ const editPostInput = z.object({
   expectedEditedAt: z.string().max(40).default(""),
   reason: z.string().max(1000).default(""),
   attachments: attachmentsField,
+  tags: z.string().max(500).default(""),
 });
 
 export const editPostAction = defineAction({
@@ -29,6 +31,7 @@ export const editPostAction = defineAction({
   auth: "user",
   input: editPostInput,
   async run(ctx, input) {
+    const canAddTags = (await checkPermission(ctx.subject, "tag.add")).allowed;
     const r = await editPost(ctx.subject, {
       postId: input.postId,
       source: input.source,
@@ -36,6 +39,12 @@ export const editPostAction = defineAction({
       expectedEditedAt: input.expectedEditedAt === "" ? null : input.expectedEditedAt,
       reason: input.reason,
       attachments: input.attachments,
+      tags: input.tags
+        .split(/[,，]/)
+        .map((t) => t.trim())
+        .filter((t) => t.length > 0),
+      // 新标签的创建权限归帖子作者（与门控/附件同口径；editPost 内部会按作者重估——这里取 subject 同源判断即可）
+      canAddTags,
     });
     if (!r.ok) redirect(`/p/${input.postId}/edit?error=${r.code}`);
     // 与回复相同的理由：同路径的哈希跳转会复用旧缓存，先让该主题失效

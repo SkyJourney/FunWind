@@ -39,6 +39,9 @@ export const POSTING_NOTICES: Record<string, string> = {
   inline_limit: "正文中的图片数量超过上限，请精简后再发布。",
   gate_conditions_locked: "这段门控已有人解锁，不能修改它的解锁条件。",
   gate_has_attachments: "这个门控下还挂着附件，请先处理附件再删除门控。",
+  // 标签（M8）
+  tag_denied: "新建标签需要相应权限，请从已有标签中选择。",
+  tag_too_many: "标签数量超过上限，请精简后再发布。",
 };
 
 /** 通用失败文案：未知码或不在白名单内的码统一用它，不把错误码原样显示 */

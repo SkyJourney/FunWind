@@ -12,6 +12,7 @@ import {
   type UploadedAttachment,
 } from "@/lib/gates/attachments";
 import { limitsFor } from "@/lib/limits/load";
+import { replaceThreadTags, resolveTagIds } from "@/lib/interact/tags";
 import type { ResolvedLimits } from "@/lib/limits/config";
 import { POINTS_TX_OPTIONS, isDeadlock } from "@/lib/points/retry";
 import { isDuplicateKey } from "@/lib/auth/register";
@@ -73,6 +74,8 @@ export type PostingErrorCode =
   | "file_not_owned" // 只能引用自己上传过的图片或附件
   | "attachment_gate_invalid" // 附件归属的门控不存在于本帖
   | "attachment_limit"
+  | "tag_denied" // 新建标签需要 tag.add，当前用户只能挂已有标签
+  | "tag_too_many" // 标签数量超过上限
   | "inline_limit"
   | "upload_forbidden" // 无 attachment.upload 权限却要新增图片或附件
   | "gate_conditions_locked"
@@ -209,6 +212,9 @@ export interface CreateThreadInput {
   source: string;
   /** 下载附件（表单 attachments 字段解析后的结果） */
   attachments?: readonly AttachmentInput[];
+  /** 主题标签（名称，去重由 service 完成）；新标签的创建须 canAddTags */
+  tags?: readonly string[];
+  canAddTags?: boolean;
 }
 
 export async function createThread(
@@ -298,6 +304,17 @@ export async function createThread(
         })) as unknown as [{ insertId: number }];
         const postId = Number(p.insertId);
         await tx.update(threads).set({ firstPostId: postId }).where(eq(threads.id, threadId));
+
+        // 标签（M8）：写 thread_tags；新标签须 canAddTags（tag.add）
+        if (input.tags !== undefined) {
+          const tagRes = await resolveTagIds(tx, input.tags, input.canAddTags === true);
+          if (!tagRes.ok) {
+            throw new Rollback(
+              err(tagRes.code, tagRes.code === "tag_denied" ? "无权创建新标签" : "标签数量超限"),
+            );
+          }
+          await replaceThreadTags(tx, threadId, tagRes.tagIds);
+        }
 
         const gateRes = await applyGateDrafts(tx, postId, body.gates, perms);
         if (!gateRes.ok) throw new Rollback(err("gate_permission", gateRes.error.message));
