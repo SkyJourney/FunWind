@@ -1,5 +1,5 @@
 import { and, eq, sql } from "drizzle-orm";
-import { gateUnlocks, getWebDb, postGates, siteSettings, users } from "@funwind/db";
+import { gateUnlocks, getWebDb, postGates, posts, siteSettings, threads, users } from "@funwind/db";
 import { checkPermission } from "@/lib/authz/service";
 import type { Subject } from "@/lib/authz/types";
 import { emit } from "@/modules/kernel/bus";
@@ -115,6 +115,20 @@ export async function unlockGate(
   try {
     outcome = await withDeadlockRetry(() =>
       db.transaction(async (tx): Promise<Outcome> => {
+        // 事务外的定位结果可能已过期（版主可能刚隐藏或删除了这篇帖子）。先对主题加共享锁：它会等待进行中的状态迁移
+        // （迁移持有主题排他锁），持锁后再读帖子与主题的状态，不可见则不扣费。锁序：主题 → 门控行 → 账户行，与编辑一致。
+        const [liveThread] = await tx
+          .select({ state: threads.state })
+          .from(threads)
+          .where(eq(threads.id, target.threadId))
+          .for("share");
+        const [livePost] = await tx
+          .select({ state: posts.state })
+          .from(posts)
+          .where(eq(posts.id, target.postId));
+        if (liveThread?.state !== "visible" || livePost?.state !== "visible") {
+          return { ok: false, code: "not_found" };
+        }
         // 加锁顺序固定为「门控行 → 账户行（user_id 升序）」。门控行必须一开始就拿排他锁：
         // 若先拿共享锁、最后更新 unlock_count 时再升级，同一门控的多个购买者会互相等待升级而死锁。
         // 同一门控的购买因此串行化（事务极短）；持锁期间价格也不会被改，后续按此价格结算。

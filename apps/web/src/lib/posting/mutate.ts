@@ -3,6 +3,7 @@ import { contentReviews, getWebDb, posts, threads } from "@funwind/db";
 import { writeAudit, type DbTx } from "@/lib/audit";
 import { evaluate } from "@/lib/authz/evaluator";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
+import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
 import { applyGateDrafts } from "@/lib/gates/write";
 import {
@@ -395,12 +396,14 @@ export async function editPost(
   const { forumId } = hit;
   const isModerator = evaluate(viewer, "forum.moderate", { forumId }, snap).allowed;
   const canWrite = evaluate(viewer, "forum.write", { forumId }, snap).allowed;
+  // 门控与附件的新增权限归帖子作者（docs/GATES.md）：版主替作者改帖时，不得借自己的权限给作者增加付费门控或附件
+  const author = viewer.userId === hit.authorId ? viewer : await loadSubject(hit.authorId);
   // 上传权限在事务外算出（纯内存快照），登记新附件时使用
-  const canUpload = evaluate(viewer, "attachment.upload", { forumId }, snap).allowed;
+  const canUpload = evaluate(author, "attachment.upload", { forumId }, snap).allowed;
   const limits = await limitsFor(viewer, forumId);
   const body = prepareBody(input.source, limits.bodyMax);
   if (isError(body)) return body;
-  const perms = gatePermissions(viewer, forumId, snap);
+  const perms = gatePermissions(author, forumId, snap);
   let uploads: UploadedAttachment[] = [];
 
   try {
@@ -408,7 +411,8 @@ export async function editPost(
       getWebDb().transaction(async (tx): Promise<EditOk> => {
         await lockUserStats(tx, hit.authorId);
         await lockThread(tx, hit.threadId);
-        await lockForum(tx, forumId);
+        // 纯编辑不改版块计数，不取版块锁；状态迁移（transitionContent）会自己按需取版块锁。
+        // 主题是否被移动由持主题锁后的 readTarget 判定
         const target = await readTarget(tx, hit.postId, hit.threadId, forumId);
         if (target === null) throw new Rollback(err("not_found", "帖子不存在"));
         if (target === "conflict")
@@ -447,7 +451,7 @@ export async function editPost(
         const reg = await registerSourceFiles(tx, {
           postId: hit.postId,
           authorId: hit.authorId,
-          source: input.source,
+          source: body.body,
           attachments: input.attachments,
           priorRefs: new Set(extractKeys(p.bodyMd ?? "")),
           canUpload,

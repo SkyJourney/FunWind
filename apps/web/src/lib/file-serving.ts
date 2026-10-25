@@ -107,7 +107,8 @@ export async function resolveFileAccess(viewer: Subject, key: string): Promise<F
   };
 }
 
-const notFound = () => new Response("not found", { status: 404 });
+const notFound = () =>
+  new Response("not found", { status: 404, headers: { "cache-control": "private, no-store" } });
 
 /** 构造响应头（纯函数，便于断言）。variant = 缩略图宽度（公开图片时 ETag 带宽度，与原图区分） */
 export function fileHeaders(

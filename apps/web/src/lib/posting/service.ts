@@ -238,6 +238,8 @@ export async function createThread(
   try {
     const out = await withPostingRetry(() =>
       getWebDb().transaction(async (tx): Promise<PostingOk> => {
+        // 每次尝试都从空开始：上一次被回滚的尝试不得把它的附件带进派发
+        uploads = [];
         await lockUserStats(tx, authorId);
         await lockForum(tx, forumId);
 
@@ -297,7 +299,8 @@ export async function createThread(
         const reg = await registerSourceFiles(tx, {
           postId,
           authorId,
-          source: input.source,
+          // 与拆分门控用的是同一份规范化源码（prepareBody），两者必须对同一文本得出同样的引用
+          source: body.body,
           attachments: input.attachments,
           canUpload,
         });
@@ -405,6 +408,8 @@ export async function createReply(
   try {
     const out = await withPostingRetry(() =>
       getWebDb().transaction(async (tx): Promise<PostingOk> => {
+        // 每次尝试都从空开始：上一次被回滚的尝试不得把它的附件带进派发
+        uploads = [];
         await lockUserStats(tx, authorId);
         const thread = await lockThread(tx, input.threadId);
         if (!thread) throw new Rollback(err("not_found", "主题不存在"));
@@ -491,7 +496,8 @@ export async function createReply(
         const reg = await registerSourceFiles(tx, {
           postId,
           authorId,
-          source: input.source,
+          // 与拆分门控用的是同一份规范化源码（prepareBody），两者必须对同一文本得出同样的引用
+          source: body.body,
           attachments: input.attachments,
           canUpload,
         });

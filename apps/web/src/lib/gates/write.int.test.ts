@@ -161,6 +161,16 @@ describe.skipIf(skipDb)("门控写入器 · 真实 MySQL", () => {
     expect((await byKey("a1"))?.contentUpdatedAt).toBe(stamped);
   });
 
+  it("内容更新时间：只改大小写也算隐藏正文变化（列的排序规则不区分大小写，比较须用二进制）", async () => {
+    const reply = () => draft("a2", { conditions: [{ type: "reply" }], matchMode: "any", seq: 2 });
+    expect((await save([draft("a1", { hiddenMd: "提取码 AbC1" }), reply()], ALL)).ok).toBe(true);
+    await db().execute(
+      sql`UPDATE post_gates SET content_updated_at = NULL WHERE post_id = ${POST}`,
+    );
+    expect((await save([draft("a1", { hiddenMd: "提取码 abc1" }), reply()], NONE)).ok).toBe(true);
+    expect((await byKey("a1"))?.contentUpdatedAt).toEqual(expect.any(String));
+  });
+
   it("删除：没有解锁记录时可删，hasGate 随之变化", async () => {
     expect(
       await save([

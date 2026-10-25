@@ -92,7 +92,8 @@ export async function listAttachments(
 
   for (const r of rows) {
     const view: AttachmentView =
-      r.gateId === null || open.has(r.gateId)
+      // 门控必须与附件同属一帖：关联不上（gateKey 为空）即锁定，不沿用 gate id 的开放结论
+      r.gateId === null || (r.gateKey !== null && open.has(r.gateId))
         ? {
             status: "open",
             id: r.id,
