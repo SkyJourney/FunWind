@@ -58,7 +58,11 @@ export default async function ForumPage({ params, searchParams }: Params) {
   ]);
   const user = await getCurrentUser();
   const following = user !== null && (await isFollowing(user.id, "forum", fid));
-  const basePath = `/f/${fid}${prefixId > 0 ? `?type=${prefixId}` : ""}${tag ? `&tag=${encodeURIComponent(tag.name)}` : ""}`;
+  const query = [
+    ...(prefixId > 0 ? [`type=${prefixId}`] : []),
+    ...(tag ? [`tag=${encodeURIComponent(tag.name)}`] : []),
+  ].join("&");
+  const basePath = `/f/${fid}${query ? `?${query}` : ""}`;
 
   return (
     <main className="mx-auto max-w-5xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">

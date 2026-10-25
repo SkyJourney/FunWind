@@ -1,8 +1,9 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { getNotificationTypeDecls } from "@/modules/kernel/registry";
 import { getEnabledModuleIds } from "@/modules/kernel/state";
 import { getWebDb, notificationPreferences, notifications } from "@funwind/db";
 import { nowBeijingWallTime } from "@/lib/datetime";
+import { isDuplicateKey } from "@/lib/auth/register";
 import type { DbTx } from "@/lib/audit";
 
 /**
@@ -39,7 +40,13 @@ export async function inAppEnabled(tx: DbTx, userId: number, type: string): Prom
   return row?.enabled ?? true;
 }
 
-/** 聚合更新：同 groupKey 的未读行 count 递增、created_at 刷新、actorId 换成最近触发者 */
+/**
+ * 聚合更新（M8 审查整改版）：行锁（FOR UPDATE）内 JS 合成整行——
+ * count+1、actorIds 前插最近触发者并**截断到 5 个**（此前只追加不截断，热帖 data 无限膨胀；
+ * 且 actorId 缺省分支会写 [0] 假数据）、created_at 刷新。
+ * 并发防护：唯一索引 uq_nf_open_group 兜底「双 INSERT 双行」（历史竞态产生的重复行已由迁移 0007 去重）。
+ * 返回 true 表示已聚合（无需新插）。
+ */
 async function aggregateUnread(
   tx: DbTx,
   userId: number,
@@ -47,30 +54,41 @@ async function aggregateUnread(
   groupKey: string,
   actorId: number | undefined,
 ): Promise<boolean> {
-  const result = await tx
-    .update(notifications)
-    .set({
-      actorId: actorId ?? null,
-      createdAt: nowBeijingWallTime(),
-      data: sqlPatchCountAndActor(actorId),
-    })
+  const [row] = await tx
+    .select({ id: notifications.id, data: notifications.data })
+    .from(notifications)
     .where(
       and(
         eq(notifications.userId, userId),
         eq(notifications.type, type),
         eq(notifications.groupKey, groupKey),
-        sql`${notifications.readAt} IS NULL`,
+        isNull(notifications.readAt),
       ),
-    );
-  return result[0].affectedRows > 0;
-}
-
-/** count 递增 + actorIds 追加最近触发者（保留最近 3 个） */
-function sqlPatchCountAndActor(actorId: number | undefined) {
-  const actorPatch = actorId
-    ? sql`, '$.actorIds', JSON_ARRAY_APPEND(IF(JSON_TYPE(JSON_EXTRACT(data, '$.actorIds')) = 'ARRAY', JSON_EXTRACT(data, '$.actorIds'), JSON_ARRAY()), '$', ${actorId})`
-    : sql`, '$.actorIds', JSON_ARRAY(${actorId ?? 0})`;
-  return sql`JSON_SET(data, '$.count', CAST(IFNULL(JSON_EXTRACT(data, '$.count'), 1) AS UNSIGNED) + 1${actorPatch})`;
+    )
+    .for("update")
+    .limit(1);
+  if (!row) return false;
+  const prev = (row.data ?? {}) as { count?: number; actorIds?: number[] };
+  const nextActors =
+    actorId !== undefined
+      ? [actorId, ...(Array.isArray(prev.actorIds) ? prev.actorIds : [])].slice(0, 5)
+      : Array.isArray(prev.actorIds)
+        ? prev.actorIds.slice(0, 5)
+        : [];
+  const nextData = {
+    ...prev,
+    count: (typeof prev.count === "number" ? prev.count : 1) + 1,
+    actorIds: nextActors,
+  };
+  await tx
+    .update(notifications)
+    .set({
+      actorId: actorId ?? null,
+      createdAt: nowBeijingWallTime(),
+      data: nextData,
+    })
+    .where(eq(notifications.id, row.id));
+  return true;
 }
 
 /**
@@ -91,36 +109,46 @@ export async function notify(input: NotifyInput): Promise<void> {
   const db = getWebDb();
   for (const userId of new Set(input.recipients)) {
     if (userId <= 0) continue;
-    await db.transaction(async (tx) => {
-      // mandatory 短路偏好（docs/NOTIFICATIONS.md 实现决定 3）
-      if (!decl.def.mandatory && !(await inAppEnabled(tx, userId, input.type))) return;
+    // 重试一次：并发双 INSERT 时唯一索引 uq_nf_open_group 让败者抛 duplicate key——
+    // 重跑整笔（胜者行已提交，FOR UPDATE 聚合路径命中）。（事务已回滚，重放安全）
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await db.transaction(async (tx) => {
+          // mandatory 短路偏好（docs/NOTIFICATIONS.md 实现决定 3）
+          if (!decl.def.mandatory && !(await inAppEnabled(tx, userId, input.type))) return;
 
-      if (decl.def.aggregate && input.groupKey) {
-        const updated = await aggregateUnread(
-          tx,
-          userId,
-          input.type,
-          input.groupKey,
-          input.actorId,
-        );
-        if (updated) return;
+          if (decl.def.aggregate && input.groupKey) {
+            const updated = await aggregateUnread(
+              tx,
+              userId,
+              input.type,
+              input.groupKey,
+              input.actorId,
+            );
+            if (updated) return;
+          }
+          await tx.insert(notifications).values({
+            userId,
+            category: decl.def.category,
+            type: input.type,
+            actorId: input.actorId ?? null,
+            targetType: input.targetType ?? "",
+            targetId: input.targetId ?? 0,
+            groupKey: input.groupKey ?? null,
+            data: {
+              ...(input.data ?? {}),
+              ...(decl.def.aggregate
+                ? { count: 1, actorIds: input.actorId !== undefined ? [input.actorId] : [] }
+                : {}),
+            },
+            createdAt: nowBeijingWallTime(),
+          });
+        });
+        break;
+      } catch (e) {
+        if (attempt < 3 && isDuplicateKey(e) && decl.def.aggregate && input.groupKey) continue;
+        throw e;
       }
-      await tx.insert(notifications).values({
-        userId,
-        category: decl.def.category,
-        type: input.type,
-        actorId: input.actorId ?? null,
-        targetType: input.targetType ?? "",
-        targetId: input.targetId ?? 0,
-        groupKey: input.groupKey ?? null,
-        data: {
-          ...(input.data ?? {}),
-          ...(decl.def.aggregate
-            ? { count: 1, actorIds: input.actorId ? [input.actorId] : [] }
-            : {}),
-        },
-        createdAt: nowBeijingWallTime(),
-      });
-    });
+    }
   }
 }

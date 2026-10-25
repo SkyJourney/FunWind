@@ -2,6 +2,7 @@ import { ThumbsUp } from "lucide-react";
 import { likeAction } from "@/app/actions/interact";
 import { reactorsOf, type ReactorView } from "@/lib/interact/reactions";
 import { UserBadge } from "@/components/content/user-badge";
+import { SubmitButton } from "@/components/ui/submit-button";
 
 /**
  * 点赞按钮 + 点赞者弹层（M8，纯服务端组件：<details> 折叠，无客户端 JS）。
@@ -24,20 +25,24 @@ export async function LikeButton({
   const reactors: ReactorView[] = likeCount > 0 ? await reactorsOf(postId) : [];
   return (
     <span className="flex items-center gap-2">
-      <form action={likeAction}>
+      <form action={likeAction} data-testid={`like-${postId}`}>
         <input type="hidden" name="postId" value={postId} />
         <input type="hidden" name="back" value={back} />
-        <button
-          type="submit"
+        <SubmitButton
           disabled={!canLike}
-          title={canLike ? (liked ? "取消点赞" : "点赞") : "登录后可点赞"}
           className={`inline-flex items-center gap-1 text-xs ${
             liked ? "font-medium text-primary" : "text-muted-foreground hover:text-primary"
           } disabled:cursor-not-allowed disabled:opacity-60`}
+          pendingText="…"
         >
-          <ThumbsUp className="size-3.5" />
-          {likeCount > 0 ? likeCount : "赞"}
-        </button>
+          <span
+            title={canLike ? (liked ? "取消点赞" : "点赞") : "登录后可点赞"}
+            className="inline-flex items-center gap-1"
+          >
+            <ThumbsUp className="size-3.5" />
+            {likeCount > 0 ? likeCount : "赞"}
+          </span>
+        </SubmitButton>
       </form>
       {likeCount > 0 && (
         <details className="relative">

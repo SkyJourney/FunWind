@@ -13,10 +13,11 @@ import { toggleFollow } from "@/lib/interact/follows";
  * 表单携带 back 字段（站内路径）用于 revalidate——open redirect 由 startsWith("/") 排除。
  */
 
-/** 站内回跳路径：缺失或非站内时回首页 */
+/** 站内回跳路径：缺失或非站内时回首页；剥除 query（revalidatePath 的隐式 tag 按不含 search 的路径生成） */
 const backPath = (formData: FormData): string => {
   const raw = formData.get("back");
-  return typeof raw === "string" && raw.startsWith("/") ? raw : "/";
+  if (typeof raw !== "string" || !raw.startsWith("/") || raw.startsWith("//")) return "/";
+  return raw.split("?")[0]!;
 };
 
 const likeInput = z.object({ postId: z.coerce.number().int().positive() });

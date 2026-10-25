@@ -32,7 +32,7 @@ export const notificationsModule = defineModule({
   events: {
     "thread.replied": async (p) => {
       const title = await threadTitle(p.threadId);
-      const recipients: { userId: number; type: string; groupKey: string }[] = [];
+      const recipients: { userId: number; type: string; groupKey: string; floor?: number }[] = [];
       if (p.threadAuthorId !== p.authorId) {
         recipients.push({
           userId: p.threadAuthorId,
@@ -45,10 +45,19 @@ export const notificationsModule = defineModule({
         p.replyToAuthorId !== p.authorId &&
         p.replyToAuthorId !== p.threadAuthorId
       ) {
+        // 楼层号来自被回复帖（模板占位符 {floor}）
+        const [floorRow] = p.replyToPostId
+          ? await getWebDb()
+              .select({ floor: posts.floor })
+              .from(posts)
+              .where(eq(posts.id, p.replyToPostId))
+              .limit(1)
+          : [];
         recipients.push({
           userId: p.replyToAuthorId,
           type: "post.reply_to",
           groupKey: `post:${p.replyToPostId}:replied`,
+          floor: floorRow?.floor,
         });
       }
       for (const r of recipients) {
@@ -59,7 +68,10 @@ export const notificationsModule = defineModule({
           targetType: "thread",
           targetId: p.threadId,
           groupKey: r.groupKey,
-          data: { title: title ?? "", threadId: p.threadId },
+          data:
+            r.type === "post.reply_to" && r.floor !== undefined
+              ? { floor: r.floor }
+              : { title: title ?? "", threadId: p.threadId },
         });
       }
     },

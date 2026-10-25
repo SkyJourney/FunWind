@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
-import { getWebDb, tags, threadTags, threads } from "@funwind/db";
+import { getWebDb, normalizeKey, tags, threadTags, threads } from "@funwind/db";
 import type { DbTx } from "@/lib/audit";
 
 /**
@@ -26,15 +26,16 @@ export async function resolveTagIds(
   if (cleaned.length === 0) return { ok: true, tagIds: [] };
   if (cleaned.length > MAX_TAGS_PER_THREAD) return { ok: false, code: "tag_too_many" };
 
+  // 名字匹配走与列排序规则（_ai_ci）一致的归一化口径：大小写变体命中同一标签而非误报「无权新建」
   const existing = await tx
     .select({ id: tags.id, name: tags.name })
     .from(tags)
     .where(inArray(tags.name, cleaned));
-  const byName = new Map(existing.map((t) => [t.name, t.id]));
+  const byName = new Map(existing.map((t) => [normalizeKey(t.name), t.id]));
 
   const ids: number[] = [];
   for (const name of cleaned) {
-    const known = byName.get(name);
+    const known = byName.get(normalizeKey(name));
     if (known !== undefined) {
       ids.push(known);
       continue;

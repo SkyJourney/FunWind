@@ -1,8 +1,8 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "48c8d1c8-1c47-4789-a5e5-0545d6a4f776",
-  "prevId": "77c0a3aa-b78a-4291-a0c7-263587c6dfb2",
+  "id": "b8f2c6d8-0006-4f0a-9f1e-2a6c7d8e9f0a",
+  "prevId": "48c8d1c8-1c47-4789-a5e5-0545d6a4f776",
   "tables": {
     "announcement_reads": {
       "name": "announcement_reads",

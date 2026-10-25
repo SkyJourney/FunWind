@@ -317,8 +317,11 @@ export async function createThread(
           await replaceThreadTags(tx, threadId, tagRes.tagIds);
         }
 
-        // @提及（M8）：解析公开正文，逐人登记 post.mentioned（outbox；self 已在解析层排除）
-        for (const mentionedUserId of await resolveMentionUserIds(tx, body.publicMd, authorId)) {
+        // @提及（M8）：仅 visible 发（待审内容对被提及者不可见——与 thread.replied 的状态门控同口径）；
+        // 上限 10 人（正文可携带数千 @，逐人事件+通知是炸弹面）
+        const mentionIds =
+          state === "visible" ? await resolveMentionUserIds(tx, body.publicMd, authorId) : [];
+        for (const mentionedUserId of mentionIds.slice(0, 10)) {
           enqueued.push(
             await enqueueEventInTx(
               tx,
@@ -537,8 +540,10 @@ export async function createReply(
         })) as unknown as [{ insertId: number }];
         const postId = Number(p.insertId);
 
-        // @提及（M8）：公开正文逐人登记（self 已排除）
-        for (const mentionedUserId of await resolveMentionUserIds(tx, body.publicMd, authorId)) {
+        // @提及（M8）：仅 visible 发（待审不可见）；上限 10 人
+        const replyMentionIds =
+          state === "visible" ? await resolveMentionUserIds(tx, body.publicMd, authorId) : [];
+        for (const mentionedUserId of replyMentionIds.slice(0, 10)) {
           enqueued.push(
             await enqueueEventInTx(
               tx,

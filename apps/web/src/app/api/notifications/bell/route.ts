@@ -13,22 +13,19 @@ export async function GET() {
   const user = await getCurrentUser();
   const [summary, recent] = await Promise.all([
     unreadSummary(user?.id ?? null),
-    listFeed(user?.id ?? null, { limit: 10 }),
+    listFeed(user?.id ?? null, { limit: 10, onlyUnread: true }),
   ]);
   return NextResponse.json({
     unread: summary,
-    // 面板只展示未读（已读历史在 /notifications 页）
-    recent: recent.items
-      .filter((i) => !i.read)
-      .map((i) => ({
-        kind: i.kind,
-        id: i.id,
-        category: i.category,
-        type: i.type,
-        actorName: i.actorName,
-        createdAt: i.createdAt,
-        data: i.data,
-        title: i.title,
-      })),
+    recent: recent.items.map((i) => ({
+      kind: i.kind,
+      id: i.id,
+      category: i.category,
+      type: i.type,
+      actorName: i.actorName,
+      createdAt: i.createdAt,
+      data: i.data,
+      title: i.title,
+    })),
   });
 }

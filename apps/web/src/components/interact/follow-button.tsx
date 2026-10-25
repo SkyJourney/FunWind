@@ -1,4 +1,5 @@
 import { followAction } from "@/app/actions/interact";
+import { SubmitButton } from "@/components/ui/submit-button";
 
 /**
  * 关注按钮（M8，纯服务端组件）：关注用户 / 版块 toggle。
@@ -20,16 +21,16 @@ export function FollowButton({
       <input type="hidden" name="targetType" value={targetType} />
       <input type="hidden" name="targetId" value={targetId} />
       <input type="hidden" name="back" value={back} />
-      <button
-        type="submit"
+      <SubmitButton
         className={
           following
             ? "rounded-lg border px-3 py-1 text-sm text-muted-foreground hover:text-foreground"
             : "rounded-lg bg-primary px-3 py-1 text-sm font-medium text-primary-foreground hover:bg-primary/90"
         }
+        pendingText="…"
       >
         {following ? "已关注 · 取关" : targetType === "user" ? "关注" : "加入关注"}
-      </button>
+      </SubmitButton>
     </form>
   );
 }

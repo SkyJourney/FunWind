@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { logoutAction } from "@/app/actions/auth";
 import { LogoutForm } from "@/components/auth/logout-form";
 import { NotificationBell } from "@/components/notifications/notification-bell";
+import { getEnabledModuleIds } from "@/modules/kernel/state";
 import { getCurrentUser } from "@/lib/auth/session";
 // 模块注册表求值（注册 + 封板）：任何内核调用前加载
 import "@/modules";
@@ -17,6 +18,8 @@ export const metadata: Metadata = {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const user = await getCurrentUser();
+  // 通知模块停用时铃铛不渲染（模块装卸语义；读取契约对停用模块的存量数据无意义）
+  const notificationsOn = user !== null && (await getEnabledModuleIds()).has("notifications");
 
   return (
     <html lang="zh-CN" suppressHydrationWarning>
@@ -33,9 +36,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 青翼字幕组
               </Link>
               <div className="flex items-center gap-3 text-sm">
+                <Link href="/search" className="text-muted-foreground hover:text-foreground">
+                  搜索
+                </Link>
                 {user ? (
                   <>
-                    <NotificationBell />
+                    {notificationsOn && <NotificationBell />}
                     <Link href={`/u/${user.id}`} className="font-medium hover:text-primary">
                       {user.username}
                     </Link>
@@ -44,9 +50,6 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                     </Link>
                     <Link href="/follows" className="text-muted-foreground hover:text-foreground">
                       动态
-                    </Link>
-                    <Link href="/search" className="text-muted-foreground hover:text-foreground">
-                      搜索
                     </Link>
                     <Link
                       href="/settings/avatar"

@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
@@ -587,6 +587,14 @@ export const notifications = mysqlTable(
     targetId: bigint("target_id", { mode: "number", unsigned: true }).notNull().default(0),
     /** 聚合键：同键的未读通知合并为一条；NULL = 不聚合 */
     groupKey: varchar("group_key", { length: 96 }),
+    /**
+     * 聚合防重键（M8 审查整改）：未读行的 group_key、已读行为 NULL。唯一索引 (user_id, type, open_group_key)
+     * 保证同一聚合键同时只有一行未读——并发 INSERT 双行被数据库兜底（NULL 不参与唯一，已读后新开不受限）。
+     */
+    openGroupKey: varchar("open_group_key", { length: 96 }).generatedAlwaysAs(
+      sql`IF(read_at IS NULL, group_key, NULL)`,
+      { mode: "stored" },
+    ),
     /** JSON 快照（标题摘录、积分数、理由、聚合计数与最近触发者），避免对象被删后通知变空 */
     data: json("data"),
     readAt: dt("read_at"),
@@ -597,6 +605,7 @@ export const notifications = mysqlTable(
     index("idx_nf_user_read").on(t.userId, t.readAt, t.id),
     index("idx_nf_user_category").on(t.userId, t.category, t.id),
     index("idx_nf_user_group").on(t.userId, t.groupKey, t.readAt),
+    uniqueIndex("uq_nf_open_group").on(t.userId, t.type, t.openGroupKey),
   ],
 );
 

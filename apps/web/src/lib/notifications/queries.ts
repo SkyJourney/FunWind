@@ -50,16 +50,17 @@ export async function unreadSummary(userId: number | null): Promise<UnreadSummar
       else if (r.category === "moderation") summary.moderation = n;
       else if (r.category === "account") summary.account = n;
     }
-    // 公告未读 = 有效公告数 - 已读行数（读满即 0）
+    // 公告未读 = 有效公告数 - 其中已读的行数（已读行联表有效性——过期公告的读行不抵扣新公告）
     const [valid] = await getWebDb()
       .select({ n: sql<number>`COUNT(*)` })
       .from(announcements)
       .where(validAnnouncementWhere(true));
-    const [read] = await getWebDb()
+    const [readValid] = await getWebDb()
       .select({ n: sql<number>`COUNT(*)` })
       .from(announcementReads)
-      .where(eq(announcementReads.userId, userId));
-    summary.announcement = Math.max(0, Number(valid?.n ?? 0) - Number(read?.n ?? 0));
+      .innerJoin(announcements, eq(announcements.id, announcementReads.announcementId))
+      .where(and(eq(announcementReads.userId, userId), validAnnouncementWhere(true)));
+    summary.announcement = Math.max(0, Number(valid?.n ?? 0) - Number(readValid?.n ?? 0));
   } else {
     // 游客：只有 audience=all 的公告，且无已读状态
     const [valid] = await getWebDb()
@@ -103,6 +104,8 @@ export interface ListOptions {
   /** 游标：上一页最后一项的 createdAt（严格小于取下一页） */
   before?: string;
   limit?: number;
+  /** 只取未读（铃铛面板用：避免「最新 10 条多为已读」把未读挤掉） */
+  onlyUnread?: boolean;
 }
 
 const DEFAULT_LIST_LIMIT = 20;
@@ -116,34 +119,38 @@ export async function listFeed(
   const loggedIn = userId !== null;
   const notifCategory =
     opts.category !== undefined && opts.category !== "announcement" ? opts.category : undefined;
+  // 公告 Tab 只看公告：跳过通知查询（否则全分类通知会挤占公告列表）
+  const skipNotifications = opts.category === "announcement";
 
-  const notifRows = loggedIn
-    ? await getWebDb()
-        .select({
-          id: notifications.id,
-          category: notifications.category,
-          type: notifications.type,
-          actorId: notifications.actorId,
-          actorName: users.username,
-          readAt: notifications.readAt,
-          createdAt: notifications.createdAt,
-          data: notifications.data,
-          targetType: notifications.targetType,
-          targetId: notifications.targetId,
-          groupKey: notifications.groupKey,
-        })
-        .from(notifications)
-        .leftJoin(users, eq(users.id, notifications.actorId))
-        .where(
-          and(
-            eq(notifications.userId, userId),
-            notifCategory ? eq(notifications.category, notifCategory) : undefined,
-            opts.before ? lt(notifications.createdAt, opts.before) : undefined,
-          ),
-        )
-        .orderBy(desc(notifications.createdAt), desc(notifications.id))
-        .limit(limit)
-    : [];
+  const notifRows =
+    loggedIn && !skipNotifications
+      ? await getWebDb()
+          .select({
+            id: notifications.id,
+            category: notifications.category,
+            type: notifications.type,
+            actorId: notifications.actorId,
+            actorName: users.username,
+            readAt: notifications.readAt,
+            createdAt: notifications.createdAt,
+            data: notifications.data,
+            targetType: notifications.targetType,
+            targetId: notifications.targetId,
+            groupKey: notifications.groupKey,
+          })
+          .from(notifications)
+          .leftJoin(users, eq(users.id, notifications.actorId))
+          .where(
+            and(
+              eq(notifications.userId, userId),
+              notifCategory ? eq(notifications.category, notifCategory) : undefined,
+              opts.onlyUnread ? isNull(notifications.readAt) : undefined,
+              opts.before ? lt(notifications.createdAt, opts.before) : undefined,
+            ),
+          )
+          .orderBy(desc(notifications.createdAt), desc(notifications.id))
+          .limit(limit)
+      : [];
 
   const notifItems: FeedItem[] = notifRows.map((r) => ({
     kind: "notification" as const,
@@ -160,7 +167,7 @@ export async function listFeed(
     groupKey: r.groupKey,
   }));
 
-  // 公告只在「全部」与 announcement 分类时合并
+  // 公告只在「全部」与 announcement 分类时出现
   const includeAnnouncements = !notifCategory;
   const annItems: FeedItem[] = includeAnnouncements
     ? (

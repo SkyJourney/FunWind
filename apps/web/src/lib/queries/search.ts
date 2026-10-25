@@ -1,5 +1,5 @@
 import { and, desc, eq, sql } from "drizzle-orm";
-import { getWebDb, posts, threads } from "@funwind/db";
+import { getWebDb, posts, threads, users } from "@funwind/db";
 import type { Subject } from "@/lib/authz/types";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
 import { buildViewerScope, visiblePredicate } from "./visibility";
@@ -36,9 +36,18 @@ export interface SearchResult {
   emptyQuery: boolean;
 }
 
-/** 查询清洗：去空白；ngram 对 1 字符也能建 2-gram 邻组（中文单字可命中 2-gram 词），但空串必须拦 */
+/**
+ * 查询清洗：去空白、截断 64；剥除 BOOLEAN MODE 操作符（+ - > < ( ) ~ * " @ 以及行首运算符组合）——
+ * 它们经参数化仍会被 MySQL 布尔解析器当语法（裸 @ / 不配对引号与括号直接 1064 → 页面 500，
+ * 与 ?page=2.5 的旧缺陷同类）。剥除后为空的输入按空查询处理（页面显示引导）。
+ * 注意：单字符搜索词在 ngram token=2 下无 token 可匹配，结果为空（引导文案承担）。
+ */
 export function cleanQuery(raw: string): string {
-  return raw.trim().slice(0, 64);
+  const stripped = raw
+    .replace(/[+\-><()~*"@]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return stripped.slice(0, 64);
 }
 
 const THREAD_COLS = { forumId: threads.forumId, state: threads.state, authorId: threads.authorId };
@@ -110,9 +119,12 @@ export async function searchThreads(
       state: threads.state,
       lastPostedAt: threads.lastPostedAt,
       createdAt: threads.createdAt,
+      authorName: users.username,
+      authorState: users.state,
       viaTitle: sql<boolean>`(${titleMatch})`,
     })
     .from(threads)
+    .leftJoin(users, eq(users.id, threads.authorId))
     .where(where)
     .orderBy(...orderBy)
     .limit(SEARCH_PER_PAGE)
@@ -123,8 +135,8 @@ export async function searchThreads(
     forumId: r.forumId,
     title: r.title,
     authorId: r.authorId,
-    authorName: null, // 列表行展示由 ThreadRow 的 forumName 承担主要上下文；作者名在主题页
-    authorDeleted: false,
+    authorName: r.authorName,
+    authorDeleted: r.authorState === "deleted",
     replyCount: r.replyCount,
     viewCount: r.viewCount,
     pinLevel: r.pinLevel,

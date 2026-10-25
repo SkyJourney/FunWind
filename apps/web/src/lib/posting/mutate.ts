@@ -474,9 +474,12 @@ export async function editPost(
         });
         if (!reg.ok) throw new Rollback(err(reg.code, reg.message));
         uploads = reg.uploaded;
-        // 标签（M8）：编辑即整体替换；新标签的创建须作者 tag.add（与门控/附件同口径——权限归作者）
-        if (input.tags !== undefined) {
-          const tagRes = await resolveTagIds(tx, input.tags, input.canAddTags === true);
+        // 标签（M8）：仅首帖编辑才动主题标签——回帖编辑表单不渲染标签输入，传入的 tags 一律忽略
+        //（否则空数组会把整个主题的标签清空）；新标签的创建按作者权限（与门控/附件同口径）
+        if (input.tags !== undefined && kind === "thread") {
+          // 权限归作者：版主替作者编辑时不得借自己的 tag.add（与门控/附件同一纪律；action 传入值被忽略）
+          const authorCanAddTags = evaluate(author, "tag.add", { forumId }, snap).allowed;
+          const tagRes = await resolveTagIds(tx, input.tags, authorCanAddTags);
           if (!tagRes.ok) {
             throw new Rollback(
               err(tagRes.code, tagRes.code === "tag_denied" ? "无权创建新标签" : "标签数量超限"),

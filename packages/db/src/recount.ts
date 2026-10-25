@@ -84,7 +84,7 @@ const GROUPS: RecountGroup[] = [
     key: "id",
     columns: ["like_count"],
     statements: [
-      `UPDATE posts p SET p.like_count = (SELECT COUNT(*) FROM reactions r WHERE r.post_id = p.id)`,
+      `UPDATE posts p SET p.like_count = (SELECT COUNT(*) FROM reactions r WHERE r.post_id = p.id AND r.kind = 'like')`,
     ],
   },
   {

@@ -128,7 +128,7 @@ export default async function NotificationsPage({
                         value={cat ? `/notifications?cat=${cat}` : "/notifications"}
                       />
                       <button type="submit" className="text-xs text-primary hover:underline">
-                        已读
+                        {item.kind === "announcement" ? "标记所有公告已读" : "已读"}
                       </button>
                     </form>
                   )}

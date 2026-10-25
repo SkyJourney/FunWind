@@ -130,6 +130,52 @@ describe.skipIf(skipDb)("notify 管线", () => {
     await db().delete(notifications).where(eq(notifications.userId, TEAM));
   });
 
+  it("聚合 actorIds 截断到 5（不再无限膨胀）；并发同键聚合恰好一行", async () => {
+    const gk = "post:700777:liked";
+    // 7 次同键聚合：actorIds 只保留最近 5 个触发者
+    for (const actor of [90001, 90002, 90006, 90005, 90003, 90004, 90002]) {
+      await notify({
+        type: "post.liked",
+        recipients: [ALICE],
+        actorId: actor,
+        targetType: "post",
+        targetId: 700777,
+        groupKey: gk,
+        data: {},
+      });
+    }
+    const rows = (
+      await db().select().from(notifications).where(eq(notifications.userId, ALICE))
+    ).filter((r) => r.type === "post.liked" && r.groupKey === gk);
+    expect(rows).toHaveLength(1);
+    const data = rows[0].data as { count: number; actorIds: number[] };
+    expect(data.count).toBe(7);
+    expect(data.actorIds).toHaveLength(5);
+    expect(data.actorIds[0]).toBe(90002); // 最近触发者在前
+    await db().delete(notifications).where(eq(notifications.userId, ALICE));
+
+    // 并发 8 路同键：唯一索引 + 重试兜底 → 恰一行，count=8
+    await Promise.all(
+      Array.from({ length: 8 }, (_, i) =>
+        notify({
+          type: "post.liked",
+          recipients: [ALICE],
+          actorId: 90000 + i,
+          targetType: "post",
+          targetId: 700778,
+          groupKey: "post:700778:liked",
+          data: {},
+        }),
+      ),
+    );
+    const raced = (
+      await db().select().from(notifications).where(eq(notifications.userId, ALICE))
+    ).filter((r) => r.type === "post.liked" && r.groupKey === "post:700778:liked");
+    expect(raced).toHaveLength(1);
+    expect((raced[0].data as { count: number }).count).toBe(8);
+    await db().delete(notifications).where(eq(notifications.userId, ALICE));
+  });
+
   it("未注册类型抛错（消费失败 → outbox 补派，不静默丢）", async () => {
     await expect(notify({ type: "made.up.type", recipients: [ALICE] })).rejects.toThrow(
       /未注册或停用/,
