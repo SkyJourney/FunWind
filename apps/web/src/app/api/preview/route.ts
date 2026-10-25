@@ -3,6 +3,7 @@ import { z } from "zod";
 import { rateLimit, rateLimitRefund } from "@/lib/auth/ratelimit";
 import { getCurrentUser } from "@/lib/auth/session";
 import { readBodyBytes } from "@/lib/net/read-body";
+import { isSameOrigin } from "@/lib/net/same-origin";
 import { previewHtml } from "@/lib/posting/preview";
 
 /**
@@ -28,10 +29,7 @@ function json(body: unknown, status: number): Response {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  const origin = request.headers.get("origin");
-  if (origin !== null && origin !== new URL(request.url).origin) {
-    return json({ error: "forbidden" }, 403);
-  }
+  if (!isSameOrigin(request)) return json({ error: "forbidden" }, 403);
 
   const user = await getCurrentUser();
   if (!user) return json({ error: "unauthorized" }, 401);

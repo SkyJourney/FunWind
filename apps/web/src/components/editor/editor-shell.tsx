@@ -2,10 +2,25 @@
 
 import dynamic from "next/dynamic";
 import { validateGates } from "@funwind/content";
-import { memo, useEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import {
+  memo,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ClipboardEvent,
+  type RefObject,
+} from "react";
 import { Button } from "@/components/ui/button";
 import { readDraft, removeDraft, stageDraft, stagedKey, writeDraft } from "./draft";
+import { explicitGateKeys } from "./gate-keys";
+import type { InsertApi } from "./insert-api";
 import { RichEditor } from "./rich-editor";
+import { AttachmentPanel, type AttachmentItem } from "@/components/upload/attachment-panel";
+import { CropDialog } from "@/components/upload/crop-dialog";
+import type { Box } from "@/components/upload/crop-math";
+import { ImagePicker, imageFileFromClipboard } from "@/components/upload/image-picker";
+import { uploadFile } from "@/components/upload/upload-client";
 
 /**
  * 编辑器外壳（M6.3 第 2、4、5 步）：组合所见即所得、源码模式、预览与草稿，并通过一个隐藏字段把结果交给表单。
@@ -57,6 +72,10 @@ export interface EditorShellProps {
   forceSource?: { reason: string } | null;
   /** 无障碍名称 */
   label: string;
+  /** 所在版块（上传图片与附件需要）；缺省时不显示插入图片与附件 */
+  forumId?: number;
+  /** 编辑页：本帖现有的下载附件 */
+  initialAttachments?: AttachmentItem[];
 }
 
 type Mode = "rich" | "source";
@@ -68,6 +87,8 @@ export function EditorShell({
   restoreDraft,
   forceSource,
   label,
+  forumId,
+  initialAttachments,
 }: EditorShellProps) {
   const hiddenRef = useRef<HTMLInputElement>(null);
   const currentRef = useRef(initialSource);
@@ -109,6 +130,26 @@ export function EditorShell({
   const [gateIssue, setGateIssue] = useState<string | null>(null);
   // 旧帖被编辑过：保存时会以编辑器格式写回（只在有原文且内容变化时提示）
   const [changedFromOriginal, setChangedFromOriginal] = useState(false);
+  // 插入图片与附件（M6.4d2）
+  const [gateKeys, setGateKeys] = useState<string[]>(() => explicitGateKeys(initialSource));
+  const [imagePending, setImagePending] = useState(0);
+  const [attachPending, setAttachPending] = useState(0);
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+  const [cropFile, setCropFile] = useState<File | null>(null);
+  const richApi = useRef<InsertApi | null>(null);
+  const sourceApi = useRef<InsertApi | null>(null);
+  const modeRef = useRef<Mode>(mode);
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
+  // 上传进行中禁用表单的提交按钮（按钮在外壳之外的 composer 里，经所在表单查找）
+  const busy = imagePending + attachPending;
+  useEffect(() => {
+    const form = hiddenRef.current?.form;
+    if (!form) return;
+    for (const b of form.querySelectorAll<HTMLButtonElement>('button[type="submit"]'))
+      b.disabled = busy > 0;
+  }, [busy]);
 
   // 普通进入时的草稿由 pendingDraft 提示处理（恢复或丢弃）；这里不做任何静默删除
 
@@ -118,6 +159,7 @@ export function EditorShell({
     // 实时提示只是提示：门控语法的权威判定在服务端 splitSource，保存时以它为准
     setGateIssue(validateGates(md)[0]?.message ?? null);
     setChangedFromOriginal(initialSource !== "" && md !== initialSource);
+    setGateKeys(explicitGateKeys(md));
     if (draftKey !== null) {
       if (md === initialSource) removeDraft(draftKey);
       else writeDraft(draftKey, md);
@@ -168,8 +210,53 @@ export function EditorShell({
     }
   };
 
+  // 插入图片：富文本与源码各有插入能力；输入法组合中延后到 compositionend，避免打断拼音等组合输入
+  const insertImage = (url: string) => {
+    const run = () =>
+      (modeRef.current === "rich" ? richApi.current : sourceApi.current)?.insertImage(url);
+    const current = modeRef.current === "rich" ? richApi.current : sourceApi.current;
+    if (current?.isComposing()) {
+      document.addEventListener("compositionend", run, { once: true });
+      return;
+    }
+    run();
+  };
+
+  // preNotice：本次上传开始时要显示的提示（例如 GIF 不裁剪的说明），缺省清空
+  const uploadImage = async (file: File, crop?: Box, preNotice: string | null = null) => {
+    if (forumId === undefined) return;
+    setImagePending((n) => n + 1);
+    setUploadNotice(preNotice);
+    try {
+      const r = await uploadFile({ file, purpose: "inline", forumId, crop });
+      insertImage(r.url);
+    } catch (e) {
+      setUploadNotice(e instanceof Error ? e.message : "上传失败，请稍后重试。");
+    } finally {
+      setImagePending((n) => n - 1);
+    }
+  };
+
+  const onPickImage = (file: File, wantCrop: boolean) => {
+    if (wantCrop && file.type !== "image/gif") {
+      setCropFile(file);
+      return;
+    }
+    void uploadImage(file, undefined, wantCrop ? "GIF 不支持裁剪，已直接插入。" : null);
+  };
+
+  // 粘贴截图：只拦截含图片的粘贴（捕获阶段，抢在编辑器自身的粘贴处理之前）；文本粘贴原样放行
+  const onPasteCapture = (e: ClipboardEvent<HTMLDivElement>) => {
+    if (forumId === undefined) return;
+    const file = imageFileFromClipboard(e.clipboardData);
+    if (file === null) return;
+    e.preventDefault();
+    e.stopPropagation();
+    void uploadImage(file);
+  };
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" onPasteCapture={onPasteCapture}>
       {pendingDraft !== null && (
         <div
           role="status"
@@ -231,6 +318,9 @@ export function EditorShell({
           label={label}
           onChange={sync}
           onReady={onCreated}
+          onApi={(api) => {
+            richApi.current = api;
+          }}
         />
       ) : (
         <SourceEditor
@@ -238,10 +328,42 @@ export function EditorShell({
           initialMarkdown={start}
           label={label}
           onChange={sync}
+          onApi={(api) => {
+            sourceApi.current = api;
+          }}
         />
       )}
 
       <HiddenSource name={name} initial={initialSource} inputRef={hiddenRef} />
+
+      {forumId !== undefined && (
+        <div className="space-y-3">
+          <ImagePicker disabled={imagePending > 0} onPick={onPickImage} />
+          {uploadNotice && (
+            <p role="alert" className="text-sm text-destructive">
+              {uploadNotice}
+            </p>
+          )}
+          <AttachmentPanel
+            forumId={forumId}
+            gateKeys={gateKeys}
+            initial={initialAttachments ?? []}
+            draftKey={draftKey}
+            restoreDraft={restoreDraft}
+            onPendingChange={(d) => setAttachPending((n) => n + d)}
+          />
+        </div>
+      )}
+      <CropDialog
+        file={cropFile}
+        square={false}
+        onCancel={() => setCropFile(null)}
+        onConfirm={(box) => {
+          const f = cropFile;
+          setCropFile(null);
+          if (f) void uploadImage(f, box);
+        }}
+      />
 
       {previewError && <p className="text-sm text-destructive">{previewError}</p>}
       {previewHtml !== null && (

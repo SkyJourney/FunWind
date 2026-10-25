@@ -3,6 +3,7 @@
 import { EditorContent, useEditor } from "@tiptap/react";
 import { useEffect } from "react";
 import { editorExtensions } from "./markdown/extensions";
+import type { InsertApi } from "./insert-api";
 import { EditorToolbar } from "./toolbar";
 
 /**
@@ -15,11 +16,14 @@ export function RichEditor({
   initialMarkdown,
   onChange,
   onReady,
+  onApi,
   label,
 }: {
   initialMarkdown: string;
   onChange: (markdown: string) => void;
   onReady?: (markdown: string) => void;
+  /** 编辑器创建后交出插入能力；卸载时传 null */
+  onApi?: (api: InsertApi | null) => void;
   label: string;
 }) {
   const editor = useEditor({
@@ -37,6 +41,20 @@ export function RichEditor({
     },
     onUpdate: ({ editor: e }) => onChange(e.getMarkdown()),
   });
+
+  // 插入能力：图片节点由 Image 扩展渲染，序列化为 ![](url)
+  useEffect(() => {
+    if (!editor) return;
+    onApi?.({
+      insertImage: (url: string) => {
+        editor.chain().focus().setImage({ src: url, alt: "" }).run();
+      },
+      isComposing: () => editor.view.composing,
+    });
+    return () => onApi?.(null);
+    // onApi 由外壳以 ref 的方式传入，只随编辑器实例变化
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor]);
 
   // 编辑器创建完成后把它的 Markdown 报告给外壳（草稿恢复、切换模式都依赖这一次同步）
   useEffect(() => {

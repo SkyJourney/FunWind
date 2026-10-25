@@ -352,6 +352,7 @@ export default async function ThreadPage({ params, searchParams }: Params) {
               <ReplyComposer
                 action={createReplyAction}
                 threadId={tid}
+                forumId={thread.forumId}
                 page={replies.page}
                 draftKey={draftKey(viewer.userId, "reply", tid)}
                 restore={replyCode !== undefined}

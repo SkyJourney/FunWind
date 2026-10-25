@@ -92,6 +92,8 @@ export default async function EditPostPage({ params, searchParams }: Params) {
             resubmit={model.resubmit}
             reviewNote={model.reviewNote}
             forceSource={model.forceSource}
+            forumId={model.forumId}
+            initialAttachments={model.attachments}
             draftKey={draftKey(viewer.userId, "edit", model.postId)}
             restore={error !== undefined && error !== "conflict"}
             titleMax={limits.titleMax}

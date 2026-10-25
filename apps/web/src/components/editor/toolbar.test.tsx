@@ -70,8 +70,8 @@ describe("工具栏：撤销与重做", () => {
 });
 
 describe("工具栏：占位按钮", () => {
-  it("图片按钮在本里程碑禁用（M6.4 接入）", async () => {
+  it("工具栏不含图片按钮（图片由外壳提供，见 editor-shell.test）", async () => {
     await mount();
-    expect(screen.getByRole("button", { name: "插入图片（M6.4 接入）" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /插入图片/ })).toBeNull();
   });
 });

@@ -30,3 +30,20 @@ export function nextGateKey(doc: JsonNode | undefined): string {
     if (!used.has(candidate)) return candidate;
   }
 }
+
+/**
+ * 源码中显式写出 key 的门控（M6.4d2）。附件归属下拉只列这些：未写 key 的新门控保存时才会分配 key，
+ * 此时界面上还没有可供选择的稳定身份。
+ */
+export function explicitGateKeys(markdown: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const m of markdown.matchAll(/:::gate\{[^}\n]*?\bkey="([A-Za-z0-9_-]{1,16})"/g)) {
+    const key = m[1]!;
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(key);
+    }
+  }
+  return out;
+}

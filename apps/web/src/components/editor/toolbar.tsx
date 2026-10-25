@@ -7,7 +7,7 @@ import { nextGateKey } from "./gate-keys";
 
 /**
  * 编辑器工具栏（M6.3 第 2 步）。每个按钮都是对编辑器命令的薄包装，按钮的按下状态来自编辑器当前选区。
- * 图片按钮在本里程碑只是占位（禁用），上传与插入在 M6.4 接入。
+ * 图片不在工具栏：插入图片由外壳提供（上传需要版块上下文，见 editor-shell.tsx）。
  */
 export function EditorToolbar({
   editor,
@@ -81,7 +81,6 @@ export function EditorToolbar({
           .run();
         onInsertGate?.();
       })}
-      {btn("🖼", "插入图片（M6.4 接入）", false, () => undefined, true)}
       {btn("↶", "撤销", false, () => chain().undo().run(), !state.canUndo)}
       {btn("↷", "重做", false, () => chain().redo().run(), !state.canRedo)}
     </div>

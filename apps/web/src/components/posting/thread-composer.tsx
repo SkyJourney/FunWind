@@ -72,6 +72,7 @@ export function ThreadComposer({ action, forumId, draftKey, restore, titleMax, b
           draftKey={draftKey}
           restoreDraft={restore}
           label="正文"
+          forumId={forumId}
         />
         <p className="text-xs text-muted-foreground">最多 {bodyMax} 字</p>
       </div>

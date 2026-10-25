@@ -64,6 +64,7 @@ export type PostingErrorCode =
   | "attachment_gate_invalid" // 附件归属的门控不存在于本帖
   | "attachment_limit"
   | "inline_limit"
+  | "upload_forbidden" // 无 attachment.upload 权限却要新增图片或附件
   | "gate_conditions_locked"
   | "gate_has_attachments";
 
@@ -216,6 +217,8 @@ export async function createThread(
 
   // —— 事务外：权限、限制、文本 ——
   const write = evaluate(viewer, "forum.write", { forumId }, snap);
+  // 上传权限在事务外算出（纯内存快照），登记新附件时使用
+  const canUpload = evaluate(viewer, "attachment.upload", { forumId }, snap).allowed;
   if (!write.allowed) return err("forbidden", write.reason);
   const isModerator = evaluate(viewer, "forum.moderate", { forumId }, snap).allowed;
   const limits = await limitsFor(viewer, forumId);
@@ -288,6 +291,7 @@ export async function createThread(
           authorId,
           source: input.source,
           attachments: input.attachments,
+          canUpload,
         });
         if (!reg.ok) throw new Rollback(err(reg.code, reg.message));
 
@@ -366,6 +370,8 @@ export async function createReply(
   if (!probe) return err("not_found", "主题不存在");
   const { forumId } = probe;
   const base = evaluate(viewer, "forum.write", { forumId }, snap);
+  // 上传权限在事务外算出（纯内存快照），登记新附件时使用
+  const canUpload = evaluate(viewer, "attachment.upload", { forumId }, snap).allowed;
   if (!base.allowed) return err("forbidden", base.reason);
   if (probe.isLocked) {
     const locked = evaluate(viewer, "forum.write", { forumId, threadLocked: true }, snap);
@@ -467,6 +473,7 @@ export async function createReply(
           authorId,
           source: input.source,
           attachments: input.attachments,
+          canUpload,
         });
         if (!reg.ok) throw new Rollback(err(reg.code, reg.message));
 

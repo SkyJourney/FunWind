@@ -270,6 +270,8 @@ export interface RegisterPostFilesInput {
   attachments?: readonly { fileId: number; gateKey: string | null; name: string }[];
   /** 编辑时：本帖旧正文里已有的引用。不重新校验归属（迁移来的旧图在作者编辑时不得被误拒） */
   priorRefs?: ReadonlySet<string>;
+  /** 作者在本帖所在版块是否持有 attachment.upload（事务外由授权快照算出）；新增归属（非旧引用）时必须为真 */
+  canUpload: boolean;
 }
 
 export type RegisterResult =
@@ -281,7 +283,8 @@ export type RegisterResult =
         | "file_not_owned"
         | "attachment_gate_invalid"
         | "attachment_limit"
-        | "inline_limit";
+        | "inline_limit"
+        | "upload_forbidden";
       message: string;
     };
 
@@ -355,14 +358,27 @@ export async function registerPostFiles(
     })
     .from(attachments)
     .where(eq(attachments.postId, postId));
-  const exempt = new Set<number>([
-    ...existing.map((e) => e.fileId),
-    ...priorKeys.flatMap((k) => (idByKey.has(k) ? [idByKey.get(k)!] : [])),
-  ]);
+  // 旧引用例外的边界：只豁免「该文件的全部附件行都不属于别人的帖子」的文件。
+  // 否则购买者可以把别人门控里的图片链接写进自己的旧正文，编辑时借「旧引用」把它登记成公开行（绕过门控）。
+  const priorIds = priorKeys.flatMap((k) => (idByKey.has(k) ? [idByKey.get(k)!] : []));
+  const priorForeign = new Set<number>();
+  if (priorIds.length > 0) {
+    const rows = await tx
+      .select({ fileId: attachments.fileId, authorId: posts.authorId })
+      .from(attachments)
+      .innerJoin(posts, eq(posts.id, attachments.postId))
+      .where(inArray(attachments.fileId, priorIds));
+    for (const r of rows) if (r.authorId !== authorId) priorForeign.add(r.fileId);
+  }
+  const priorExempt = priorIds.filter((id) => !priorForeign.has(id));
+  const exempt = new Set<number>([...existing.map((e) => e.fileId), ...priorExempt]);
   const toCheck = uniq([
     ...inlineKeys.filter((k) => idByKey.has(k)).map((k) => idByKey.get(k)!),
     ...attachFileIds,
   ]).filter((id) => !exempt.has(id));
+  if (toCheck.length > 0 && !input.canUpload) {
+    return { ok: false, code: "upload_forbidden", message: "你在该版块没有上传权限" };
+  }
   if (toCheck.length > 0) {
     const owned = await tx
       .select({ fileId: fileUploads.fileId })
@@ -477,6 +493,7 @@ export function registerSourceFiles(
     postId: number;
     authorId: number;
     source: string;
+    canUpload: boolean;
     attachments?: readonly AttachmentInput[];
     priorRefs?: ReadonlySet<string>;
   },
@@ -485,6 +502,7 @@ export function registerSourceFiles(
   return registerPostFiles(tx, {
     postId: input.postId,
     authorId: input.authorId,
+    canUpload: input.canUpload,
     publicRefs: refs.publicRefs,
     gateRefs: refs.gateRefs,
     attachments: input.attachments,

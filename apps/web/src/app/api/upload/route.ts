@@ -4,6 +4,7 @@ import { checkPermission } from "@/lib/authz/service";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { limitsFor } from "@/lib/limits/load";
 import { readBodyBytes } from "@/lib/net/read-body";
+import { isSameOrigin } from "@/lib/net/same-origin";
 import { getStorageDir } from "@/lib/storage";
 import { parseCropField } from "@/lib/uploads/crop";
 import { admit } from "@/lib/uploads/policy";
@@ -38,9 +39,8 @@ function json(body: unknown, status: number): Response {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  if (!isSameOrigin(request)) return json({ error: "forbidden" }, 403);
   const url = new URL(request.url);
-  const origin = request.headers.get("origin");
-  if (origin !== null && origin !== url.origin) return json({ error: "forbidden" }, 403);
 
   const subject = await getCurrentSubject();
   if (subject.userId === null) return json({ error: "unauthorized" }, 401);

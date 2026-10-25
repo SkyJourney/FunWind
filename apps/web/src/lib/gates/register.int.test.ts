@@ -61,6 +61,7 @@ const register = (opts: {
   attachments?: AttachmentInput[];
   priorRefs?: Set<string>;
   authorId?: number;
+  canUpload?: boolean;
 }) =>
   getWebDb().transaction((tx) =>
     registerSourceFiles(tx, {
@@ -69,6 +70,7 @@ const register = (opts: {
       source: opts.source,
       attachments: opts.attachments,
       priorRefs: opts.priorRefs,
+      canUpload: opts.canUpload ?? true,
     }),
   );
 
@@ -233,5 +235,48 @@ describe.skipIf(skipDb)("登记正文引用与附件（临时库）", () => {
     expect(list).toEqual([
       expect.objectContaining({ fileId: fileD.fileId, name: "编辑视图.zip", gateKey: "g1" }),
     ]);
+  });
+  it("旧引用不能认领别人受保护的文件：旧正文里的链接指向别人帖子的附件 → file_not_owned（购买者复制链接的场景）", async () => {
+    // 会员的一个帖子挂着 fileB（非门控下载行）；作者 alice 的旧正文里被写入了 fileB 的链接
+    const memberPost = 990521;
+    await getWebDb().insert(posts).values({
+      id: memberPost,
+      threadId: T,
+      floor: 9,
+      authorId: member,
+      bodyMd: "",
+      hasGate: false,
+      state: "visible",
+      createdAt: T_TIME,
+    });
+    await getWebDb().insert(attachments).values({
+      postId: memberPost,
+      gateId: null,
+      fileId: fileB.fileId,
+      uploaderId: member,
+      originalName: "b.zip",
+      kind: "download",
+      createdAt: T_TIME,
+    });
+    const r = await register({
+      source: `![b](/files/${fileB.key})`,
+      priorRefs: new Set([fileB.key]),
+    });
+    expect(r).toMatchObject({ ok: false, code: "file_not_owned" });
+  });
+
+  it("上传权限：无 attachment.upload 时，新增归属被拒（upload_forbidden）；已被本帖引用的文件仍放行", async () => {
+    const fresh = await mkFile("登记-新文件（无权上传）", alice);
+    expect(await register({ source: `![n](/files/${fresh.key})`, canUpload: false })).toMatchObject(
+      {
+        ok: false,
+        code: "upload_forbidden",
+      },
+    );
+    // fileA 先由本帖正文引用（有 inline 行）：之后即使无上传权限，保存也不应因它被拒
+    expect(await register({ source: `![a](/files/${fileA.key})` })).toEqual({ ok: true });
+    expect(await register({ source: `![a](/files/${fileA.key})`, canUpload: false })).toEqual({
+      ok: true,
+    });
   });
 });

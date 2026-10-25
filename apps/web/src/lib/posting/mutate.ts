@@ -391,6 +391,8 @@ export async function editPost(
   const { forumId } = hit;
   const isModerator = evaluate(viewer, "forum.moderate", { forumId }, snap).allowed;
   const canWrite = evaluate(viewer, "forum.write", { forumId }, snap).allowed;
+  // 上传权限在事务外算出（纯内存快照），登记新附件时使用
+  const canUpload = evaluate(viewer, "attachment.upload", { forumId }, snap).allowed;
   const limits = await limitsFor(viewer, forumId);
   const body = prepareBody(input.source, limits.bodyMax);
   if (isError(body)) return body;
@@ -443,6 +445,7 @@ export async function editPost(
           source: input.source,
           attachments: input.attachments,
           priorRefs: new Set(extractKeys(p.bodyMd ?? "")),
+          canUpload,
         });
         if (!reg.ok) throw new Rollback(err(reg.code, reg.message));
 

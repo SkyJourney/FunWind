@@ -10,6 +10,8 @@ import { EditorShell } from "@/components/editor/editor-shell";
 interface Props {
   action: (formData: FormData) => Promise<void>;
   threadId: number;
+  /** 主题所在版块：上传图片与附件的权限按版块判定 */
+  forumId: number;
   /** 表单所在的回帖页，失败后原样跳回 */
   page: number;
   draftKey: string | null;
@@ -17,7 +19,15 @@ interface Props {
   bodyMax: number;
 }
 
-export function ReplyComposer({ action, threadId, page, draftKey, restore, bodyMax }: Props) {
+export function ReplyComposer({
+  action,
+  threadId,
+  forumId,
+  page,
+  draftKey,
+  restore,
+  bodyMax,
+}: Props) {
   return (
     <form action={action} className="space-y-3">
       <input type="hidden" name="threadId" value={threadId} />
@@ -29,6 +39,7 @@ export function ReplyComposer({ action, threadId, page, draftKey, restore, bodyM
         draftKey={draftKey}
         restoreDraft={restore}
         label="回复内容"
+        forumId={forumId}
       />
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs text-muted-foreground">最多 {bodyMax} 字</p>

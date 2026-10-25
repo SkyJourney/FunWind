@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EditorShell } from "@/components/editor/editor-shell";
+import type { AttachmentItem } from "@/components/upload/attachment-panel";
 import { readDraft, removeDraft, writeDraft } from "@/components/editor/draft";
 
 /**
@@ -27,6 +28,10 @@ interface Props {
   reviewNote: string | null;
   /** 往返不等价：只能以源码编辑，并说明原因 */
   forceSource: string | null;
+  /** 所在版块（上传图片与附件） */
+  forumId: number;
+  /** 本帖现有的下载附件 */
+  initialAttachments: AttachmentItem[];
   draftKey: string | null;
   restore: boolean;
   titleMax: number;
@@ -44,6 +49,8 @@ export function EditComposer({
   resubmit,
   reviewNote,
   forceSource,
+  forumId,
+  initialAttachments,
   draftKey,
   restore,
   titleMax,
@@ -108,6 +115,8 @@ export function EditComposer({
           restoreDraft={restore}
           forceSource={forceSource === null ? null : { reason: forceSource }}
           label="正文"
+          forumId={forumId}
+          initialAttachments={initialAttachments}
         />
         <p className="text-xs text-muted-foreground">最多 {bodyMax} 字</p>
       </div>

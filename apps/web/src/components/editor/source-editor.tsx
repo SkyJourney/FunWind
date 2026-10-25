@@ -5,6 +5,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { EditorState } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { useEffect, useRef } from "react";
+import type { InsertApi } from "./insert-api";
 
 /**
  * Markdown 源码模式（M6.3 第 2 步）：CodeMirror 6。由外壳通过 next/dynamic 按需加载，只在切换到源码时下载。
@@ -13,10 +14,13 @@ import { useEffect, useRef } from "react";
 export default function SourceEditor({
   initialMarkdown,
   onChange,
+  onApi,
   label,
 }: {
   initialMarkdown: string;
   onChange: (markdown: string) => void;
+  /** 视图创建后交出插入能力；卸载时传 null */
+  onApi?: (api: InsertApi | null) => void;
   label: string;
 }) {
   const host = useRef<HTMLDivElement>(null);
@@ -25,6 +29,10 @@ export default function SourceEditor({
   useEffect(() => {
     onChangeRef.current = onChange;
   }, [onChange]);
+  const onApiRef = useRef(onApi);
+  useEffect(() => {
+    onApiRef.current = onApi;
+  }, [onApi]);
 
   useEffect(() => {
     if (!host.current) return;
@@ -50,7 +58,22 @@ export default function SourceEditor({
     });
     // 创建后立即报告一次，外壳据此同步隐藏字段（草稿恢复时文本可能与服务端给出的不同）
     onChangeRef.current(view.state.doc.toString());
-    return () => view.destroy();
+    onApiRef.current?.({
+      insertImage(url: string) {
+        const { from, to } = view.state.selection.main;
+        const text = `![](${url})`;
+        view.dispatch({
+          changes: { from, to, insert: text },
+          selection: { anchor: from + text.length },
+        });
+        view.focus();
+      },
+      isComposing: () => view.composing,
+    });
+    return () => {
+      onApiRef.current?.(null);
+      view.destroy();
+    };
     // 只在挂载时创建一次；initialMarkdown 只作为初始值
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
