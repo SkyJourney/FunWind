@@ -5,6 +5,7 @@
  */
 import { randomBytes } from "node:crypto";
 import mysql from "mysql2/promise";
+import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { bootstrapDb } from "./bootstrap.js";
 import { createDb, createPool } from "./client.js";
@@ -84,6 +85,11 @@ describe.skipIf(skip)("孤儿文件巡检（临时库）", () => {
       });
       // 上传记录不算引用：文件 1 有一条上传记录，仍是孤儿
       await db.insert(fileUploads).values({ userId: 1, fileId: 1, sizeBytes: 11, createdAt: OLD });
+      // 去重命中：文件 7 创建于很久以前，但刚被别人重新上传（files.created_at 不更新）→ 宽限期内，不是孤儿
+      await db.insert(files).values(mk(7, OLD));
+      await db
+        .insert(fileUploads)
+        .values({ userId: 2, fileId: 7, sizeBytes: 17, createdAt: sql`NOW()` });
 
       const orphans = await findOrphanFiles(pool);
       expect(orphans.map((o) => o.id)).toEqual([1]); // 文件 6 只在正文中出现，不算孤儿

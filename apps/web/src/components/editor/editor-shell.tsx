@@ -110,10 +110,12 @@ export function EditorShell({
   // 普通进入时若存在与原文不同的草稿：不静默覆盖，而是提示作者选择恢复或丢弃（§6）。
   // 草稿只在浏览器里：用 useSyncExternalStore 读取，服务端快照固定为 null，
   // 避免服务端渲染（无提示）与客户端首次渲染不一致而水合失败。
+  // 本次访问一旦由编辑器写过草稿，就不再把它当作「进入时已有的草稿」：否则作者自己的输入会反过来触发提示
+  const wroteRef = useRef(false);
   const savedDraft = useSyncExternalStore(
     subscribeNothing,
     () => {
-      if (restoreDraft || draftKey === null) return null;
+      if (restoreDraft || draftKey === null || wroteRef.current) return null;
       const saved = readDraft(draftKey);
       return saved !== null && saved !== initialSource ? saved : null;
     },
@@ -160,9 +162,13 @@ export function EditorShell({
     setGateIssue(validateGates(md)[0]?.message ?? null);
     setChangedFromOriginal(initialSource !== "" && md !== initialSource);
     setGateKeys(explicitGateKeys(md));
-    if (draftKey !== null) {
+    // 草稿提示尚未处理（恢复或丢弃）时，不覆盖已有的草稿：编辑只改编辑器内容，草稿留给作者决定
+    if (draftKey !== null && pendingDraft === null) {
       if (md === initialSource) removeDraft(draftKey);
-      else writeDraft(draftKey, md);
+      else {
+        writeDraft(draftKey, md);
+        wroteRef.current = true;
+      }
     }
   };
 

@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { getWebDb, posts, threads } from "@funwind/db";
 import { splitSource, type GateDraft } from "@funwind/content";
 import { type DbTx } from "@/lib/audit";
@@ -239,10 +239,10 @@ export async function createThread(
     const out = await withPostingRetry(() =>
       getWebDb().transaction(async (tx): Promise<PostingOk> => {
         await lockUserStats(tx, authorId);
-        await enforceFrequency(tx, authorId, limits, true);
         await lockForum(tx, forumId);
 
-        // 幂等：同作者、同版块、同标题、同正文，窗口内已存在 → 返回它
+        // 幂等先于频控：双击 / 重试的第二次请求应得到已创建的主题，而不是「发帖太频繁」。
+        // 只认仍然有效（可见 / 待审）的主题：作者自删后的同内容新帖不是重复
         const [dup] = await tx
           .select({ threadId: threads.id, postId: threads.firstPostId, state: threads.state })
           .from(threads)
@@ -253,6 +253,7 @@ export async function createThread(
               eq(threads.forumId, forumId),
               eq(threads.title, title.value),
               eq(posts.bodyMd, body.publicMd),
+              inArray(threads.state, ["visible", "pending"]),
               gte(threads.createdAt, sql`NOW() - INTERVAL ${IDEMPOTENCY_WINDOW_SEC} SECOND`),
             ),
           )
@@ -267,6 +268,8 @@ export async function createThread(
             duplicate: true,
           };
         }
+
+        await enforceFrequency(tx, authorId, limits, true);
 
         const [t] = (await tx.insert(threads).values({
           forumId,
@@ -403,7 +406,6 @@ export async function createReply(
     const out = await withPostingRetry(() =>
       getWebDb().transaction(async (tx): Promise<PostingOk> => {
         await lockUserStats(tx, authorId);
-        await enforceFrequency(tx, authorId, limits, false);
         const thread = await lockThread(tx, input.threadId);
         if (!thread) throw new Rollback(err("not_found", "主题不存在"));
         // 事务外的判断（权限、审核策略、门控权限）都是按 probe.forumId 算的；锁后版块变了则这些结论全部过期，必须拒绝
@@ -436,6 +438,8 @@ export async function createReply(
               eq(posts.threadId, thread.id),
               eq(posts.authorId, authorId),
               eq(posts.bodyMd, body.publicMd),
+              // 只认仍然有效的回帖：作者自删后的同内容回复不是重复
+              inArray(posts.state, ["visible", "pending"]),
               gte(posts.createdAt, sql`NOW() - INTERVAL ${IDEMPOTENCY_WINDOW_SEC} SECOND`),
             ),
           )
@@ -450,6 +454,9 @@ export async function createReply(
             duplicate: true,
           };
         }
+
+        // 频控在幂等之后：重复的请求已在上面返回，这里只拦真正的新回复
+        await enforceFrequency(tx, authorId, limits, false);
 
         if (replyTo !== null) {
           const [target] = await tx

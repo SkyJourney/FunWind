@@ -383,6 +383,78 @@ describe.skipIf(skipDb)("发主题与回帖 · 真实 MySQL", () => {
     expect(r2).toMatchObject({ ok: true, duplicate: true });
   });
 
+  it("频控下的双击：间隔内第二次提交仍返回已有的主题，而不是「发帖太频繁」；换内容则仍被间隔拦下", async () => {
+    // 先以间隔 0 发出首帖（同一作者在前面的用例里刚发过帖），再收紧间隔模拟「双击落在间隔之内」
+    await setLimits();
+    const first = await createThread(
+      member,
+      { forumId: FORUM, title: "频控双击主题", source: "首帖正文" },
+      deps,
+    );
+    await setLimits({ postIntervalSec: 60 });
+    try {
+      const again = await createThread(
+        member,
+        { forumId: FORUM, title: "频控双击主题", source: "首帖正文" },
+        deps,
+      );
+      expect(first).toMatchObject({ ok: true, duplicate: false });
+      expect(again).toMatchObject({ ok: true, duplicate: true });
+      if (first.ok && again.ok) expect(again.threadId).toBe(first.threadId);
+      // 对照：同一作者换一个不同的主题，间隔内必须被拦下
+      expect(
+        await createThread(
+          member,
+          { forumId: FORUM, title: "频控另一主题", source: "另一正文" },
+          deps,
+        ),
+      ).toMatchObject({ ok: false, code: "too_frequent" });
+    } finally {
+      await setLimits();
+    }
+  });
+
+  it("频控下的双击（回帖）：间隔内同一条回复第二次提交返回已有的回复；换内容则被拦下", async () => {
+    await setLimits();
+    const t = await createThread(member, { forumId: FORUM, title: "频控回帖双击", source: "首帖" });
+    if (!t.ok) throw new Error("准备失败");
+    const r1 = await createReply(xiaoyi, { threadId: t.threadId, source: "频控同一条回复" }, deps);
+    expect(r1).toMatchObject({ ok: true, duplicate: false });
+    await setLimits({ postIntervalSec: 60 });
+    try {
+      expect(
+        await createReply(xiaoyi, { threadId: t.threadId, source: "频控同一条回复" }, deps),
+      ).toMatchObject({ ok: true, duplicate: true });
+      expect(
+        await createReply(xiaoyi, { threadId: t.threadId, source: "频控另一条回复" }, deps),
+      ).toMatchObject({ ok: false, code: "too_frequent" });
+    } finally {
+      await setLimits();
+    }
+  });
+
+  it("作者自删后，同标题同正文的新主题不算重复（已删除的记录不参与幂等）", async () => {
+    await setLimits();
+    const a = await createThread(
+      member,
+      { forumId: FORUM, title: "自删后重发", source: "同正文" },
+      deps,
+    );
+    if (!a.ok) throw new Error("准备失败");
+    await db().transaction(
+      (tx) =>
+        transitionContent(tx as unknown as DbTx, a.postId, "deleted", { actorId: DEMO.member }),
+      POINTS_TX_OPTIONS,
+    );
+    const b = await createThread(
+      member,
+      { forumId: FORUM, title: "自删后重发", source: "同正文" },
+      deps,
+    );
+    expect(b).toMatchObject({ ok: true, duplicate: false });
+    if (b.ok) expect(b.threadId).not.toBe(a.threadId);
+  });
+
   it("并发双击：同一条回帖同时提交两次 → 恰好一条写入，另一次返回重复", async () => {
     const t = await createThread(member, { forumId: FORUM, title: "并发双击", source: "首帖" });
     if (!t.ok) throw new Error("准备失败");

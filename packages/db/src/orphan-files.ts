@@ -20,6 +20,11 @@ export async function findOrphanFiles(pool: Pool): Promise<OrphanFile[]> {
     `SELECT f.id, f.storage_key AS storageKey, f.size_bytes AS sizeBytes, f.created_at AS createdAt
        FROM files f
       WHERE f.created_at < NOW() - INTERVAL ${ORPHAN_GRACE_HOURS} HOUR
+        -- 去重命中不更新 files.created_at：宽限期须同时看最近一次上传记录，否则别人刚上传的旧文件会被误报
+        AND NOT EXISTS (
+          SELECT 1 FROM file_uploads u
+           WHERE u.file_id = f.id AND u.created_at >= NOW() - INTERVAL ${ORPHAN_GRACE_HOURS} HOUR
+        )
         AND NOT EXISTS (SELECT 1 FROM attachments a WHERE a.file_id = f.id)
         AND NOT EXISTS (SELECT 1 FROM user_profiles p WHERE p.avatar_file_id = f.id)
         AND NOT EXISTS (SELECT 1 FROM badges b WHERE b.icon_file_id = f.id)

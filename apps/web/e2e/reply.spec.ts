@@ -115,6 +115,39 @@ test.describe("快速回复", () => {
     expect(pageErrors.filter((m) => m.includes("Hydration"))).toEqual([]);
   });
 
+  test("草稿：提示出现后作者开始输入，提示保持可见，已有草稿不被覆盖；丢弃后提示消失", async ({
+    page,
+    context,
+  }) => {
+    await loginAs(context, USERS.alice);
+    await page.goto(`/t/${OPEN}`);
+    const key = `funwind:draft:${USERS.alice}:reply:${OPEN}`;
+    const draft = `E2E 待决定的草稿 ${Date.now()}`;
+    await page.evaluate(([k, v]) => window.localStorage.setItem(k, v), [key, draft]);
+    await page.reload();
+    await expect(page.getByRole("status")).toContainText("发现一份未发送的草稿。");
+
+    // 作者没有做选择就开始输入：提示不消失，草稿原样保留
+    await fillBody(page, "新输入的正文");
+    await expect(page.getByRole("status")).toContainText("发现一份未发送的草稿。");
+    expect(await page.evaluate((k) => window.localStorage.getItem(k), key)).toBe(draft);
+
+    await page.getByRole("button", { name: "丢弃" }).click();
+    await expect(page.getByRole("status")).toHaveCount(0);
+    expect(await page.evaluate((k) => window.localStorage.getItem(k), key)).toBeNull();
+  });
+
+  test("无草稿：输入正文不会凭空弹出草稿提示（编辑器自己的写入不算「已有草稿」）", async ({
+    page,
+    context,
+  }) => {
+    await loginAs(context, USERS.alice);
+    await page.goto(`/t/${OPEN}`);
+    await fillBody(page, `E2E 无草稿输入 ${Date.now()}`);
+    await expect(bodyEditor(page)).toContainText("E2E 无草稿输入");
+    await expect(page.getByRole("status")).toHaveCount(0);
+  });
+
   test("回帖成功后草稿不残留：再次进入不提示恢复（提交时已暂存，成功后主键为空）", async ({
     page,
     context,
