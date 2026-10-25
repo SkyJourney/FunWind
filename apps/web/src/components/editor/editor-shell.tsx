@@ -96,11 +96,16 @@ export function EditorShell({
   const hiddenRef = useRef<HTMLInputElement>(null);
   const currentRef = useRef(initialSource);
 
-  // 起点：失败跳回时用提交前暂存的正文（见 stageDraft），否则用服务端原文。只在挂载时计算
-  const [start, setStart] = useState(
-    () =>
-      (restoreDraft && draftKey !== null ? readDraft(stagedKey(draftKey)) : null) ?? initialSource,
+  // 起点：失败跳回时用提交前暂存的正文（见 stageDraft），否则用服务端原文。
+  // 浏览器存储经 useSyncExternalStore 读取（服务端快照为空），不在 useState 初始化里读 localStorage，避免水合不一致；
+  // 本地状态只保存之后的覆盖值（切换模式、接受草稿）
+  const stagedStart = useSyncExternalStore(
+    subscribeNothing,
+    () => (restoreDraft && draftKey !== null ? readDraft(stagedKey(draftKey)) : null),
+    () => null,
   );
+  const [startOverride, setStart] = useState<string | null>(null);
+  const start = startOverride ?? stagedStart ?? initialSource;
 
   // 提交即暂存草稿：监听所在表单的 submit，不改动各 composer 的提交逻辑
   useEffect(() => {
