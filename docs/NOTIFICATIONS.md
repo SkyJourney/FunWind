@@ -97,6 +97,7 @@ flowchart LR
 | `thread.featured` / `thread.pinned` | 被加精 / 置顶（正向，**可关闭**） | 主题作者 |
 | `account.restricted` / `account.restriction_lifted` | 被禁言、禁头像、封禁及解除（含类型、时长、理由） | 当事人 |
 | `account.role_changed` | 成为版主/团队成员或被撤销 | 当事人 |
+| `report.resolved` | 举报被处理（带处理说明） | 举报人 |
 
 ### 账号与安全
 

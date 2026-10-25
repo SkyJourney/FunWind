@@ -313,6 +313,8 @@ export const posts = mysqlTable(
     primaryKey({ columns: [t.id] }),
     uniqueIndex("uq_posts_thread_floor").on(t.threadId, t.floor),
     index("idx_posts_author_created").on(t.authorId, t.createdAt),
+    // 审核队列（M9）：按状态取 pending（join threads 取版块）
+    index("idx_posts_state_created").on(t.state, t.createdAt),
     index("idx_posts_reply_to").on(t.replyToPostId),
   ],
 );
@@ -598,10 +600,16 @@ export const notifications = mysqlTable(
     /** JSON 快照（标题摘录、积分数、理由、聚合计数与最近触发者），避免对象被删后通知变空 */
     data: json("data"),
     readAt: dt("read_at"),
+    /**
+     * 幂等键（M8 审查挂账兑现）：非聚合通知携带业务幂等键（如 `mod:{postId}:reject:{userId}`）后，
+     * at-least-once 重放撞唯一索引跳过——通知不再重复入行。NULL = 不参与幂等（聚合/无业务键场景）。
+     */
+    dedupKey: varchar("dedup_key", { length: 96 }),
     createdAt: dt("created_at").notNull(),
   },
   (t) => [
     primaryKey({ columns: [t.id] }),
+    uniqueIndex("uq_nf_dedup").on(t.dedupKey),
     index("idx_nf_user_read").on(t.userId, t.readAt, t.id),
     index("idx_nf_user_category").on(t.userId, t.category, t.id),
     index("idx_nf_user_group").on(t.userId, t.groupKey, t.readAt),
@@ -736,6 +744,33 @@ export const userBadges = mysqlTable(
     expiresAt: dt("expires_at"),
   },
   (t) => [primaryKey({ columns: [t.userId, t.badgeId] }), index("idx_ub_badge").on(t.badgeId)],
+);
+
+/**
+ * 举报队列（M9 新增，docs/milestones/M9-admin.md §3）：前台举报入口写入，后台处理。
+ * 唯一键 (post_id, reporter_id) = 同人同帖只报一次（幂等）；处理后新违规走新帖。
+ * 旧举报数据（2 行）不迁。
+ */
+export const reports = mysqlTable(
+  "reports",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    postId: int("post_id", { unsigned: true }).notNull(),
+    reporterId: int("reporter_id", { unsigned: true }).notNull(),
+    /** 举报理由（举报人填写） */
+    reason: varchar("reason", { length: 255 }).notNull().default(""),
+    status: mysqlEnum("status", ["pending", "resolved", "dismissed"]).notNull().default("pending"),
+    handledBy: int("handled_by", { unsigned: true }),
+    /** 处理说明（回给举报人的反馈） */
+    handledNote: varchar("handled_note", { length: 255 }),
+    createdAt: dt("created_at").notNull(),
+    handledAt: dt("handled_at"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    uniqueIndex("uq_reports_post_reporter").on(t.postId, t.reporterId),
+    index("idx_reports_status").on(t.status, t.createdAt),
+  ],
 );
 
 // ============================================================

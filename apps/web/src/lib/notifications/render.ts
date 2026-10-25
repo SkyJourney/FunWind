@@ -176,6 +176,13 @@ export const NOTIFICATION_TYPE_SPECS: NotificationTypeSpec[] = [
     mandatory: true,
     template: "你的角色发生了变化",
   },
+  {
+    key: "report.resolved",
+    category: "moderation",
+    aggregate: false,
+    mandatory: false,
+    template: "你的举报已处理：{note}",
+  },
   // ---- 账号与安全 ----
   {
     key: "security.password_changed",

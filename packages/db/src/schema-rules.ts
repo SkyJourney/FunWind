@@ -24,6 +24,8 @@ export interface RuleViolation {
 export const NULLABLE_UNIQUE_ALLOWLIST = new Set([
   "users.email_key",
   "notifications.open_group_key",
+  // dedup_key：NULL = 不参与幂等（MySQL 唯一键不去重 NULL 正是所需语义；M8 审查挂账兑现，迁移 0008）
+  "notifications.dedup_key",
 ]);
 
 /** 业务表禁止出现的归档列（旧行 JSON / 原始 UBB 正文双写已于 M5.5 取消） */

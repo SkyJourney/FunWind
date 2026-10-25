@@ -13,7 +13,7 @@ import { checkSchemaRules, collectTables, NULLABLE_UNIQUE_ALLOWLIST } from "./sc
 
 describe("schema 结构规则（真实 schema）", () => {
   it("共 45 张表", () => {
-    expect(collectTables(schema)).toHaveLength(45);
+    expect(collectTables(schema)).toHaveLength(46);
   });
 
   it("运行时 schema 没有任何旧站痕迹（无 legacy_* / migration_* / migrated 枚举）", () => {
@@ -24,10 +24,11 @@ describe("schema 结构规则（真实 schema）", () => {
     expect(checkSchemaRules(schema)).toEqual([]);
   });
 
-  it("可空唯一列白名单精确枚举（email_key 单列键；open_group_key 是生成列语义例外）", () => {
+  it("可空唯一列白名单精确枚举（email_key 单列键；open_group_key/dedup_key 是 NULL 语义例外）", () => {
     expect([...NULLABLE_UNIQUE_ALLOWLIST]).toEqual([
       "users.email_key",
       "notifications.open_group_key",
+      "notifications.dedup_key",
     ]);
   });
 });

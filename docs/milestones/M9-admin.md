@@ -1,7 +1,20 @@
 # M9 · 管理后台与站点框架
 
 - 阶段：三·完善 ｜ 覆盖模块：M10 / M11 / M13 ｜ 依赖：M5.5（`audit_log`、`user_restrictions`、`ForumTree`）+ M7/M8
-- 状态：⬜ 未开始
+- 状态：🚧 2026-10-26 开工
+
+> **开工拍板（2026-10-26 站长，探查后）**：
+> 1. **approve 补发事件**（内核契约 `types.ts` 注释的兑现）：审核通过时除 `content.moderated(approve)` 外
+>    补发 `thread.created` / `thread.replied`（pending 路径此前只发过 `content.submitted`——积分奖励据此到位；
+>    幂等键 `thread:{id}` 兜底，无双发窗口）。
+> 2. **举报幂等口径**：`reports` 唯一键 `(post_id, reporter_id)`——同一用户对同一帖只可举报一次，
+>    重复提交提示「已举报」；处理后的新违规走新帖。
+> 3. **通知 dedup 幂等**（M8 审查挂账兑现）：`notifications.dedup_key` 可空唯一列，非聚合通知携带
+>    dedupKey 后 at-least-once 重放不再重复入行；聚合类型（review.pending）不适用 dedup，接受重放
+>    count 虚增 1 的极小概率（爆炸半径=铃铛数字），留档。
+> 4. **回收站**：`admin.recycle` 权限点启用为审核页的「已删隐内容」tab（恢复复用既有 restorePost），
+>    不做独立页面。
+> 5. **公告管理权限**：用 `site.admin` 总门（唯一管理员操作，不新增权限点；M10 站点框架细化时再议）。
 
 ## 目标
 
