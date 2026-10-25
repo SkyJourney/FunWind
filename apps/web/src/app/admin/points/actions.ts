@@ -7,7 +7,7 @@ import { AdminError } from "@/lib/authz/admin";
 import { defineAction } from "@/lib/actions/define-action";
 import { setSetting } from "@/lib/auth/settings";
 import { adjustPointsByAdmin } from "@/lib/points/adjust";
-import { findUserIdByName } from "@/lib/points/ledger";
+import { findUserIdByName } from "@/lib/queries/users";
 import {
   InsufficientPointsError,
   InvalidDeltaError,

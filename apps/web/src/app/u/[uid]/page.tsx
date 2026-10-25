@@ -4,6 +4,7 @@ import { RichContent } from "@/components/content/rich-content";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Slot } from "@/modules/kernel/slot";
 import { fileUrl } from "@/lib/files";
 import { getProfile } from "@/lib/queries/users";
 
@@ -63,6 +64,8 @@ export default async function ProfilePage({ params }: { params: Promise<{ uid: s
           </div>
         </CardContent>
       </Card>
+
+      <Slot name="profile.header" ctx={{ userId: uid }} />
 
       {profile.signatureMd && (
         <Card>

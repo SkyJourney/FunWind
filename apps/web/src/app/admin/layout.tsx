@@ -22,6 +22,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <Link href="/admin/points" className="hover:text-primary">
             积分
           </Link>
+          <Link href="/admin/badges" className="hover:text-primary">
+            徽章
+          </Link>
           <Link href="/" className="text-muted-foreground hover:text-primary">
             ← 返回社区
           </Link>

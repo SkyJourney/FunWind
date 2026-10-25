@@ -23,6 +23,8 @@ export interface EnqueuedEvent {
   payload: EventPayloads[EventName];
   /** 业务来源（event_log 语义沿用 enqueue 时的声明，如 "posting"） */
   source: string | null;
+  /** 动作发起者（透传给 emit 的 deps.actorId，优先于 payload 字段映射） */
+  actorId: number | null;
 }
 
 /** 补派/派发的 emitter 形态（与内核 emit 同签名，测试可注入收集器） */
@@ -31,8 +33,7 @@ export type OutboxEmitter = <K extends EventName>(
   payload: EventPayloads[K],
 ) => Promise<unknown>;
 
-const defaultEmitter: OutboxEmitter = (name, payload) =>
-  emit(name, payload, { source: "outbox" }); /**
+/**
  * 业务事务内登记事件：与业务数据同事务提交/回滚——提交成功则事件必在 outbox（不丢），
  * 回滚则登记一并消失（不发不存在的事件）。登记时即校验事件名与必填载荷（编程错误在写入期暴露）。
  */
@@ -52,7 +53,13 @@ export async function enqueueEventInTx(
     source: opts.source ?? null,
     createdAt: nowBeijingWallTime(),
   })) as unknown as [{ insertId: number }]; // insertId 只有 id 一列被用到；drizzle 的 mysql 返回形状收口与 points/apply.ts 同法
-  return { id: Number(row.insertId), name, payload, source: opts.source ?? null };
+  return {
+    id: Number(row.insertId),
+    name,
+    payload,
+    source: opts.source ?? null,
+    actorId: opts.actorId ?? null,
+  };
 }
 
 /**
@@ -66,7 +73,12 @@ export async function dispatchOutboxRows(
   for (const row of rows) {
     // 快路径沿用入队时声明的业务来源；deps.emitter 是测试/调用方注入
     const emitFn: OutboxEmitter =
-      deps.emitter ?? ((name, payload) => emit(name, payload, { source: row.source ?? "outbox" }));
+      deps.emitter ??
+      ((name, payload) =>
+        emit(name, payload, {
+          source: row.source ?? "outbox",
+          actorId: row.actorId ?? undefined,
+        }));
     try {
       await emitFn(row.name, row.payload as never);
     } catch (e) {
@@ -142,7 +154,16 @@ export async function drainOutbox(
       continue;
     }
     try {
-      await (deps.emitter ?? defaultEmitter)(name, row.payload as never);
+      // 补派：source="outbox" 标记重放；actorId 用入队时的动作发起者（payload 映射仅在缺省时兜底）。
+      // 注入 emitter（测试/收集器）时不写 event_log，语义由注入方负责
+      if (deps.emitter) {
+        await deps.emitter(name, row.payload as never);
+      } else {
+        await emit(name, row.payload as never, {
+          source: "outbox",
+          actorId: row.actorId ?? undefined,
+        });
+      }
       dispatched++;
     } catch (e) {
       await recordDispatchError(row.id, e);

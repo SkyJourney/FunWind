@@ -70,16 +70,20 @@ M9 后由管理后台管理）。
 | `badge.awarded` | `{ userId, badgeId }` | M7 徽章（原 `medal.awarded`） |
 | `checkin.done` | `{ userId, streak }` | M7 签到 |
 
-## 槽位清单（M2 启用 home.*；页面级随 M3 扩充）
+## 槽位清单（M2 启用 home.*；页面级随页面建设扩充）
 
 | 槽位 | 宿主页面 | 状态 |
 |------|----------|------|
-| `home.after-header` | 首页 header 之后 | ✅ M2 |
+| `home.after-header` | 首页 header 之后 | ✅ M2（✅ M7 签到条） |
 | `home.footer-notice` | 首页 footer 之前 | ✅ M2 |
-| `thread.sidebar` / `thread.after-content` | 帖子详情 | 预留（M3） |
-| `forum.header` | 版块页 | 预留（M3） |
-| `profile.tab` | 个人资料页 | 预留（M4+） |
-| `nav.right` | 顶部导航右侧 | 预留（M3） |
+| `thread.sidebar` / `thread.after-content` | 帖子详情 | 预留 |
+| `forum.header` | 版块页 | 预留 |
+| `profile.header` | 个人资料页（头像卡之后），ctx.userId=资料页主人 | ✅ M7（徽章卡） |
+| `thread.user-badge` | 帖子页作者行（UserBadge 内），ctx.userId=楼层作者 | ✅ M7（荣誉徽章位） |
+| `nav.right` | 顶部导航右侧 | 预留 |
+
+`SlotContext`（M7 扩展）：`pathname?` / `userId?`（profile.header=资料页主人；thread.user-badge=楼层作者）。
+扩展槽位/上下文 = 修改 kernel/types.ts 并更新本表（与事件清单同纪律）。
 
 ## 语义与边界
 

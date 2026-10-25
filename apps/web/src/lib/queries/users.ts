@@ -1,5 +1,14 @@
 import { and, eq } from "drizzle-orm";
-import { files, getWebDb, pointAccounts, userProfiles, userStats, users } from "@funwind/db";
+import { cache } from "react";
+import {
+  files,
+  getWebDb,
+  normalizeKey,
+  pointAccounts,
+  userProfiles,
+  userStats,
+  users,
+} from "@funwind/db";
 import { findActiveGlobalBan } from "@/lib/authz/restrictions";
 import { getPointsName } from "@/lib/auth/settings";
 
@@ -54,3 +63,27 @@ export async function getProfile(uid: number): Promise<Profile | null> {
     ban: await findActiveGlobalBan(uid),
   };
 }
+
+/**
+ * 用户名 → 用户 id（管理动作按用户名定位；身份口径与登录一致：归一化键 username_key）。
+ * 已注销（state≠active）账号不算命中；找不到返回 null。
+ */
+export async function findUserIdByName(username: string): Promise<number | null> {
+  const [row] = await getWebDb()
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.usernameKey, normalizeKey(username)), eq(users.state, "active")))
+    .limit(1);
+  return row?.id ?? null;
+}
+
+/** 头像存储键（请求级缓存：帖子页作者行最多 21 个作者，同一作者只查一次） */
+export const avatarKeyOf = cache(async (userId: number): Promise<string | null> => {
+  const [row] = await getWebDb()
+    .select({ key: files.storageKey })
+    .from(userProfiles)
+    .innerJoin(files, eq(files.id, userProfiles.avatarFileId))
+    .where(eq(userProfiles.userId, userId))
+    .limit(1);
+  return row?.key ?? null;
+});

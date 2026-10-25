@@ -122,12 +122,15 @@ export type EventConsumer<K extends EventName = EventName> = (
 ) => void | Promise<void>;
 
 // ---------- 槽位清单（M2 仅启用 home.*；页面级槽位随 M3 建页扩充） ----------
-// 预留（M3+ 启用）：thread.sidebar / thread.after-content / forum.header / profile.tab / nav.right
-export type SlotName = "home.after-header" | "home.footer-notice";
+// M7 新增：profile.header（资料页徽章卡）/ thread.user-badge（帖子页作者行的荣誉徽章位）——docs/MODULES.md 留档
+export type SlotName =
+  "home.after-header" | "home.footer-notice" | "profile.header" | "thread.user-badge";
 
-/** 槽位渲染上下文：最小起步，M3 随页面语义扩展（threadId/forumId/user 等） */
+/** 槽位渲染上下文：最小起步，M3 随页面语义扩展（threadId/forumId/user 等）。M7 扩 userId */
 export interface SlotContext {
   pathname?: string;
+  /** 目标用户 id（profile.header = 资料页主人；thread.user-badge = 楼层作者） */
+  userId?: number;
 }
 
 export type SlotRenderer = (ctx: SlotContext) => Promise<ReactNode> | ReactNode;

@@ -20,7 +20,7 @@ import { emit } from "@/modules/kernel/bus";
 import { adjustPointsByAdmin } from "./adjust";
 import { awardEarn, awardForThreadCreated, awardForThreadReplied } from "./earn";
 import { InsufficientPointsError, InvalidDeltaError } from "./errors";
-import { findUserIdByName } from "./ledger";
+import { findUserIdByName } from "@/lib/queries/users";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 
 let tdb: TempDb;
