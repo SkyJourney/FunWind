@@ -32,6 +32,7 @@ interface NavEntry {
 }
 
 const NAV: NavEntry[] = [
+  { href: "/admin/dashboard", label: "看板", need: { admin: "admin.logs" } },
   { href: "/admin/review", label: "内容审核", need: { moderate: true } },
   { href: "/admin/reports", label: "举报处理", need: { admin: "admin.reports" } },
   { href: "/admin/users", label: "用户管理", need: { admin: "admin.users" } },
