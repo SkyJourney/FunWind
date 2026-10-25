@@ -98,6 +98,8 @@ export default async function ThreadPage({ params, searchParams }: Params) {
     canModerate && (state === "deleted" || state === "hidden");
   const hasPostActions = (authorId: number, state: string): boolean =>
     canEditPost(authorId, state) || canRestorePost(state);
+  const canHidePost = (authorId: number, state: string): boolean =>
+    canModerate && state === "visible";
   const postActions = (postId: number, authorId: number, state: string) => (
     <>
       {canEditPost(authorId, state) && (
@@ -109,6 +111,11 @@ export default async function ThreadPage({ params, searchParams }: Params) {
             删除
           </Link>
         </>
+      )}
+      {canHidePost(authorId, state) && (
+        <Link href={`/p/${postId}/hide`} className="text-primary hover:underline">
+          屏蔽
+        </Link>
       )}
       {canRestorePost(state) && (
         <Link href={`/p/${postId}/restore`} className="text-primary hover:underline">
