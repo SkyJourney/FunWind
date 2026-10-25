@@ -4,6 +4,8 @@
  * 上传后未保存的文件正是要被发现的孤儿。
  * 宽限期 24 小时：刚上传、尚未保存的文件不算孤儿。M6 只报告，不删除任何文件。
  */
+import { readdir, stat } from "node:fs/promises";
+import path from "node:path";
 import type { Pool, RowDataPacket } from "mysql2/promise";
 
 export interface OrphanFile {
@@ -66,4 +68,52 @@ export async function findOrphanFiles(pool: Pool): Promise<OrphanFile[]> {
       sizeBytes: Number(r.sizeBytes),
       createdAt: String(r.createdAt),
     }));
+}
+
+/** 磁盘上存在、但 files 表里没有对应行的内容寻址文件（事务失败或中途崩溃会留下这类文件） */
+export interface DiskOrphan {
+  storageKey: string;
+  sizeBytes: number;
+  mtimeMs: number;
+}
+
+/** 内容寻址的相对路径：`ab/cd/<64 位十六进制>.<扩展名>` */
+const STORAGE_KEY_PATTERN = /^[0-9a-f]{2}\/[0-9a-f]{2}\/[0-9a-f]{64}\.[a-z0-9]+$/;
+
+/**
+ * 扫描存储目录，列出「磁盘有、数据库无」且超过宽限期的文件。只读：不删除、不写库。
+ * 只遍历 `ab/cd/` 两级目录，跳过 `.tmp`（写入中的临时文件）与 `.cache`（缩略图缓存）；
+ * 不跟随符号链接（符号链接指向目录之外时不得把外部文件当作本库的孤儿）。
+ */
+export async function findDiskOrphans(
+  storageDir: string,
+  pool: Pool,
+  now: number = Date.now(),
+): Promise<DiskOrphan[]> {
+  const [rows] = await pool.query<RowDataPacket[]>("SELECT storage_key AS storageKey FROM files");
+  const known = new Set(rows.map((r) => String(r.storageKey)));
+  const graceMs = ORPHAN_GRACE_HOURS * 3600_000;
+  const found: DiskOrphan[] = [];
+
+  const listDir = async (dir: string) =>
+    readdir(dir, { withFileTypes: true }).catch((e: NodeJS.ErrnoException) => {
+      if (e.code === "ENOENT") return [];
+      throw e;
+    });
+  const isHexDir = (name: string) => /^[0-9a-f]{2}$/.test(name);
+  for (const a of await listDir(storageDir)) {
+    if (!a.isDirectory() || !isHexDir(a.name)) continue;
+    for (const b of await listDir(path.join(storageDir, a.name))) {
+      if (!b.isDirectory() || !isHexDir(b.name)) continue;
+      for (const f of await listDir(path.join(storageDir, a.name, b.name))) {
+        if (!f.isFile()) continue; // 符号链接与其它类型一律跳过
+        const key = `${a.name}/${b.name}/${f.name}`;
+        if (!STORAGE_KEY_PATTERN.test(key) || known.has(key)) continue;
+        const st = await stat(path.join(storageDir, key));
+        if (now - st.mtimeMs < graceMs) continue;
+        found.push({ storageKey: key, sizeBytes: st.size, mtimeMs: st.mtimeMs });
+      }
+    }
+  }
+  return found.sort((x, y) => (x.storageKey < y.storageKey ? -1 : 1));
 }

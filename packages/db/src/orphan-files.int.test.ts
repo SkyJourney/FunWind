@@ -4,13 +4,16 @@
  * 附件、头像、徽章图标任一引用即不算孤儿；刚上传（宽限期内）不算；上传记录不算引用。
  */
 import { randomBytes } from "node:crypto";
+import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import mysql from "mysql2/promise";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { bootstrapDb } from "./bootstrap.js";
 import { createDb, createPool } from "./client.js";
 import { newDbConfig } from "./env.js";
-import { findOrphanFiles } from "./orphan-files.js";
+import { findDiskOrphans, findOrphanFiles } from "./orphan-files.js";
 import { attachments, badges, fileUploads, files, posts, userProfiles } from "./schema.js";
 
 const skip = process.env.SKIP_DB_TESTS === "1";
@@ -106,6 +109,38 @@ describe.skipIf(skip)("孤儿文件巡检（临时库）", () => {
       });
     } finally {
       await pool.end();
+    }
+  });
+  it("磁盘孤儿：只报告「磁盘有、库里没有、超过宽限期」的内容寻址文件；临时目录、缩略图缓存、近期文件与非法文件名不报告", async () => {
+    const storageDir = await mkdtemp(path.join(os.tmpdir(), "gc-files-"));
+    const pool = createPool(config);
+    try {
+      const old = new Date(Date.now() - 3 * 24 * 3600_000);
+      const hex = (n: number) => n.toString(16).padStart(64, "0");
+      const put = async (rel: string, when: Date) => {
+        const abs = path.join(storageDir, rel);
+        await mkdir(path.dirname(abs), { recursive: true });
+        await writeFile(abs, "x");
+        await utimes(abs, when, when);
+      };
+      // 库里已有的文件（第一个用例插入的 aa/aa/…01.png）：不是孤儿
+      await put(`aa/aa/${hex(1)}.png`, old);
+      // 磁盘孤儿：超期、库里没有
+      await put(`cc/dd/${hex(0xabc)}.png`, old);
+      // 近期文件（写入后尚未保存）：宽限期内，不报告
+      await put(`cc/dd/${hex(0xdef)}.png`, new Date());
+      // 写入中的临时文件与缩略图缓存：不遍历
+      await put(`.tmp/${hex(0x111)}.png`, old);
+      await put(`.cache/thumbs/${hex(0x222)}-320.png`, old);
+      // 非法文件名：不报告
+      await put("cc/dd/not-a-hash.png", old);
+
+      const orphans = await findDiskOrphans(storageDir, pool);
+      expect(orphans.map((o) => o.storageKey)).toEqual([`cc/dd/${hex(0xabc)}.png`]);
+      expect(orphans[0]).toMatchObject({ sizeBytes: 1 });
+    } finally {
+      await pool.end();
+      await rm(storageDir, { recursive: true, force: true });
     }
   });
 });
