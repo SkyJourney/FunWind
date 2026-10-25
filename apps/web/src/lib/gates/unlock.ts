@@ -2,7 +2,13 @@ import { and, eq, sql } from "drizzle-orm";
 import { gateUnlocks, getWebDb, postGates, posts, siteSettings, threads, users } from "@funwind/db";
 import { checkPermission } from "@/lib/authz/service";
 import type { Subject } from "@/lib/authz/types";
-import { emit } from "@/modules/kernel/bus";
+import {
+  dispatchOutboxRows,
+  enqueueEventInTx,
+  sweepPending,
+  type EnqueuedEvent,
+  type OutboxEmitter,
+} from "@/lib/events/outbox";
 import type { EventName, EventPayloads } from "@/modules/kernel/types";
 import { lockAccounts } from "@/lib/points/account";
 import { applyPointsInTx, builtinChannel } from "@/lib/points/apply";
@@ -58,9 +64,6 @@ export interface UnlockOptions extends UnlockDeps {
   afterLocate?: () => Promise<void>;
 }
 
-const defaultEmitter: NonNullable<UnlockDeps["emitter"]> = (name, payload) =>
-  emit(name, payload, { source: "gate" });
-
 /** 站点手续费率（points.gate_fee_rate）：[0, 1) 之外一律按 0，避免配置错误吞掉作者全部收益 */
 export async function getGateFeeRate(): Promise<number> {
   const [row] = await getWebDb()
@@ -114,7 +117,13 @@ export async function unlockGate(
 
   type Outcome =
     | { ok: false; code: UnlockCode }
-    | { ok: true; alreadyUnlocked: boolean; pricePaid: number; events: PendingEvent[] };
+    | {
+        ok: true;
+        alreadyUnlocked: boolean;
+        pricePaid: number;
+        events: PendingEvent[];
+        enqueued: EnqueuedEvent[];
+      };
   type PendingEvent = { name: EventName; payload: EventPayloads[EventName] };
 
   let outcome: Outcome;
@@ -168,7 +177,13 @@ export async function unlockGate(
           .where(and(eq(gateUnlocks.gateId, gateId), eq(gateUnlocks.userId, viewerId)))
           .for("update");
         if (existing) {
-          return { ok: true, alreadyUnlocked: true, pricePaid: existing.pricePaid, events: [] };
+          return {
+            ok: true,
+            alreadyUnlocked: true,
+            pricePaid: existing.pricePaid,
+            events: [],
+            enqueued: [],
+          };
         }
 
         // 价格核对放在「已解锁」判断之后：已买过的人不会因为后来改价而看到错误；
@@ -178,7 +193,9 @@ export async function unlockGate(
         }
 
         const events: PendingEvent[] = [];
+        const enqueued: EnqueuedEvent[] = [];
         let ledgerId: number | null = null;
+        // outbox（M8-1）：购买的双分录与解锁事件在事务内登记——崩溃/消费失败由补派兜底（收益通知不丢单）
         let income = 0;
         if (price > 0) {
           const spend = await applyPointsInTx(
@@ -231,7 +248,12 @@ export async function unlockGate(
           name: "gate.unlocked",
           payload: { gateId, userId: viewerId, authorId: target.authorId, price },
         });
-        return { ok: true, alreadyUnlocked: false, pricePaid: price, events };
+        for (const ev of events) {
+          enqueued.push(
+            await enqueueEventInTx(tx, ev.name, ev.payload, { actorId: viewerId, source: "gate" }),
+          );
+        }
+        return { ok: true, alreadyUnlocked: false, pricePaid: price, events, enqueued };
       }, POINTS_TX_OPTIONS),
     );
   } catch (e) {
@@ -243,15 +265,11 @@ export async function unlockGate(
 
   if (!outcome.ok) return { ok: false, code: outcome.code, target };
 
-  // 提交后派发事件；派发失败只记日志，不影响已完成的购买
-  const emitter = deps.emitter ?? defaultEmitter;
-  for (const ev of outcome.events) {
-    try {
-      await emitter(ev.name, ev.payload as never);
-    } catch (e) {
-      console.error(`[gate] ${ev.name} 派发失败（购买已提交）:`, e);
-    }
-  }
+  // 提交后快路径：派发并标记 outbox 行；失败留 pending 由补派兜底（收益通知不丢单）
+  await dispatchOutboxRows(outcome.enqueued, {
+    emitter: deps.emitter ? (deps.emitter as unknown as OutboxEmitter) : undefined,
+  });
+  await sweepPending();
   return {
     ok: true,
     alreadyUnlocked: outcome.alreadyUnlocked,

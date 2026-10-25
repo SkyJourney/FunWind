@@ -2,7 +2,12 @@ import { randomUUID } from "node:crypto";
 import { getWebDb } from "@funwind/db";
 import type { ConfigActor } from "@/lib/audit";
 import { writeAudit } from "@/lib/audit";
-import { emit } from "@/modules/kernel/bus";
+import {
+  dispatchOutboxRows,
+  enqueueEventInTx,
+  sweepPending,
+  type EnqueuedEvent,
+} from "@/lib/events/outbox";
 import { applyPointsInTx, resolveChannelOrThrow, type ApplyPointsResult } from "./apply";
 import { InvalidDeltaError } from "./errors";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "./retry";
@@ -37,8 +42,11 @@ export async function adjustPointsByAdmin(
 
   const channel = await resolveChannelOrThrow("adjust.admin");
 
+  let enqueued: EnqueuedEvent[] = [];
   const result = await withDeadlockRetry(() =>
     getWebDb().transaction(async (tx) => {
+      // 每次尝试都从空开始（与 posting 同纪律）
+      enqueued = [];
       const res = await applyPointsInTx(
         tx,
         {
@@ -60,16 +68,20 @@ export async function adjustPointsByAdmin(
         after: { balance: res.balanceAfter, delta: req.delta, note, via: admin.via },
         ip: admin.ip,
       });
+      // points.adjusted 通知的消费源（M8）：经 outbox，调整已提交则通知事件必在
+      if (res.event) {
+        enqueued.push(
+          await enqueueEventInTx(tx, "points.changed", res.event, {
+            actorId: admin.userId,
+            source: "points",
+          }),
+        );
+      }
       return res;
     }, POINTS_TX_OPTIONS),
   );
 
-  if (result.event) {
-    try {
-      await emit("points.changed", result.event, { source: "points" });
-    } catch (e) {
-      console.error("[points] points.changed 派发失败（调整已提交）:", e);
-    }
-  }
+  await dispatchOutboxRows(enqueued);
+  await sweepPending();
   return result;
 }

@@ -201,6 +201,35 @@ describe.skipIf(skipDb)("事件 → 通知（真实模块消费者）", () => {
     expect(await unreadOf(TEAM, "points.adjusted")).toBe(1);
   });
 
+  it("gate 购买事件不丢单：快路径失败 → drain 补派 → gate.sold 通知到达（M8-1）", async () => {
+    // 用本用例专属的作者（member），不受前序用例给 alice 留下的 gate.sold 影响
+    const author = DEMO.member;
+    // 直接向 outbox 登记 gate.unlocked（模拟 unlock.ts 事务内登记后快路径失败）
+    await getWebDb()
+      .execute(sql`INSERT INTO event_outbox (event_name, payload, actor_id, source, created_at)
+      VALUES ('gate.unlocked', JSON_OBJECT('gateId', 990001, 'userId', ${TEAM}, 'authorId', ${author}, 'price', 10), ${TEAM}, 'gate', NOW())`);
+    // 快路径失败（注入抛错收集器 → 行保持 pending）
+    const { drainOutbox } = await import("@/lib/events/outbox");
+    await drainOutbox({
+      emitter: async (name, payload) => {
+        void name;
+        void payload;
+        throw new Error("注入失败");
+      },
+    });
+    expect(await unreadOf(author, "gate.sold")).toBe(0);
+    // 补派成功：默认内核路径（消费者真实跑）→ 通知落地
+    await drainOutbox();
+    expect(await unreadOf(author, "gate.sold")).toBe(1);
+    // 清理：outbox 行与通知，不污染读取契约用例
+    await getWebDb().execute(
+      sql`DELETE FROM event_outbox WHERE event_name = 'gate.unlocked' AND JSON_EXTRACT(payload, '$.gateId') = 990001`,
+    );
+    await getWebDb().execute(
+      sql`DELETE FROM notifications WHERE user_id = ${author} AND type = 'gate.sold'`,
+    );
+  });
+
   it("badge.awarded → 获得徽章通知", async () => {
     await emit("badge.awarded", { userId: TEAM, badgeId: 901 }, { source: "test" });
     expect(await unreadOf(TEAM, "badge.awarded")).toBe(1);
