@@ -12,7 +12,7 @@ import { locatePost, postPath } from "@/lib/queries/locate-post";
  * 快速回复 Server Action（M6.2 第 3 步）。
  * - 结构校验失败（缺主题号、非数字等）→ 404，与其它 Action 一致；
  * - 业务失败（锁定、归档、门控语法错误、频控……）→ 跳回主题页表单所在的页，带固定错误码（?reply=…#reply），
- *   URL 里不带正文；草稿由客户端 sessionStorage 恢复（components/posting/reply-composer.tsx）；
+ *   URL 里不带正文；草稿由客户端 localStorage 恢复（components/posting/reply-composer.tsx）；
  * - 成功 → 跳到新回复所在的页与锚点；对作者也不可见（待审）时回到主题首页。
  */
 const createReplyInput = z.object({

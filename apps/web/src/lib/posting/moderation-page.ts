@@ -10,7 +10,7 @@ import { readModerationView } from "./mutate";
  */
 export type DeletePageModel =
   | { kind: "notfound" }
-  | { kind: "closed"; text: string }
+  | { kind: "closed"; text: string; threadKind: "thread" | "reply" }
   | {
       kind: "form";
       postId: number;
@@ -30,7 +30,7 @@ export async function loadDeletePage(viewer: Subject, postId: number): Promise<D
   if (!v) return { kind: "notfound" };
   if (!v.delete.allowed) {
     const text = DELETE_CLOSED[v.delete.code];
-    return text ? { kind: "closed", text } : { kind: "notfound" };
+    return text ? { kind: "closed", text, threadKind: v.kind } : { kind: "notfound" };
   }
   return {
     kind: "form",

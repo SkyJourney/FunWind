@@ -97,6 +97,7 @@ export default async function EditPostPage({ params, searchParams }: Params) {
             gateUnlocks={model.gateUnlocks}
             draftKey={draftKey(viewer.userId, "edit", model.postId)}
             restore={error !== undefined && error !== "conflict"}
+            recoverStaged={error === "conflict"}
             titleMax={limits.titleMax}
             bodyMax={limits.bodyMax}
           />

@@ -10,7 +10,7 @@ import { createThread } from "@/lib/posting/service";
  * 发主题 Server Action（M6.2 第 2 步）。
  * - 结构校验失败（缺版块号、非数字等）→ 404，与其它 Action 一致；
  * - 业务失败（标题空、超长、无权限、频控……）→ 跳回发帖页并带固定错误码（?error=…），
- *   URL 里不带标题与正文；草稿由客户端 sessionStorage 恢复（components/posting/thread-composer.tsx）；
+ *   URL 里不带标题与正文；草稿由客户端 localStorage 恢复（components/posting/thread-composer.tsx）；
  * - 成功 → 跳到新主题（待审时作者本人可见，页面会显示审核中的横幅）。
  */
 

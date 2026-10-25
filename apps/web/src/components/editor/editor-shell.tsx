@@ -68,6 +68,8 @@ export interface EditorShellProps {
   draftKey: string | null;
   /** 失败跳回后为 true：恢复草稿；否则清除旧草稿 */
   restoreDraft: boolean;
+  /** 编辑冲突跳回：暂存的是作者提交失败的那一版，提示恢复或丢弃（而不是本地的旧草稿） */
+  recoverStaged?: boolean;
   /** 往返不等价：强制源码模式，并说明原因 */
   forceSource?: { reason: string } | null;
   /** 无障碍名称 */
@@ -85,6 +87,7 @@ export function EditorShell({
   initialSource,
   draftKey,
   restoreDraft,
+  recoverStaged = false,
   forceSource,
   label,
   forumId,
@@ -116,7 +119,7 @@ export function EditorShell({
     subscribeNothing,
     () => {
       if (restoreDraft || draftKey === null || wroteRef.current) return null;
-      const saved = readDraft(draftKey);
+      const saved = readDraft(recoverStaged ? stagedKey(draftKey) : draftKey);
       return saved !== null && saved !== initialSource ? saved : null;
     },
     () => null,
@@ -178,15 +181,25 @@ export function EditorShell({
     if (start !== initialSource) sync(md);
   };
 
+  // 进入页面时清掉过期的暂存键：只有失败跳回（restoreDraft）才读取它；冲突跳回的暂存内容由上面的提示接管
+  useEffect(() => {
+    if (draftKey === null || restoreDraft || recoverStaged) return;
+    removeDraft(stagedKey(draftKey));
+  }, [draftKey, restoreDraft, recoverStaged]);
+
   const acceptDraft = () => {
     if (pendingDraft === null) return;
     setStart(pendingDraft);
     setDismissed(true);
+    if (draftKey !== null) removeDraft(stagedKey(draftKey));
     setEditorKey((k) => k + 1);
   };
 
   const discardDraft = () => {
-    if (draftKey !== null) removeDraft(draftKey);
+    if (draftKey !== null) {
+      removeDraft(draftKey);
+      removeDraft(stagedKey(draftKey));
+    }
     setDismissed(true);
   };
 
@@ -216,16 +229,26 @@ export function EditorShell({
     }
   };
 
+  // 上传完成时编辑器可能尚未就绪（例如刚切换模式、旧实例已卸载）：先排队，就绪后补插，图片不丢
+  const pendingInserts = useRef<string[]>([]);
   // 插入图片：富文本与源码各有插入能力；输入法组合中延后到 compositionend，避免打断拼音等组合输入
   const insertImage = (url: string) => {
+    const current = modeRef.current === "rich" ? richApi.current : sourceApi.current;
+    if (current === null) {
+      pendingInserts.current.push(url);
+      return;
+    }
     const run = () =>
       (modeRef.current === "rich" ? richApi.current : sourceApi.current)?.insertImage(url);
-    const current = modeRef.current === "rich" ? richApi.current : sourceApi.current;
-    if (current?.isComposing()) {
+    if (current.isComposing()) {
       document.addEventListener("compositionend", run, { once: true });
       return;
     }
     run();
+  };
+  // 编辑器实例就绪（onApi）时补插排队中的图片
+  const flushInserts = () => {
+    for (const url of pendingInserts.current.splice(0)) insertImage(url);
   };
 
   // preNotice：本次上传开始时要显示的提示（例如 GIF 不裁剪的说明），缺省清空
@@ -326,6 +349,7 @@ export function EditorShell({
           onReady={onCreated}
           onApi={(api) => {
             richApi.current = api;
+            flushInserts();
           }}
         />
       ) : (
@@ -336,6 +360,7 @@ export function EditorShell({
           onChange={sync}
           onApi={(api) => {
             sourceApi.current = api;
+            flushInserts();
           }}
         />
       )}

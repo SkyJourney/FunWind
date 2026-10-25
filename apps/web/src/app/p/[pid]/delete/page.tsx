@@ -35,7 +35,7 @@ export default async function DeletePostPage({ params, searchParams }: Params) {
   const model = await loadDeletePage(viewer, pid);
   if (model.kind === "notfound") notFound();
 
-  const isThread = model.kind === "form" && model.threadKind === "thread";
+  const isThread = model.threadKind === "thread";
   const notice = postingNoticeText(error);
 
   return (

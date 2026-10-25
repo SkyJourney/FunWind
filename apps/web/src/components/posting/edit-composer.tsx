@@ -36,6 +36,8 @@ interface Props {
   initialAttachments: AttachmentItem[];
   draftKey: string | null;
   restore: boolean;
+  /** 编辑冲突跳回：草稿提示恢复的是作者提交失败的那一版 */
+  recoverStaged?: boolean;
   titleMax: number;
   bodyMax: number;
 }
@@ -56,6 +58,7 @@ export function EditComposer({
   initialAttachments,
   draftKey,
   restore,
+  recoverStaged = false,
   titleMax,
   bodyMax,
 }: Props) {
@@ -130,6 +133,7 @@ export function EditComposer({
           initialSource={source}
           draftKey={draftKey}
           restoreDraft={restore}
+          recoverStaged={recoverStaged}
           forceSource={forceSource === null ? null : { reason: forceSource }}
           label="正文"
           forumId={forumId}

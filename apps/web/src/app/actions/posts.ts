@@ -11,7 +11,7 @@ import { locatePost, postPath } from "@/lib/queries/locate-post";
 /**
  * 编辑帖子 Server Action（M6.2 第 4 步）。
  * - 结构校验失败 → 404；业务失败（冲突、理由必填、时限、门控改动受限、标题空……）→ 跳回编辑页带固定错误码
- *   （?error=…），URL 里不带正文与理由；草稿由客户端 sessionStorage 恢复（components/posting/edit-composer.tsx）；
+ *   （?error=…），URL 里不带正文与理由；草稿由客户端 localStorage 恢复（components/posting/edit-composer.tsx）；
  * - 成功 → 跳到该帖所在的页与锚点；对作者不可见（如重新提交审核后）时回到主题首页。
  * expectedEditedAt 是渲染表单时看到的 edited_at：空串表示「从未编辑」。
  */
