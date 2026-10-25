@@ -21,7 +21,11 @@ import { PERMISSION_DEFINITIONS } from "../src/authz-vocab.js";
 import { PATCHES } from "../src/bootstrap.js";
 import { createPool } from "../src/client.js";
 import { newDbConfig } from "../src/env.js";
-import { findAttachmentGateAnomalies, findStructuralAnomalies } from "../src/integrity.js";
+import {
+  findAttachmentGateAnomalies,
+  findInlineAttachmentAnomalies,
+  findStructuralAnomalies,
+} from "../src/integrity.js";
 import { recountAll, recountDriftTotal } from "../src/recount.js";
 import * as schema from "../src/schema.js";
 import { checkSchemaRules, collectTables } from "../src/schema-rules.js";
@@ -187,6 +191,14 @@ try {
     "integrity:附件门控归属",
     ag.dangling + ag.crossPost + ag.onUngatedPost === 0,
     `悬空 ${ag.dangling} / 跨帖 ${ag.crossPost} / 所属帖无门控 ${ag.onUngatedPost}`,
+  );
+
+  // 4c'. 内联图片与上传记录（M6.4）：inline 行的门控属于同帖、引用文件存在；上传记录引用的文件存在
+  const ia = await findInlineAttachmentAnomalies(pool);
+  add(
+    "integrity:内联附件与上传",
+    ia.gateMismatch + ia.missingFile + ia.uploadOrphan === 0,
+    `内联行门控不属于同帖 ${ia.gateMismatch} / 内联行文件缺失 ${ia.missingFile} / 上传记录文件缺失 ${ia.uploadOrphan}`,
   );
 
   // 4d. 结构完整性：库内无外键，孤儿引用 / 楼层唯一 / 首帖指针 / 主题与首帖状态靠对账守住

@@ -94,3 +94,40 @@ export async function findStructuralAnomalies(pool: Pool): Promise<StructuralAno
     stateMismatch: Number(r.stateMismatch ?? 0),
   };
 }
+
+/**
+ * 内联图片与上传记录的异常计数（M6.4，docs/milestones/M6.4-uploads.md §4、§6）。任一项非零都是数据错误。
+ * 只统计 kind='inline' 的附件行；download 行由 findAttachmentGateAnomalies 守住。
+ */
+export interface InlineAttachmentAnomalies {
+  /** inline 行的 gate_id 非空，但门控不存在或不属于同一帖子 */
+  gateMismatch: number;
+  /** inline 行引用的文件不存在 */
+  missingFile: number;
+  /** file_uploads 行引用的文件不存在 */
+  uploadOrphan: number;
+}
+
+export async function findInlineAttachmentAnomalies(
+  pool: Pool,
+): Promise<InlineAttachmentAnomalies> {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT
+       (SELECT COUNT(*) FROM attachments a
+          LEFT JOIN post_gates g ON g.id = a.gate_id
+        WHERE a.kind = 'inline' AND a.gate_id IS NOT NULL
+          AND (g.id IS NULL OR g.post_id <> a.post_id)) AS gateMismatch,
+       (SELECT COUNT(*) FROM attachments a
+          LEFT JOIN files f ON f.id = a.file_id
+        WHERE a.kind = 'inline' AND f.id IS NULL) AS missingFile,
+       (SELECT COUNT(*) FROM file_uploads u
+          LEFT JOIN files f ON f.id = u.file_id
+        WHERE f.id IS NULL) AS uploadOrphan`,
+  );
+  const r = rows[0] ?? {};
+  return {
+    gateMismatch: Number(r.gateMismatch ?? 0),
+    missingFile: Number(r.missingFile ?? 0),
+    uploadOrphan: Number(r.uploadOrphan ?? 0),
+  };
+}

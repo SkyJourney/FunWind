@@ -20,7 +20,7 @@ import {
 } from "drizzle-orm/mysql-core";
 
 /**
- * qysub_next · schema v2.1（M5.5，单一事实源，决策 #10；设计依据 docs/DESIGN-MODEL.md，共 43 表）
+ * qysub_next · schema v2.1（M5.5，单一事实源，决策 #10；设计依据 docs/DESIGN-MODEL.md，共 44 表）
  *
  * 设计原则：
  *  - 运行时 schema 不认识旧站：不出现 legacy_* / 迁移标记 / 迁移用 id 公式 / migration_* 表（schema-rules.ts 强制）
@@ -390,6 +390,8 @@ export const attachments = mysqlTable(
     uploaderId: int("uploader_id", { unsigned: true }).notNull(),
     originalName: varchar("original_name", { length: 255 }).notNull().default(""),
     downloads: int("downloads", { unsigned: true }).notNull().default(0),
+    /** download = 帖末附件列表；inline = 正文内联引用的图片（保存时由服务端登记，M6.4） */
+    kind: mysqlEnum("kind", ["download", "inline"]).notNull().default("download"),
     createdAt: dt("created_at").notNull(),
   },
   (t) => [
@@ -398,6 +400,26 @@ export const attachments = mysqlTable(
     index("idx_att_gate").on(t.gateId),
     index("idx_att_file").on(t.fileId),
     index("idx_att_uploader").on(t.uploaderId),
+  ],
+);
+
+/**
+ * 上传记录（M6.4）：每次成功上传一行，哪怕字节与已有文件去重命中。只用于配额计数与「谁上传过这个文件」的归属判定。
+ * 不挂帖子：去重文件可被多帖引用，挂帖子会失真。
+ */
+export const fileUploads = mysqlTable(
+  "file_uploads",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    userId: int("user_id", { unsigned: true }).notNull(),
+    fileId: int("file_id", { unsigned: true }).notNull(),
+    sizeBytes: bigint("size_bytes", { mode: "number", unsigned: true }).notNull().default(0),
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    index("idx_uploads_user_created").on(t.userId, t.createdAt),
+    index("idx_uploads_file").on(t.fileId),
   ],
 );
 

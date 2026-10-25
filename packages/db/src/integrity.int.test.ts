@@ -8,8 +8,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { bootstrapDb } from "./bootstrap.js";
 import { createDb, createPool } from "./client.js";
 import { newDbConfig } from "./env.js";
-import { findAttachmentGateAnomalies } from "./integrity.js";
-import { attachments, files, postGates, posts } from "./schema.js";
+import { findAttachmentGateAnomalies, findInlineAttachmentAnomalies } from "./integrity.js";
+import { attachments, fileUploads, files, postGates, posts } from "./schema.js";
 
 const skip = process.env.SKIP_DB_TESTS === "1";
 const base = newDbConfig();
@@ -102,6 +102,45 @@ describe.skipIf(skip)("附件↔门控完整性检查（临时库）", () => {
         dangling: 1,
         crossPost: 2, // 帖 1→门控 20、帖 3→门控 10
         onUngatedPost: 1, // 帖 3
+      });
+    } finally {
+      await pool.end();
+    }
+  });
+  it("内联图片：门控跨帖、文件缺失、上传记录悬空各被发现；download 行不计入", async () => {
+    const pool = createPool(config);
+    try {
+      const db = createDb(pool);
+      // 前一个用例已建好：帖 1 的门控 10、帖 2 的门控 20，文件 1
+      // 合法的内联行：挂在本帖门控 10
+      await db.insert(attachments).values({
+        postId: 1,
+        gateId: 10,
+        fileId: 1,
+        uploaderId: 1,
+        kind: "inline",
+        createdAt: T,
+      });
+      expect(await findInlineAttachmentAnomalies(pool)).toEqual({
+        gateMismatch: 0,
+        missingFile: 0,
+        uploadOrphan: 0,
+      });
+
+      // 异常一：内联行挂到帖 2 的门控 20；异常二：内联行引用不存在的文件 999
+      await db.insert(attachments).values([
+        { postId: 1, gateId: 20, fileId: 1, uploaderId: 1, kind: "inline", createdAt: T },
+        { postId: 1, gateId: null, fileId: 999, uploaderId: 1, kind: "inline", createdAt: T },
+        // 同样的跨帖门控，但是 download 行：不属于本检查范围（由附件门控检查守住）
+        { postId: 1, gateId: 20, fileId: 1, uploaderId: 1, createdAt: T },
+      ]);
+      // 异常三：上传记录引用不存在的文件
+      await db.insert(fileUploads).values({ userId: 1, fileId: 999, sizeBytes: 1, createdAt: T });
+
+      expect(await findInlineAttachmentAnomalies(pool)).toEqual({
+        gateMismatch: 1,
+        missingFile: 1,
+        uploadOrphan: 1,
       });
     } finally {
       await pool.end();
