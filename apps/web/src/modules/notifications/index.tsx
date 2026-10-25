@@ -1,12 +1,14 @@
 import { defineModule } from "../kernel/types";
 import { NOTIFICATION_TYPE_SPECS } from "@/lib/notifications/render";
 import { notify } from "@/lib/notifications/notify";
-import { getWebDb, posts, threads } from "@funwind/db";
+import { getForumModerators } from "@/lib/authz/service";
+import { getWebDb, posts, threads, users } from "@funwind/db";
 import { eq } from "drizzle-orm";
 
 /**
- * 通知模块（M8）：类型目录全量注册（审核/私信/系统类本期只注册可渲染，生产方在 M9/M10）；
- * 消费互动事件（经 outbox 可靠派发）→ notify()。业务实现在 lib/notifications/。
+ * 通知模块（M8 建，M9 扩）：类型目录全量注册；消费互动与审核事件（经 outbox 可靠派发）→ notify()。
+ * M9 新增生产方：content.submitted（作者回执+版主聚合）、content.moderated（审核结果给作者）、
+ * restriction.changed / role.changed（强制通知）。私信类（M10）仍只注册可渲染。业务实现在 lib/notifications/。
  */
 
 /** 线程标题快照（通知 data 用） */
@@ -144,6 +146,93 @@ export const notificationsModule = defineModule({
         targetType: "user",
         targetId: p.userId,
         data: { badgeId: p.badgeId },
+      });
+    },
+
+    // ---- M9：审核与账号类生产方 ----
+
+    "content.submitted": async (p) => {
+      // 作者回执：已提交待审（dedup：同一提交动作只一条）
+      await notify({
+        type: "content.submitted",
+        recipients: [p.authorId],
+        actorId: p.authorId,
+        targetType: "post",
+        targetId: p.postId,
+        dedupKey: (uid) => `submitted:${p.postId}:${uid}`,
+        data: { isThread: p.isThread },
+      });
+      // 版主聚合：review.pending（forum:{id}:review_pending，「N 条待审核」）
+      const moderators = await getForumModerators(p.forumId);
+      const recipients = moderators.map((m) => m.userId).filter((id) => id !== p.authorId);
+      if (recipients.length > 0) {
+        await notify({
+          type: "review.pending",
+          recipients,
+          actorId: p.authorId,
+          targetType: "forum",
+          targetId: p.forumId,
+          groupKey: `forum:${p.forumId}:review_pending`,
+          data: { forumId: p.forumId },
+        });
+      }
+    },
+
+    "content.moderated": async (p) => {
+      const typeByAction: Record<string, string> = {
+        approve: "content.approved",
+        reject: "content.rejected",
+        remove: "content.removed",
+        hide: "content.hidden",
+        restore: "content.restored",
+      };
+      const type = typeByAction[p.action];
+      if (!type) return;
+      const [post] = await getWebDb()
+        .select({ authorId: posts.authorId })
+        .from(posts)
+        .where(eq(posts.id, p.postId))
+        .limit(1);
+      if (!post || post.authorId === p.operatorId) return;
+      await notify({
+        type,
+        recipients: [post.authorId],
+        actorId: p.operatorId,
+        targetType: "post",
+        targetId: p.postId,
+        dedupKey: (uid) => `mod:${p.postId}:${p.action}:${uid}`,
+        data: p.reason ? { reason: p.reason } : {},
+      });
+    },
+
+    "restriction.changed": async (p) => {
+      if (p.userId === p.operatorId) return;
+      await notify({
+        type: p.action === "created" ? "account.restricted" : "account.restriction_lifted",
+        recipients: [p.userId],
+        actorId: p.operatorId,
+        targetType: "user",
+        targetId: p.userId,
+        dedupKey: () => `restriction:${p.userId}:${p.kind}:${p.action}:${p.endsAt ?? "perm"}`,
+        data: { reason: p.reason ?? "", kind: p.kind, endsAt: p.endsAt ?? null },
+      });
+    },
+
+    "role.changed": async (p) => {
+      if (p.userId === p.operatorId) return;
+      const [user] = await getWebDb()
+        .select({ username: users.username })
+        .from(users)
+        .where(eq(users.id, p.userId))
+        .limit(1);
+      await notify({
+        type: "account.role_changed",
+        recipients: [p.userId],
+        actorId: p.operatorId,
+        targetType: "user",
+        targetId: p.userId,
+        dedupKey: () => `role:${p.userId}:${p.roleKey}:${p.scopeId}:${p.action}`,
+        data: { roleKey: p.roleKey, action: p.action, username: user?.username ?? "" },
       });
     },
   },

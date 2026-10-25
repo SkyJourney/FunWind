@@ -21,6 +21,11 @@ export interface NotifyInput {
   targetId?: number;
   /** 聚合键（类型 aggregate=true 时必填） */
   groupKey?: string;
+  /**
+   * 幂等键（M8 审查挂账兑现，迁移 0008）：非聚合通知携带后 at-least-once 重放撞唯一索引跳过。
+   * 同一业务动作对同一接收人应稳定（如 `mod:{postId}:reject:{userId}`）；聚合类型不适用（行原位更新）。
+   */
+  dedupKey?: (userId: number) => string;
   data?: Record<string, unknown>;
 }
 
@@ -135,6 +140,7 @@ export async function notify(input: NotifyInput): Promise<void> {
             targetType: input.targetType ?? "",
             targetId: input.targetId ?? 0,
             groupKey: input.groupKey ?? null,
+            dedupKey: input.dedupKey?.(userId) ?? null,
             data: {
               ...(input.data ?? {}),
               ...(decl.def.aggregate
@@ -146,7 +152,9 @@ export async function notify(input: NotifyInput): Promise<void> {
         });
         break;
       } catch (e) {
+        // 聚合并发：撞 uq_nf_open_group → 重跑聚合路径；dedup 重放：撞 uq_nf_dedup → 幂等跳过（成功返回）
         if (attempt < 3 && isDuplicateKey(e) && decl.def.aggregate && input.groupKey) continue;
+        if (isDuplicateKey(e) && input.dedupKey) break;
         throw e;
       }
     }
