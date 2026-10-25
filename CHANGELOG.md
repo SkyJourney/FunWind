@@ -5,6 +5,43 @@
 
 ## [Unreleased]
 
+### Added（M6.4：上传、图片与裁剪）
+
+- **上传接口** `POST /api/upload?purpose=inline|attachment|avatar`（Route Handler）：同源 → 登录 → 限流（用户桶 30/分钟、全局桶 600/分钟，被用户桶拒绝的不占全局额度）→ 按用途的字节上限（413）→ 版块权限（越权 404；头像另查 `no_avatar` 与封禁 / 禁言）→ 嗅探与准入（415）→ 图片处理（400 / 413）→ 配额与落盘登记（429）。
+- **嗅探与准入**：魔数判定（不信扩展名）；扩展名白名单（旧站 7 种 ∪ jpeg / webp / bmp / 7z，不含 svg / html / js）；扩展名与真实类型必须一致（伪装拦截）；用途限制（内联图与头像只收图片）。
+- **图片处理**（sharp 0.35.5，精确版本）：EXIF 自动定向（先 rotate 再 extract）；去除 EXIF / GPS；同格式重编码（jpeg 质量 90）；GIF 不重编码；像素上限 40 MP（解压炸弹）；裁剪参数严格校验（整数、非负、最小边 32、不越界、头像 1:1）。BMP 当前构建无法解码，以 `undecodable` 拒绝。
+- **存储**：内容寻址 `ab/cd/<sha256>.<ext>`，临时文件再原子 rename；`files` 按哈希去重；`file_uploads` 记录每次上传（含去重命中，配额口径不随去重改变）；头像同事务写 `user_profiles.avatar_file_id`。
+- **数据库**（迁移 0003）：新表 `file_uploads`；`attachments.kind`（`download` / `inline`，默认 `download`）。`db:verify` 新增「内联附件与上传」检查，现为 19 项。
+- **可见性**（`/files/<key>`，修正旧泄露）：图片公开当且仅当没有任何附件行，或存在一条未绑门控、所在帖子对**游客**可见的引用；否则经附件行鉴权放行，响应 `private, no-store`。此前「存在一条未绑门控的引用即公开」不看帖子可见性，受限帖与待审帖的图片因此对游客公开。
+- **缩略图** `/files/<key>?w=320|800|1600`：同格式、只缩小不放大；先鉴权再看缓存；缓存在 `STORAGE_DIR/.cache/thumbs/`；ETag 带宽度。GIF 与 BMP 返回原图。
+- **保存时登记**（事务内）：正文引用（公开部分与门控隐藏正文，经 `@funwind/content` 的 `extractFileRefs`）登记为 `inline` 行；归属须为作者本人上传（或该文件已被本帖引用，且不属于别人的帖子）；新增归属需要 `attachment.upload`（错误码 `upload_forbidden`）；附件的门控 key 须是本帖现存门控；门控删除只被下载附件阻止（内联行随门控清理）。
+- **编辑器界面**：插入图片（富文本与源码两种模式，输入法组合中延后插入）、粘贴截图、「裁剪后插入」（`react-image-crop` 11.1.2，经 `next/dynamic` 按需加载）、附件面板（上传、移除、门控归属下拉，草稿与提交暂存）、上传中禁用提交按钮。工具栏图片占位按钮移除。
+- **头像设置** `/settings/avatar`：选图、强制 1:1 裁剪（GIF 直传并取首帧居中裁切）、保存后刷新；导航栏新增「头像」入口。
+- **孤儿文件巡检** `pnpm db:gc-files --dry-run`：只报告（宽限期 24 小时）；无附件行、无头像、无徽章图标，且公开正文中也没有 `/files` 链接的文件。开发库当前 0 个。
+- **同源判定**（`lib/net/same-origin.ts`）：按 Host 头（协议取 X-Forwarded-Proto）比较，与 Server Action 一致；Next 的 `request.url` 在本地为 localhost，原判定会误拒所有浏览器上传。预览与上传共用。
+
+### Fixed（M6.4 实施中发现，未发布）
+
+- 预览限流顺序：先用户桶、后全局桶（安全审查复查）。
+- 旧引用例外过宽：购买者可借旧正文登记别人门控图为公开（安全审查指出）。
+- 新增归属缺少 `attachment.upload` 判定；头像分支缺少写类权限判定（封禁用户可设置头像，安全审查指出）。
+- 附件字段缺失与空列表不再等同（旧版本表单编辑会清空附件）。
+- 同源判定误拒浏览器上传（E2E 实测发现）。
+- 评估器：`attachment.upload` 不经版块读判定，普通会员可向受限版块上传（越权，已修正并补单测）。
+
+### Tests（M6.4）
+
+- **单测**：上传客户端、裁剪换算（含性质测试）、附件面板、图片按钮、编辑外壳插图（富文本与源码）与裁剪确认 / 取消、粘贴、提交禁用、输入法延后、两种编辑器的插入能力、头像组件、同源判定、嗅探 / 准入 / 裁剪校验 / 图片处理（真实 sharp 夹具）、缩略图与可见性矩阵。
+- **集成**：存储与配额并发（5 路并发限额 2 恰好 2 成功）、去重计数、头像写入、登记的归属与门控映射、附件对账、孤儿巡检。
+- **E2E**：正文插图并发布；门控附件的泄露检查（游客只见锁定提示）；裁剪后插入；头像设置；375px 版式（编辑器与头像页）；受限内联图的缩略图鉴权。
+- **覆盖率**：`src/components/upload/**` 纳入统计（阈值与编辑器相同）；裁剪工具本体（`crop-body.tsx`、`crop-dialog.tsx`）为第三方交互壳，排除并由 E2E 覆盖。
+
+### Changed（M6.4）
+
+- E2E 存储隔离：`test:e2e` 设置 `STORAGE_DIR=<仓库根>/storage-e2e`（每次运行前清空），与开发目录 `storage/` 分开；CI 经同一脚本生效。`.gitignore` 忽略 `/storage-e2e/`。
+- 授权文档（`docs/AUTHZ.md`）：写类权限 `attachment.upload` 先过版块读判定。
+- 附件门控文档（`docs/ATTACHMENT-GATES.md`）新增 §12（M6.4 修订）。
+
 ### Added / Changed（M6.3：编辑器——所见即所得、源码模式、门控块、预览、草稿）
 
 - **编辑器栈**（依据 E0 选型，精确版本）：Tiptap `3.31.4`（`@tiptap/react` / `core` / `pm` / `starter-kit` / `markdown` / `extension-table` / `extension-image` / `extension-hard-break`）、`marked` `17.0.6`（与 `@tiptap/markdown` 同版本）、CodeMirror `@codemirror/state 6.7.6` / `view 6.43.14` / `commands 6.11.1` / `language 6.13.1` / `lang-markdown 6.5.2`。**偏离两周发布规则**：E0 选用的 Tiptap `3.32.0` 与 CodeMirror view `6.43.15` 发布不足两周，改用上一个稳定版本。

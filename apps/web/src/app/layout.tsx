@@ -37,6 +37,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                     <Link href={`/u/${user.id}`} className="font-medium hover:text-primary">
                       {user.username}
                     </Link>
+                    <Link
+                      href="/settings/avatar"
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      头像
+                    </Link>
                     <LogoutForm action={logoutAction}>
                       <button type="submit" className="text-muted-foreground hover:text-foreground">
                         退出

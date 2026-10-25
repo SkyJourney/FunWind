@@ -20,6 +20,7 @@
     "e2e-fixtures": "tsx scripts/e2e-fixtures.ts",
     "verify": "tsx scripts/verify.ts",
     "recount": "tsx scripts/recount.ts",
+    "gc-files": "tsx scripts/gc-files.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --coverage",

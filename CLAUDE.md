@@ -9,7 +9,7 @@
   **M5.5 重构（设计先行）已完成，已合并 `main`**。站长思路：**先定目标模型（`docs/DESIGN-MODEL.md`，schema v2.1 共 43 表，含通知中心），旧数据向它靠拢，迁移只是适配层**。
   进度：R1 文档 ✅ → R2 `packages/db` 与 `packages/content` 重做 ✅ → R3 迁移适配层重做并重建开发库 ✅ → S4 应用适配 ✅ → **S5 E2E 与全量门禁 ✅（2026-10-24）**；之后进入 M6 发帖。
   **M5.6 上线前加固与渲染修复（M6 的前置，见 `docs/milestones/M5.6-prelaunch-hardening.md`）**：S1 渲染补精简 GFM ✅ → E0 编辑器选型（Tiptap + CodeMirror + react-image-crop）✅ → S1b 转换器⇄渲染器语法契约与转换器修复、重导开发库 ✅ → S2 登录时序与频控 ✅ → S3 认证杂项 ✅ → S4 安全响应头与 `/files` 穿越矩阵 ✅ → S5 文档漂移清账 ✅。
-  **M6 发帖与内容生产**：M6.1 写路径底座 ✅ → M6.2 薄切片（发主题 / 回帖 / 编辑 / 删除 / 恢复）✅ → **M6.3 编辑器**（实施完成，待真机清单签字，见 `docs/milestones/M6.3-editor.md`）→ M6.4 上传与裁剪 → M6.5 门控创作收尾。
+  **M6 发帖与内容生产**：M6.1 写路径底座 ✅ → M6.2 薄切片（发主题 / 回帖 / 编辑 / 删除 / 恢复）✅ → M6.3 编辑器（实施完成，待真机清单签字，见 `docs/milestones/M6.3-editor.md`）→ **M6.4 上传与图片**（实施完成，待真机清单签字，见 `docs/milestones/M6.4-uploads.md` §14）→ M6.5 门控创作收尾。
 - **分支**：M5.5 已合入 `main`（`feat/m5.5-schema-v2` 仅本地保留，不推送）。类型检查 / lint / 单测 / 构建 / E2E 全部真实通过（`pnpm verify:all` 与 `pnpm test:e2e` 均已连续多次实测）。
   2026-10-24 已重写 git 历史（清除口令、真实邮箱、第三方用户名与 `Claude-Session:` 行），随后已把 `main` 推送到 GitHub 公开仓库 `SkyJourney/FunWind`（CI：`.github/workflows/ci.yml`，`verify` + 自包含 `e2e` 两个作业，首轮修复构建产物步骤后全绿）；重写前的完整备份在站长本机 `~/FunWind-pre-rewrite.bundle`（含旧口令，**不得上传**）。
 - 开发库：`qysub_next` = v2 **纯导入**（`verify:migration` 110 项对账只对它有意义）；`qysub_next_e2e` = 空库 + 演示种子（`db:seed`，id ≥ 90000）+ E2E 夹具（`db:e2e-fixtures`，id ≥ 950000），**不含迁移数据**（CI 同样如此），`pnpm test:e2e` 每次自动重建它。
@@ -36,9 +36,10 @@ docker/          qysub-next（MySQL 8.4 @33621）、dev（web 容器 + MailPit�
 ```bash
 pnpm dev                      # http://127.0.0.1:3100
 pnpm verify:all               # lint + format:check + typecheck + test(覆盖率) + build
-pnpm test:e2e                 # 重置并重建 qysub_next_e2e（bootstrap + 种子 + E2E 夹具，无迁移）→ dev 服务器 3200 的 E2E（89 项）→ 生产构建冒烟 3201（10 项）；需要 MailPit(8025)；约 40s
-pnpm db:bootstrap | db:seed | db:e2e-fixtures | db:verify   # 零数据路径：建表+系统种子 / 演示夹具 / E2E 专用夹具 / schema 对账（18 项：结构 + 孤儿引用 + 楼层唯一 + 首帖指针 + 主题与首帖状态 + 缓存计数）
+pnpm test:e2e                 # 重置并重建 qysub_next_e2e（bootstrap + 种子 + E2E 夹具，无迁移）→ dev 服务器 3200 的 E2E（138 项，含移动项目）→ 生产构建冒烟 3201（10 项）；需要 MailPit(8025)；约 40s
+pnpm db:bootstrap | db:seed | db:e2e-fixtures | db:verify   # 零数据路径：建表+系统种子 / 演示夹具 / E2E 专用夹具 / schema 对账（19 项：结构 + 孤儿引用 + 楼层唯一 + 首帖指针 + 主题与首帖状态 + 缓存计数）
 pnpm db:recount                # 全量重算缓存计数（幂等，默认直接修正；--check 只读，有漂移非零退出）
+pnpm db:gc-files --dry-run     # 孤儿文件巡检（只报告：无附件 / 头像 / 徽章引用、正文也无 /files 链接、超过 24 小时）
 pnpm --filter @funwind/db test              # db 包单测 + 真实 MySQL 临时库集成测试（SKIP_DB_TESTS=1 可跳过）
 pnpm --filter @funwind/web test             # web 单测 + 真实 MySQL 临时库集成测试（同样认 SKIP_DB_TESTS=1）；git push 前由 .husky/pre-push 自动跑类型检查 + 全部测试
 pnpm --filter @funwind/content test         # 门控语法 + 正文切段 + 转换器⇄渲染器语法契约的完整性（UBB 转换器及其泄露不变量性质测试在 migration/，用 pnpm --filter @funwind/migration test）
@@ -64,7 +65,7 @@ pnpm --filter @funwind/web perf:lcp                       # 生产构建 LCP 门
     唯一例外：单列且「空值 = 没有」即期望语义（`users.email_key`）。由 `packages/db/src/schema-rules.ts` 断言，`db:verify` 与单测强制。
 3b. **隐藏内容只能经 `getGateContent` 读取**；`body_md` 永远只含公开部分（门控规范见 `docs/GATES.md`）。
 3c. **积分变动只能经 `applyPoints`**，渠道须先注册（`docs/POINTS.md`）。
-3d. **附件表只能经 `lib/gates/attachments.ts` 读写**：`attachments.gate_id` 非空的附件与门控隐藏正文同权，锁定项不得下发文件名 / 存储键 / 大小；`/files` 与帖子页共用同一出口（`docs/ATTACHMENT-GATES.md`，守卫测试 `attachments-guard.test.ts`）。
+3d. **附件表只能经 `lib/gates/attachments.ts` 读写**（M6.4 起，保存时的内联登记 `registerSourceFiles` 与编辑视图也在此；上传记录表 `file_uploads` 只能经 `lib/uploads/store.ts` 写入，守卫 `uploads-guard.test.ts`）：`attachments.gate_id` 非空的附件与门控隐藏正文同权，锁定项不得下发文件名 / 存储键 / 大小；`/files` 与帖子页共用同一出口（`docs/ATTACHMENT-GATES.md`，守卫测试 `attachments-guard.test.ts`）。
 4. **时区**：库内 DATETIME 一律北京墙面时间；连接层 `+08:00` + `dateStrings`，**且每条新连接必须 `SET time_zone='+08:00'`**（mysql2 的 `timezone` 选项不改服务器会话时区，`NOW()` 会是容器的 UTC；`createPool` 已处理，任何绕过它的裸连接须自行设置；`db:verify` 与 `client.int.test.ts` 守护）；解析只走 `lib/datetime.ts`，禁止裸 `new Date(字符串)`。
 5. **DB 连接**：web 运行时只用 `getWebDb()` 单例；`withDb` 仅限一次性脚本。
 6. **渲染**：用户内容必须经 `lib/markdown.ts` + `lib/sanitize.ts` 管线，禁止 `dangerouslySetInnerHTML` 直出原文。管线启用的是**精简 GFM（只有表格与删除线，`singleTilde:false`，见 `lib/gfm-lite.ts`）**：不要换成完整 `remark-gfm`——它的自动链接会把紧跟 URL 的中文吞进链接，单波浪线删除线会误伤 1328 篇「语气词~」。
@@ -84,6 +85,7 @@ pnpm --filter @funwind/web perf:lcp                       # 生产构建 LCP 门
 - **写入的容器与限制**（M6.1）：评估器对 `forum.write` 先判分区 / 归档（含 admin 也拒），回帖带 `threadLocked` 时还需 `thread.replyLocked`；发帖限制在 `site_settings.limits`（`lib/limits/`，zod 校验，无效回落默认；**0 = 不限**，多角色每项取最宽松，缺字段整体无效而不是补 0）。门控条件固定为内置 `points` / `reply`，库里的未知类型一律 fail-closed（含购买侧不扣费）。
 - **权限/可见性**（`lib/authz` + `lib/queries/visibility.ts`）：评估器是纯函数（显式 `Subject`，零 SQL）；版块树与授权表常驻内存快照（管理动作后 `invalidateAuthzSnapshot()`）；
   查询层用 `readableForumIds`/`moderatedForumIds` 在**取数前**过滤，不取出来再逐行判断。
+- **上传**（M6.4，`lib/uploads`、`app/api/upload`、`components/upload`）：嗅探不信扩展名；图片经 sharp 定向、去元数据、重编码（GIF 不重编码）；内容寻址落盘（临时文件再 rename）；配额在事务内持 `user_stats` 行锁检查（去重命中也计数）。图片可见性按引用它的帖子鉴权（游客视角单独计算，见 `resolveFileGrant`）。保存帖子时在同一事务内登记正文引用（`inline`）与附件（`download`）。
 - **积分与门控的并发约定**（`lib/points`、`lib/gates`，教训来自真实复现的死锁/连接池饥饿）：① 事务内不得再借第二条连接（连接池仅 8 条）——渠道解析、权限检查等一律在开事务前完成；
   ② 加锁顺序固定「门控行 → 账户行（user_id 升序）」；③ 账户行用 `SELECT … FOR UPDATE` 加锁（不存在才 `INSERT IGNORE`），**禁止**用 `INSERT … ON DUPLICATE KEY UPDATE` 当加锁手段（共享锁升级死锁）；
   ④ 先拿账户锁再查幂等/已解锁。⑤ **积分与解锁事务一律 READ COMMITTED**（`POINTS_TX_OPTIONS`）：默认 REPEATABLE READ 下对「不存在的键」`FOR UPDATE` 会加间隙锁，不同新用户并发首次建账户互相死锁（实测 640 次并发 139 次失败）；任何包含 `lockAccount` / `applyPointsInTx` 的新事务都必须以它开启。积分表只能经 `lib/points` 写，隐藏正文只能经 `lib/gates/service.ts` 读，附件表只能经 `lib/gates/attachments.ts` 读写，均有守卫测试。
@@ -92,6 +94,12 @@ pnpm --filter @funwind/web perf:lcp                       # 生产构建 LCP 门
 - **草稿**（`components/editor/draft.ts`）：`localStorage`，键 `funwind:draft:<userId>:<kind>:<id>`，每次变化即写。**提交即暂存**：submit 时主键移到 `…:sent`，失败跳回从暂存键恢复，成功后主键为空；登出（`LogoutForm`）清除全部草稿键。草稿只是个人便利，读写都包在 try/catch 里。
 
 ## 已知坑
+
+- **同源判定不能比较 `request.url`**：Next 按服务绑定的主机名构造它（本地为 localhost），浏览器的 Origin 是 127.0.0.1 或真实域名，会误拒所有同源请求。用 `lib/net/same-origin.ts`（Host 头 + X-Forwarded-Proto，与 Server Action 一致）。
+- **E2E 存储隔离**：`test:e2e` 设置 `STORAGE_DIR=<仓库根>/storage-e2e`（每次运行前清空）；E2E 用例读写文件请用同一变量，不要硬编码 `storage/`。
+- **jsdom 缺几何接口**：Tiptap / ProseMirror 滚动到选区时需要 `scrollIntoView`、`getClientRects`、`Range.getBoundingClientRect`，缺失会以未捕获异常让整次运行失败（垫片在 `vitest.setup.ts`）。
+- **裁剪的最小边长是 32 像素**：1×1 的测试图无法框出合法裁剪区域（会显示「裁剪区域太小」，这是正确行为）。E2E 裁剪用例用 96×96 的图。
+- **守卫按文本匹配，注释也会命中**：`hidden-md-guard.test.ts` 扫描的是源码文本，注释里写 `hidden_md` 同样会红。注释里用中文描述。
 
 - **部署在反向代理后**：Server Action 比对 Origin 与 Host / X-Forwarded-Host，代理必须正确透传，否则同源提交也会被误拒（M13 上线核对项；复查 A3 已验证跨站被拒、同源放行）。
 

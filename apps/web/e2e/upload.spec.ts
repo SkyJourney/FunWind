@@ -93,3 +93,24 @@ test("裁剪后插入：勾选裁剪，确认裁剪框后图片插入正文", as
   await expect(dialog).toHaveCount(0);
   await expect(page.locator('input[name="source"]')).toHaveValue(/!\[.*\]\(\/files\/.+\)/);
 });
+
+test("头像：选图、强制正方形裁剪、保存后页面显示新头像（/files/ 地址）", async ({
+  page,
+  context,
+}) => {
+  await loginAs(context, USERS.member);
+  await page.goto("/settings/avatar");
+  await page.locator('input[type="file"][aria-label="选择头像图片"]').setInputFiles({
+    name: "头像.png",
+    mimeType: "image/png",
+    buffer: await solidPng(200),
+  });
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText("头像需为正方形")).toBeVisible();
+  await dialog.getByRole("button", { name: "保存头像" }).click();
+  await expect(page.getByRole("status")).toHaveText("头像已更新。");
+  await expect(page.getByRole("img", { name: /的当前头像/ })).toHaveAttribute(
+    "src",
+    /^\/files\/.+\.webp$/,
+  );
+});
