@@ -1,3 +1,4 @@
+import { ViewBeacon } from "@/components/content/view-beacon";
 import { ArrowLeft, Clock, Eye, MessageSquare, Paperclip, XCircle } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -166,6 +167,7 @@ export default async function ThreadPage({ params, searchParams }: Params) {
 
   return (
     <main className="mx-auto max-w-4xl space-y-4 px-4 py-8 sm:px-6 lg:px-8">
+      <ViewBeacon tid={thread.id} />
       <nav className="flex items-center gap-1.5 text-sm text-muted-foreground">
         <Link href="/" className="inline-flex items-center gap-1 hover:text-primary">
           <ArrowLeft className="size-3.5" /> 首页
