@@ -20,7 +20,7 @@ import {
 } from "drizzle-orm/mysql-core";
 
 /**
- * qysub_next · schema v2.1（M5.5，单一事实源，决策 #10；设计依据 docs/DESIGN-MODEL.md，共 44 表）
+ * qysub_next · schema v2.1（M5.5，单一事实源，决策 #10；设计依据 docs/DESIGN-MODEL.md；M7 增 event_outbox，共 45 表）
  *
  * 设计原则：
  *  - 运行时 schema 不认识旧站：不出现 legacy_* / 迁移标记 / 迁移用 id 公式 / migration_* 表（schema-rules.ts 强制）
@@ -686,6 +686,8 @@ export const pointLedger = mysqlTable(
     uniqueIndex("uq_pl_idem").on(t.idempotencyKey),
     index("idx_pl_user").on(t.userId, t.id),
     index("idx_pl_channel").on(t.channel, t.createdAt),
+    // M7 日上限聚合：按 (用户, 渠道, 北京自然日) 求当日已发放额
+    index("idx_pl_user_channel_time").on(t.userId, t.channel, t.createdAt),
   ],
 );
 
@@ -808,6 +810,27 @@ export const eventLog = mysqlTable(
     index("idx_el_name_time").on(t.eventName, t.createdAt),
     index("idx_el_time").on(t.createdAt),
   ],
+);
+
+/**
+ * 事务性 outbox（M7，拍板记录见 docs/milestones/M7-gamification.md）：业务事务内 enqueue，
+ * 提交后同步派发为快路径；崩溃留下的 pending 行由 drain 补派（SKIP LOCKED 防并发争抢）。
+ * at-least-once 投递 + 消费端幂等（台账幂等键 / checkins / user_badges 联合主键）= 不重不丢。
+ * dispatched_at 非空即已派发；重放经事件总线照常写 event_log（source="outbox" 区分）。
+ */
+export const eventOutbox = mysqlTable(
+  "event_outbox",
+  {
+    id: bigint("id", { mode: "number", unsigned: true }).notNull().autoincrement(),
+    eventName: varchar("event_name", { length: 64 }).notNull(),
+    payload: json("payload"),
+    actorId: int("actor_id", { unsigned: true }),
+    source: varchar("source", { length: 64 }),
+    createdAt: dt("created_at").notNull(),
+    dispatchedAt: dt("dispatched_at"),
+    dispatchError: json("dispatch_error"), // 最近一次补派失败的摘要
+  },
+  (t) => [primaryKey({ columns: [t.id] }), index("idx_eo_pending").on(t.dispatchedAt, t.id)],
 );
 
 export const moduleState = mysqlTable(

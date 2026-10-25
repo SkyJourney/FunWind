@@ -36,6 +36,13 @@
       "when": 1792909552731,
       "tag": "0004_gate_content_updated_at",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1792924948742,
+      "tag": "0005_outbox_and_point_rewards",
+      "breakpoints": true
     }
   ]
 }

@@ -38,6 +38,8 @@ export const NON_WRITE_CLASS_KEYS: ReadonlySet<string> = new Set([
   "admin.reports",
   "admin.logs",
   "admin.recycle",
+  "admin.points",
+  "admin.badges",
   "forum.read",
   "forum.moderate",
   "forum.report",

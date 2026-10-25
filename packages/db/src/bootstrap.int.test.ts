@@ -82,7 +82,7 @@ describe.skipIf(skip)("bootstrap / seed 集成（临时库）", () => {
          WHERE TABLE_SCHEMA = ? AND TABLE_NAME <> '__drizzle_migrations'`,
         [dbName],
       );
-      expect(Number(tables[0]?.n)).toBe(44);
+      expect(Number(tables[0]?.n)).toBe(45);
       for (const p of PATCHES) {
         const [rows] = await pool.query<RowDataPacket[]>(
           `SELECT COLLATION_NAME AS c FROM information_schema.COLUMNS
@@ -153,7 +153,14 @@ describe.skipIf(skip)("bootstrap / seed 集成（临时库）", () => {
         expect(rows.every((r) => r.scopeId === 0)).toBe(true);
       }
       const keys = (await db.select().from(siteSettings)).map((s) => s.key).sort();
-      expect(keys).toEqual(["limits", "points.gate_fee_rate", "points.name", "register.mode"]);
+      expect(keys).toEqual([
+        "limits",
+        "points.gate_fee_rate",
+        "points.name",
+        "points.reward",
+        "punch.reward",
+        "register.mode",
+      ]);
       const stored = (await db.select().from(siteSettings)).find((x) => x.key === "limits");
       expect(stored?.value).toEqual(DEFAULT_LIMITS); // 默认写入限制与代码常量一致（零数据部署开箱可用）
     });

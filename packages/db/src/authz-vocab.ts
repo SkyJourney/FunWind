@@ -1,5 +1,5 @@
 /**
- * 权限点词汇表（schema v2.1 单一事实源）：25 个权限点。
+ * 权限点词汇表（schema v2.1 单一事实源）：27 个权限点。
  * 消费方：bootstrap 的 seedSystemData、web 评估器（级别隐含）、导入适配层（把外部权限翻译到这些键）。
  * 扩展权限点 = 修改本文件 + 在 docs/AUTHZ.md 说明（与模块清单同纪律）。
  *
@@ -32,6 +32,9 @@ export const PERMISSION_DEFINITIONS: PermissionDef[] = [
   def("admin.reports", "admin", "后台举报处理"),
   def("admin.logs", "admin", "后台审计日志查看"),
   def("admin.recycle", "admin", "后台已删除内容管理"),
+  // M7：积分与荣誉的管理动作（规则配置/手工调整、徽章授予），页面与动作均要求 site.admin 总门 + 此处权限点
+  def("admin.points", "admin", "积分规则配置与手工调整"),
+  def("admin.badges", "admin", "荣誉徽章授予"),
   // ---- 版块（分级域：moderate ⊃ write ⊃ read）----
   def("forum.read", "forum", "浏览版块与帖子", { level: "read" }),
   def("forum.write", "forum", "发帖/回帖/编辑自己的帖", { level: "write" }),
@@ -115,6 +118,8 @@ export const DEFAULT_ROLE_GRANTS: Record<BuiltinRoleKey, string[]> = {
     "admin.reports",
     "admin.logs",
     "admin.recycle",
+    "admin.points",
+    "admin.badges",
     "forum.read",
     "forum.write",
     "forum.moderate",
@@ -142,11 +147,29 @@ export const DEFAULT_LIMITS = {
   },
 } as const;
 
+/**
+ * 积分奖励默认值（site_settings 的 `points.reward` 键；M7，设计见 docs/POINTS.md §3）。
+ * web 侧用 zod 校验，校验失败回落到本常量；数值来自旧站实测（credit.strategy：post_topic=3、post_reply=1）。
+ *  · post / reply：发帖、回帖奖励；
+ *  · postDailyCap / replyDailyCap：北京时间自然日上限，**0 = 不限**（旧站即无上限，后台可设）。
+ */
+export const DEFAULT_POINT_REWARD = {
+  post: 3,
+  reply: 1,
+  postDailyCap: 0,
+  replyDailyCap: 0,
+} as const;
+
+/** 签到奖励默认值（site_settings 的 `punch.reward` 键）：旧站 punch.reward（随机 min=1 max=5）原样 */
+export const DEFAULT_PUNCH_REWARD = { min: 1, max: 5 } as const;
+
 /** 站点设置默认值（零数据部署；导入路径可覆盖，如积分显示名） */
 export const DEFAULT_SITE_SETTINGS: Record<string, unknown> = {
   "register.mode": { mode: "invite" },
   "points.name": { name: "积分" },
   "points.gate_fee_rate": { rate: 0 },
+  "points.reward": DEFAULT_POINT_REWARD,
+  "punch.reward": DEFAULT_PUNCH_REWARD,
   limits: DEFAULT_LIMITS,
 };
 

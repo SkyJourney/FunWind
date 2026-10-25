@@ -24,8 +24,8 @@ describe("权限词汇表", () => {
     }
   });
 
-  it("共 25 个权限点；已取消功能的权限点不再出现", () => {
-    expect(PERMISSION_DEFINITIONS).toHaveLength(25);
+  it("共 27 个权限点；已取消功能的权限点不再出现", () => {
+    expect(PERMISSION_DEFINITIONS).toHaveLength(27);
     for (const dead of [
       "forum.manage",
       "thread.sell",
@@ -118,10 +118,17 @@ describe("内置角色与基线授权", () => {
     expect(DEFAULT_ROLE_GRANTS.admin).toContain("site.admin");
   });
 
-  it("站点设置默认值：邀请制、积分显示名、门控手续费 0", () => {
+  it("站点设置默认值：邀请制、积分显示名、门控手续费 0、M7 奖励规则", () => {
     expect(DEFAULT_SITE_SETTINGS["register.mode"]).toEqual({ mode: "invite" });
     expect(DEFAULT_SITE_SETTINGS["points.gate_fee_rate"]).toEqual({ rate: 0 });
     expect(DEFAULT_SITE_SETTINGS["points.name"]).toBeDefined();
+    expect(DEFAULT_SITE_SETTINGS["points.reward"]).toEqual({
+      post: 3,
+      reply: 1,
+      postDailyCap: 0,
+      replyDailyCap: 0,
+    });
+    expect(DEFAULT_SITE_SETTINGS["punch.reward"]).toEqual({ min: 1, max: 5 });
     expect(DEFAULT_SITE_SETTINGS["limits"]).toBe(DEFAULT_LIMITS); // 默认限制只有一份
   });
 

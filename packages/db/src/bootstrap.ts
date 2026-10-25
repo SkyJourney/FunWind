@@ -92,6 +92,7 @@ export interface SystemSeedSummary {
  * 系统种子（幂等、非破坏性）：
  * - roles / permissions：按词汇表 upsert（词汇表是单一事实源）；不删除词汇表外的行（模块可能声明自有权限点）
  * - 基线授权：仅当某内置角色**尚无任何授权行**时写入默认值，避免重跑 bootstrap 覆盖管理员的授权调整
+ *   （词汇表新增权限点对存量库的补授由增量迁移负责——见 drizzle/0005 的 EXISTS 守卫插入）
  * - 站点设置：仅写入缺失项，不覆盖已有值
  */
 export async function seedSystemData(db: Db): Promise<SystemSeedSummary> {
