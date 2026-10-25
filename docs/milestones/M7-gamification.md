@@ -12,6 +12,16 @@
 > 获取途径仅**发帖、回帖、签到**；等级/成长系统、任务引擎、勋章自动颁发、银行、抽奖、积分商城整体取消。
 > 抽象保留：渠道注册使将来接入新的获取/消费渠道不改核心（见 [POINTS.md](../POINTS.md)）。
 
+> **开工拍板（2026-10-25 站长，M7 前审查后）**：
+> 1. **outbox 提前到 M7**（原归 M8-1）：业务事务内写 `event_outbox`，提交后同步派发为快路径，崩溃后由巡检补派
+>    （at-least-once + 消费端幂等）。本期覆盖 posting 事件族（`thread.created` / `thread.replied` / `content.submitted` /
+>    `attachment.uploaded`）；gate / message 等其余事件仍归 M8-1。
+> 2. **帖子页徽章走槽位** `thread.user-badge`（组件组合方案否决）；资料页徽章走 `profile.header`。
+> 3. **奖励初值（旧库只读实测）**：发帖 +3（`credit.strategy.post_topic`，nw_credit_log 4,051 条 affect 全为 3）、
+>    回帖 +1（`post_reply`，10,841 条全为 1）、签到随机 1–5（`punch.reward` min=1 max=5 step=1）；
+>    旧站**无日上限**（limit 空）→ 新站默认不限（0），后台可设；精华 +5（`digest_topic`）不在本期获取途径内，记遗留。
+> 4. 不拆 M7.x 子文档，本文件按 S1–S7 checklist 推进。
+
 ## 范围（做什么）
 
 1. **积分模块**（`defineModule`）：声明 `earn.post` / `earn.reply` / `earn.checkin` 渠道；消费 `thread.created`、`thread.replied`
@@ -23,14 +33,11 @@
    **手动授予**（后台）；资料页与帖子页佩戴展示；纯装饰、零权限语义。
 4. 全部以 `defineModule` 实现：各自注册事件消费、槽位、权限点、路由、渠道。
 
-> **槽位与内核扩展（2026-10-25 M7 前审查澄清）**：槽位清单至今仍是 M2 的 `home.after-header` / `home.footer-notice`
-> 两个页面槽位，而本期需要新的宿主位——首页签到入口**复用** `home.after-header`；
-> 资料页的徽章展示位、帖子页 `UserBadge` 旁的荣誉徽章位（与 M7-3 的头像一起）需要**新增**槽位
-> （候选名 `profile.header` / `thread.user-badge`，实施时定稿并在 docs/MODULES.md 说明——这是契约写明的扩清单流程，
-> 不是私设插入点）。若帖子页徽章走槽位，`SlotContext` 需按 `kernel/types.ts` 预留的语义扩展（携带作者 id）；
-> 也可以在实施设计时选择组件级组合（徽章模块导出展示组件、由 UserBadge 直接装配），二选一在动工前定。
-> 因此验收门禁的「零内核改动」按「**零内核机制改动**」理解：registry/bus/state/slot 机制不动，
-> 清单扩展（事件/槽位/上下文）走既定流程并留档。
+> **槽位与内核扩展（2026-10-25 定稿）**：首页签到入口**复用** `home.after-header`；新增页面槽位
+> `profile.header`（资料页徽章卡）与 `thread.user-badge`（帖子页 UserBadge 内的荣誉徽章位），`SlotContext` 扩
+> `userId?`——按契约修改 `kernel/types.ts` 并在 docs/MODULES.md 说明，不是私设插入点。组件组合方案已否决（拍板 2）。
+> 因此验收门禁的「零内核改动」按「**零内核机制破坏**」理解：registry / bus / slot 既有语义不变，
+> 清单扩展（槽位 / 上下文 / outbox 派发路径）走既定流程并留档。
 
 ## 边界（明确不做什么）
 
@@ -42,17 +49,31 @@
 
 - 单测：发放幂等（同一事件重复派发不重复加分）、日上限（北京时间自然日边界 23:59:59 / 00:00:01）、
   并发发放（事务/幂等键）、连签中断重置；覆盖率 ≥ 90%。
+- outbox：注入「事务提交后不派发」→ drain 补齐 → 幂等不重复记账；并发 drain（SKIP LOCKED）无重复派发；
+  滞留 pending 有 `db:verify` 检查。
 - 集成：对账——`SUM(point_ledger.delta) = SUM(point_accounts.balance)`；随机抽 50 用户，台账重放 = 余额。
 - E2E：发帖→积分入账→签到→连签→徽章手动授予→展示位更新；管理员调整出审计；
-  模块装卸回归（禁用积分/签到模块后相关槽位消失，主体与台账不受损）。
+  模块装卸回归（禁用积分/签到/徽章模块后相关槽位消失，主体与台账不受损）。
 
 ## 验收门禁
 
-- [ ] 三类能力全部经 `defineModule` 注册（代码评审确认零内核**机制**改动；槽位/上下文清单扩展按 MODULES.md 既定流程留档；`pointChannels` 契约已由 M5.5 就位）
+- [ ] 三类能力全部经 `defineModule` 注册（代码评审确认零内核**机制**破坏；槽位/上下文清单扩展按 MODULES.md 既定流程留档；`pointChannels` 契约已由 M5.5 就位）
+- [ ] outbox：posting 事件族经 `event_outbox` 可靠派发——集成测试证明「提交后不派发」可由 drain 补齐且幂等；`db:verify` 滞留检查就位
+- [ ] 奖励数值与日上限经 `site_settings` 后台可配置且配置变更出审计（`/admin/points`）
 - [ ] 单测/对账/E2E 全绿；装卸回归通过（注册表验收的硬指标）
 - [ ] 签到时区边界用例全过（含服务器时区非 +8 的模拟）
 - [ ] 旧数据展示无回归（团队徽章/勋章抽样 20 人对照旧站）
-- [ ] `pnpm verify:all` 与 `pnpm test:e2e` 全绿；CHANGELOG 记录
+- [ ] `pnpm verify:all` 与 `pnpm test:e2e` 全绿；`perf:posting` p95 < 300ms（earn 消费者已入请求路径）；CHANGELOG 记录
+
+## 阶段推进（S1–S7，2026-10-25 开工）
+
+- [ ] **S1 开工文档定稿**：本文件拍板与阶段化；ROADMAP 🚧；POINTS.md（dailyCap 语义、奖励配置 key、初值）；旧库只读查初值
+- [ ] **S2 权限与配置底座**：`admin.points` / `admin.badges` 权限点 + 基线授权（含存量库增量迁移 upsert）；`points.reward` / `punch.reward` settings key（zod 回落）；`point_ledger (user_id, channel, created_at)` 索引；`event_outbox` 表
+- [ ] **S3 outbox 可靠派发**：enqueue/drain（SKIP LOCKED）/emit 捎带巡检/`db:outbox-drain` 脚本/`db:verify` 滞留检查；posting 三处事务内 enqueue + 快路径；崩溃注入与并发 drain 集成测试
+- [ ] **S4 积分模块**：`lib/points/earn.ts`（事件消费+锁内日上限）；模块注册（earn.post/earn.reply/adjust.admin）；`/points` 页 + 顶栏入口；`/admin/points`（配置+调整+显示名，审计）；earn 测试/并发/对账；points.spec
+- [ ] **S5 签到模块**：`lib/checkin`（自然日/连签/随机奖励/`checkin.done`）；模块注册（earn.checkin）；`home.after-header` 签到条+迷你日历（不显示他人活动）；时区与并发测试；checkin.spec
+- [ ] **S6 徽章模块与展示**：内核 SlotName/SlotContext 扩展；`lib/badges`（授予+审计+`badge.awarded`）；`profile.header` 徽章卡；UserBadge 头像（M7-3）+`thread.user-badge` 槽位；`/admin/badges`；重复发放并发用例；badges.spec + 装卸回归
+- [ ] **S7 退役与收尾**：demo-checkin 退役（清单见「开工前审查要点」3）；M7-1 双真连接并发；M7-4 附件恢复 E2E；`db:verify` 积分对账项；perf:posting 重测；verify:all+test:e2e 全绿；门禁勾选/CHANGELOG/ROADMAP/carryover 清账
 
 ## 遗留事项
 
@@ -74,8 +95,8 @@ M7 前健康审查（模块内核、积分核心、门控事务、schema、门�
 
 1. **积分发放继承「提交后派发」的丢失窗口**：`thread.created` / `thread.replied` 在发帖事务提交后同步派发，
    进程崩溃即丢（即 [M6-carryover](M6-carryover.md) M8-1 的 outbox 议题）。earn.post / earn.reply 消费这些事件，
-   等于入账有同样的窗口。二选一：把 outbox 决策提前到 M7，或明确接受（台账只差一次奖励，不损一致性；
-   事件本身有 event_log 审计可事后对账）——**倾向后者，outbox 仍按计划归 M8-1**，开工时站长拍板。
+   等于入账有同样的窗口。**✅ 已拍板（2026-10-25，见「开工拍板」1）：outbox 提前到 M7**，posting 事件族经
+   `event_outbox` 可靠派发；M8-1 剩余 gate/message 等事件。
    伴生两点：消费者内 `applyPoints` 给发帖请求增加一个事务的延迟，M7 须重测 `perf:posting` 基线；
    日上限按「用户×渠道×北京自然日」聚合台账，现有索引 `(user_id, id)` / `(channel, created_at)` 不覆盖，
    随 M7 增量迁移加 `(user_id, channel, created_at)`。

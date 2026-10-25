@@ -33,7 +33,10 @@ applyPoints({ userId, channel, delta, ref?, idempotencyKey, note? })
 - 锁内顺序：锁账户行（`lockAccount`）→ 幂等判定（`FOR UPDATE` 当前读）→ 余额判定 → 写台账 → 更新余额与累计收支。同一幂等键重放返回既有结果；
   同键却用于不同用户/渠道/金额报 `IdempotencyConflictError`。
 - **守卫测试** `no-direct-points-write.test.ts`：`lib/points/` 之外的运行时代码不得 insert/update/delete `point_ledger` / `point_accounts`（含手写 SQL）。
-- 模块声明的渠道随模块启停（停用即拒绝）；内置渠道 `opening` / `spend.gate_unlock` / `earn.gate_sale` 属于核心。`dailyCap` 字段契约已接受，规则执行随 M7。
+- 模块声明的渠道随模块启停（停用即拒绝）；内置渠道 `opening` / `spend.gate_unlock` / `earn.gate_sale` 属于核心。
+- **日上限执行（M7）**：仅对声明 `dailyCap: true` 的渠道生效——发放事务内（账户行锁后、插台账前）按
+  `(user_id, channel, 北京自然日)` 聚合当日已发放额，超限则本次跳过（不发不记账）。依赖 `point_ledger`
+  增量索引 `(user_id, channel, created_at)`。
 
 ## 3. 渠道注册（`pointChannels`）
 
@@ -51,8 +54,12 @@ pointChannels: [
 - 门控两侧（`spend.gate_unlock` / `earn.gate_sale`）与期初 `opening` 是**内置渠道**（`kernel/builtin.ts`，
   随积分核心、不随模块启停），模块**不得**重复声明——注册期重名校验直接失败（2026-10-25 修正：本示例此前误列了这两个渠道）。
 - 未注册的渠道调用 `applyPoints` 直接拒绝（防拼写错误与未审查的新渠道）。
-- 渠道规则（奖励数值、日上限）读 `site_settings`，M7 提供配置界面；`dailyCap` 的计数基于台账（按北京时间自然日聚合）。
+- 渠道规则读 `site_settings`（读取带校验、失败回落默认值，仿 `limits`），M7 提供配置界面（`/admin/points`）：
+  - `points.reward`：`{ post: 3, reply: 1, postDailyCap: 0, replyDailyCap: 0 }`——数值为旧站实测
+    （`credit.strategy`：`post_topic` = 3、`post_reply` = 1）；日上限 0 = 不限（旧站即无上限），后台可设。
+  - `punch.reward`：`{ min: 1, max: 5 }`——旧站 `punch.reward`（随机，min=1 max=5）原样。
 - 将来的打赏、商城、活动奖励 = 新模块声明新渠道，积分核心零改动。
+  （旧站「精华 +5」`digest_topic` 与「邀请注册奖励」不在本期获取途径内——将来若做 = 新渠道，见 [M7 遗留](milestones/M7-gamification.md)。）
 
 ## 4. 首批渠道
 
@@ -61,7 +68,7 @@ pointChannels: [
 | `opening` | earn | M5.5 迁移 | 迁移期初余额（每人一条，备注「迁移期初」） |
 | `spend.gate_unlock` | spend | M5.5 服务 / M6 交互 | 门控购买，见 [GATES.md](GATES.md) §5 |
 | `earn.gate_sale` | earn | 同上 | 作者收益；手续费 `points.gate_fee_rate` 默认 0 |
-| `earn.post` / `earn.reply` | earn | M7 | 发帖/回帖奖励（消费 `thread.created`/`thread.replied` 事件），含日上限 |
+| `earn.post` / `earn.reply` | earn | M7 | 发帖/回帖奖励（消费 `thread.created`/`thread.replied` 事件），含日上限；初值 +3 / +1（旧站实测） |
 | `earn.checkin` | earn | M7 | 签到奖励（旧站随机 1–5） |
 | `adjust.admin` | 双向 | M7 | 管理员手工调整，强制备注 + 审计 |
 
