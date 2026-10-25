@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { rateLimit, rateLimitRefund } from "@/lib/auth/ratelimit";
 import { checkPermission } from "@/lib/authz/service";
 import { getCurrentSubject } from "@/lib/authz/subject";
+import type { Subject } from "@/lib/authz/types";
 import { limitsFor } from "@/lib/limits/load";
 import { readBodyBytes } from "@/lib/net/read-body";
 import { isSameOrigin } from "@/lib/net/same-origin";
@@ -10,12 +11,13 @@ import { parseCropField } from "@/lib/uploads/crop";
 import { admit } from "@/lib/uploads/policy";
 import { ProcessError, processImage } from "@/lib/uploads/process-image";
 import { sniffType } from "@/lib/uploads/sniff";
-import { storeUpload } from "@/lib/uploads/store";
+import { quotaPrecheck, storeUpload } from "@/lib/uploads/store";
 import {
   FORM_OVERHEAD_BYTES,
   IMAGE_TYPES,
   MAX_BYTES,
   type UploadPurpose,
+  type SniffedType,
 } from "@/lib/uploads/types";
 
 /**
@@ -38,6 +40,13 @@ function json(body: unknown, status: number): Response {
   return NextResponse.json(body, { status });
 }
 
+/**
+ * 同一账号同时进行中的上传上限。读体、解码与重编码都在内存里进行，每个请求最多占用约 50 MB 的副本，
+ * 并发必须有界（否则单账号 30 次/分钟的限流仍可在瞬时叠加出数 GB 的内存峰值）。
+ */
+const INFLIGHT_PER_USER = 3;
+const inflight = new Map<number, number>();
+
 export async function POST(request: Request): Promise<Response> {
   if (!isSameOrigin(request)) return json({ error: "forbidden" }, 403);
   const url = new URL(request.url);
@@ -55,6 +64,25 @@ export async function POST(request: Request): Promise<Response> {
     return json({ error: "rate_limited" }, 429);
   }
 
+  // 并发闸放在读体之前：超出的请求直接 429，不占用内存
+  const active = inflight.get(userId) ?? 0;
+  if (active >= INFLIGHT_PER_USER) return json({ error: "rate_limited" }, 429);
+  inflight.set(userId, active + 1);
+  try {
+    return await handleUpload(request, url, subject, userId);
+  } finally {
+    const left = (inflight.get(userId) ?? 1) - 1;
+    if (left <= 0) inflight.delete(userId);
+    else inflight.set(userId, left);
+  }
+}
+
+async function handleUpload(
+  request: Request,
+  url: URL,
+  subject: Subject,
+  userId: number,
+): Promise<Response> {
   const purposeRaw = url.searchParams.get("purpose") ?? "";
   if (!(PURPOSES as readonly string[]).includes(purposeRaw))
     return json({ error: "bad_request" }, 400);
@@ -101,6 +129,8 @@ export async function POST(request: Request): Promise<Response> {
   const bytes = Buffer.from(await file.arrayBuffer());
   const sniffed = sniffType(bytes);
   if (sniffed === null) return json({ error: "unsupported_type" }, 415);
+  // 当前 sharp 构建无法解码 BMP：在入口拒绝，而不是在处理阶段以「无法解码」失败
+  if (sniffed === "bmp") return json({ error: "unsupported_type" }, 415);
   const admitted = admit(file.name, purpose, sniffed);
   if (!admitted.ok) return json({ error: admitted.code }, 415);
 
@@ -109,15 +139,23 @@ export async function POST(request: Request): Promise<Response> {
   if (cropField.kind === "invalid") return json({ error: "crop_invalid" }, 400);
   const crop = cropField.kind === "value" ? cropField.value : undefined;
 
+  const limits = await limitsFor(subject, forumId ?? undefined);
+  // 配额预检放在图片处理之前：超额的账号不应再消耗解码与重编码的资源（非权威，权威检查仍在存储事务内）
+  if (!(await quotaPrecheck(userId, limits.uploadsPerDay))) {
+    return json({ error: "quota_exceeded" }, 429);
+  }
+
   let stored: {
     bytes: Buffer;
-    sniffed: typeof sniffed;
+    sniffed: Exclude<SniffedType, "bmp">;
     width: number | null;
     height: number | null;
   };
   if (IMAGE_TYPES.has(sniffed)) {
     try {
       const out = await processImage(bytes, { sniffed, crop, avatar: purpose === "avatar" });
+      // processImage 从不输出 BMP（BMP 统一编码为 PNG）；这道守卫只为收窄类型
+      if (out.sniffed === "bmp") return json({ error: "unsupported_type" }, 415);
       stored = { bytes: out.bytes, sniffed: out.sniffed, width: out.width, height: out.height };
     } catch (e) {
       if (e instanceof ProcessError)
@@ -130,7 +168,6 @@ export async function POST(request: Request): Promise<Response> {
     stored = { bytes, sniffed, width: null, height: null };
   }
 
-  const limits = await limitsFor(subject, forumId ?? undefined);
   const result = await storeUpload(
     {
       userId,

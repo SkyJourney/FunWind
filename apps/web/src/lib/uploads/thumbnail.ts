@@ -38,7 +38,10 @@ export function thumbCachePath(
  * 确保缩略图存在并返回其路径。生成失败返回 null（调用方回退为原图，不把错误暴露给观众）。
  * 只缩小不放大（withoutEnlargement）；同格式输出；按 EXIF 定向（原图已去元数据，此处仅为稳妥）。
  */
-export async function ensureThumb(
+/** 进行中的生成：同一缩略图的并发首次请求共享一次解码，避免多个 sharp 任务同时占用内存 */
+const inflight = new Map<string, Promise<string | null>>();
+
+export function ensureThumb(
   storageDir: string,
   originalPath: string,
   sha256: string,
@@ -46,7 +49,23 @@ export async function ensureThumb(
   width: number,
 ): Promise<string | null> {
   const target = thumbCachePath(storageDir, sha256, mime, width);
-  if (target === null) return null;
+  if (target === null) return Promise.resolve(null);
+  const pending = inflight.get(target);
+  if (pending !== undefined) return pending;
+  const job = buildThumb(target, originalPath, sha256, mime, width).finally(() =>
+    inflight.delete(target),
+  );
+  inflight.set(target, job);
+  return job;
+}
+
+async function buildThumb(
+  target: string,
+  originalPath: string,
+  sha256: string,
+  mime: string,
+  width: number,
+): Promise<string | null> {
   try {
     await stat(target);
     return target;

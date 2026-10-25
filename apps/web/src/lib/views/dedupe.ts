@@ -28,12 +28,15 @@ export class ViewDedupe {
     return this.seen.size;
   }
 
+  /** 先清过期键；仍超限则一次淘汰到上限的九成。若只删一条，满载时每次准入都要整表扫描（CPU 放大） */
   private prune(now: number): void {
     for (const [k, t] of this.seen) {
       if (now - t >= this.windowMs) this.seen.delete(k);
     }
+    if (this.seen.size <= this.maxKeys) return;
+    const target = Math.floor(this.maxKeys * 0.9);
     for (const k of this.seen.keys()) {
-      if (this.seen.size <= this.maxKeys) break;
+      if (this.seen.size <= target) break;
       this.seen.delete(k);
     }
   }

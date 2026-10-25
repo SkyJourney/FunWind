@@ -148,8 +148,14 @@ async function processGif(
     if (opts.crop !== undefined && opts.crop !== null) {
       throw new ProcessError("gif_crop", "GIF 不支持裁剪");
     }
-    // 非头像：原样存储（不重编码，保留动画）
-    return { bytes: input, sniffed: "gif", mime: MIME_OF.gif, width: w, height: h };
+    // 非头像：不重编码（保留动画），但去除注释、文本与非动画的应用扩展块（它们可能携带作者信息）
+    return {
+      bytes: stripGifAncillary(input),
+      sniffed: "gif",
+      mime: MIME_OF.gif,
+      width: w,
+      height: h,
+    };
   }
 
   // 头像：首帧居中裁成正方形，输出 webp
@@ -176,4 +182,77 @@ async function processGif(
     width: out.info.width,
     height: out.info.height,
   };
+}
+
+/** GIF 中保留的扩展块：图形控制（动画时序）与循环信息（NETSCAPE2.0 / ANIMEXTS1.0） */
+const GIF_KEEP_APP_IDS = new Set(["NETSCAPE2.0", "ANIMEXTS1.0"]);
+
+/**
+ * 去除 GIF 中的注释块、纯文本块与非动画的应用扩展块（如 XMP）；图像数据与动画时序原样保留。
+ * 按 GIF 块结构逐块解析，任何越界或未知块都抛出 undecodable，不做「尽力而为」的截取。
+ */
+export function stripGifAncillary(input: Buffer): Buffer {
+  const fail = (): never => {
+    throw new ProcessError("undecodable", "GIF 结构异常");
+  };
+  if (input.length < 13) fail();
+  const out: Buffer[] = [];
+  // 头部 6 字节 + 逻辑屏幕描述符 7 字节（打包字段第 10 字节：bit7 = 全局色表，低 3 位 = 大小）
+  let pos = 13;
+  const packed0 = input[10]!;
+  if (packed0 & 0x80) pos += 3 * 2 ** ((packed0 & 0x07) + 1);
+  out.push(input.subarray(0, pos));
+
+  // 跳过一串子块（长度字节 + 数据，以 0 结束）；返回结束后的位置
+  const skipSubBlocks = (start: number): number => {
+    let p = start;
+    for (;;) {
+      if (p >= input.length) fail();
+      const n = input[p]!;
+      p += 1;
+      if (n === 0) return p;
+      p += n;
+      if (p > input.length) fail();
+    }
+  };
+
+  for (;;) {
+    if (pos >= input.length) fail();
+    const b = input[pos]!;
+    if (b === 0x3b) {
+      out.push(input.subarray(pos, pos + 1));
+      break;
+    }
+    if (b === 0x21) {
+      // 扩展块：0x21 + 标签 + 子块序列
+      if (pos + 2 > input.length) fail();
+      const label = input[pos + 1]!;
+      const end = skipSubBlocks(pos + 2);
+      let keep = label === 0xf9; // 图形控制
+      if (label === 0xff) {
+        // 应用扩展：第一个子块是 11 字节的应用标识
+        const idLen = input[pos + 2];
+        const id = idLen === 11 ? input.subarray(pos + 3, pos + 14).toString("latin1") : "";
+        keep = GIF_KEEP_APP_IDS.has(id);
+      }
+      if (keep) out.push(input.subarray(pos, end));
+      pos = end;
+      continue;
+    }
+    if (b === 0x2c) {
+      // 图像块：0x2C + 9 字节描述符（打包字段在第 9 字节）+ 可选局部色表 + LZW 最小码长 + 子块
+      if (pos + 10 > input.length) fail();
+      const packed = input[pos + 9]!;
+      let p = pos + 10;
+      if (packed & 0x80) p += 3 * 2 ** ((packed & 0x07) + 1);
+      if (p >= input.length) fail();
+      p += 1; // LZW 最小码长
+      const end = skipSubBlocks(p);
+      out.push(input.subarray(pos, end));
+      pos = end;
+      continue;
+    }
+    fail();
+  }
+  return Buffer.concat(out);
 }

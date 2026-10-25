@@ -27,3 +27,15 @@ describe("ViewDedupe", () => {
     expect(d.admit("k9", 10)).toBe(false);
   });
 });
+
+describe("ViewDedupe：满载后的淘汰", () => {
+  it("超限时一次淘汰到上限的九成，之后的准入不会每次都整表清理", () => {
+    const d = new ViewDedupe(60_000, 10);
+    for (let i = 0; i < 11; i++) d.admit(`k${i}`, 1_000);
+    // 第 11 个键触发淘汰：从 11 降到 9（上限 10 的九成）
+    expect(d.size).toBe(9);
+    // 之后再插入一个键（10 个）不会触发清理
+    d.admit("k11", 1_000);
+    expect(d.size).toBe(10);
+  });
+});
