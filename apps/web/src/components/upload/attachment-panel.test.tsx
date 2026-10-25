@@ -93,9 +93,8 @@ describe("AttachmentPanel", () => {
     await user.upload(fileInput(), new File(["zip"], "新附件.zip", { type: "application/zip" }));
     await waitFor(() => expect(screen.getByText("新附件.zip")).toBeInTheDocument());
     expect(parsed(container)).toEqual([{ fileId: 7, gateKey: null, name: "新附件.zip" }]);
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("/api/upload?purpose=attachment");
-    expect((init.body as FormData).get("forumId")).toBe("901");
+    const [url] = fetchMock.mock.calls[0] as unknown as [string];
+    expect(url).toBe("/api/upload?purpose=attachment&forumId=901");
   });
 
   it("上传失败：展示服务端给出的中文原因，列表不变", async () => {
@@ -143,5 +142,51 @@ describe("AttachmentPanel", () => {
     window.localStorage.setItem(`${KEY}:attachments:sent`, JSON.stringify([item(9, "暂存.zip")]));
     mount({ draftKey: KEY, restoreDraft: true, initial: [] });
     expect(await screen.findByText("暂存.zip")).toBeInTheDocument();
+  });
+});
+
+describe("AttachmentPanel：编辑冲突后的附件恢复", () => {
+  const STAGED = `${KEY}:attachments:sent`;
+  const submitted = JSON.stringify([item(9, "我提交的.zip")]);
+
+  it("冲突跳回且暂存列表与服务端不同：提示恢复或丢弃；未处理前不替换服务端列表", async () => {
+    window.localStorage.setItem(STAGED, submitted);
+    const { container } = mount({ draftKey: KEY, restoreDraft: false, recoverStaged: true });
+    expect(await screen.findByRole("status")).toHaveTextContent("发现一份未保存的附件修改");
+    expect(parsed(container).map((x) => x.fileId)).toEqual([1, 2]);
+  });
+
+  it("选择恢复：列表换成作者提交的那一版", async () => {
+    window.localStorage.setItem(STAGED, submitted);
+    const user = userEvent.setup();
+    const { container } = mount({ draftKey: KEY, restoreDraft: false, recoverStaged: true });
+    await user.click(await screen.findByRole("button", { name: "恢复附件" }));
+    await waitFor(() => expect(parsed(container).map((x) => x.fileId)).toEqual([9]));
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("选择丢弃：暂存键删除，列表保持服务端版本", async () => {
+    window.localStorage.setItem(STAGED, submitted);
+    const user = userEvent.setup();
+    const { container } = mount({ draftKey: KEY, restoreDraft: false, recoverStaged: true });
+    await user.click(await screen.findByRole("button", { name: "丢弃" }));
+    expect(window.localStorage.getItem(STAGED)).toBeNull();
+    expect(parsed(container).map((x) => x.fileId)).toEqual([1, 2]);
+  });
+
+  it("暂存列表与服务端相同：不提示", async () => {
+    window.localStorage.setItem(
+      STAGED,
+      JSON.stringify([item(1, "字幕包.zip"), item(2, "花絮.rar", "g1")]),
+    );
+    mount({ draftKey: KEY, restoreDraft: false, recoverStaged: true });
+    await act(async () => {});
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("普通进入：过期的暂存键被清理，不会在之后的页面里重新出现", async () => {
+    window.localStorage.setItem(STAGED, submitted);
+    mount({ draftKey: KEY, restoreDraft: false, recoverStaged: false });
+    await waitFor(() => expect(window.localStorage.getItem(STAGED)).toBeNull());
   });
 });

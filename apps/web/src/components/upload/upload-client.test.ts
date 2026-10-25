@@ -14,7 +14,7 @@ const ok = {
 };
 
 describe("uploadFile", () => {
-  it("提交 multipart：file / forumId / crop 与 purpose 查询参数正确，成功返回服务端结果", async () => {
+  it("提交 multipart：file / crop 在表单里；purpose 与 forumId 在查询参数里（权限在读体前判定），成功返回服务端结果", async () => {
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify(ok), { status: 200 }));
     const r = await uploadFile({
       file,
@@ -25,12 +25,12 @@ describe("uploadFile", () => {
     });
     expect(r).toEqual(ok);
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("/api/upload?purpose=inline");
+    expect(url).toBe("/api/upload?purpose=inline&forumId=901");
     expect(init.method).toBe("POST");
     expect(init.credentials).toBe("same-origin");
     const body = init.body as FormData;
     expect((body.get("file") as File).name).toBe("图.png");
-    expect(body.get("forumId")).toBe("901");
+    expect(body.has("forumId")).toBe(false);
     expect(JSON.parse(body.get("crop") as string)).toEqual({ x: 1, y: 2, width: 40, height: 40 });
   });
 
@@ -38,7 +38,6 @@ describe("uploadFile", () => {
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify(ok), { status: 200 }));
     await uploadFile({ file, purpose: "avatar", fetchImpl: fetchImpl as unknown as typeof fetch });
     const body = (fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].body as FormData;
-    expect(body.has("forumId")).toBe(false);
     expect(body.has("crop")).toBe(false);
   });
 

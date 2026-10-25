@@ -35,16 +35,20 @@ function form(fields: Record<string, string | Blob>): FormData {
   return fd;
 }
 
+/** 版块走查询参数（权限在读取请求体之前判定）；其余字段走表单 */
 function upload(
   purpose: string,
   fields: Record<string, string | Blob>,
   headers: Record<string, string> = {},
 ) {
+  const { forumId, ...rest } = fields;
+  const qs = new URLSearchParams({ purpose });
+  if (typeof forumId === "string") qs.set("forumId", forumId);
   return POST(
-    new Request(`${URL_BASE}?purpose=${purpose}`, {
+    new Request(`${URL_BASE}?${qs.toString()}`, {
       method: "POST",
       headers: { origin: "http://127.0.0.1:3100", ...headers },
-      body: form(fields),
+      body: form(rest),
     }),
   );
 }

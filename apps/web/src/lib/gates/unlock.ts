@@ -51,6 +51,11 @@ export interface UnlockDeps {
 export interface UnlockOptions extends UnlockDeps {
   /** 买家确认过的价格（整数）；与事务内锁到的当前价不符则拒绝。省略 = 不核对（仅限内部调用） */
   expectedPrice?: number;
+  /**
+   * 仅供测试：事务外定位之后、加锁之前触发。用来在「定位已通过、尚未持锁」这段窗口里模拟版块的并发隐藏，
+   * 验证事务内的状态复核（生产调用不传）。
+   */
+  afterLocate?: () => Promise<void>;
 }
 
 const defaultEmitter: NonNullable<UnlockDeps["emitter"]> = (name, payload) =>
@@ -81,6 +86,7 @@ export async function unlockGate(
   // —— 事务外：定位（含可见性）、权限与静态配置。事务内不再借第二条连接（连接池饥饿，见 points/apply.ts）——
   const target = await locateGate(viewer, gateId);
   if (!target) return { ok: false, code: "not_found" };
+  if (deps.afterLocate) await deps.afterLocate();
   if (target.authorId === viewerId) return { ok: false, code: "own_content", target };
   if ((await checkPermission(viewer, "forum.moderate", { forumId: target.forumId })).allowed) {
     return { ok: false, code: "own_content", target };

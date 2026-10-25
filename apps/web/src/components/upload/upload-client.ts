@@ -61,13 +61,15 @@ export async function uploadFile(input: {
 }): Promise<UploadResult> {
   const body = new FormData();
   body.append("file", input.file, input.file.name);
-  if (input.forumId !== undefined) body.append("forumId", String(input.forumId));
   if (input.crop !== undefined) body.append("crop", JSON.stringify(input.crop));
+  // 版块放在查询参数里：服务端据此在读取请求体之前完成权限判定（越权的请求不必上传内容）
+  const query = new URLSearchParams({ purpose: input.purpose });
+  if (input.forumId !== undefined) query.set("forumId", String(input.forumId));
 
   const doFetch = input.fetchImpl ?? fetch;
   let res: Response;
   try {
-    res = await doFetch(`/api/upload?purpose=${input.purpose}`, {
+    res = await doFetch(`/api/upload?${query.toString()}`, {
       method: "POST",
       body,
       credentials: "same-origin",

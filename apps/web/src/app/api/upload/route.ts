@@ -88,6 +88,26 @@ async function handleUpload(
     return json({ error: "bad_request" }, 400);
   const purpose = purposeRaw as UploadPurpose;
 
+  // 权限在读取请求体之前判定：版块放在查询参数里，越权的请求不必付出读体与解析的成本
+  let forumId: number | null = null;
+  if (purpose === "avatar") {
+    // 头像不属于任何版块，但仍是写类动作：封禁 / 禁言 / 未验证邮箱（开放注册）同样不得上传（审查复查）
+    const decision = await checkPermission(subject, "attachment.upload", {});
+    if (!decision.allowed) return json({ error: "forbidden" }, 403);
+    // no_avatar 是全站限制，评估器不处理它，这里直接判断
+    if (subject.restrictions.some((r) => r.kind === "no_avatar" && r.scopeId === 0)) {
+      return json({ error: "avatar_restricted" }, 403);
+    }
+  } else {
+    const raw = url.searchParams.get("forumId") ?? "";
+    const id = /^[1-9]\d*$/.test(raw) ? Number(raw) : Number.NaN;
+    if (!Number.isSafeInteger(id)) return json({ error: "bad_request" }, 400);
+    forumId = id;
+    // 越权一律 404，不暴露版块是否存在（硬约定 7）
+    const decision = await checkPermission(subject, "attachment.upload", { forumId: id });
+    if (!decision.allowed) return json({ error: "not_found" }, 404);
+  }
+
   // 按用途的上限读取：超限在流式读取时即中止
   const body = await readBodyBytes(request, MAX_BYTES[purpose] + FORM_OVERHEAD_BYTES);
   if (body === null) return json({ error: "too_large" }, 413);
@@ -106,25 +126,6 @@ async function handleUpload(
   const file = form.get("file");
   if (!(file instanceof File)) return json({ error: "bad_request" }, 400);
   if (file.size > MAX_BYTES[purpose]) return json({ error: "too_large" }, 413);
-
-  let forumId: number | null = null;
-  if (purpose === "avatar") {
-    // 头像不属于任何版块，但仍是写类动作：封禁 / 禁言 / 未验证邮箱（开放注册）同样不得上传（审查复查）
-    const decision = await checkPermission(subject, "attachment.upload", {});
-    if (!decision.allowed) return json({ error: "forbidden" }, 403);
-    // no_avatar 是全站限制，评估器不处理它，这里直接判断
-    if (subject.restrictions.some((r) => r.kind === "no_avatar" && r.scopeId === 0)) {
-      return json({ error: "avatar_restricted" }, 403);
-    }
-  } else {
-    const raw = form.get("forumId");
-    const id = typeof raw === "string" ? Number(raw) : Number.NaN;
-    if (!Number.isInteger(id) || id <= 0) return json({ error: "bad_request" }, 400);
-    forumId = id;
-    // 越权一律 404，不暴露版块是否存在（硬约定 7）
-    const decision = await checkPermission(subject, "attachment.upload", { forumId: id });
-    if (!decision.allowed) return json({ error: "not_found" }, 404);
-  }
 
   const bytes = Buffer.from(await file.arrayBuffer());
   const sniffed = sniffType(bytes);

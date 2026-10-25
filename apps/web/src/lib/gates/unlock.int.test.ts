@@ -124,6 +124,22 @@ describe.skipIf(skipDb)("unlockGate · 真实 MySQL", () => {
       expect(await run(team, g)).toMatchObject({ ok: false, code: "own_content" });
     });
 
+    it("定位通过后、持锁前帖子被隐藏（版主并发操作）→ not_found：不扣费、不解锁", async () => {
+      const g = await mkGate(900101, [{ type: "points", price: 5 }]);
+      const before = await balance(DEMO.member);
+      const hideNow = async () => {
+        await db().update(posts).set({ state: "hidden" }).where(eq(posts.id, 900101));
+      };
+      try {
+        const r = await unlockGate(member, g, { ...deps, afterLocate: hideNow } as never);
+        expect(r).toMatchObject({ ok: false, code: "not_found" });
+        expect(await balance(DEMO.member)).toBe(before);
+        expect(await unlockRow(g, DEMO.member)).toBeUndefined();
+      } finally {
+        await db().update(posts).set({ state: "visible" }).where(eq(posts.id, 900101));
+      }
+    });
+
     it("没有积分条件 / 价格非法 → unavailable", async () => {
       const onlyReply = await mkGate(900102, [{ type: "reply" }]);
       const badPrice = await mkGate(900102, [{ type: "points", price: -3 }]);

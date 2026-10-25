@@ -62,6 +62,7 @@ export function AttachmentPanel({
   initial,
   draftKey,
   restoreDraft,
+  recoverStaged = false,
   onPendingChange,
 }: {
   forumId: number;
@@ -72,26 +73,84 @@ export function AttachmentPanel({
   draftKey: string | null;
   /** 失败跳回后为 true：从提交前的暂存恢复列表 */
   restoreDraft: boolean;
+  /** 编辑冲突跳回：暂存的是作者提交失败时的列表，与服务端不同则提示恢复或丢弃（不自动覆盖最新版本） */
+  recoverStaged?: boolean;
   onPendingChange?: (delta: number) => void;
 }) {
+  const stagedKeyValue = draftKey !== null ? stagedKey(attachmentsKey(draftKey)) : null;
   // 恢复值只在客户端读取（服务端快照为空）；恢复后以新的 key 重新挂载内部编辑器
   const staged = useSyncExternalStore(
     noopSubscribe,
     () =>
-      restoreDraft && draftKey !== null ? readDraft(stagedKey(attachmentsKey(draftKey))) : null,
+      stagedKeyValue !== null && (restoreDraft || recoverStaged) ? readDraft(stagedKeyValue) : null,
     () => null,
   );
-  const seed = staged !== null ? (parseItems(staged) ?? [...initial]) : [...initial];
+  const [recovered, setRecovered] = useState(false);
+  const [decided, setDecided] = useState(false);
+
+  // 普通进入时暂存键已过期（只有失败或冲突跳回才读取它），清掉以免成功发布后的列表残留
+  useEffect(() => {
+    if (stagedKeyValue === null || restoreDraft || recoverStaged) return;
+    removeDraft(stagedKeyValue);
+  }, [stagedKeyValue, restoreDraft, recoverStaged]);
+
+  const stagedItems = staged !== null ? parseItems(staged) : null;
+  const offerRecovery =
+    !restoreDraft &&
+    recoverStaged &&
+    !decided &&
+    stagedItems !== null &&
+    sameItems(stagedItems, initial) === false;
+  const useStaged = restoreDraft || recovered ? staged : null;
+  const seed = useStaged !== null ? (parseItems(useStaged) ?? [...initial]) : [...initial];
   return (
-    <AttachmentEditor
-      key={staged === null ? "server" : "restored"}
-      forumId={forumId}
-      gateKeys={gateKeys}
-      seed={seed}
-      draftKey={draftKey}
-      onPendingChange={onPendingChange}
-    />
+    <>
+      {offerRecovery && (
+        <p
+          role="status"
+          className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm"
+        >
+          <span>发现一份未保存的附件修改（提交失败时的列表）。</span>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => {
+              setRecovered(true);
+              setDecided(true);
+            }}
+          >
+            恢复附件
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              if (stagedKeyValue !== null) removeDraft(stagedKeyValue);
+              setDecided(true);
+            }}
+          >
+            丢弃
+          </Button>
+        </p>
+      )}
+      <AttachmentEditor
+        key={useStaged === null ? "server" : "restored"}
+        forumId={forumId}
+        gateKeys={gateKeys}
+        seed={seed}
+        draftKey={draftKey}
+        onPendingChange={onPendingChange}
+      />
+    </>
   );
+}
+
+/** 两份附件列表是否相同（按版块、文件与门控归属比较，顺序敏感） */
+function sameItems(a: readonly AttachmentItem[], b: readonly AttachmentItem[]): boolean {
+  const key = (xs: readonly AttachmentItem[]) =>
+    xs.map((x) => `${x.fileId}|${x.gateKey ?? ""}|${x.name}`).join(",");
+  return key(a) === key(b);
 }
 
 function AttachmentEditor({

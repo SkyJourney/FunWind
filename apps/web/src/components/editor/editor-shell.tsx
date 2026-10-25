@@ -386,6 +386,7 @@ export function EditorShell({
             initial={initialAttachments ?? []}
             draftKey={draftKey}
             restoreDraft={restoreDraft}
+            recoverStaged={recoverStaged}
             onPendingChange={(d) => setAttachPending((n) => n + d)}
           />
         </div>
