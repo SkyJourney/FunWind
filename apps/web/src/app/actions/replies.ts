@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { attachmentsField } from "@/lib/uploads/attachments-field";
 import { defineAction } from "@/lib/actions/define-action";
 import { createReply } from "@/lib/posting/service";
 import { locatePost, postPath } from "@/lib/queries/locate-post";
@@ -19,6 +20,7 @@ const createReplyInput = z.object({
   /** 表单提交时所在的回帖页：失败后跳回同一页，不把用户带回第一页 */
   page: z.coerce.number().int().min(1).max(100_000).catch(1),
   source: z.string().max(200_000).default(""),
+  attachments: attachmentsField,
 });
 
 export const createReplyAction = defineAction({
@@ -26,7 +28,11 @@ export const createReplyAction = defineAction({
   auth: "user",
   input: createReplyInput,
   async run(ctx, input) {
-    const r = await createReply(ctx.subject, { threadId: input.threadId, source: input.source });
+    const r = await createReply(ctx.subject, {
+      threadId: input.threadId,
+      source: input.source,
+      attachments: input.attachments,
+    });
     if (!r.ok) redirect(`/t/${input.threadId}?page=${input.page}&reply=${r.code}#reply`);
     // 跳转目标与当前页同路径（只差 #锚点）时，客户端会复用缓存的旧内容，新回复看不到：先让该主题的缓存失效
     revalidatePath(`/t/${input.threadId}`);

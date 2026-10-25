@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { attachmentsField } from "@/lib/uploads/attachments-field";
 import { defineAction } from "@/lib/actions/define-action";
 import { deletePost, editPost, restorePost } from "@/lib/posting/mutate";
 import { locatePost, postPath } from "@/lib/queries/locate-post";
@@ -20,6 +21,7 @@ const editPostInput = z.object({
   source: z.string().max(200_000).default(""),
   expectedEditedAt: z.string().max(40).default(""),
   reason: z.string().max(1000).default(""),
+  attachments: attachmentsField,
 });
 
 export const editPostAction = defineAction({
@@ -33,6 +35,7 @@ export const editPostAction = defineAction({
       title: input.title,
       expectedEditedAt: input.expectedEditedAt === "" ? null : input.expectedEditedAt,
       reason: input.reason,
+      attachments: input.attachments,
     });
     if (!r.ok) redirect(`/p/${input.postId}/edit?error=${r.code}`);
     // 与回复相同的理由：同路径的哈希跳转会复用旧缓存，先让该主题失效

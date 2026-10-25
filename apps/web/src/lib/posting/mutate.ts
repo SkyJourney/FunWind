@@ -5,6 +5,8 @@ import { evaluate } from "@/lib/authz/evaluator";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
 import type { Subject } from "@/lib/authz/types";
 import { applyGateDrafts } from "@/lib/gates/write";
+import { registerSourceFiles, type AttachmentInput } from "@/lib/gates/attachments";
+import { extractKeys } from "@funwind/content";
 import { limitsFor } from "@/lib/limits/load";
 import { POINTS_TX_OPTIONS } from "@/lib/points/retry";
 import { emit } from "@/modules/kernel/bus";
@@ -51,6 +53,8 @@ export interface EditInput {
   expectedEditedAt: string | null;
   /** 版主编辑别人的内容时必填 */
   reason?: string;
+  /** 下载附件的完整列表（提交即替换；缺省视为不变更附件由调用方传入现有列表） */
+  attachments?: readonly AttachmentInput[];
 }
 
 export interface EditOk {
@@ -148,6 +152,8 @@ async function readTarget(tx: DbTx, postId: number, threadId: number, forumId: n
       authorId: posts.authorId,
       state: posts.state,
       editedAt: posts.editedAt,
+      // 旧正文：编辑时用于例外集合（已被本帖引用的图片不重新校验归属）
+      bodyMd: posts.bodyMd,
       ageSec: sql<number>`TIMESTAMPDIFF(SECOND, ${posts.createdAt}, NOW())`,
     })
     .from(posts)
@@ -430,6 +436,15 @@ export async function editPost(
         // 门控对账：已有解锁记录的门控只能改价，不能换方式、删除或挂着附件时删除
         const gateRes = await applyGateDrafts(tx, hit.postId, body.gates, perms);
         if (!gateRes.ok) throw new Rollback(err(gateRes.error.code, gateRes.error.message));
+        // 旧正文里的引用不重新校验归属（迁移来的旧图在作者编辑时不得被误拒）
+        const reg = await registerSourceFiles(tx, {
+          postId: hit.postId,
+          authorId: hit.authorId,
+          source: input.source,
+          attachments: input.attachments,
+          priorRefs: new Set(extractKeys(p.bodyMd ?? "")),
+        });
+        if (!reg.ok) throw new Rollback(err(reg.code, reg.message));
 
         const resubmit = decision.resubmit;
         const nextState = resubmit ? "pending" : (p.state as "visible" | "pending");

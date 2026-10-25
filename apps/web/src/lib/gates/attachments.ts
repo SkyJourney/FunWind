@@ -1,9 +1,12 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { attachments, files, getWebDb, postGates, posts, threads } from "@funwind/db";
+import { attachments, fileUploads, files, getWebDb, postGates, posts, threads } from "@funwind/db";
 import { checkPermission } from "@/lib/authz/service";
 import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
-import type { DbExecutor } from "@/lib/audit";
+import type { DbExecutor, DbTx } from "@/lib/audit";
+import { extractFileRefs } from "@funwind/content";
+import { MAX_ATTACHMENTS_PER_POST, MAX_INLINE_REFS_PER_POST } from "@/lib/uploads/types";
+import { sanitizeOriginalName } from "@/lib/uploads/policy";
 import { buildViewerScope, visiblePredicate } from "@/lib/queries/visibility";
 import { openGateIds } from "./service";
 
@@ -246,6 +249,281 @@ export async function gatesWithAttachments(
   const rows = await executor
     .selectDistinct({ gateId: attachments.gateId })
     .from(attachments)
-    .where(inArray(attachments.gateId, [...gateIds]));
+    .where(and(inArray(attachments.gateId, [...gateIds]), eq(attachments.kind, "download")));
   return new Set(rows.map((r) => r.gateId).filter((x): x is number => x !== null));
+}
+
+/* ───────── M6.4d1：保存时登记正文引用与附件 ───────── */
+
+export interface RegisterPostFilesInput {
+  postId: number;
+  /** 帖子作者：归属校验的对象（版主编辑他人帖子时也按作者校验，而不是按点保存的人） */
+  authorId: number;
+  /** 公开部分引用的 storage_key */
+  publicRefs: readonly string[];
+  /** 各门控隐藏正文引用的 storage_key（只含有引用的门控） */
+  gateRefs: readonly { key: string; refs: readonly string[] }[];
+  /**
+   * 作者提交的下载附件：文件、归属门控 key（null = 公开）、展示名。
+   * undefined = 本次请求没有附件字段，不改动已有的下载附件（否则旧版本表单编辑会清空附件）；[] = 明确清空。
+   */
+  attachments?: readonly { fileId: number; gateKey: string | null; name: string }[];
+  /** 编辑时：本帖旧正文里已有的引用。不重新校验归属（迁移来的旧图在作者编辑时不得被误拒） */
+  priorRefs?: ReadonlySet<string>;
+}
+
+export type RegisterResult =
+  | { ok: true }
+  | {
+      ok: false;
+      code:
+        | "file_missing"
+        | "file_not_owned"
+        | "attachment_gate_invalid"
+        | "attachment_limit"
+        | "inline_limit";
+      message: string;
+    };
+
+const uniq = <T>(xs: readonly T[]): T[] => [...new Set(xs)];
+
+/**
+ * 保存帖子时登记正文引用与附件（设计稿 M6.4 §6）。必须在 applyGateDrafts 之后、同一事务内调用（门控行已就绪）。
+ *  1. 数量上限；2. 引用的文件必须存在（key 与 fileId 都查库）；
+ *  3. 归属：作者须有 file_uploads 记录，或该文件已被本帖引用（旧引用例外，不重新校验）；
+ *  4. 附件的门控 key 必须是本帖现存的门控；
+ *  5. 重建 inline 行（先删后插，幂等）；download 行按列表增删改（保留 downloads 计数）。
+ * 结果由调用方转为 Rollback 错误，本函数只做判定与写入，不抛业务错误。
+ */
+export async function registerPostFiles(
+  tx: DbTx,
+  input: RegisterPostFilesInput,
+): Promise<RegisterResult> {
+  const { postId, authorId } = input;
+  const gateRefKeys = input.gateRefs.flatMap((g) => g.refs);
+  const inlineKeys = uniq([...input.publicRefs, ...gateRefKeys]);
+  if (inlineKeys.length > MAX_INLINE_REFS_PER_POST) {
+    return {
+      ok: false,
+      code: "inline_limit",
+      message: `一个帖子最多 ${MAX_INLINE_REFS_PER_POST} 张内联图片`,
+    };
+  }
+
+  // 1) 文件存在性：正文引用按 storage_key 查，附件按 id 查（附件 id 由客户端提交，必须逐个确认存在）
+  const priorKeys = [...(input.priorRefs ?? [])];
+  const keysToFetch = uniq([...inlineKeys, ...priorKeys]);
+  const keyRows = keysToFetch.length
+    ? await tx
+        .select({ id: files.id, storageKey: files.storageKey })
+        .from(files)
+        .where(inArray(files.storageKey, keysToFetch))
+    : [];
+  const idByKey = new Map(keyRows.map((r) => [r.storageKey, r.id]));
+  // 旧正文里本来就失效的引用（未改动）不阻塞编辑：跳过登记；新增的失效引用一律拒绝
+  const priorSet = input.priorRefs ?? new Set<string>();
+  for (const key of inlineKeys) {
+    if (!idByKey.has(key) && !priorSet.has(key))
+      return { ok: false, code: "file_missing", message: "图片已失效，请重新上传" };
+  }
+  const submitted = input.attachments ?? [];
+  if (submitted.length > MAX_ATTACHMENTS_PER_POST) {
+    return {
+      ok: false,
+      code: "attachment_limit",
+      message: `一个帖子最多 ${MAX_ATTACHMENTS_PER_POST} 个附件`,
+    };
+  }
+  const attachFileIds = uniq(submitted.map((a) => a.fileId));
+  if (attachFileIds.length > 0) {
+    const rows = await tx
+      .select({ id: files.id })
+      .from(files)
+      .where(inArray(files.id, attachFileIds));
+    if (rows.length !== attachFileIds.length) {
+      return { ok: false, code: "file_missing", message: "附件已失效，请重新上传" };
+    }
+  }
+
+  // 2) 归属：已被本帖引用（现有附件行或旧正文）的文件免检；其余必须是作者自己上传过的
+  const existing = await tx
+    .select({
+      id: attachments.id,
+      fileId: attachments.fileId,
+      gateId: attachments.gateId,
+      kind: attachments.kind,
+    })
+    .from(attachments)
+    .where(eq(attachments.postId, postId));
+  const exempt = new Set<number>([
+    ...existing.map((e) => e.fileId),
+    ...priorKeys.flatMap((k) => (idByKey.has(k) ? [idByKey.get(k)!] : [])),
+  ]);
+  const toCheck = uniq([
+    ...inlineKeys.filter((k) => idByKey.has(k)).map((k) => idByKey.get(k)!),
+    ...attachFileIds,
+  ]).filter((id) => !exempt.has(id));
+  if (toCheck.length > 0) {
+    const owned = await tx
+      .select({ fileId: fileUploads.fileId })
+      .from(fileUploads)
+      .where(and(eq(fileUploads.userId, authorId), inArray(fileUploads.fileId, toCheck)));
+    const ownedSet = new Set(owned.map((o) => o.fileId));
+    if (toCheck.some((id) => !ownedSet.has(id))) {
+      return { ok: false, code: "file_not_owned", message: "只能引用自己上传的图片或附件" };
+    }
+  }
+
+  // 3) 门控映射：只读 gate_key 与 id，不读隐藏正文列（硬约定 3b）
+  const gateRows = await tx
+    .select({ id: postGates.id, gateKey: postGates.gateKey })
+    .from(postGates)
+    .where(eq(postGates.postId, postId));
+  const gateIdByKey = new Map(gateRows.map((g) => [g.gateKey, g.id]));
+  for (const a of submitted) {
+    if (a.gateKey !== null && !gateIdByKey.has(a.gateKey)) {
+      return {
+        ok: false,
+        code: "attachment_gate_invalid",
+        message: "附件归属的门控不存在，请重新选择",
+      };
+    }
+  }
+
+  // 4) 写入：inline 行整体重建（D7：删除门控时其中的内联图行随之清理）
+  await tx
+    .delete(attachments)
+    .where(and(eq(attachments.postId, postId), eq(attachments.kind, "inline")));
+  const inlineRows = new Map<string, { fileId: number; gateId: number | null }>();
+  for (const key of input.publicRefs) {
+    const fileId = idByKey.get(key);
+    if (fileId === undefined) continue;
+    inlineRows.set(`${fileId}:null`, { fileId, gateId: null });
+  }
+  for (const g of input.gateRefs) {
+    const gateId = gateIdByKey.get(g.key) ?? null;
+    for (const key of g.refs) {
+      const fileId = idByKey.get(key);
+      if (fileId === undefined) continue;
+      inlineRows.set(`${fileId}:${gateId}`, { fileId, gateId });
+    }
+  }
+  if (inlineRows.size > 0) {
+    await tx.insert(attachments).values(
+      [...inlineRows.values()].map((r) => ({
+        postId,
+        gateId: r.gateId,
+        fileId: r.fileId,
+        uploaderId: authorId,
+        originalName: "",
+        kind: "inline" as const,
+        createdAt: sql`NOW()`,
+      })),
+    );
+  }
+
+  // 5) download 行：按提交的列表对账（同一文件只留第一条；保留已有行的 downloads 计数）
+  if (input.attachments === undefined) return { ok: true };
+  const desired = new Map<number, { gateId: number | null; name: string }>();
+  for (const a of submitted) {
+    if (desired.has(a.fileId)) continue;
+    desired.set(a.fileId, {
+      gateId: a.gateKey === null ? null : gateIdByKey.get(a.gateKey)!,
+      name: sanitizeOriginalName(a.name),
+    });
+  }
+  const currentDownloads = existing.filter((e) => e.kind === "download");
+  for (const row of currentDownloads) {
+    const want = desired.get(row.fileId);
+    if (want === undefined) {
+      await tx.delete(attachments).where(eq(attachments.id, row.id));
+      continue;
+    }
+    if (want.gateId !== row.gateId) {
+      await tx.update(attachments).set({ gateId: want.gateId }).where(eq(attachments.id, row.id));
+    }
+    desired.delete(row.fileId);
+  }
+  if (desired.size > 0) {
+    await tx.insert(attachments).values(
+      [...desired.entries()].map(([fileId, d]) => ({
+        postId,
+        gateId: d.gateId,
+        fileId,
+        uploaderId: authorId,
+        originalName: d.name,
+        kind: "download" as const,
+        createdAt: sql`NOW()`,
+      })),
+    );
+  }
+  return { ok: true };
+}
+
+/** 提交的下载附件（表单 attachments 字段的一项） */
+export interface AttachmentInput {
+  fileId: number;
+  gateKey: string | null;
+  name: string;
+}
+
+/**
+ * 写入侧入口：从完整源码抽取引用后登记（发主题 / 回帖 / 编辑共用）。
+ * 门控隐藏正文只在 @funwind/content 内切出，web 侧拿到的只是 storage_key 列表（硬约定 3b）。
+ */
+export function registerSourceFiles(
+  tx: DbTx,
+  input: {
+    postId: number;
+    authorId: number;
+    source: string;
+    attachments?: readonly AttachmentInput[];
+    priorRefs?: ReadonlySet<string>;
+  },
+): Promise<RegisterResult> {
+  const refs = extractFileRefs(input.source);
+  return registerPostFiles(tx, {
+    postId: input.postId,
+    authorId: input.authorId,
+    publicRefs: refs.publicRefs,
+    gateRefs: refs.gateRefs,
+    attachments: input.attachments,
+    priorRefs: input.priorRefs,
+  });
+}
+
+/** 编辑页用：本帖全部下载附件（作者 / 版主视角，含门控归属，不含隐藏正文）。调用方须已确认有编辑权限 */
+export interface EditableAttachment {
+  fileId: number;
+  name: string;
+  mime: string;
+  sizeBytes: number;
+  gateKey: string | null;
+}
+
+export async function listEditableAttachments(postId: number): Promise<EditableAttachment[]> {
+  const rows = await getWebDb()
+    .select({
+      id: attachments.id,
+      fileId: attachments.fileId,
+      name: attachments.originalName,
+      mime: files.mime,
+      sizeBytes: files.sizeBytes,
+      gateKey: postGates.gateKey,
+    })
+    .from(attachments)
+    .innerJoin(files, eq(files.id, attachments.fileId))
+    .leftJoin(
+      postGates,
+      and(eq(postGates.id, attachments.gateId), eq(postGates.postId, attachments.postId)),
+    )
+    .where(and(eq(attachments.postId, postId), eq(attachments.kind, "download")))
+    .orderBy(asc(attachments.id));
+  return rows.map((r) => ({
+    fileId: r.fileId,
+    name: r.name,
+    mime: r.mime,
+    sizeBytes: r.sizeBytes,
+    gateKey: r.gateKey,
+  }));
 }

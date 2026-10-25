@@ -1,5 +1,6 @@
 import { assembleSource } from "@funwind/content";
 import type { Subject } from "@/lib/authz/types";
+import { listEditableAttachments, type EditableAttachment } from "@/lib/gates/attachments";
 import { loadEditableGates } from "@/lib/gates/service";
 import { locatePost } from "@/lib/queries/locate-post";
 import { readEditView } from "./mutate";
@@ -33,6 +34,8 @@ export type EditPageModel =
       reviewNote: string | null;
       /** 往返不等价：只能源码编辑，这里是原因（null = 可以所见即所得） */
       forceSource: string | null;
+      /** 本帖现有的下载附件（作者 / 版主视角，含门控归属） */
+      attachments: EditableAttachment[];
     };
 
 export async function loadEditPage(viewer: Subject, postId: number): Promise<EditPageModel> {
@@ -78,5 +81,6 @@ export async function loadEditPage(viewer: Subject, postId: number): Promise<Edi
     resubmit: view.decision.resubmit,
     reviewNote: view.decision.resubmit ? view.reviewNote : null,
     forceSource: richEditReason(source),
+    attachments: await listEditableAttachments(postId),
   };
 }

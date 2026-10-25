@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { attachmentsField } from "@/lib/uploads/attachments-field";
 import { defineAction } from "@/lib/actions/define-action";
 import { createThread } from "@/lib/posting/service";
 
@@ -18,6 +19,7 @@ const createThreadInput = z.object({
   forumId: z.coerce.number().int().positive(),
   title: z.string().max(1000).default(""),
   source: z.string().max(200_000).default(""),
+  attachments: attachmentsField,
 });
 
 export const createThreadAction = defineAction({
@@ -29,6 +31,7 @@ export const createThreadAction = defineAction({
       forumId: input.forumId,
       title: input.title,
       source: input.source,
+      attachments: input.attachments,
     });
     if (r.ok) redirect(`/t/${r.threadId}`);
     redirect(`/f/${input.forumId}/new?error=${r.code}`);

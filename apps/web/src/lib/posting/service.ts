@@ -6,6 +6,7 @@ import { evaluate } from "@/lib/authz/evaluator";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
 import type { AuthzSnapshot, Subject } from "@/lib/authz/types";
 import { applyGateDrafts, type GatePermissions } from "@/lib/gates/write";
+import { registerSourceFiles, type AttachmentInput } from "@/lib/gates/attachments";
 import { limitsFor } from "@/lib/limits/load";
 import type { ResolvedLimits } from "@/lib/limits/config";
 import { POINTS_TX_OPTIONS, isDeadlock } from "@/lib/points/retry";
@@ -58,6 +59,11 @@ export type PostingErrorCode =
   | "reason_too_long"
   | "not_restorable"
   | "gate_has_unlocks"
+  | "file_missing" // 引用或附件的文件已失效（删除或从未落盘），请重新上传
+  | "file_not_owned" // 只能引用自己上传过的图片或附件
+  | "attachment_gate_invalid" // 附件归属的门控不存在于本帖
+  | "attachment_limit"
+  | "inline_limit"
   | "gate_conditions_locked"
   | "gate_has_attachments";
 
@@ -193,6 +199,8 @@ export interface CreateThreadInput {
   title: string;
   /** 完整源码（可含 :::gate 门控围栏） */
   source: string;
+  /** 下载附件（表单 attachments 字段解析后的结果） */
+  attachments?: readonly AttachmentInput[];
 }
 
 export async function createThread(
@@ -275,6 +283,13 @@ export async function createThread(
 
         const gateRes = await applyGateDrafts(tx, postId, body.gates, perms);
         if (!gateRes.ok) throw new Rollback(err("gate_permission", gateRes.error.message));
+        const reg = await registerSourceFiles(tx, {
+          postId,
+          authorId,
+          source: input.source,
+          attachments: input.attachments,
+        });
+        if (!reg.ok) throw new Rollback(err(reg.code, reg.message));
 
         const [created] = await tx
           .select({ at: posts.createdAt })
@@ -330,6 +345,8 @@ export interface CreateReplyInput {
   source: string;
   /** 指向同一主题里一条可见帖子（引用回复）；缺省为普通回复 */
   replyToPostId?: number | null;
+  /** 下载附件（表单 attachments 字段解析后的结果） */
+  attachments?: readonly AttachmentInput[];
 }
 
 export async function createReply(
@@ -445,6 +462,13 @@ export async function createReply(
 
         const gateRes = await applyGateDrafts(tx, postId, body.gates, perms);
         if (!gateRes.ok) throw new Rollback(err("gate_permission", gateRes.error.message));
+        const reg = await registerSourceFiles(tx, {
+          postId,
+          authorId,
+          source: input.source,
+          attachments: input.attachments,
+        });
+        if (!reg.ok) throw new Rollback(err(reg.code, reg.message));
 
         const [created] = await tx
           .select({ at: posts.createdAt })

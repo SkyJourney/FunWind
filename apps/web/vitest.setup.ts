@@ -28,6 +28,15 @@ if (hasDom)
 
 // jsdom 未实现 scrollIntoView；Tiptap 在命令执行后会异步调用它，缺失时会以未捕获异常让整次运行失败（toolbar 测试偶发）
 if (hasDom && !Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => {};
+// ProseMirror 在滚动到选区（scrollToSelection）时需要几何信息：jsdom 没有布局，返回空矩形即可（只为不抛异常）
+if (hasDom) {
+  if (!Element.prototype.getClientRects)
+    Element.prototype.getClientRects = () => [] as unknown as DOMRectList;
+  if (!Range.prototype.getClientRects)
+    Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+  if (!Range.prototype.getBoundingClientRect)
+    Range.prototype.getBoundingClientRect = () => new DOMRect();
+}
 
 // next-themes 持久化依赖 localStorage（jsdom 自带，但清理保证用例独立）
 beforeEach(() => {

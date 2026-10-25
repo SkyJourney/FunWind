@@ -31,6 +31,11 @@ export const POSTING_NOTICES: Record<string, string> = {
   already_deleted: "该内容已被删除，无法编辑。",
   bad_state: "当前状态下不能编辑此内容。",
   gate_has_unlocks: "这段内容已有人解锁，不能改变门控的方式或删除门控（只能修改价格）。",
+  file_missing: "有图片或附件已失效（可能未上传成功），请重新上传后再发布。",
+  file_not_owned: "只能引用你自己上传过的图片或附件。",
+  attachment_gate_invalid: "附件归属的门控不存在于本帖，请重新选择归属。",
+  attachment_limit: "附件数量超过上限，请精简后再发布。",
+  inline_limit: "正文中的图片数量超过上限，请精简后再发布。",
   gate_conditions_locked: "这段门控已有人解锁，不能修改它的解锁条件。",
   gate_has_attachments: "这个门控下还挂着附件，请先处理附件再删除门控。",
 };
