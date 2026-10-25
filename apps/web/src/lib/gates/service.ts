@@ -1,3 +1,4 @@
+import { contentUpdateNote } from "./update-note";
 import { and, eq, gt, inArray, sql } from "drizzle-orm";
 import { gateUnlocks, getWebDb, pointAccounts, postGates, posts, threads } from "@funwind/db";
 import { checkPermission } from "@/lib/authz/service";
@@ -53,6 +54,7 @@ async function decideGates(
       conditions: postGates.conditions,
       matchMode: postGates.matchMode,
       unlockCount: postGates.unlockCount,
+      contentUpdatedAt: postGates.contentUpdatedAt,
     })
     .from(postGates)
     .where(inArray(postGates.postId, [...authorOf.keys()]))
@@ -208,6 +210,13 @@ async function resolveViews(
   }
 
   for (const { meta, decision } of decisions) {
+    const seeLatest =
+      decision.open && (decision.reason === "author" || decision.reason === "moderator");
+    const updateNote = contentUpdateNote({
+      contentUpdatedAt: meta.contentUpdatedAt,
+      unlockedAt: decision.open ? decision.unlockedAt : null,
+      seeLatest,
+    });
     const view: GateView = decision.open
       ? {
           gateId: meta.id,
@@ -216,12 +225,13 @@ async function resolveViews(
           contentMd: contents.get(meta.id) ?? "",
           pricePaid: decision.pricePaid,
           unlockedAt: decision.unlockedAt,
+          updateNote,
           stats:
             decision.reason === "author"
               ? (stats.get(meta.id) ?? { buyers: 0, income: 0 })
               : undefined,
         }
-      : { gateId: meta.id, status: "locked", prompts: decision.prompts };
+      : { gateId: meta.id, status: "locked", prompts: decision.prompts, updateNote };
     const byKey = out.get(meta.postId) ?? new Map<string, GateView>();
     byKey.set(meta.gateKey, view);
     out.set(meta.postId, byKey);
@@ -345,4 +355,18 @@ export async function loadEditableGates(
     });
   }
   return out;
+}
+
+/**
+ * 作者编辑页用（M6.5）：本帖每个门控的解锁人数，按门控 key 返回。只计数，不读隐藏正文（硬约定 3b）。
+ * 没有人解锁的门控不出现在结果里。
+ */
+export async function unlockCountsByGateKey(postId: number): Promise<Map<string, number>> {
+  const rows = await getWebDb()
+    .select({ gateKey: postGates.gateKey, count: sql<number>`COUNT(*)` })
+    .from(postGates)
+    .innerJoin(gateUnlocks, eq(gateUnlocks.gateId, postGates.id))
+    .where(eq(postGates.postId, postId))
+    .groupBy(postGates.gateKey);
+  return new Map(rows.map((r) => [r.gateKey, Number(r.count)]));
 }

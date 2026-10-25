@@ -238,6 +238,8 @@ export async function applyGateDrafts(
     const cond = JSON.stringify(u.draft.conditions);
     await tx.execute(sql`
       UPDATE post_gates SET
+        -- 隐藏正文变了才记录「内容更新于」（M6.5）：改价、改条件都不推进它。同样必须排在 hidden_md 赋值之前
+        content_updated_at = IF(hidden_md <=> ${u.draft.hiddenMd}, content_updated_at, NOW()),
         updated_at = IF(
           hidden_md <=> ${u.draft.hiddenMd}
             AND match_mode = ${u.draft.matchMode}

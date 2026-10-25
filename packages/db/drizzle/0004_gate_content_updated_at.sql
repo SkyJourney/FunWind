@@ -1,0 +1,1 @@
+ALTER TABLE `post_gates` ADD `content_updated_at` datetime;

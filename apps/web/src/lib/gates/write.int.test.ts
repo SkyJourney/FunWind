@@ -123,6 +123,44 @@ describe.skipIf(skipDb)("门控写入器 · 真实 MySQL", () => {
     expect((await byKey("a1"))?.updatedAt).not.toBe("2026-01-01 00:00:00");
   });
 
+  it("内容更新时间（M6.5）：从未变化为 NULL；隐藏正文变化才记录；只改价格不推进", async () => {
+    const reply = () => draft("a2", { conditions: [{ type: "reply" }], matchMode: "any", seq: 2 });
+    // 先用完整权限把 a1 设成已知状态（价格 10），并确认写入成功
+    expect((await save([draft("a1", { hiddenMd: SECRET }), reply()], ALL)).ok).toBe(true);
+    await db().execute(
+      sql`UPDATE post_gates SET content_updated_at = NULL WHERE post_id = ${POST}`,
+    );
+
+    // 正文没变（只是重新保存）：仍为 NULL
+    expect((await save([draft("a1", { hiddenMd: SECRET }), reply()], NONE)).ok).toBe(true);
+    expect((await byKey("a1"))?.contentUpdatedAt).toBeNull();
+
+    // 正文变了（无改价权限也能改正文）：记录时间
+    expect((await save([draft("a1", { hiddenMd: `${SECRET} 修订` }), reply()], NONE)).ok).toBe(
+      true,
+    );
+    const stamped = (await byKey("a1"))?.contentUpdatedAt;
+    expect(stamped).toEqual(expect.any(String));
+    expect((await byKey("a2"))?.contentUpdatedAt).toBeNull();
+
+    // 只改价格（需要 points 权限）：内容时间不动
+    expect(
+      (
+        await save(
+          [
+            draft("a1", {
+              hiddenMd: `${SECRET} 修订`,
+              conditions: [{ type: "points", price: 99 }],
+            }),
+            reply(),
+          ],
+          ALL,
+        )
+      ).ok,
+    ).toBe(true);
+    expect((await byKey("a1"))?.contentUpdatedAt).toBe(stamped);
+  });
+
   it("删除：没有解锁记录时可删，hasGate 随之变化", async () => {
     expect(
       await save([

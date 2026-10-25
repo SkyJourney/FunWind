@@ -63,7 +63,14 @@ function PromptLine({
         </div>
       );
     case "reply":
-      return <p className="font-medium">回复本帖后可见</p>;
+      return (
+        <p className="font-medium">
+          回复本帖后可见 ·{" "}
+          <a href="#reply" className="text-primary hover:underline">
+            去回复
+          </a>
+        </p>
+      );
     case "unavailable":
       return <p className="text-muted-foreground">该内容暂不可用</p>;
   }
@@ -130,6 +137,7 @@ export function GateBlock({
             returnPage={returnPage}
           />
         ))}
+        {view.updateNote && <p className="text-xs text-warning">{view.updateNote}</p>}
       </div>
     );
   }
@@ -140,6 +148,7 @@ export function GateBlock({
       <div className="flex items-center gap-1.5 border-b bg-muted/40 px-4 py-1.5 text-xs text-muted-foreground">
         {label.icon}
         {label.text}
+        {view.updateNote && <span className="text-warning">· {view.updateNote}</span>}
       </div>
       <div className="px-4 py-3">
         <RichContent md={view.contentMd} />

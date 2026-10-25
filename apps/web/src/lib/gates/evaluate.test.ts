@@ -9,6 +9,7 @@ const gate = (over: Partial<GateMeta> = {}): GateMeta => ({
   conditions: [{ type: "points", price: 50 }],
   matchMode: "all",
   unlockCount: 0,
+  contentUpdatedAt: null,
   ...over,
 });
 const facts = (over: Partial<GateFacts> = {}): GateFacts => ({

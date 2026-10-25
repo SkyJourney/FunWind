@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
-import { getGateContent, loadGateViews, openGateIds } from "./service";
+import { getGateContent, loadGateViews, openGateIds, unlockCountsByGateKey } from "./service";
 import type { GateView } from "./types";
 
 const PAID_TEXT = "需要 10 积分才能解锁的隐藏正文";
@@ -146,6 +146,74 @@ describe.skipIf(skipDb)("门控读取 · 真实 MySQL", () => {
     expect(v.get("a2")).toMatchObject({ status: "locked", prompts: [{ kind: "unavailable" }] });
     expect(JSON.stringify([...v])).not.toContain("隐藏正文");
     expect(open((await views(alice)).get("a1"))?.reason).toBe("author");
+  });
+
+  it("内容更新于（M6.5）：隐藏正文更新后，已解锁者（解锁早于更新）与未解锁者看到标记；作者与版主不看到", async () => {
+    // 自包含：临时帖子 + 门控 + 一条早于更新的解锁记录，不依赖其它用例改过的状态
+    const POST_ID = 990801;
+    const GATE_ID = 990801;
+    const db = getWebDb();
+    await db.insert(posts).values({
+      id: POST_ID,
+      threadId: THREAD.id,
+      floor: 99,
+      authorId: DEMO.alice,
+      bodyMd: "",
+      hasGate: true,
+      state: "visible",
+      createdAt: "2026-10-01 00:00:00",
+    });
+    await db.insert(postGates).values({
+      id: GATE_ID,
+      postId: POST_ID,
+      gateKey: "nz",
+      conditions: [{ type: "points", price: 10 }] as never,
+      matchMode: "all",
+      hiddenMd: "更新标记测试正文",
+      createdAt: "2026-10-01 00:00:00",
+      updatedAt: "2026-10-01 00:00:00",
+    });
+    await db.insert(gateUnlocks).values({
+      gateId: GATE_ID,
+      userId: DEMO.member,
+      pricePaid: 10,
+      authorIncome: 10,
+      unlockedAt: "2026-10-13 09:00:00",
+    });
+    try {
+      // 作者在购买之后改了隐藏正文
+      await db.execute(
+        sql`UPDATE post_gates SET content_updated_at = '2026-10-20 12:34:56' WHERE id = ${GATE_ID}`,
+      );
+      const view = async (s: Subject) =>
+        (await loadGateViews(s, THREAD, [{ id: POST_ID, authorId: DEMO.alice, hasGate: true }]))
+          .get(POST_ID)
+          ?.get("nz");
+      const note = "内容更新于 2026-10-20 12:34";
+      expect(await view(member)).toMatchObject({ status: "open", updateNote: note }); // 解锁早于更新：要提醒
+      expect(await view(guest)).toMatchObject({ status: "locked", updateNote: note }); // 未解锁：显示时间
+      expect(await view(alice)).toMatchObject({ status: "open", updateNote: null }); // 作者自己改的
+      expect(await view(admin)).toMatchObject({ status: "open", updateNote: null }); // 版主随时看最新版
+      // 解锁晚于更新：读者已看到最新版本，不再提醒
+      await db.execute(
+        sql`UPDATE gate_unlocks SET unlocked_at = '2026-10-21 00:00:00' WHERE gate_id = ${GATE_ID}`,
+      );
+      expect(await view(member)).toMatchObject({ status: "open", updateNote: null });
+      // 从未更新：没有标记
+      await db.execute(sql`UPDATE post_gates SET content_updated_at = NULL WHERE id = ${GATE_ID}`);
+      expect(await view(guest)).toMatchObject({ updateNote: null });
+    } finally {
+      await db.execute(sql`DELETE FROM gate_unlocks WHERE gate_id = ${GATE_ID}`);
+      await db.execute(sql`DELETE FROM post_gates WHERE id = ${GATE_ID}`);
+      await db.execute(sql`DELETE FROM posts WHERE id = ${POST_ID}`);
+    }
+  });
+
+  it("作者编辑页用：解锁人数按门控 key 计数（只计数，不读隐藏正文）；没人解锁的门控不出现", async () => {
+    const counts = await unlockCountsByGateKey(DEMO.gatePost);
+    expect([...counts.values()].every((n) => n >= 1)).toBe(true);
+    expect(counts.size).toBeGreaterThanOrEqual(1);
+    expect((await unlockCountsByGateKey(900101)).size).toBe(0);
   });
 
   it("没有门控的帖子 / hasGate=false：零查询，返回空", async () => {

@@ -28,6 +28,8 @@ interface Props {
   reviewNote: string | null;
   /** 往返不等价：只能以源码编辑，并说明原因 */
   forceSource: string | null;
+  /** 已有人解锁的门控（改价提示） */
+  gateUnlocks: { gateKey: string; count: number }[];
   /** 所在版块（上传图片与附件） */
   forumId: number;
   /** 本帖现有的下载附件 */
@@ -49,6 +51,7 @@ export function EditComposer({
   resubmit,
   reviewNote,
   forceSource,
+  gateUnlocks,
   forumId,
   initialAttachments,
   draftKey,
@@ -108,6 +111,20 @@ export function EditComposer({
 
       <div className="space-y-1.5">
         <span className="text-sm font-medium">正文</span>
+        {gateUnlocks.length > 0 && (
+          <div
+            role="note"
+            className="space-y-1 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm"
+          >
+            {gateUnlocks.map((g) => (
+              <p key={g.gateKey}>
+                门控 {g.gateKey} 已有 {g.count}{" "}
+                人解锁：改价只影响之后的购买，已购买者不退差价；不能改变解锁方式或删除该门控。
+              </p>
+            ))}
+          </div>
+        )}
+
         <EditorShell
           name="source"
           initialSource={source}

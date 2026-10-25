@@ -334,6 +334,8 @@ export const postGates = mysqlTable(
     unlockCount: int("unlock_count", { unsigned: true }).notNull().default(0),
     createdAt: dt("created_at").notNull(),
     updatedAt: dt("updated_at").notNull(),
+    /** 隐藏正文最后一次变化的时间（M6.5）；NULL = 从未变化。改价、改条件不更新它 */
+    contentUpdatedAt: dt("content_updated_at"),
   },
   (t) => [primaryKey({ columns: [t.id] }), uniqueIndex("uq_pg_post_key").on(t.postId, t.gateKey)],
 );

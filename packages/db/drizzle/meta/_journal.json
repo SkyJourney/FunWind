@@ -29,6 +29,13 @@
       "when": 1792903403945,
       "tag": "0003_file_uploads_attachment_kind",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1792909552731,
+      "tag": "0004_gate_content_updated_at",
+      "breakpoints": true
     }
   ]
 }

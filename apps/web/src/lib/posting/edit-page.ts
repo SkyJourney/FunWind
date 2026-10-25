@@ -1,6 +1,7 @@
 import { assembleSource } from "@funwind/content";
 import type { Subject } from "@/lib/authz/types";
 import { listEditableAttachments, type EditableAttachment } from "@/lib/gates/attachments";
+import { unlockCountsByGateKey } from "@/lib/gates/service";
 import { loadEditableGates } from "@/lib/gates/service";
 import { locatePost } from "@/lib/queries/locate-post";
 import { readEditView } from "./mutate";
@@ -36,6 +37,8 @@ export type EditPageModel =
       forceSource: string | null;
       /** 本帖现有的下载附件（作者 / 版主视角，含门控归属） */
       attachments: EditableAttachment[];
+      /** 已有人解锁的门控及人数（改价提示用；没有人解锁的不列出） */
+      gateUnlocks: { gateKey: string; count: number }[];
     };
 
 export async function loadEditPage(viewer: Subject, postId: number): Promise<EditPageModel> {
@@ -82,5 +85,9 @@ export async function loadEditPage(viewer: Subject, postId: number): Promise<Edi
     reviewNote: view.decision.resubmit ? view.reviewNote : null,
     forceSource: richEditReason(source),
     attachments: await listEditableAttachments(postId),
+    gateUnlocks: [...(await unlockCountsByGateKey(postId))].map(([gateKey, count]) => ({
+      gateKey,
+      count,
+    })),
   };
 }

@@ -13,6 +13,8 @@ export interface GateMeta {
   conditions: GateCondition[];
   matchMode: "all" | "any";
   unlockCount: number;
+  /** 隐藏正文最后一次变化的时间（M6.5）；NULL = 从未变化 */
+  contentUpdatedAt: string | null;
 }
 
 /** 观众相对某个门控的事实（由 IO 层查好，判定函数是纯函数） */
@@ -59,7 +61,9 @@ export type GateView =
       contentMd: string;
       pricePaid?: number;
       unlockedAt?: string;
+      /** 「内容更新于」文案（M6.5）；不需要时为 null */
+      updateNote: string | null;
       /** 仅作者视图 */
       stats?: GateStats;
     }
-  | { gateId: number; status: "locked"; prompts: GatePrompt[] };
+  | { gateId: number; status: "locked"; prompts: GatePrompt[]; updateNote: string | null };
