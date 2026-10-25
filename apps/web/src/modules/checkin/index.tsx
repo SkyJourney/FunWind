@@ -1,0 +1,110 @@
+import Link from "next/link";
+import { getCurrentUser } from "@/lib/auth/session";
+import { getCheckinStatus, type CheckinStatus } from "@/lib/checkin/service";
+import { checkinAction } from "@/app/actions/checkin";
+import { defineModule } from "../kernel/types";
+
+/**
+ * 签到模块（M7）：每日签到（北京时间自然日）+ 连签 + 随机奖励（earn.checkin 渠道）。
+ * 首页 `home.after-header` 槽位渲染签到条与本月迷你日历。
+ * 安全口径（继承 post-m5.5 审查对 demo 槽位的教训）：只展示**当前用户自己**的签到状态，
+ * 不显示任何他人活动（游客只看到登录引导）。
+ */
+
+/** 月份网格：周日起的 7 列，前导空位用 null（纯 UTC 日历计算，无时区歧义） */
+function monthGrid(year: number, month1based: number): (number | null)[][] {
+  const first = new Date(Date.UTC(year, month1based - 1, 1, 12));
+  const days = new Date(Date.UTC(year, month1based, 0, 12)).getUTCDate();
+  const cells: (number | null)[] = Array.from({ length: first.getUTCDay() }, () => null);
+  for (let d = 1; d <= days; d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+  const weeks: (number | null)[][] = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+  return weeks;
+}
+
+function MiniCalendar({ status }: { status: CheckinStatus }) {
+  const [y, m] = [Number(status.today.slice(0, 4)), Number(status.today.slice(5, 7))];
+  const todayDay = Number(status.today.slice(8, 10));
+  const checked = new Set(status.monthDates.map((d) => Number(d.slice(8, 10))));
+  return (
+    <div className="grid grid-cols-7 gap-1 text-center text-[10px] text-muted-foreground tabular-nums">
+      {["日", "一", "二", "三", "四", "五", "六"].map((w) => (
+        <span key={w}>{w}</span>
+      ))}
+      {monthGrid(y, m)
+        .flat()
+        .map((day, i) => (
+          <span
+            key={i}
+            className={
+              day === null
+                ? ""
+                : [
+                    "rounded-md py-0.5",
+                    checked.has(day)
+                      ? "bg-primary/15 font-medium text-primary"
+                      : day === todayDay
+                        ? "border border-dashed border-ring"
+                        : "",
+                  ].join(" ")
+            }
+          >
+            {day ?? ""}
+          </span>
+        ))}
+    </div>
+  );
+}
+
+async function renderCheckinBar() {
+  const user = await getCurrentUser();
+  if (!user) {
+    return (
+      <div className="flex items-center justify-between rounded-xl border bg-card px-4 py-3 text-sm">
+        <span className="text-muted-foreground">📅 每日签到，连续签到有惊喜</span>
+        <Link href="/login" className="font-medium text-primary hover:underline">
+          登录后签到
+        </Link>
+      </div>
+    );
+  }
+  const status = await getCheckinStatus(user.id);
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border bg-card px-4 py-3">
+      <div className="min-w-0">
+        <p className="text-sm font-medium">
+          {status.checkedInToday
+            ? `今日已签到 ✓ 已连签 ${status.streak} 天`
+            : `今日未签到 · 已连签 ${status.streak} 天`}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          本月已签 {status.monthDates.length} 天 · 累计 {status.totalDays} 天
+        </p>
+      </div>
+      <div className="w-44">
+        <MiniCalendar status={status} />
+      </div>
+      {!status.checkedInToday && (
+        <form action={checkinAction}>
+          <button
+            type="submit"
+            className="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            签到
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+export const checkinModule = defineModule({
+  id: "checkin",
+  description:
+    "签到模块：每日签到（北京时间自然日边界）+ 连签计数 + 随机奖励（earn.checkin，punch.reward 配置）；首页签到条与本月迷你日历。",
+  pointChannels: [{ key: "earn.checkin", direction: "earn", label: "签到奖励" }],
+  slots: {
+    "home.after-header": renderCheckinBar,
+  },
+});
