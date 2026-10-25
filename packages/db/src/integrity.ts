@@ -117,9 +117,10 @@ export async function findInlineAttachmentAnomalies(
           LEFT JOIN post_gates g ON g.id = a.gate_id
         WHERE a.kind = 'inline' AND a.gate_id IS NOT NULL
           AND (g.id IS NULL OR g.post_id <> a.post_id)) AS gateMismatch,
+       -- 所有附件行（内联与下载）引用的文件都必须存在：下载行缺文件时帖末列表会静默丢掉它
        (SELECT COUNT(*) FROM attachments a
           LEFT JOIN files f ON f.id = a.file_id
-        WHERE a.kind = 'inline' AND f.id IS NULL) AS missingFile,
+        WHERE f.id IS NULL) AS missingFile,
        (SELECT COUNT(*) FROM file_uploads u
           LEFT JOIN files f ON f.id = u.file_id
         WHERE f.id IS NULL) AS uploadOrphan`,

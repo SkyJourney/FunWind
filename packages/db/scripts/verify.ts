@@ -198,7 +198,7 @@ try {
   add(
     "integrity:内联附件与上传",
     ia.gateMismatch + ia.missingFile + ia.uploadOrphan === 0,
-    `内联行门控不属于同帖 ${ia.gateMismatch} / 内联行文件缺失 ${ia.missingFile} / 上传记录文件缺失 ${ia.uploadOrphan}`,
+    `内联行门控不属于同帖 ${ia.gateMismatch} / 附件行文件缺失 ${ia.missingFile} / 上传记录文件缺失 ${ia.uploadOrphan}`,
   );
 
   // 4d. 结构完整性：库内无外键，孤儿引用 / 楼层唯一 / 首帖指针 / 主题与首帖状态靠对账守住

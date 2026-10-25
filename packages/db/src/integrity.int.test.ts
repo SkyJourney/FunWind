@@ -131,15 +131,17 @@ describe.skipIf(skip)("附件↔门控完整性检查（临时库）", () => {
       await db.insert(attachments).values([
         { postId: 1, gateId: 20, fileId: 1, uploaderId: 1, kind: "inline", createdAt: T },
         { postId: 1, gateId: null, fileId: 999, uploaderId: 1, kind: "inline", createdAt: T },
-        // 同样的跨帖门控，但是 download 行：不属于本检查范围（由附件门控检查守住）
+        // 同样的跨帖门控，但是 download 行：门控归属由附件门控检查守住，不计入这里
         { postId: 1, gateId: 20, fileId: 1, uploaderId: 1, createdAt: T },
+        // 下载行引用不存在的文件：帖末列表会静默丢掉它，计入文件缺失（异常四）
+        { postId: 1, gateId: null, fileId: 998, uploaderId: 1, createdAt: T },
       ]);
       // 异常三：上传记录引用不存在的文件
       await db.insert(fileUploads).values({ userId: 1, fileId: 999, sizeBytes: 1, createdAt: T });
 
       expect(await findInlineAttachmentAnomalies(pool)).toEqual({
         gateMismatch: 1,
-        missingFile: 1,
+        missingFile: 2,
         uploadOrphan: 1,
       });
     } finally {
