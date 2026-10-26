@@ -61,6 +61,15 @@ describe("签到奖励配置（punch.reward）", () => {
     expect(parsePunchReward({ min: 0, max: 0 }).config).toEqual({ min: 0, max: 0 });
   });
 
+  it("无效配置读取时告警（reward-load 的回落分支由集成测试覆盖；此处验语义）", () => {
+    // reward-load.ts 的告警分支（console.warn）在 int 测试中覆盖；这里锚定回落语义的输出形状
+    const bad = parsePointReward("not-an-object");
+    expect(bad.config).toEqual(DEFAULT_POINT_REWARD_CONFIG);
+    expect(bad.error).toBeDefined();
+    const badPunch = parsePunchReward(12345);
+    expect(badPunch.config).toEqual(DEFAULT_PUNCH_REWARD_CONFIG);
+  });
+
   it("随机奖励落在 [min, max] 且含两端", () => {
     const reward = { min: 1, max: 5 };
     for (let i = 0; i < 200; i++) {

@@ -103,7 +103,13 @@ export default async function NotificationsPage({
                       {rendered?.categoryLabel ?? item.category} · {item.createdAt}
                     </p>
                     <p className={`mt-0.5 text-sm ${unread ? "font-medium" : ""}`}>
-                      {rendered?.label ?? item.type}
+                      {item.targetType === "conversation" ? (
+                        <Link href={`/messages/${item.targetId}`} className="hover:text-primary">
+                          {rendered?.label ?? item.type}
+                        </Link>
+                      ) : (
+                        (rendered?.label ?? item.type)
+                      )}
                       {item.kind === "notification" &&
                         item.groupKey !== null &&
                         ((item.data as { count?: number } | null)?.count ?? 0) > 1 && (

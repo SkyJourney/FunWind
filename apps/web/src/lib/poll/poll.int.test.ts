@@ -224,6 +224,15 @@ describe.skipIf(skipDb)("投票（M10）", () => {
     expect(view?.totalVotes).toBe(2);
   });
 
+  it("新用户（无 user_stats 行）首投：账户/统计行建立路径", async () => {
+    const { threadId, optionIds } = await makePoll(alice);
+    // 99999997 是没有任何 user_stats/poll_votes 行的新用户
+    const r = await vote(team, threadId, [optionIds[1]!]);
+    expect(r.ok).toBe(true);
+    const view = await getPollView(team, threadId);
+    expect(view?.options[1]?.count).toBe(1);
+  });
+
   it("并发双击投票：明细唯一（复合主键兜底）", async () => {
     const { threadId, pollId, optionIds } = await makePoll(alice);
     const [a, b] = await Promise.all([

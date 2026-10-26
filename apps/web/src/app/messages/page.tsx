@@ -34,13 +34,30 @@ export default async function MessagesPage({
         </p>
       </header>
 
+      {sp.pm && (
+        <p
+          role="alert"
+          className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
+        >
+          {sp.pm === "forbidden"
+            ? "你没有发送私信的权限（可能被禁言）。"
+            : sp.pm === "not_found"
+              ? "对方不存在或已注销。"
+              : sp.pm === "quota_exceeded"
+                ? "今日私信已达上限。"
+                : sp.pm === "reason_required"
+                  ? "内容不能为空。"
+                  : "发送失败，请稍后重试。"}
+        </p>
+      )}
+
       {to !== null && to !== user.id && (
         <Card>
           <CardContent className="pt-6">
             <h2 className="mb-2 text-sm font-semibold">发起新会话</h2>
             <form action={sendMessageAction} className="flex items-end gap-2">
               <input type="hidden" name="recipientId" value={to} />
-              <input type="hidden" name="back" value="/messages" />
+              <input type="hidden" name="back" value={`/messages?to=${to}`} />
               <textarea
                 name="body"
                 rows={2}

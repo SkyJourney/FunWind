@@ -1,10 +1,11 @@
 // @vitest-environment node
-/** 私信管理（M10 补做）：pmStats / recentMessages / banPmForUser 覆盖。 */
-import { eq, sql } from "drizzle-orm";
-import { getWebDb, siteSettings, userRestrictions } from "@funwind/db";
+/** 私信管理（M10 补做）：pmStats / recentMessages 覆盖。禁止发私信 = 用户管理页的 mute 限制（语义为全站禁言）。 */
+import { sql } from "drizzle-orm";
+import { getWebDb, siteSettings } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
-import { banPmForUser, deleteMessage, pmStats, recentMessages } from "./admin";
+import { loadSubject } from "@/lib/authz/subject";
+import { deleteMessage, pmStats, recentMessages } from "./admin";
 import { sendMessage } from "./service";
 
 let tdb: TempDb;
@@ -65,24 +66,4 @@ describe.skipIf(skipDb)("私信管理辅助（M10 补做）", () => {
       message: "消息不存在",
     });
   });
-
-  it("banPmForUser：mute 限制落行（复用 M9 限制管理），再发私信被禁言拦截", async () => {
-    await banPmForUser({ userId: 90004, via: "admin", ip: null }, 90002, "滥发私信");
-    const rows = await getWebDb()
-      .select()
-      .from(userRestrictions)
-      .where(eq(userRestrictions.userId, 90002));
-    expect(rows.some((r) => r.kind === "mute")).toBe(true);
-
-    // 禁言（写类权限拦截 pm.send）
-    const xiaoyi = await loadSubject(90002);
-    const r = await sendMessage(xiaoyi, 90001, "被禁言后发不出");
-    expect(r).toMatchObject({ ok: false, code: "forbidden" });
-  });
 });
-
-// loadSubject 延迟引入（避免顶层循环依赖）
-async function loadSubject(uid: number) {
-  const { loadSubject } = await import("@/lib/authz/subject");
-  return loadSubject(uid);
-}

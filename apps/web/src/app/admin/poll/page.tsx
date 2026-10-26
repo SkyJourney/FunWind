@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireAdmin } from "@/lib/authz/require-admin";
+import { requireModerator } from "@/lib/authz/require-admin";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { pollAdminList } from "@/lib/poll/admin";
 import { SubmitButton } from "@/components/ui/submit-button";
@@ -12,7 +12,8 @@ type Params = { searchParams: Promise<{ error?: string; closed?: string; deleted
 
 /** 投票管理（M10 补做）：全站列表（site.admin）；关闭/删除（版主作用域内亦可，服务层判定）。 */
 export default async function AdminPollPage({ searchParams }: Params) {
-  await requireAdmin();
+  // 版主可达（所辖版块的投票）；site.admin 全站——服务层 pollAdminList/guardAndMutate 做作用域判定
+  await requireModerator();
   const sp = await searchParams;
   const items = await pollAdminList(await getCurrentSubject());
 

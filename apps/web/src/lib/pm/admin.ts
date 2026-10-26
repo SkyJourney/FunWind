@@ -3,7 +3,6 @@ import { conversations, getWebDb, messages } from "@funwind/db";
 import type { ConfigActor } from "@/lib/audit";
 import { writeAudit } from "@/lib/audit";
 import { AdminError } from "@/lib/authz/admin";
-import { createRestriction } from "@/lib/authz/restrictions-admin";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
 
 /**
@@ -49,20 +48,6 @@ export async function deleteMessage(
       });
     }, POINTS_TX_OPTIONS),
   );
-}
-
-/** 禁止某用户发私信（施加 mute 限制并审计；复用 M9 限制管理语义） */
-export async function banPmForUser(
-  admin: ConfigActor & { userId: number },
-  targetUserId: number,
-  reason: string,
-): Promise<void> {
-  await createRestriction(admin, {
-    userId: targetUserId,
-    kind: "mute",
-    reason: `禁止发私信：${reason.trim() || "违规"}`,
-    endsAt: null,
-  });
 }
 
 /** 会话总数与消息总数（看板/列表头） */

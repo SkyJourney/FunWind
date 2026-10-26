@@ -20,7 +20,10 @@ export const sendMessageAction = defineAction({
   input: sendInput,
   async run(ctx, input) {
     const r = await sendMessage(ctx.subject, input.recipientId, input.body);
-    const back = input.back.startsWith("/") ? input.back : "/messages";
+    // 失败回跳保留 to 参数（发起新会话表单在 /messages?to=）
+    const back = input.back.startsWith("/")
+      ? input.back
+      : `/messages${input.recipientId ? `?to=${input.recipientId}` : ""}`;
     if (!r.ok) {
       redirect(`${back}?pm=${encodeURIComponent(r.code)}`);
     }

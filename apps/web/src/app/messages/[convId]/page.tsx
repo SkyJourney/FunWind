@@ -25,7 +25,7 @@ export default async function ConversationPage({
   searchParams,
 }: {
   params: Promise<{ convId: string }>;
-  searchParams: Promise<{ pm?: string }>;
+  searchParams: Promise<{ pm?: string; page?: string }>;
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
@@ -35,8 +35,9 @@ export default async function ConversationPage({
   const ok = await openConversation(user.id, convId);
   if (!ok) notFound();
 
+  const page = Math.max(1, Number((await searchParams).page ?? "1") || 1);
   const [paged, otherId] = await Promise.all([
-    conversationMessages(convId),
+    conversationMessages(convId, page),
     otherMemberOf(convId, user.id),
   ]);
   const messages = paged.items;
@@ -65,6 +66,30 @@ export default async function ConversationPage({
           className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
         >
           {pmErrorText[sp.pm]}
+        </p>
+      )}
+
+      {paged.totalPages > 1 && (
+        <p className="flex items-center justify-between text-xs text-muted-foreground">
+          {paged.page > 1 && (
+            <Link
+              href={`/messages/${convId}?page=${paged.page - 1}`}
+              className="text-primary hover:underline"
+            >
+              ← 更早的消息
+            </Link>
+          )}
+          <span>
+            第 {paged.page}/{paged.totalPages} 页 · 共 {paged.total} 条
+          </span>
+          {paged.page < paged.totalPages && (
+            <Link
+              href={`/messages/${convId}?page=${paged.page + 1}`}
+              className="text-primary hover:underline"
+            >
+              更新的消息 →
+            </Link>
+          )}
         </p>
       )}
 

@@ -9,7 +9,14 @@ import { checkins, DEMO, eventLog, getWebDb, pointAccounts, siteSettings } from 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
-import { checkin, getCheckinStatus, previousDay, streakFromDates, todayBeijing } from "./service";
+import {
+  checkin,
+  getCheckinStatus,
+  getMonthCheckins,
+  previousDay,
+  streakFromDates,
+  todayBeijing,
+} from "./service";
 
 let tdb: TempDb;
 const db = () => getWebDb();
@@ -161,6 +168,25 @@ describe.skipIf(skipDb)("签到（M7）", () => {
     const r2 = await checkin(u, { today: todayBeijing() });
     if (!r2.ok) throw new Error(JSON.stringify(r2));
     expect(r2.streak).toBe(2); // 昨日 + 今日连签
+  });
+
+  it("getMonthCheckins：月份过滤与短月上界（补齐覆盖率）", async () => {
+    // 直插两个月边界的数据
+    await db()
+      .insert(checkins)
+      .values([
+        { userId: 91300, checkinDate: "2026-09-30", reward: 0 },
+        { userId: 91300, checkinDate: "2026-10-01", reward: 0 },
+        { userId: 91300, checkinDate: "2026-10-31", reward: 0 },
+      ])
+      .onDuplicateKeyUpdate({ set: { reward: 0 } });
+    const sep = await getMonthCheckins(91300, "2026-09");
+    expect(sep).toEqual(["2026-09-30"]);
+    const oct = await getMonthCheckins(91300, "2026-10");
+    expect(oct).toEqual(["2026-10-01", "2026-10-31"]);
+    const feb = await getMonthCheckins(91300, "2026-02");
+    expect(feb).toEqual([]); // 短月上界修复的回归证明（旧实现 -31 会返回空集）
+    await db().delete(checkins).where(eq(checkins.userId, 91300));
   });
 
   it("streakFromDates 纯函数：跨月/跨年连续", () => {

@@ -114,9 +114,11 @@ export async function vote(
   if (wanted.length === 0) return { ok: false, code: "option_invalid", message: "请选择至少一项" };
 
   const db = getWebDb();
-  const enqueued: EnqueuedEvent[] = [];
+  let enqueued: EnqueuedEvent[] = [];
   const failure = await withDeadlockRetry(() =>
     db.transaction(async (tx): Promise<VoteResult | null> => {
+      // 每次尝试都从空开始（与 posting 同纪律）
+      enqueued = [];
       const [poll] = await tx
         .select({ id: polls.id, optionLimit: polls.optionLimit, endsAt: polls.endsAt })
         .from(polls)
