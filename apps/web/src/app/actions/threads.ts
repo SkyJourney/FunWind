@@ -22,7 +22,39 @@ const createThreadInput = z.object({
   source: z.string().max(200_000).default(""),
   attachments: attachmentsField,
   tags: z.string().max(500).default(""),
+  /** 投票：「选项1\n选项2…」多行文本 + 单/多选 + 截止 + 结果可见性；空选项 = 不建投票 */
+  pollOptions: z.string().max(6000).default(""),
+  pollOptionLimit: z.coerce.number().int().min(1).max(20).default(1),
+  pollEndsAt: z.string().max(32).default(""),
+  pollResultAfterVote: z.enum(["on"]).optional(),
 });
+
+/** 投票表单字段 → service 输入；空选项返回 undefined（普通主题） */
+function buildPollInput(
+  raw: string,
+  optionLimit: number,
+  endsAt: string,
+  afterVote: boolean,
+):
+  | {
+      options: string[];
+      optionLimit: number;
+      endsAt: string | null;
+      resultVisibility: "always" | "after_vote";
+    }
+  | undefined {
+  const options = raw
+    .split(/\r?\n/)
+    .map((o) => o.trim())
+    .filter((o) => o.length > 0);
+  if (options.length < 2) return undefined;
+  return {
+    options,
+    optionLimit,
+    endsAt: endsAt ? `${endsAt.replace("T", " ")}:00`.slice(0, 19) : null,
+    resultVisibility: afterVote ? "after_vote" : "always",
+  };
+}
 
 export const createThreadAction = defineAction({
   name: "thread.create",
@@ -39,6 +71,12 @@ export const createThreadAction = defineAction({
         .split(/[,，]/)
         .map((t) => t.trim())
         .filter((t) => t.length > 0),
+      poll: buildPollInput(
+        input.pollOptions,
+        input.pollOptionLimit,
+        input.pollEndsAt,
+        input.pollResultAfterVote === "on",
+      ),
       canAddTags,
     });
     if (r.ok) redirect(`/t/${r.threadId}`);

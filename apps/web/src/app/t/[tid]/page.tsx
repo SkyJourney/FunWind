@@ -7,6 +7,7 @@ import { Pagination } from "@/components/content/pagination";
 import { PostBody } from "@/components/content/post-body";
 import { UserBadge } from "@/components/content/user-badge";
 import { LikeButton } from "@/components/interact/like-button";
+import PollBlock from "@/components/interact/poll-block";
 import { likedPostIds } from "@/lib/interact/reactions";
 import { tagsOfThreads } from "@/lib/interact/tags";
 import { Badge } from "@/components/ui/badge";
@@ -42,7 +43,7 @@ export const dynamic = "force-dynamic";
 
 type Params = {
   params: Promise<{ tid: string }>;
-  searchParams: Promise<{ page?: string; gate?: string; reply?: string }>;
+  searchParams: Promise<{ page?: string; gate?: string; reply?: string; vote?: string }>;
 };
 
 const parseTid = (raw: string): number | null => {
@@ -60,7 +61,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 export default async function ThreadPage({ params, searchParams }: Params) {
   const tid = parseTid((await params).tid);
   if (!tid) notFound();
-  const { page: pageRaw, gate: gateNotice, reply: replyCode } = await searchParams;
+  const { page: pageRaw, gate: gateNotice, reply: replyCode, vote: voteError } = await searchParams;
 
   const viewer = await getCurrentSubject();
   // 不存在 / 版块读不到 / 屏蔽或删除（非版主）/ 别人的待审核 → 一律 404，不暴露存在性
@@ -273,6 +274,8 @@ export default async function ThreadPage({ params, searchParams }: Params) {
           {thread.kind === "poll" && <Badge variant="outline">投票帖</Badge>}
         </div>
       </header>
+
+      {thread.kind === "poll" && <PollBlock threadId={thread.id} voteError={voteError} />}
 
       {(threadTags.get(thread.id)?.length ?? 0) > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 text-xs">

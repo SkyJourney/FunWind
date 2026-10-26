@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EditorShell } from "@/components/editor/editor-shell";
+import { PollFieldsToggle } from "@/components/posting/poll-fields-toggle";
 import { readDraft, removeDraft, writeDraft } from "@/components/editor/draft";
 
 /**
@@ -86,6 +87,48 @@ export function ThreadComposer({ action, forumId, draftKey, restore, titleMax, b
         </label>
         <Input id="thread-tags" name="tags" placeholder="例如：字幕, 日剧" autoComplete="off" />
       </div>
+
+      <fieldset className="space-y-2 rounded-xl border p-3">
+        <legend className="px-1 text-sm font-medium">投票（选填）</legend>
+        <label className="flex items-center gap-2 text-sm">
+          <PollFieldsToggle /> 发起投票
+        </label>
+        <div id="poll-fields" data-poll-fields className="hidden space-y-2">
+          <textarea
+            name="pollOptions"
+            rows={4}
+            maxLength={6000}
+            placeholder={"每行一个选项（至少 2 项，最多 20 项）\n例如：\n选项一\n选项二"}
+            className="w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+          />
+          <div className="flex flex-wrap gap-4 text-sm">
+            <label className="flex items-center gap-2">
+              可选
+              <input
+                type="number"
+                name="pollOptionLimit"
+                min={1}
+                max={20}
+                defaultValue={1}
+                className="w-20 rounded-lg border bg-background px-2.5 py-1.5"
+              />
+              项（1 = 单选）
+            </label>
+            <label className="flex items-center gap-2">
+              截止
+              <input
+                type="datetime-local"
+                name="pollEndsAt"
+                className="rounded-lg border bg-background px-2.5 py-1.5"
+              />
+              （空为长期）
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" name="pollResultAfterVote" value="on" /> 投票后才可见结果
+            </label>
+          </div>
+        </div>
+      </fieldset>
 
       <Button type="submit">发布主题</Button>
     </form>

@@ -42,6 +42,8 @@ export const POSTING_NOTICES: Record<string, string> = {
   // 标签（M8）
   tag_denied: "新建标签需要相应权限，请从已有标签中选择。",
   tag_too_many: "标签数量超过上限，请精简后再发布。",
+  poll_option_count: "投票选项须 2–20 项。",
+  poll_option_limit: "可选项数设置与选项数不匹配。",
 };
 
 /** 通用失败文案：未知码或不在白名单内的码统一用它，不把错误码原样显示 */

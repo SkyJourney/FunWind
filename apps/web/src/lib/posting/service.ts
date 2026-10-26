@@ -1,5 +1,5 @@
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
-import { getWebDb, posts, threads } from "@funwind/db";
+import { getWebDb, pollOptions, polls, posts, threads } from "@funwind/db";
 import { splitSource, type GateDraft } from "@funwind/content";
 import { type DbTx } from "@/lib/audit";
 import { evaluate } from "@/lib/authz/evaluator";
@@ -77,6 +77,8 @@ export type PostingErrorCode =
   | "attachment_limit"
   | "tag_denied" // 新建标签需要 tag.add，当前用户只能挂已有标签
   | "tag_too_many" // 标签数量超过上限
+  | "poll_option_count" // 投票选项数须 2–20
+  | "poll_option_limit" // 可选项数与选项数不匹配
   | "inline_limit"
   | "upload_forbidden" // 无 attachment.upload 权限却要新增图片或附件
   | "gate_conditions_locked"
@@ -216,6 +218,13 @@ export interface CreateThreadInput {
   /** 主题标签（名称，去重由 service 完成）；新标签的创建须 canAddTags */
   tags?: readonly string[];
   canAddTags?: boolean;
+  /** 投票（提供即 kind=poll）：选项 2–20 项、单/多选、截止与结果可见性 */
+  poll?: {
+    options: readonly string[];
+    optionLimit: number;
+    endsAt: string | null;
+    resultVisibility: "always" | "after_vote";
+  };
 }
 
 export async function createThread(
@@ -305,6 +314,40 @@ export async function createThread(
         })) as unknown as [{ insertId: number }];
         const postId = Number(p.insertId);
         await tx.update(threads).set({ firstPostId: postId }).where(eq(threads.id, threadId));
+        if (input.poll) {
+          if (input.poll.options.length < 2 || input.poll.options.length > 20) {
+            throw new Rollback(err("poll_option_count", "投票选项须 2–20 项"));
+          }
+          const cleanedOptions = [
+            ...new Set(input.poll.options.map((o) => o.trim()).filter(Boolean)),
+          ];
+          if (cleanedOptions.length < 2) {
+            throw new Rollback(err("poll_option_count", "投票选项去重后须至少 2 项"));
+          }
+          if (
+            !Number.isInteger(input.poll.optionLimit) ||
+            input.poll.optionLimit < 1 ||
+            input.poll.optionLimit > cleanedOptions.length
+          ) {
+            throw new Rollback(err("poll_option_limit", "可选项数须在 1 与选项数之间"));
+          }
+          const kindMark = input.poll.resultVisibility === "after_vote" ? "after_vote" : "always";
+          const [pollRow] = (await tx.insert(polls).values({
+            threadId,
+            optionLimit: input.poll.optionLimit,
+            endsAt: input.poll.endsAt,
+            resultVisibility: kindMark,
+            voterCount: 0,
+            createdBy: authorId,
+            createdAt: sql`NOW()`,
+          })) as unknown as [{ insertId: number }];
+          const pollId = Number(pollRow.insertId);
+          await tx
+            .insert(pollOptions)
+            .values(
+              cleanedOptions.map((content, i) => ({ pollId, content, voteCount: 0, sortOrder: i })),
+            );
+        }
 
         // 标签（M8）：写 thread_tags；新标签须 canAddTags（tag.add）
         if (input.tags !== undefined) {
