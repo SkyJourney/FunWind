@@ -5,6 +5,25 @@
 
 ## [Unreleased]
 
+### Added（M9：管理后台与站点框架）
+
+完整记录见 [docs/milestones/M9-admin.md](docs/milestones/M9-admin.md)。
+
+- **后台 shell**：/admin 布局重构——总门「site.admin 或版主」，导航按权限点派生（看板/审核/举报/用户/角色/积分/徽章/公告/审计）；版主经 `requireModerator`（未登录 redirect、无版块 404）。admin-entry-guard 扩展识别 layout 等价门禁与版主作用域豁免（review/actions 留档）。
+- **内容审核闭环**：`approveReview` / `rejectReview` / `hidePost`（transitionContent 唯一入口 + content_reviews + 审计同事务，事件经 outbox）；approve 补发 `thread.created`/`thread.replied`（内核契约兑现——待审内容的作者积分在通过时入账）；hide 为 hidden 态首个写入口；`/admin/review` 队列（待审 + 已删隐 tab，版主作用域过滤）与帖子页版主「屏蔽」入口。
+- **审核类通知生产方**（M8 目录全部接线）：content.submitted→作者回执 + 版主 `review.pending` 聚合（forum:{id}:review_pending）；content.moderated→approved/rejected/removed/hidden/restored（带理由）；restriction.changed→account.restricted/lifted；role.changed→account.role_changed。**通知 dedupKey 幂等**（迁移 0008 的 dedup_key 唯一列）——at-least-once 重放不再重复入行。
+- **用户管理**（admin.users）：用户名搜索 + 详情聚合（资料/积分台账/徽章/会话/限制/角色）；限制管理（封禁/禁言/禁头像，起止+理由，解除带说明）同事务审计 + 事件；角色授予/撤销接线 M5 服务；重复邮箱清单链接（6 组，私有报告）。
+- **举报**：`reports` 表（同人同帖唯一键幂等）；前台确认页（理由必填）+ 帖子页举报入口；`/admin/reports` 队列（处置/忽略 + 审计 + 举报人收 `report.resolved` 通知）。
+- **公告管理**（site.admin）：创建/编辑/下线 + 发布事件经 outbox；前台顶部横幅（show_banner，localStorage 关闭记忆）。
+- **站点框架**：`site.nav` / `site.links` / `site.footer`（site_settings JSON）配置页；前台 header 导航与新增 footer 消费；TTL 30s 缓存 + 保存失效（改动即时生效）。
+- **审计中心与看板**：`/admin/logs`（audit/event 双 tab、action/actor 筛选、分页、CSV 导出 RFC 4180）；admin 首页数据看板（30 天注册/主题/回帖趋势 + 当日登录，纯 CSS 柱状）。
+
+### Fixed（M9 期间发现并修复）
+
+- hidePostAction/approve 的 `revalidatePath(/t/${threadIdOf(...)})` 未 await（revalidate 收到 "[object Promise]"）。
+- demo-team 无版主授权：seed 补 904 的 forum.moderate（越权矩阵与 review.pending 的演示载体）。
+- visibility.spec 的 906 夹具被 E2E 运行产物污染：moderation-review.spec 增加 id 段（≥990000）清理 + afterAll。
+
 ### Added（M8：互动套件、通知中心后端与顶栏铃铛、站内搜索）
 
 完整记录见 [docs/milestones/M8-interact-search.md](docs/milestones/M8-interact-search.md)。

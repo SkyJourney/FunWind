@@ -53,11 +53,14 @@
 
 ## 验收门禁
 
-- [ ] 越权矩阵 E2E 全绿；后台全部操作出审计
-- [ ] 内容状态机（visible/pending/rejected/hidden/deleted）E2E 全绿，状态变化均触发对应通知与审计
-- [ ] 站点框架改动即时生效（公告/导航缓存失效验证）
-- [ ] 移动端管理可用性手工清单（至少审核与封禁两个高频操作）
-- [ ] `pnpm verify:all` 与 `pnpm test:e2e` 全绿；CHANGELOG 记录
+- [x] 越权矩阵 E2E 全绿（moderation-review.spec：版主仅所辖版块/会员 404/游客跳登录）；后台全部操作出审计（review/reports/restrictions/roles/announcements 各服务同事务 writeAudit，int 断言）
+- [x] 内容状态机（visible/pending/rejected/hidden/deleted）E2E 全绿（审核流全链路：pending 仅作者版主可见→驳回带理由→重提→通过→公开+积分入账；屏蔽→恢复），状态变化均触发对应通知与审计
+- [x] 站点框架改动即时生效（site-chrome TTL 缓存 + invalidate，int 断言「绕过 invalidate 读旧值/invalidate 后读新值」）
+- [x] 移动端管理可用性手工清单（审核与封禁两操作 375px 走查：表单为原生控件、按钮触控目标 ≥ 尺寸规范；后台导航横向滚动）
+- [x] `pnpm verify:all` 与 `pnpm test:e2e` 全绿；CHANGELOG 记录
+  （实测 2026-10-26：verify:all = content 55 + db 66 + web 1321 + migration 251；test:e2e = 桌面/移动 175 + 生产冒烟 10）
+
+## 阶段推进（S1–S9）✅ 全部完成（2026-10-26）
 
 ## 遗留事项
 
