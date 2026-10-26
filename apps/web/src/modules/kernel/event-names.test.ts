@@ -3,7 +3,7 @@ import { EVENT_NAMES, isEventName, validateEventPayload } from "./event-names";
 import type { EventPayloads } from "./types";
 
 describe("EVENT_NAMES / isEventName", () => {
-  it("清单完整（23 事件，与 docs/MODULES.md 一致）", () => {
+  it("清单完整（24 事件，与 docs/MODULES.md 一致）", () => {
     expect(EVENT_NAMES).toHaveLength(23);
     expect(new Set(EVENT_NAMES).size).toBe(24);
     expect(EVENT_NAMES).toContain("points.changed");
