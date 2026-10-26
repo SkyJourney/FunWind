@@ -36,7 +36,6 @@ export function AnnouncementBanner({ banner }: { banner: BannerAnnouncement | nu
 
   return (
     <div
-      role="status"
       data-testid="announcement-banner"
       className={`flex items-center justify-center gap-2 px-4 py-2 text-sm ${
         banner.level === "important"

@@ -167,6 +167,42 @@ describe.skipIf(skipDb)("审核动作（M9）", () => {
     );
   });
 
+  it("not_found：不存在的帖子；dispatchOutboxRows 失败路径（事务回滚）后无 outbox 残留", async () => {
+    expect(await approveReview(admin, 99999999, ACTOR)).toMatchObject({
+      ok: false,
+      code: "not_found",
+    });
+    expect(await rejectReview(admin, 99999999, "理由", ACTOR)).toMatchObject({
+      ok: false,
+      code: "not_found",
+    });
+    expect(await hidePost(admin, 99999999, "理由", ACTOR)).toMatchObject({
+      ok: false,
+      code: "not_found",
+    });
+  });
+
+  it("bad_state 全分支：hidden 不能再 hide；rejected 不能 hide", async () => {
+    const { postId } = await seedPendingThread();
+    await approveReview(admin, postId, ACTOR);
+    // 第一次 hide 成功（visible→hidden）
+    const h = await hidePost(admin, postId, "第一次屏蔽", ACTOR);
+    expect(h).toEqual({ ok: true });
+    // hidden 再 hide → bad_state
+    expect(await hidePost(admin, postId, "再屏蔽", ACTOR)).toMatchObject({
+      ok: false,
+      code: "bad_state",
+    });
+
+    // 另起一篇走到 rejected，再 hide → bad_state（只有 visible 可屏蔽）
+    const second = await seedPendingThread();
+    await rejectReview(admin, second.postId, "理由", ACTOR);
+    expect(await hidePost(admin, second.postId, "屏蔽被驳回的", ACTOR)).toMatchObject({
+      ok: false,
+      code: "bad_state",
+    });
+  });
+
   it("越权：非所辖版主拒绝（demo_team 只管 904）", async () => {
     const team = await loadSubject(DEMO.team);
     const { postId } = await seedPendingThread(); // 906 版块

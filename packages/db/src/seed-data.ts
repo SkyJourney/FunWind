@@ -182,11 +182,12 @@ async function seedForums(db: Db) {
     .values({ key: DEMO.teamRole, name: "演示团队", kind: "custom", description: "演示夹具" })
     .onDuplicateKeyUpdate({ set: { name: incoming("name") } });
 
-  // 受限版块的读/写授权：仅演示团队（admin 在评估器中短路放行）
+  // 受限版块的读/写/版主授权：仅演示团队（admin 在评估器中短路放行）。
+  // forum.moderate（M9）：demo-team 是 904 的版主——审核队列/review.pending 通知/越权矩阵的演示载体。
   await db
     .insert(roleGrants)
     .values(
-      ["forum.read", "forum.write"].map((permissionKey) => ({
+      ["forum.read", "forum.write", "forum.moderate"].map((permissionKey) => ({
         roleKey: DEMO.teamRole,
         permissionKey,
         scopeId: DEMO.restrictedForum,

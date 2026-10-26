@@ -22,7 +22,7 @@ export const approveReviewAction = defineAction({
     const r = await approveReview(ctx.subject, input.postId, adminActor(ctx));
     if (!r.ok) redirect(backWith(input.postId, r.code, r.message));
     revalidatePath("/admin/review");
-    revalidatePath(`/t/${threadIdOf(input.postId)}`);
+    revalidatePath(`/t/${await threadIdOf(input.postId)}`);
     redirect("/admin/review?approved=1");
   },
 });
@@ -56,8 +56,9 @@ export const hidePostAction = defineAction({
   async run(ctx, input) {
     const r = await hidePost(ctx.subject, input.postId, input.reason, adminActor(ctx));
     if (!r.ok) notFound();
-    revalidatePath(`/t/${threadIdOf(input.postId)}`);
-    redirect(`/t/${threadIdOf(input.postId)}`);
+    const threadId = await threadIdOf(input.postId);
+    revalidatePath(`/t/${threadId}`); // threadIdOf 已 await——此为有效路径
+    redirect(`/t/${threadId}`);
   },
 });
 

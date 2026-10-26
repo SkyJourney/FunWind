@@ -1,7 +1,8 @@
 import Link from "next/link";
+import { notFound, redirect } from "next/navigation";
 import { checkPermission, getModeratedForumIds } from "@/lib/authz/service";
 import { getCurrentSubject } from "@/lib/authz/subject";
-import { requireAdmin } from "@/lib/authz/require-admin";
+import { getCurrentUser } from "@/lib/auth/session";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "后台" };
@@ -44,8 +45,15 @@ const NAV: NavEntry[] = [
 ];
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
-  await requireAdmin();
+  // 总门：site.admin **或版主**（review 页版主可达；其它站点页各自 requireAdmin(perm) 二次拦截）
+  const user = await getCurrentUser();
+  if (!user) redirect("/login"); // 游客 → 登录页（与旧 requireAdmin 行为一致）
   const subject = await getCurrentSubject();
+  const [siteAdmin, moderated] = await Promise.all([
+    checkPermission(subject, "site.admin"),
+    getModeratedForumIds(subject),
+  ]);
+  if (!siteAdmin.allowed && moderated.length === 0) notFound();
 
   // 菜单可见性按权限集派生（站点级 admin.* 或版主身份）
   const visible = await Promise.all(

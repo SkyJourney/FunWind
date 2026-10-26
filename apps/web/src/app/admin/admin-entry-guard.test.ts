@@ -102,7 +102,13 @@ describe("/admin 入口必须先鉴权（审查 P2-15）", () => {
       for (const [name, body] of fns) {
         // requireModerator 是版主可达页（review）的等价门禁（M9；未登录 redirect、无权限 404，同纪律）
         const first = firstAwaitedCall(body);
-        if (first !== "requireAdmin" && first !== "requireModerator")
+        // requireModerator：版主可达页（review）的等价门禁（未登录 redirect、无权限 404，同纪律）。
+        // layout 等价门禁：首个 await 是 getCurrentUser 且函数体做 site.admin / 版主（getModeratedForumIds）判定。
+        const layoutEquivalent =
+          first === "getCurrentUser" &&
+          /site\.admin/.test(body) &&
+          /getModeratedForumIds/.test(body);
+        if (first !== "requireAdmin" && first !== "requireModerator" && !layoutEquivalent)
           offenders.push(`${f.rel} › ${name}`);
       }
       for (const [name, body] of das) {
