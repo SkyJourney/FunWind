@@ -19,11 +19,18 @@ const setLimits = (value: unknown) =>
     .values({ key: "limits", value: value as object, updatedAt: sql`NOW()` })
     .onDuplicateKeyUpdate({ set: { value: value as object, updatedAt: sql`NOW()` } });
 const dropLimits = () => getWebDb().delete(siteSettings).where(eq(siteSettings.key, "limits"));
-const lim = (postIntervalSec: number, threadsPerDay: number, uploadsPerDay: number) => ({
+const lim = (
+  postIntervalSec: number,
+  threadsPerDay: number,
+  uploadsPerDay: number,
+  editWindowSec = 0,
+  pmPerDay = 0,
+) => ({
   postIntervalSec,
   threadsPerDay,
   uploadsPerDay,
-  editWindowSec: 0,
+  editWindowSec,
+  pmPerDay,
 });
 
 describe.skipIf(skipDb)("limits 加载 · 真实 MySQL", () => {
@@ -62,7 +69,8 @@ describe.skipIf(skipDb)("limits 加载 · 真实 MySQL", () => {
     expect(await getLimitsConfig()).toEqual({
       titleMax: 60,
       bodyMax: 8000,
-      roles: { member: lim(20, 10, 3) },
+      // pmPerDay 缺省补 0（不限）——旧配置不含该字段仍然有效
+      roles: { member: lim(20, 10, 3, 0, 0) },
     });
   });
 

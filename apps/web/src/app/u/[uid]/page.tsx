@@ -57,12 +57,20 @@ export default async function ProfilePage({ params }: { params: Promise<{ uid: s
               <h1 className="text-xl font-bold tracking-tight">{profile.username}</h1>
               {profile.ban && <Badge variant="destructive">已封禁</Badge>}
               {viewer !== null && viewer.id !== uid && (
-                <FollowButton
-                  targetType="user"
-                  targetId={uid}
-                  following={following}
-                  back={`/u/${uid}`}
-                />
+                <>
+                  <FollowButton
+                    targetType="user"
+                    targetId={uid}
+                    following={following}
+                    back={`/u/${uid}`}
+                  />
+                  <Link
+                    href={`/messages?to=${uid}`}
+                    className="rounded-lg border px-3 py-1 text-sm hover:bg-accent"
+                  >
+                    私信
+                  </Link>
+                </>
               )}
             </div>
             <p className="mt-1 text-xs text-muted-foreground">

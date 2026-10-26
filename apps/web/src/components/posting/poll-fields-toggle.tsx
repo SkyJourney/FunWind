@@ -15,5 +15,5 @@ export function PollFieldsToggle() {
     toggle.addEventListener("change", sync);
     return () => toggle.removeEventListener("change", sync);
   }, []);
-  return <input type="checkbox" name="pollEnabled" value="on" ref={ref} />;
+  return <input type="checkbox" id="poll-enabled" name="pollEnabled" value="on" ref={ref} />;
 }

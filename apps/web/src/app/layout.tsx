@@ -69,6 +69,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                     <Link href="/follows" className="text-muted-foreground hover:text-foreground">
                       动态
                     </Link>
+                    <Link href="/messages" className="text-muted-foreground hover:text-foreground">
+                      私信
+                    </Link>
                     <Link
                       href="/settings/avatar"
                       className="text-muted-foreground hover:text-foreground"

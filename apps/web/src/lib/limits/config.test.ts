@@ -22,18 +22,20 @@ const lim = (
   threadsPerDay: number,
   uploadsPerDay: number,
   editWindowSec = 0,
+  pmPerDay = 0,
 ) => ({
   postIntervalSec,
   threadsPerDay,
   uploadsPerDay,
+  pmPerDay,
   editWindowSec,
 });
 
 describe("默认配置", () => {
   it("packages/db 的默认值能通过 zod 校验，且就是被校验后的值（默认值只有一份）", () => {
     expect(limitsConfigSchema.parse(DEFAULT_LIMITS)).toEqual(DEFAULT_LIMITS_CONFIG);
-    expect(DEFAULT_LIMITS_CONFIG.roles["member"]).toEqual(lim(5, 100, 20));
-    expect(DEFAULT_LIMITS_CONFIG.roles["admin"]).toEqual(lim(0, 0, 0));
+    expect(DEFAULT_LIMITS_CONFIG.roles["member"]).toEqual(lim(5, 100, 20, 0, 50)); // pmPerDay 默认 50（私信上限）
+    expect(DEFAULT_LIMITS_CONFIG.roles["admin"]).toEqual(lim(0, 0, 0, 0, 0));
   });
 });
 
@@ -121,6 +123,7 @@ describe("resolveLimits：每项取最宽松的值，0 = 不限", () => {
       threadsPerDay: 100,
       uploadsPerDay: 20,
       editWindowSec: 0,
+      pmPerDay: 0,
     });
   });
 

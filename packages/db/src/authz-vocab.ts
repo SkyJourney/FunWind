@@ -142,8 +142,20 @@ export const DEFAULT_LIMITS = {
   titleMax: 100,
   bodyMax: 50000,
   roles: {
-    member: { postIntervalSec: 5, threadsPerDay: 100, uploadsPerDay: 20, editWindowSec: 0 },
-    admin: { postIntervalSec: 0, threadsPerDay: 0, uploadsPerDay: 0, editWindowSec: 0 },
+    member: {
+      postIntervalSec: 5,
+      threadsPerDay: 100,
+      uploadsPerDay: 20,
+      editWindowSec: 0,
+      pmPerDay: 50,
+    },
+    admin: {
+      postIntervalSec: 0,
+      threadsPerDay: 0,
+      uploadsPerDay: 0,
+      editWindowSec: 0,
+      pmPerDay: 0,
+    },
   },
 } as const;
 

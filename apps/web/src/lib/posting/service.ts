@@ -347,6 +347,8 @@ export async function createThread(
             .values(
               cleanedOptions.map((content, i) => ({ pollId, content, voteCount: 0, sortOrder: i })),
             );
+          // 主题标记为投票帖（列表徽标与详情页投票块据此渲染）
+          await tx.update(threads).set({ kind: "poll" }).where(eq(threads.id, threadId));
         }
 
         // 标签（M8）：写 thread_tags；新标签须 canAddTags（tag.add）
