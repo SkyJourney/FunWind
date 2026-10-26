@@ -20,6 +20,8 @@
   `/messages` 会话列表与 `/messages/[convId]` 对话页；顶栏与资料页入口；额度 `limits.roles.pmPerDay`（兑现旧 message_max_send）。
 - **两模块经 defineModule 注册**（poll / pm），装卸回归：停用 poll → 投票块消失而主题正文照常。
 
+- **管理侧补做**（M10 遗留清账）：`/admin/poll` 投票管理（列表/关闭/删除，三表明细清理 + 主题 kind 回 normal + 审计，版主作用域内可操作）与 `/admin/pm` 私信管理（删违规消息标记 + 审计 + 按 uid 筛选）；**私信消息分页**（30/页取尾页，越界收束）。
+
 ### Fixed（M10 期间发现并修复）
 
 - **notify 并发聚合死锁**：同 groupKey 的并发 INSERT 在 InnoDB 间隙锁下可能死锁（此前只重试 duplicate key）——
