@@ -4,6 +4,7 @@ import { getEnabledModuleIds } from "@/modules/kernel/state";
 import { getWebDb, notificationPreferences, notifications } from "@funwind/db";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import { isDuplicateKey } from "@/lib/auth/register";
+import { isDeadlock } from "@/lib/points/retry";
 import type { DbTx } from "@/lib/audit";
 
 /**
@@ -152,8 +153,17 @@ export async function notify(input: NotifyInput): Promise<void> {
         });
         break;
       } catch (e) {
-        // 聚合并发：撞 uq_nf_open_group → 重跑聚合路径；dedup 重放：撞 uq_nf_dedup → 幂等跳过（成功返回）
-        if (attempt < 3 && isDuplicateKey(e) && decl.def.aggregate && input.groupKey) continue;
+        // 聚合并发：撞 uq_nf_open_group（duplicate key）或间隙锁死锁（ER_LOCK_DEADLOCK）
+        //   → 重跑整笔（胜者行已提交，FOR UPDATE 聚合路径命中）。事务已回滚，重放安全。
+        // dedup 重放：撞 uq_nf_dedup → 幂等跳过（成功返回）。
+        if (
+          attempt < 5 &&
+          (isDuplicateKey(e) || isDeadlock(e)) &&
+          decl.def.aggregate &&
+          input.groupKey
+        ) {
+          continue;
+        }
         if (isDuplicateKey(e) && input.dedupKey) break;
         throw e;
       }

@@ -24,7 +24,7 @@
 | [M7](milestones/M7-gamification.md) | 积分与荣誉（积分台账/签到/荣誉徽章） | M07 | 二·核心 | ✅ 2026-10-25（含 outbox 提前落地与 demo 模块退役；旧勋章站长签收「迁移即达标」） |
 | [M8](milestones/M8-interact-search.md) | 互动套件、**通知中心后端与顶栏铃铛**、检索 | M05/M06 | 二·核心 | ✅ 2026-10-26（含 @提及接线与 gate/adjust 入 outbox；阶段二·核心完成） |
 | [M9](milestones/M9-admin.md) | 管理后台（含审核队列、公告管理）与站点框架 | M10/M11/M13 | 三·完善 | ✅ 2026-10-26（审核闭环+通知生产方接线+举报/公告/站点框架/审计看板；越权矩阵与移动端清单过） |
-| [M10](milestones/M10-poll-pm.md) | 投票与私信（私信接入通知指针） | M08/M09 | 三·完善 | 🚧 2026-10-26 开工 |
+| [M10](milestones/M10-poll-pm.md) | 投票与私信（私信接入通知指针） | M08/M09 | 三·完善 | ✅ 2026-10-26 |
 | [M10.5](milestones/M10.5-ui-design.md) | **UI 设计与视觉打磨**（前台 + 管理后台，纯前端面不动底层） | 跨模块（全站界面） | 三·完善 | ⬜（2026-10-25 插入） |
 | [M11](milestones/M11-themes-pwa.md) | 主题包与 PWA | M12 | 三·完善 | ⬜ |
 | [M12](milestones/M12-install-wizard.md) | 安装向导与零数据部署 | 数据层基建 | 三·完善 | ⬜ |

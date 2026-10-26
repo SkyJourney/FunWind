@@ -8,6 +8,7 @@ import { PostBody } from "@/components/content/post-body";
 import { UserBadge } from "@/components/content/user-badge";
 import { LikeButton } from "@/components/interact/like-button";
 import PollBlock from "@/components/interact/poll-block";
+import { getEnabledModuleIds } from "@/modules/kernel/state";
 import { likedPostIds } from "@/lib/interact/reactions";
 import { tagsOfThreads } from "@/lib/interact/tags";
 import { Badge } from "@/components/ui/badge";
@@ -144,12 +145,15 @@ export default async function ThreadPage({ params, searchParams }: Params) {
     loadGateViews(viewer, thread, gatePosts),
     getPointsName(),
   ]);
-  const [likedSet, threadTags] = await Promise.all([
+  const [likedSet, threadTags, enabledModules] = await Promise.all([
     viewer.userId !== null
       ? likedPostIds(viewer.userId, [thread.first.id, ...replies.items.map((r) => r.id)])
       : Promise.resolve(new Set<number>()),
     tagsOfThreads([thread.id]),
+    getEnabledModuleIds(),
   ]);
+  // 投票块随 poll 模块启停（模块装卸语义：能力随模块消失，主题与正文不受损）
+  const pollEnabled = enabledModules.has("poll");
   const likeProps = (postId: number) => ({
     postId,
     liked: likedSet.has(postId),
@@ -275,7 +279,9 @@ export default async function ThreadPage({ params, searchParams }: Params) {
         </div>
       </header>
 
-      {thread.kind === "poll" && <PollBlock threadId={thread.id} voteError={voteError} />}
+      {thread.kind === "poll" && pollEnabled && (
+        <PollBlock threadId={thread.id} voteError={voteError} />
+      )}
 
       {(threadTags.get(thread.id)?.length ?? 0) > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 text-xs">

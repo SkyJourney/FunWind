@@ -170,6 +170,11 @@ describe.skipIf(skipDb)("私信（M10）", () => {
       ok: false,
       code: "reason_required",
     });
+    // 超长内容被拒
+    expect(await sendMessage(alice, DEMO.team, "x".repeat(5001))).toMatchObject({
+      ok: false,
+      code: "reason_required",
+    });
   });
 
   it("并发首信：pairKey 唯一键兜底，只有一个会话", async () => {
@@ -188,6 +193,45 @@ describe.skipIf(skipDb)("私信（M10）", () => {
       .from(conversationMembers)
       .where(eq(conversationMembers.conversationId, convs[0].id));
     expect(members).toHaveLength(2);
+  });
+
+  it("会话列表：对方缺失时的兜底 + 无未读时计数 0", async () => {
+    // 造一个只有自己成员的会话（对方成员行缺失）→ otherId 0、名字 null
+    const [convRow] = (await db()
+      .insert(conversations)
+      .values({ pairKey: "1:1", createdAt: "2026-10-26 10:00:00" })) as unknown as [
+      { insertId: number },
+    ];
+    const convId = Number(convRow.insertId);
+    await db().insert(conversationMembers).values({ conversationId: convId, userId: DEMO.alice });
+    const list = await conversationList(DEMO.alice);
+    const lonely = list.find((c) => c.conversationId === convId);
+    expect(lonely).toBeDefined();
+    expect(lonely!.otherId).toBe(0);
+    expect(lonely!.otherName).toBeNull();
+    expect(lonely!.unread).toBe(0);
+    expect(await otherMemberOf(convId, DEMO.alice)).toBeNull();
+  });
+
+  it("openConversation 对空会话（无消息）安全：指针不推进、返回 true", async () => {
+    const [convRow] = (await db()
+      .insert(conversations)
+      .values({ pairKey: "2:3", createdAt: "2026-10-26 10:00:00" })) as unknown as [
+      { insertId: number },
+    ];
+    const convId = Number(convRow.insertId);
+    await db()
+      .insert(conversationMembers)
+      .values([
+        { conversationId: convId, userId: DEMO.alice },
+        { conversationId: convId, userId: DEMO.team },
+      ]);
+    expect(await openConversation(DEMO.alice, convId)).toBe(true);
+    const [member] = await db()
+      .select()
+      .from(conversationMembers)
+      .where(eq(conversationMembers.conversationId, convId));
+    expect(member.lastReadMessageId ?? null).toBeNull();
   });
 
   it("会话列表：对方信息与未读数正确", async () => {
