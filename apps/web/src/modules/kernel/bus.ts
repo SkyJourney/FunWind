@@ -58,6 +58,7 @@ const ACTOR_FIELD_BY_EVENT: Record<EventName, string | null> = {
   "content.moderated": "operatorId",
   "post.mentioned": "authorId",
   "reaction.added": "userId",
+  "poll.voted": "userId",
   "message.sent": "senderId",
   "attachment.uploaded": "uploaderId",
   "restriction.changed": "operatorId",

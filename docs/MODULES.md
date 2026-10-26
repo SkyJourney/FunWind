@@ -60,6 +60,7 @@ M9 后由管理后台管理）。
 | `content.moderated` | `{ postId, operatorId, action: approve\|reject\|remove\|hide\|restore, reason? }` | M9 审核/版主操作 |
 | `post.mentioned` | `{ postId, authorId, mentionedUserId }` | M6 保存时解析 @ |
 | `reaction.added` | `{ userId, postId, kind }` | M8 点赞 |
+| `poll.voted` | `{ userId, pollId, optionIds }` | M10 投票（改票=最后一次的选项集；仅审计无消费者） |
 | `message.sent` | `{ conversationId, messageId, senderId, recipientId }` | M10 私信 |
 | `attachment.uploaded` | `{ attachmentId, fileId, uploaderId }` | M6.5c 已接线：保存事务提交后，为每条新建的下载附件各派发一次；**M7 起经事务性 outbox**（与 thread.created/replied 同，见语义与边界 §8），载荷不含文件名与正文 |
 | `restriction.changed` | `{ userId, kind, action: created\|lifted, operatorId, reason?, endsAt? }` | M9 限制管理 |

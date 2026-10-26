@@ -16,6 +16,7 @@ export const EVENT_NAMES = [
   "content.moderated",
   "post.mentioned",
   "reaction.added",
+  "poll.voted",
   "message.sent",
   "attachment.uploaded",
   "restriction.changed",
@@ -31,7 +32,7 @@ export function isEventName(v: unknown): v is EventName {
   return typeof v === "string" && (EVENT_NAMES as readonly string[]).includes(v);
 }
 
-/** 各事件 payload 的必填键（外部入口——如 dev emit API——的运行时校验依据） */
+/** 各事件 payload 的必填键（poll.voted 的 optionIds 只校验存在，元素类型由 TS 保证）（外部入口——如 dev emit API——的运行时校验依据） */
 export const REQUIRED_PAYLOAD_KEYS: Record<EventName, readonly string[]> = {
   "user.logged_in": ["userId"],
   "user.registered": ["userId"],
@@ -47,6 +48,7 @@ export const REQUIRED_PAYLOAD_KEYS: Record<EventName, readonly string[]> = {
   "content.moderated": ["postId", "operatorId", "action"],
   "post.mentioned": ["postId", "authorId", "mentionedUserId"],
   "reaction.added": ["userId", "postId", "kind"],
+  "poll.voted": ["userId", "pollId", "optionIds"],
   "message.sent": ["conversationId", "messageId", "senderId", "recipientId"],
   "attachment.uploaded": ["attachmentId", "fileId", "uploaderId"],
   "restriction.changed": ["userId", "kind", "action", "operatorId"],

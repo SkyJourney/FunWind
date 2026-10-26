@@ -5,7 +5,7 @@ import type { EventPayloads } from "./types";
 describe("EVENT_NAMES / isEventName", () => {
   it("清单完整（23 事件，与 docs/MODULES.md 一致）", () => {
     expect(EVENT_NAMES).toHaveLength(23);
-    expect(new Set(EVENT_NAMES).size).toBe(23);
+    expect(new Set(EVENT_NAMES).size).toBe(24);
     expect(EVENT_NAMES).toContain("points.changed");
     expect(EVENT_NAMES).not.toContain("credit.changed");
     expect(EVENT_NAMES).not.toContain("medal.awarded");

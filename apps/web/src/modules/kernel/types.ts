@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
  * 扩展事件/槽位清单 = 修改本文件并在 docs/MODULES.md 说明——模块不得私设插入点。
  */
 
-// ---------- 事件清单（23 个，docs/MODULES.md 定稿；命名承接旧 phpwind 钩子语义；M6.1 新增 post.edited / post.deleted） ----------
+// ---------- 事件清单（24 个，docs/MODULES.md 定稿；命名承接旧 phpwind 钩子语义；M6.1 新增 post.edited / post.deleted） ----------
 // 派发状态：user.logged_in / user.registered / role.changed / points.changed / gate.unlocked 已有真实派发者（M5.5 S4-5），
 // 其余为契约，由各自里程碑（M6 发帖、M8 互动、M9 后台、M10 私信…）接线。
 export interface EventPayloads {
@@ -87,6 +87,8 @@ export interface EventPayloads {
   };
   "post.mentioned": { postId: number; authorId: number; mentionedUserId: number };
   "reaction.added": { userId: number; postId: number; kind: string };
+  /** M10 投票：user 投给 poll 的（改票=最后一次的选项集）；仅审计，无消费者 */
+  "poll.voted": { userId: number; pollId: number; optionIds: number[] };
   "message.sent": {
     conversationId: number;
     messageId: number;
