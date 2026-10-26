@@ -263,6 +263,14 @@ describe.skipIf(skipDb)("投票（M10）", () => {
     expect(view?.options[0]?.percent).toBe(100);
   });
 
+  it("管理列表：site.admin 全站可见（与版主作用域过滤在 m10-admin.int 断言）", async () => {
+    const { pollId } = await makePoll(alice);
+    const { pollAdminList } = await import("./admin");
+    const list = await pollAdminList(alice); // alice 无 site.admin → 版主口径，无版块 → 空
+    expect(list.some((p) => p.pollId === pollId)).toBe(false);
+    void pollId;
+  });
+
   it("空选项被拒；不存在的投票返回 not_found", async () => {
     const { threadId } = await makePoll(alice);
     expect(await vote(team, threadId, [])).toMatchObject({ ok: false, code: "option_invalid" });

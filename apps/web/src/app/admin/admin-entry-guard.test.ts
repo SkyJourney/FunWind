@@ -73,7 +73,11 @@ export const declaresAdminAuth = (body: string): boolean =>
 
 // 版主作用域入口豁免：review/actions 的鉴权是帖子版块的 forum.moderate（在 lib/moderation 服务内判定），
 // 不持 site.admin 的版主也要能用——defineAction 声明 auth:"user" 是有意为之（M9 拍板，越权矩阵 E2E 覆盖）。
-const MODERATOR_SCOPE_EXEMPT = new Set(["review/actions.ts"]);
+const MODERATOR_SCOPE_EXEMPT = new Set([
+  "review/actions.ts",
+  // 投票管理：关闭/删除的权限在服务层（site.admin 全站 / 版主所辖版块）——M10 补做，同 review 口径
+  "poll/actions.ts",
+]);
 
 const files = walk(ADMIN_DIR)
   .filter((p) => /(^|[\\/])(page|layout)\.tsx$|(^|[\\/])actions\.ts$/.test(p))

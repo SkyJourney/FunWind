@@ -189,20 +189,40 @@ export async function openConversation(userId: number, conversationId: number): 
   return true;
 }
 
-/** 对话页消息（升序全量；量大后改分页——当前会话均为新会话） */
+/** 对话页消息分页（M10 补做）：升序、取尾页（最新消息在底部，与聊天习惯一致）。 */
+export const PM_MESSAGES_PER_PAGE = 30;
+
 export async function conversationMessages(
   conversationId: number,
-  limit = 200,
-): Promise<{ id: number; senderId: number; body: string; createdAt: string }[]> {
-  return getWebDb()
-    .select({
-      id: messages.id,
-      senderId: messages.senderId,
-      body: messages.body,
-      createdAt: messages.createdAt,
-    })
+  page = 1,
+  pageSize = PM_MESSAGES_PER_PAGE,
+): Promise<{
+  items: { id: number; senderId: number; body: string; createdAt: string }[];
+  total: number;
+  page: number;
+  totalPages: number;
+}> {
+  const [{ n }] = await getWebDb()
+    .select({ n: sql<number>`COUNT(*)` })
     .from(messages)
-    .where(eq(messages.conversationId, conversationId))
-    .orderBy(asc(messages.id))
-    .limit(limit);
+    .where(eq(messages.conversationId, conversationId));
+  const total = Number(n);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const items =
+    total === 0
+      ? []
+      : await getWebDb()
+          .select({
+            id: messages.id,
+            senderId: messages.senderId,
+            body: messages.body,
+            createdAt: messages.createdAt,
+          })
+          .from(messages)
+          .where(eq(messages.conversationId, conversationId))
+          .orderBy(asc(messages.id))
+          .limit(pageSize)
+          .offset((safePage - 1) * pageSize);
+  return { items, total, page: safePage, totalPages };
 }

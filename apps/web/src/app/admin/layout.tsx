@@ -42,6 +42,8 @@ const NAV: NavEntry[] = [
   { href: "/admin/badges", label: "徽章", need: { admin: "admin.badges" } },
   { href: "/admin/announcements", label: "公告", need: { moderate: true } },
   { href: "/admin/logs", label: "审计日志", need: { admin: "admin.logs" } },
+  { href: "/admin/poll", label: "投票管理", need: { moderate: true } },
+  { href: "/admin/pm", label: "私信管理", need: { admin: "admin.logs" } },
 ];
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {

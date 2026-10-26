@@ -234,10 +234,13 @@ describe.skipIf(skipDb)("私信（M10）", () => {
     expect(member.lastReadMessageId ?? null).toBeNull();
   });
 
-  it("会话列表：对方信息与未读数正确", async () => {
+  it("会话列表：对方信息与未读数正确（不依赖排序——前面用例产生的会话顺序不定）", async () => {
     const list = await conversationList(DEMO.team);
     expect(list.length).toBeGreaterThan(0);
-    const other = await otherMemberOf(list[0].conversationId, DEMO.team);
-    expect(other).toBe(DEMO.alice);
+    // team 的每个会话的对方都应是 alice（90001）——前面用例与 alice/xiaoyi 都有过对话，
+    // 这里只断言「所有对方的并集覆盖 alice」且不含 team 自己
+    const others = new Set(list.map((c) => c.otherId));
+    expect(others.has(DEMO.alice)).toBe(true);
+    expect(others.has(DEMO.team)).toBe(false);
   });
 });

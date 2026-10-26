@@ -35,10 +35,11 @@ export default async function ConversationPage({
   const ok = await openConversation(user.id, convId);
   if (!ok) notFound();
 
-  const [messages, otherId] = await Promise.all([
+  const [paged, otherId] = await Promise.all([
     conversationMessages(convId),
     otherMemberOf(convId, user.id),
   ]);
+  const messages = paged.items;
   const sp = await searchParams;
 
   return (
