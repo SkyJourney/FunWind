@@ -5,6 +5,26 @@
 
 ## [Unreleased]
 
+### Added（M10：投票与私信）
+
+完整记录见 [docs/milestones/M10-poll-pm.md](docs/milestones/M10-poll-pm.md)。
+
+- **投票交互层**：详情页投票块（可投/已投/截止/结果四态 + 点赞者同款弹层）；投票与改票在事务内完成
+  （复合主键 (poll_id, option_id, user_id) 防重，改票=删旧插新、计数 ±1、voter_count 按去重人数重算）；
+  截止后拒绝、after_vote 可见性（未投隐藏计数）、`poll.voted` 事件经事务性 outbox（仅审计）。
+- **发帖投票**：`kind=poll` 主题与 polls/poll_options 同事务创建（单选/多选 2–20 项、截止时间、投票后才可见结果）；
+  发帖表单的投票区（勾选展开）。
+- **私信**：会话模型（conversations/conversation_members/messages，pair_key「小uid:大uid」唯一），
+  发送事务 = 消息 + 会话指针 + `message.sent` 入 outbox（M8-1 收尾）；`pm` 模块消费 → 通知中心写
+  `pm.received` 指针（聚合 conv:{id}:pm）；打开会话联动已读（推进 last_read_message_id + 清该会话未读通知行）；
+  `/messages` 会话列表与 `/messages/[convId]` 对话页；顶栏与资料页入口；额度 `limits.roles.pmPerDay`（兑现旧 message_max_send）。
+- **两模块经 defineModule 注册**（poll / pm），装卸回归：停用 poll → 投票块消失而主题正文照常。
+
+### Fixed（M10 期间发现并修复）
+
+- **notify 并发聚合死锁**：同 groupKey 的并发 INSERT 在 InnoDB 间隙锁下可能死锁（此前只重试 duplicate key）——
+  补死锁重试，并发聚合稳定收敛为一行。
+
 ### Added（M9：管理后台与站点框架）
 
 完整记录见 [docs/milestones/M9-admin.md](docs/milestones/M9-admin.md)。
