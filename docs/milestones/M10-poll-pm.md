@@ -49,6 +49,9 @@
 - [x] `pnpm verify:all` 与 `pnpm test:e2e` 全绿；CHANGELOG 记录
   （实测 2026-10-26：verify:all = content 55 + db 66 + web 1344 + migration 251；test:e2e = 桌面/移动 185 + 生产冒烟 10；覆盖率分支 85.03%）
 
+> 收尾代码审查与整改记录见 [reviews/2026-10-26-m10-code-review.md](../reviews/2026-10-26-m10-code-review.md)
+> （P1 × 1、P2 × 12 全修——含多选投票 404、vote 并发漂移、对话页分页、/admin/poll 版主门禁；P3 修复约 10 项）。
+
 ## 阶段推进（S1–S4）✅ 全部完成（2026-10-26）
 
 - [x] S1 开工定稿（设计定调五条 + poll.voted 事件契约扩清单 + ROADMAP 🚧）
