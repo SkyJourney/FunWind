@@ -153,6 +153,16 @@ describe.skipIf(skipDb)("签到（M7）", () => {
     expect(Number(mismatch?.n ?? 0)).toBe(0);
   });
 
+  it("today 注入：注入昨日可重复签到（分支覆盖，也证明时区无关的日期口径）", async () => {
+    const u = 91235;
+    const yesterday = previousDay(todayBeijing());
+    const r1 = await checkin(u, { today: yesterday });
+    expect(r1.ok).toBe(true);
+    const r2 = await checkin(u, { today: todayBeijing() });
+    if (!r2.ok) throw new Error(JSON.stringify(r2));
+    expect(r2.streak).toBe(2); // 昨日 + 今日连签
+  });
+
   it("streakFromDates 纯函数：跨月/跨年连续", () => {
     const dates = new Set(["2026-12-30", "2026-12-31", "2027-01-01"]);
     expect(streakFromDates(dates, "2027-01-01", true)).toBe(3);
