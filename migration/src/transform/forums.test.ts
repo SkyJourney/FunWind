@@ -101,6 +101,18 @@ describe("transformForums · 字段", () => {
     expect(r.forums[0]).toMatchObject({ sortOrder: 7, description: "说明", icon: "a.png" });
     expect(transformForums([f({ fid: 2, descrip: "" })]).forums[0]?.description).toBeNull();
   });
+
+  it("D5 清洗：旧站描述裸 HTML 剥离为纯文本（img/a 丢弃、实体解码、空标签归 null）", () => {
+    const r = transformForums([
+      f({
+        fid: 5,
+        descrip: '<img src="http://x/a.jpg"> 制作中&amp;连载 <font color="#5858FA">2010</font>',
+      }),
+      f({ fid: 6, descrip: "<b> </b>" }),
+    ]);
+    expect(r.forums[0]?.description).toBe("制作中&连载 2010");
+    expect(r.forums[1]?.description).toBeNull();
+  });
 });
 
 describe("transformForums · 策略与作用域授权", () => {

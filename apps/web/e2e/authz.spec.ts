@@ -56,7 +56,8 @@ test.describe("权限内核", () => {
     );
     expect(Number(visible)).toBeLessThan(Number(total));
     await page.goto("/");
-    await expect(page.getByText(new RegExp(`${visible} 个版块`))).toBeVisible();
+    // M10.5 S5 首页翻转：统计移至右栏（「版块 N · 主题 M」），口径不变（访客可见且上目录）
+    await expect(page.getByText(new RegExp(`版块 ${visible}`))).toBeVisible();
   });
 
   test("受限版块：普通会员 → 404", async ({ page, context }) => {

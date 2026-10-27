@@ -1,5 +1,6 @@
 import type { ReadPolicy, WritePolicy } from "@funwind/db";
 import { GUEST_GID, isScopedRole, MEMBER_GIDS, parseGidList, roleOfGid } from "./legacy-groups.js";
+import { sanitizeLegacyHtml } from "../lib/legacy-html.js";
 
 export interface OldForum {
   fid: number;
@@ -136,7 +137,7 @@ export function transformForums(rows: readonly OldForum[]): ForumTransformResult
       depth,
       kind: r.type === "category" ? "section" : "forum",
       name,
-      description: r.descrip ? String(r.descrip) : null,
+      description: sanitizeLegacyHtml(r.descrip),
       icon: r.icon ?? "",
       sortOrder: Number(r.vieworder ?? 0),
       readPolicy,

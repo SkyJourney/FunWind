@@ -10,9 +10,11 @@ import { FIX } from "./support/fixtures";
 test.describe("内容只读渲染", () => {
   test("首页 → 版块目录 → 版块页 → 帖子详情", async ({ page }) => {
     await page.goto("/");
+    // M10.5 S5 内容流首页：sr-only h1 + 分区筛选/排序入口；版块目录移至 /boards
     await expect(page.getByRole("heading", { level: 1 })).toContainText("青翼字幕组");
-    await expect(page.getByText("最新动态")).toBeVisible();
+    await expect(page.getByRole("link", { name: "最新回复" })).toBeVisible();
 
+    await page.goto("/boards");
     await page.getByRole("link", { name: FIX.anime.name }).first().click();
     await expect(page).toHaveURL(new RegExp(`/f/${FIX.anime.id}`));
     await expect(page.getByRole("heading", { level: 1 })).toContainText("E2E 动画");
@@ -149,7 +151,8 @@ test.describe("内容只读渲染", () => {
   test("移动视口 375px smoke", async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
     await page.goto("/");
-    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    await expect(page.locator("h1")).toHaveCount(1); // sr-only 站名
+    await expect(page.getByRole("navigation", { name: "移动端主导航" })).toBeVisible();
     await page.goto(`/t/${FIX.thread.emoji}`);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   });

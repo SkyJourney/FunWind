@@ -24,7 +24,15 @@ import type { Subject } from "@/lib/authz/types";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { getDirectory, getForumView } from "./forums";
 import { REPLIES_PER_PAGE, listReplies } from "./posts";
-import { getLatestThreads, getThreadView, listThreads } from "./threads";
+import {
+  HOME_FEED_PAGE,
+  extractFeedMedia,
+  getHomeFeed,
+  getHotThreads,
+  getLatestThreads,
+  getThreadView,
+  listThreads,
+} from "./threads";
 import { getProfile } from "./users";
 import { buildViewerScope, visiblePredicate } from "./visibility";
 
@@ -424,5 +432,68 @@ describe.skipIf(skipDb)("查询层 · 真实 MySQL", () => {
     invalidateAuthzSnapshot();
     const before = (await getDirectory(member)).groups.flatMap((g) => g.forums).map((f) => f.id);
     expect(before).not.toContain(DEMO.restrictedForum);
+  });
+
+  describe("首页内容流（M10.5 S5）", () => {
+    it("游客：只含上目录 visible 主题；分区过滤与排序双模式；hasMore 按页给出", async () => {
+      const all = await getHomeFeed(guest);
+      const idsAll = all.items.map((t) => t.id);
+      expect(idsAll).toEqual(expect.arrayContaining([900001, 900002, 900003, 900004]));
+      for (const hidden of [900005, 900006, 900007, 900008]) expect(idsAll).not.toContain(hidden);
+
+      // 分区过滤：演示区(900) 子树应包含全部演示主题；空结果分区给空页
+      const inSection = await getHomeFeed(guest, { sectionId: 900 });
+      expect(inSection.items.map((t) => t.id).sort()).toEqual(idsAll.slice().sort());
+      expect((await getHomeFeed(guest, { sectionId: 999999 })).items).toEqual([]);
+
+      // 排序：new 按 created_at，last 按 last_posted_at（两种都应非空且不抛错）
+      expect((await getHomeFeed(guest, { sort: "new" })).items.length).toBeGreaterThan(0);
+      // 分页自洽：满页则 hasMore 且第 2 页不与第 1 页重叠；不满页则必无下一页
+      if (all.hasMore) {
+        expect(all.items.length).toBe(HOME_FEED_PAGE);
+        const p2 = await getHomeFeed(guest, { page: 2 });
+        expect(p2.items.some((t) => t.id === all.items[0]?.id)).toBe(false);
+      } else {
+        expect(all.items.length).toBeLessThan(HOME_FEED_PAGE);
+      }
+    });
+
+    it("封面与摘要：首帖首图进 coverUrl，纯文本进 excerpt；无图帖为 null", async () => {
+      // 造一个带图首帖（挂在演示主题 900001 的首帖上，测试内自清理）
+      const [orig] = await db()
+        .select({ firstPostId: threads.firstPostId, body: posts.bodyMd })
+        .from(threads)
+        .innerJoin(posts, eq(posts.id, threads.firstPostId))
+        .where(eq(threads.id, 900001));
+      const firstPostId = orig.firstPostId!;
+      await db()
+        .update(posts)
+        .set({ bodyMd: "![封面](/files/abc123) 大家好，这是正文内容。" })
+        .where(eq(posts.id, firstPostId));
+      try {
+        const feed = await getHomeFeed(guest);
+        const item = feed.items.find((t) => t.id === 900001)!;
+        expect(item.coverUrl).toBe("/files/abc123");
+        expect(item.excerpt).toContain("大家好，这是正文内容");
+      } finally {
+        await db().update(posts).set({ bodyMd: orig.body }).where(eq(posts.id, firstPostId));
+      }
+      expect(extractFeedMedia("没有图的纯文本")).toEqual({
+        coverUrl: null,
+        excerpt: "没有图的纯文本",
+      });
+    });
+
+    it("热帖：按回复数倒序，权限口径与内容流一致", async () => {
+      await db().update(threads).set({ replyCount: 99 }).where(eq(threads.id, 900002));
+      try {
+        const hot = await getHotThreads(guest, 5);
+        expect(hot[0]?.id).toBe(900002);
+        const idsHot = hot.map((t) => t.id);
+        for (const hidden of [900005, 900006, 900007, 900008]) expect(idsHot).not.toContain(hidden);
+      } finally {
+        await db().update(threads).set({ replyCount: 0 }).where(eq(threads.id, 900002));
+      }
+    });
   });
 });

@@ -151,7 +151,7 @@ export async function listThreads(
   return { pinned, items: rows.map((r) => toItem(r)), total, page, totalPages };
 }
 
-/** 全站最新（首页聚合）：只含读得到、且上目录（is_listed=1）的版块里的主题 */
+/** 全站最新（版块页侧栏等）：只含读得到、且上目录（is_listed=1）的版块里的主题 */
 export async function getLatestThreads(viewer: Subject, limit = 10): Promise<ThreadListItem[]> {
   const [scope, { tree }] = await Promise.all([buildViewerScope(viewer), getAuthzSnapshot()]);
   const listed = scope.readable.filter((id) => tree.get(id)?.isListed);
@@ -160,6 +160,98 @@ export async function getLatestThreads(viewer: Subject, limit = 10): Promise<Thr
     and(threadScope(scope), inArray(threads.forumId, listed), eq(threads.state, "visible"))!,
   )
     .orderBy(desc(threads.lastPostedAt), desc(threads.id))
+    .limit(limit);
+  return rows.map((r) => toItem(r));
+}
+
+/* ===== 首页内容流（M10.5 S5，docs/wireframes/home-feed-list.html） ===== */
+
+export const HOME_FEED_PAGE = 10;
+
+export interface HomeFeedItem extends ThreadListItem {
+  /** 首帖第一张图片（/files/ 或外链）；无图 null。D5 清洗后旧帖图片才可靠 */
+  coverUrl: string | null;
+  /** 首帖纯文本摘要（去 Markdown 结构），无正文 null */
+  excerpt: string | null;
+}
+
+export interface HomeFeedPage {
+  items: HomeFeedItem[];
+  hasMore: boolean;
+  page: number;
+}
+
+export type HomeFeedSort = "last" | "new";
+
+export { extractFeedMedia } from "./feed-media";
+import { extractFeedMedia } from "./feed-media";
+import type { FeedMedia } from "./feed-media";
+
+/**
+ * 首页内容流：跨上目录版块混排，可按分区子树过滤、按最新回复/最新发布排序，偏移分页。
+ * 权限口径与 getLatestThreads 一致：只含读得到、上目录、visible 的主题。
+ */
+export async function getHomeFeed(
+  viewer: Subject,
+  opts: { sectionId?: number; sort?: HomeFeedSort; page?: number } = {},
+): Promise<HomeFeedPage> {
+  const [scope, { tree }] = await Promise.all([buildViewerScope(viewer), getAuthzSnapshot()]);
+  let listed = scope.readable.filter((id) => tree.get(id)?.isListed);
+  if (opts.sectionId !== undefined) {
+    const subtree = new Set(tree.subtree(opts.sectionId));
+    listed = listed.filter((id) => subtree.has(id));
+  }
+  if (listed.length === 0) return { items: [], hasMore: false, page: 1 };
+
+  const page = Math.max(1, Math.trunc(opts.page ?? 1) || 1);
+  const order =
+    opts.sort === "new"
+      ? [desc(threads.createdAt), desc(threads.id)]
+      : [desc(threads.lastPostedAt), desc(threads.id)];
+  const rows = await selectList(
+    and(threadScope(scope), inArray(threads.forumId, listed), eq(threads.state, "visible"))!,
+  )
+    .orderBy(...order)
+    .limit(HOME_FEED_PAGE + 1)
+    .offset((page - 1) * HOME_FEED_PAGE);
+
+  const hasMore = rows.length > HOME_FEED_PAGE;
+  const items = rows.slice(0, HOME_FEED_PAGE).map((r) => toItem(r));
+
+  const media = new Map<number, FeedMedia>();
+  if (items.length > 0) {
+    const bodies = await getWebDb()
+      .select({ tid: threads.id, bodyMd: posts.bodyMd })
+      .from(posts)
+      .innerJoin(threads, eq(threads.firstPostId, posts.id))
+      .where(
+        and(
+          inArray(
+            threads.id,
+            items.map((i) => i.id),
+          ),
+          eq(posts.floor, 1),
+        ),
+      );
+    for (const b of bodies) media.set(b.tid, extractFeedMedia(b.bodyMd));
+  }
+
+  return {
+    items: items.map((i) => ({ ...i, ...(media.get(i.id) ?? { coverUrl: null, excerpt: null }) })),
+    hasMore,
+    page,
+  };
+}
+
+/** 站内热帖（右栏）：回复数优先，权限口径同内容流 */
+export async function getHotThreads(viewer: Subject, limit = 5): Promise<ThreadListItem[]> {
+  const [scope, { tree }] = await Promise.all([buildViewerScope(viewer), getAuthzSnapshot()]);
+  const listed = scope.readable.filter((id) => tree.get(id)?.isListed);
+  if (listed.length === 0) return [];
+  const rows = await selectList(
+    and(threadScope(scope), inArray(threads.forumId, listed), eq(threads.state, "visible"))!,
+  )
+    .orderBy(desc(threads.replyCount), desc(threads.id))
     .limit(limit);
   return rows.map((r) => toItem(r));
 }

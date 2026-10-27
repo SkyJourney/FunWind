@@ -142,7 +142,7 @@
 
         <div class="note">
           <b>B4-全局 · 注记</b><br />
-          ① loading.tsx 是 RSC 边界：只放骨架不取数；骨架组件复用 S5 抽出的布局组件（同一组件传 skeleton 态，保证形状永不错位）。<br />
+          ① loading.tsx 是 RSC 边界：只放骨架不取数；骨架组件复用 S5 抽出的布局组件（同一组件传 skeleton 态，保证形状永不错位）。<b>安全红线（E2E 实测修正）</b>：loading 边界会使响应提前以 200 流式开始，段内 notFound() 无法再改写状态码——因此 loading.tsx 仅允许出现在确定不会 notFound() 的段（/boards、/search）；版块页、主题页、编辑页、私信/通知等 404 能力路由一律不加，原规格中的 /t、/u、/p、/messages、/notifications 条目作废。<br />
           ② 后台 15 页不加 per-page loading（force-dynamic 后台页轻量、命中率高）；后台空态/错误同样套 states.html 图例。<br />
           ③ 404 文案刻意二义（「不存在或无权访问」）——受限版块/帖子的 notFound() 语义不因新页面泄露。<br />
           ④ error.tsx 的错误 ID = 时间戳短码，便于对服务端日志；dev 环境额外显示原始错误摘要。<br />
