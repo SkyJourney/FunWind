@@ -65,35 +65,46 @@ export async function sendMessage(
     .limit(1);
   if (!recipient) return { ok: false, code: "not_found", message: "对方不存在或已注销" };
 
-  // 收件方私信权限（M10.5 站长功能补全）：off=拒收；following=仅收自己关注的人的信。
-  // 判定在服务端（UI 只是前置提示）；经 user_profiles.pm_policy，写路径仅本人偏好设置。
-  const [policyRow] = await getWebDb()
-    .select({ pmPolicy: userProfiles.pmPolicy })
-    .from(userProfiles)
-    .where(eq(userProfiles.userId, recipientId))
+  const pairKey = pairKeyOf(senderId, recipientId);
+
+  // 收件方私信权限（M10.5 站长功能补全）：off=拒收新会话；following=仅收其关注的人的信。
+  // **只作用于「新建会话的首信」**——已有会话的回复不受此闸门约束（否则对方改一次设置，
+  // 旧关系就变成只读墓碑，且用户无从预期）。判定在服务端（UI 只是前置提示）。
+  const [existingConv] = await getWebDb()
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(eq(conversations.pairKey, pairKey))
     .limit(1);
-  const policy = policyRow?.pmPolicy ?? "all";
-  if (policy === "off") {
-    return { ok: false, code: "pm_off", message: "对方已关闭私信" };
-  }
-  if (policy === "following") {
-    const [back] = await getWebDb()
-      .select({ userId: follows.userId })
-      .from(follows)
-      .where(
-        and(
-          eq(follows.userId, recipientId),
-          eq(follows.targetType, "user"),
-          eq(follows.targetId, senderId),
-        ),
-      )
+  if (!existingConv) {
+    const [policyRow] = await getWebDb()
+      .select({ pmPolicy: userProfiles.pmPolicy })
+      .from(userProfiles)
+      .where(eq(userProfiles.userId, recipientId))
       .limit(1);
-    if (!back) {
-      return {
-        ok: false,
-        code: "pm_following",
-        message: "对方仅接受关注的人的私信（可先关注对方）",
-      };
+    const policy = policyRow?.pmPolicy ?? "all";
+    if (policy === "off") {
+      return { ok: false, code: "pm_off", message: "对方已关闭私信，无法发起新会话" };
+    }
+    if (policy === "following") {
+      // 判定方向：对方（收件人）是否关注了发送方——「其关注的人的私信」
+      const [back] = await getWebDb()
+        .select({ userId: follows.userId })
+        .from(follows)
+        .where(
+          and(
+            eq(follows.userId, recipientId),
+            eq(follows.targetType, "user"),
+            eq(follows.targetId, senderId),
+          ),
+        )
+        .limit(1);
+      if (!back) {
+        return {
+          ok: false,
+          code: "pm_following",
+          message: "对方仅接受其关注的人的私信，请等待对方关注你后再发",
+        };
+      }
     }
   }
 
@@ -109,7 +120,6 @@ export async function sendMessage(
     }
   }
 
-  const pairKey = pairKeyOf(senderId, recipientId);
   const failure = await withDeadlockRetry(() =>
     getWebDb().transaction(async (tx): Promise<SendResult | null> => {
       let conversationId: number;

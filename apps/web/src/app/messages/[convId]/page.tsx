@@ -20,6 +20,8 @@ const pmErrorText: Record<string, string> = {
   self: "不能给自己发私信。",
   reason_required: "内容不能为空。",
   quota_exceeded: "今日私信已达上限。",
+  pm_off: "对方已关闭私信，无法发起新会话。",
+  pm_following: "对方仅接受其关注的人的私信，请等待对方关注你后再发。",
 };
 
 /** 对话页（M10 逻辑 + M10.5 视觉）：打开即已读；气泡分组、额度提示、吸底输入区。 */

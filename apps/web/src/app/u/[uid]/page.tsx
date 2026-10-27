@@ -120,18 +120,18 @@ export default async function ProfilePage({
                     back={`/u/${uid}`}
                   />
                   {pmPolicy === "off" ? (
-                    <span
-                      className="inline-flex cursor-not-allowed items-center gap-1 rounded-lg border px-3 py-1 text-sm text-muted-foreground/60"
-                      title="TA 已关闭私信"
-                    >
+                    <span className="inline-flex items-center gap-1 rounded-lg border border-dashed px-3 py-1 text-sm text-muted-foreground/70">
                       <MessageSquareOff className="size-3.5" aria-hidden /> 已关闭私信
+                    </span>
+                  ) : pmPolicy === "following" && !pmBack ? (
+                    // 受限态必须「可见可读」（title 属性在移动端不可达）：明示规则 + 引导
+                    <span className="inline-flex items-center gap-1 rounded-lg border border-dashed px-3 py-1 text-sm text-muted-foreground/80">
+                      <MessageSquareOff className="size-3.5" aria-hidden /> TA
+                      仅接受其关注的人的私信
                     </span>
                   ) : (
                     <Link
                       href={`/messages?to=${uid}`}
-                      title={
-                        pmPolicy === "following" && !pmBack ? "TA 仅接受关注的人的私信" : undefined
-                      }
                       className="rounded-lg border px-3 py-1 text-sm transition-colors hover:bg-accent"
                     >
                       ✉ 私信

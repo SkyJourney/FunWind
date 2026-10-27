@@ -53,7 +53,11 @@ export default async function MessagesPage({
                 ? "今日私信已达上限。"
                 : sp.pm === "reason_required"
                   ? "内容不能为空。"
-                  : "发送失败，请稍后重试。"}
+                  : sp.pm === "pm_off"
+                    ? "对方已关闭私信，无法发起新会话。"
+                    : sp.pm === "pm_following"
+                      ? "对方仅接受其关注的人的私信，请等待对方关注你后再发。"
+                      : "发送失败，请稍后重试。"}
         </p>
       )}
 

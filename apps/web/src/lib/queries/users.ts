@@ -164,12 +164,16 @@ export async function getUserReplies(
 ): Promise<UserContentPage<UserReplyItem>> {
   const [scope, { tree }] = await Promise.all([buildViewerScope(viewer), getAuthzSnapshot()]);
   const listed = scope.readable.filter((id) => tree.get(id)?.isListed);
+  // 可见口径与 getUserThreads/首页流一致：只放 state='visible' 的公开回帖。
+  // 注意：visiblePredicate 会给「作者本人」放开 pending/rejected、给「版主」放开 hidden/deleted——
+  // 那是审核视角的特权，放在公开页会让已删除内容出现在全站可达 URL 上，故此处显式收紧。
   const base = and(
     visiblePredicate(
       { forumId: threads.forumId, state: posts.state, authorId: posts.authorId },
       scope,
     ),
     eq(posts.authorId, uid),
+    eq(posts.state, "visible"),
     eq(threads.state, "visible"),
     listed.length > 0 ? inArray(threads.forumId, listed) : sql`false`,
   )!;

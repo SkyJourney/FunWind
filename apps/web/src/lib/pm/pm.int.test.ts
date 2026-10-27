@@ -246,43 +246,52 @@ describe.skipIf(skipDb)("私信（M10）", () => {
     expect(others.has(DEMO.team)).toBe(false);
   });
 
-  it("私信权限（M10.5）：off 拒收 / following 仅收关注者的信 / all 不设限", async () => {
+  it("私信权限（M10.5）：策略只拦「新会话首信」，已有会话的回复不受影响", async () => {
+    // 用一个与 alice 尚无会话的账号，保证「新会话」路径
+    const fresh = DEMO.member;
+    await db()
+      .delete(conversations)
+      .where(
+        eq(conversations.pairKey, `${Math.min(DEMO.alice, fresh)}:${Math.max(DEMO.alice, fresh)}`),
+      );
     await db()
       .insert(userProfiles)
-      .values({ userId: DEMO.team, pmPolicy: "off" })
+      .values({ userId: fresh, pmPolicy: "off" })
       .onDuplicateKeyUpdate({ set: { pmPolicy: "off" } });
-    expect(await sendMessage(alice, DEMO.team, "off 拒收")).toMatchObject({
+    // off：拒绝新会话首信
+    expect(await sendMessage(alice, fresh, "off 拒收新会话")).toMatchObject({
       ok: false,
       code: "pm_off",
     });
 
+    // following：对方未关注发送方 → 拒绝新会话首信
     await db()
       .update(userProfiles)
       .set({ pmPolicy: "following" })
-      .where(eq(userProfiles.userId, DEMO.team));
-    expect(await sendMessage(alice, DEMO.team, "非关注者")).toMatchObject({
+      .where(eq(userProfiles.userId, fresh));
+    expect(await sendMessage(alice, fresh, "非关注者首信")).toMatchObject({
       ok: false,
       code: "pm_following",
     });
-    // team 关注 alice 之后放行（follows 表直接造行，幂等清理）
+    // 对方关注 alice 后放行（follows 造行，幂等清理）
     await db()
       .insert(follows)
       .values({
-        userId: DEMO.team,
+        userId: fresh,
         targetType: "user",
         targetId: DEMO.alice,
         createdAt: sql`NOW()`,
       });
-    expect(await sendMessage(alice, DEMO.team, "关注者可发")).toMatchObject({ ok: true });
+    expect(await sendMessage(alice, fresh, "关注者可发首信")).toMatchObject({ ok: true });
     await db()
       .delete(follows)
-      .where(and(eq(follows.userId, DEMO.team), eq(follows.targetId, DEMO.alice)));
+      .where(and(eq(follows.userId, fresh), eq(follows.targetId, DEMO.alice)));
 
-    await db()
-      .update(userProfiles)
-      .set({ pmPolicy: "all" })
-      .where(eq(userProfiles.userId, DEMO.team));
-    expect(await sendMessage(alice, DEMO.team, "恢复 all")).toMatchObject({ ok: true });
+    // **已有会话的回复不受策略影响**：改成 off 后旧会话仍可继续聊
+    await db().update(userProfiles).set({ pmPolicy: "off" }).where(eq(userProfiles.userId, fresh));
+    expect(await sendMessage(alice, fresh, "旧会话回复应放行")).toMatchObject({ ok: true });
+
+    await db().update(userProfiles).set({ pmPolicy: "all" }).where(eq(userProfiles.userId, fresh));
   });
 
   it("unreadPmTotal：角标总数与会话列表未读之和一致，打开会话后清零", async () => {
