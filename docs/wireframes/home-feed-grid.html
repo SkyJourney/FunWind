@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>线稿 · 首页内容流（瀑布流方案）</title>
+    <link rel="stylesheet" href="_shared/wireframe.css" />
+    <style>
+      .grid-feed {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+      }
+      @media (min-width: 768px) {
+        .grid-feed {
+          grid-template-columns: repeat(3, 1fr);
+        }
+      }
+      @media (min-width: 1280px) {
+        .with-rail .grid-feed {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+      .g-card {
+        display: grid;
+        align-content: start;
+        overflow: hidden;
+      }
+      .g-cover {
+        aspect-ratio: 16/10;
+        border-bottom: 1px solid var(--line);
+        display: grid;
+        place-items: center;
+        color: var(--t3);
+        font-size: 11px;
+      }
+      .g-body {
+        padding: 10px 12px 12px;
+        display: grid;
+        gap: 6px;
+      }
+      .g-title {
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 1.45;
+        overflow: hidden;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+      }
+      .g-meta {
+        display: flex;
+        gap: 10px;
+        color: var(--t3);
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <span class="brand"><span class="logo"></span>青翼字幕组</span>
+      <nav class="topnav">
+        <a class="on" href="#">首页</a>
+        <a href="forum.html">版块</a>
+        <a href="#">动态</a>
+      </nav>
+      <div class="top-tools">
+        <span class="ico"><span class="glyph round"></span></span>
+        <span class="ico"><span class="glyph"></span></span>
+        <span class="avatar">A</span>
+      </div>
+    </header>
+
+    <main class="page with-rail">
+      <div class="main">
+        <div class="chips scroll">
+          <span class="chip on">全部</span>
+          <span class="chip">动画</span>
+          <span class="chip">日剧</span>
+          <span class="chip">特摄</span>
+          <span class="chip">音乐</span>
+          <span class="chip">字幕技术</span>
+        </div>
+
+        <div class="grid-feed">
+          <article class="card g-card">
+            <div class="g-cover">封面 16:10</div>
+            <div class="g-body">
+              <span class="small t3">动画·アニメ · 10月新番</span>
+              <h2 class="g-title">『虫师 续章』第 03 话 [1080p][简体内嵌]</h2>
+              <div class="g-meta"><span>银古の箱</span><span>回复 42</span></div>
+            </div>
+          </article>
+          <article class="card g-card">
+            <div class="g-cover">封面 16:10</div>
+            <div class="g-body">
+              <span class="small t3">日剧·ドラマ · 完结合集</span>
+              <h2 class="g-title">『一周的朋友』BD-BOX 开箱 + 字幕质检</h2>
+              <div class="g-meta"><span>纸巾君</span><span>回复 87</span></div>
+            </div>
+          </article>
+          <article class="card g-card">
+            <div class="g-cover" style="background: var(--sunken)">无图帖</div>
+            <div class="g-body">
+              <span class="small t3">动漫讨论区</span>
+              <h2 class="g-title">2026 年 10 月新番追番清单 + 期中吐槽楼</h2>
+              <div class="g-meta"><span>茶会常客</span><span>回复 233</span></div>
+            </div>
+          </article>
+          <article class="card g-card">
+            <div class="g-cover">封面 16:10</div>
+            <div class="g-body">
+              <span class="small t3">音乐·OST · 无损</span>
+              <h2 class="g-title">『虫师 续章』OST 原声集 [FLAC]</h2>
+              <div class="g-meta"><span>黑胶退烧</span><span>回复 31</span></div>
+            </div>
+          </article>
+          <article class="card g-card">
+            <div class="g-cover" style="background: var(--sunken)">无图帖</div>
+            <div class="g-body">
+              <span class="small t3">招募&申请</span>
+              <h2 class="g-title">【长期招募】时轴 / 翻译 各 2 名</h2>
+              <div class="g-meta"><span>人事部</span><span>回复 19</span></div>
+            </div>
+          </article>
+          <article class="card g-card">
+            <div class="g-cover">封面 16:10</div>
+            <div class="g-body">
+              <span class="small t3">青翼公告</span>
+              <h2 class="g-title">10 月站点维护公告：附件库迁移完成</h2>
+              <div class="g-meta"><span>站长</span><span>回复 65</span></div>
+            </div>
+          </article>
+        </div>
+
+        <div style="display: grid; justify-items: center">
+          <span class="btn ghost">加载更多</span>
+        </div>
+
+        <div class="note">
+          <b>B1-首页 · 瀑布流方案（⟦D1⟧ 对照）</b><br />
+          ① 封面大图、标题下沉，视觉冲击强（小红书感）；无图帖露怯（灰色块），而字幕组内容一半是纯讨论，无图卡比例会高。<br />
+          ② 线稿用统一 16:10 网格示意；真瀑布流会做变高，实现成本与阅读节奏都更重。<br />
+          ③ 移动端 2 栏 / md 3 栏 / xl（含右栏时）2 栏。<br />
+          ④ 我的推荐仍是<b>列表流</b>：论坛的资产是「讨论+发布信息」，标题与摘要是第一信息；瀑布流更适合以后做「图集/壁纸」类模块时单独启用。
+        </div>
+      </div>
+
+      <aside class="rail">
+        <div class="card pad">
+          <div class="h-sec">每日签到</div>
+          <p class="sub" style="margin: 4px 0 8px">已连续 12 天 · 本月 22 次</p>
+          <span class="btn primary" style="width: 100%">签到 +5 翼币</span>
+        </div>
+        <div class="card pad">
+          <div class="h-sec">最新主题</div>
+          <div class="mini-list" style="margin-top: 6px">
+            <div class="mi"><span class="no">1</span><span class="t">虫师 续章 第03话发布</span></div>
+            <div class="mi"><span class="no">2</span><span class="t">一周的朋友 BD 开箱</span></div>
+            <div class="mi"><span class="no">3</span><span class="t">10月新番吐槽楼</span></div>
+          </div>
+        </div>
+        <div class="card pad">
+          <div class="h-sec">社区统计</div>
+          <p class="sub" style="margin-top: 6px; line-height: 2">会员 10,763 · 主题 1,408<br />帖子 31,468 · 今日新帖 26</p>
+        </div>
+      </aside>
+    </main>
+
+    <nav class="tabbar">
+      <span class="tab on"><span class="glyph"></span>首页</span>
+      <span class="tab"><span class="glyph"></span>版块</span>
+      <span class="tab raise"><span class="disc"></span>发帖</span>
+      <span class="tab"><span class="glyph"></span><span class="badge">3</span>消息</span>
+      <span class="tab"><span class="glyph round"></span>我的</span>
+    </nav>
+
+    <div class="bppill">
+      <i>断点</i><span class="bp-base">base &lt;640</span><span class="bp-sm">sm 640</span
+    ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span><span class="bp-xl">xl 1280</span>
+    </div>
+  </body>
+</html>

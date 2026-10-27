@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>线稿 · 四态图例（加载/空/错误/门控）</title>
+    <link rel="stylesheet" href="_shared/wireframe.css" />
+    <style>
+      .legend-grid {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: 1fr;
+      }
+      @media (min-width: 900px) {
+        .legend-grid {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+      .skeleton-card {
+        display: flex;
+        gap: 14px;
+        padding: 14px;
+      }
+      .err-glyph {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        border: 2px solid var(--line-strong);
+        display: grid;
+        place-items: center;
+        font-weight: 700;
+        color: var(--t2);
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <span class="brand"><span class="logo"></span>青翼字幕组 · S2 线稿</span>
+      <nav class="topnav">
+        <a href="index.html">总览</a>
+      </nav>
+    </header>
+
+    <main class="page" style="max-width: 880px">
+      <div style="display: grid; gap: 4px">
+        <h1 class="h-page">四态图例</h1>
+        <p class="sub">
+          每个页面必须回答四种非常态：加载中 / 空 / 出错 / 权限门控。本页定义全站统一的模式，S5 落地时逐页套用（不再逐页发明）。
+        </p>
+      </div>
+
+      <div class="legend-grid">
+        <!-- 1 加载骨架 -->
+        <section class="card pad" style="display: grid; gap: 10px">
+          <div class="h-sec">① 加载 = 骨架屏（骨架形状 = 真实布局）</div>
+          <div class="card skeleton-card">
+            <div class="sk" style="width: 132px; aspect-ratio: 16/10"></div>
+            <div style="flex: 1; display: grid; gap: 8px; align-content: start">
+              <div class="sk" style="height: 12px; width: 40%"></div>
+              <div class="sk" style="height: 16px; width: 92%"></div>
+              <div class="sk" style="height: 12px; width: 70%"></div>
+              <div class="sk" style="height: 12px; width: 34%"></div>
+            </div>
+          </div>
+          <div class="card skeleton-card">
+            <div class="sk" style="width: 132px; aspect-ratio: 16/10"></div>
+            <div style="flex: 1; display: grid; gap: 8px; align-content: start">
+              <div class="sk" style="height: 12px; width: 35%"></div>
+              <div class="sk" style="height: 16px; width: 86%"></div>
+              <div class="sk" style="height: 12px; width: 60%"></div>
+              <div class="sk" style="height: 12px; width: 30%"></div>
+            </div>
+          </div>
+          <p class="sub">
+            落地方式：App Router <b>loading.tsx</b>（列表页/主题页/搜索/私信/通知首屏）——骨架结构必须复用对应页的布局组件，禁止通用转圈。
+            交互内加载（提交/加载更多）用按钮内 spinner。
+          </p>
+        </section>
+
+        <!-- 2 空态 -->
+        <section class="card pad" style="display: grid; gap: 10px">
+          <div class="h-sec">② 空态 = 插图占位 + 一句话 + 主行动</div>
+          <div class="empty">
+            <span class="big-glyph"></span>
+            <b>没有找到相关主题</b>
+            <span class="small t3">换个关键词，或者去版块里逛逛</span>
+            <span class="btn ghost sm">浏览版块</span>
+          </div>
+          <p class="sub">
+            三要素缺一不可：图标占位（S3 上色时可换插画）、解释性文案（说清「为什么空」）、主行动按钮（把用户推向下一步）。
+            适用：搜索无结果 / 版块暂无主题 / 无通知 / 无会话 / 关注动态为空（各自的文案在 B2/B3 页面线稿标注）。
+          </p>
+        </section>
+
+        <!-- 3 错误 -->
+        <section class="card pad" style="display: grid; gap: 10px">
+          <div class="h-sec">③ 出错 = 就地可恢复</div>
+          <div class="empty">
+            <span class="err-glyph">!</span>
+            <b>页面开小差了</b>
+            <span class="small t3">错误已记录（ID: 20261027-****），可重试或回到首页</span>
+            <div style="display: flex; gap: 8px">
+              <span class="btn primary sm">重试</span>
+              <span class="btn ghost sm">返回首页</span>
+            </div>
+          </div>
+          <p class="sub">
+            落地方式：error.tsx（含 global-error.tsx）+ not-found.tsx
+            专属 404（同样的插图占位 + 「去搜索/回首页」）。文案保持社区口吻，错误 ID 方便对日志。
+          </p>
+        </section>
+
+        <!-- 4 门控 -->
+        <section class="card pad" style="display: grid; gap: 10px">
+          <div class="h-sec">④ 门控 = 说明规则 + 给出路径</div>
+          <div class="gate">
+            <span class="glyph" style="width: 22px; height: 22px"></span>
+            <b>此处内容回复可见</b>
+            <span class="small">回复本主题后显示（示意：回复可见态）</span>
+            <span class="btn primary sm">回复查看</span>
+          </div>
+          <p class="sub">
+            门控五态沿用现网逻辑（购买/回复可见/登录可见/无权限/过期），S4 只统一视觉：虚线边框 + 斜纹底 +
+            「规则一句话 + 行动按钮」。404（受限版块/帖子不可见）保持不暴露存在性的现有语义。
+          </p>
+        </section>
+      </div>
+
+      <div class="note">
+        <b>补充口径</b>：① 以上四态组件将进入 <b>src/components/</b>（Skeleton 已有，EmptyState / ErrorState
+        为 S5 新增），业务页禁止手写替代品；② 表单提交失败用 Toaster（sonner 已接）+ 字段级错误回显，不占用本页模式；③
+        后台页同样适用（骨架/空态在 B4 线稿标注）。
+      </div>
+    </main>
+
+    <div class="bppill">
+      <i>断点</i><span class="bp-base">base &lt;640</span><span class="bp-sm">sm 640</span
+    ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span><span class="bp-xl">xl 1280</span>
+    </div>
+  </body>
+</html>
