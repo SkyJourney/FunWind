@@ -10,9 +10,11 @@ import { getForumTree } from "@/lib/authz/snapshot";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { getDirectory } from "@/lib/queries/forums";
 import { getHomeFeed, getHotThreads } from "@/lib/queries/threads";
-import { getSiteChrome } from "@/lib/site-chrome";
+import { getSiteChrome, getSiteIdentity } from "@/lib/site-chrome";
 
-export const metadata: Metadata = { title: "青翼字幕组" };
+export async function generateMetadata(): Promise<Metadata> {
+  return { title: (await getSiteIdentity()).name };
+}
 export const dynamic = "force-dynamic";
 
 type SearchParams = Promise<{ sec?: string; sort?: string; page?: string }>;
@@ -67,7 +69,7 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
-      <h1 className="sr-only">青翼字幕组</h1>
+      <h1 className="sr-only">{chrome.identity.name}</h1>
 
       <Slot name="home.after-header" />
 
@@ -186,7 +188,11 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
 
         {/* 右栏（xl）：品牌 + 模块槽位（签到卡）+ 热帖 + 统计 + 热门版块 */}
         <aside className="hidden space-y-4 self-start xl:sticky xl:top-24 xl:block">
-          <BrandCard logoUrl={chrome.logoActive ? "/brand/logo" : null} />
+          <BrandCard
+            logoUrl={chrome.logoActive ? "/brand/logo" : null}
+            siteName={chrome.identity.name}
+            tagline={chrome.identity.tagline}
+          />
           <Slot name="home.rail" />
           <section className="rounded-xl border bg-card p-4">
             <h2 className="flex items-center gap-1.5 text-sm font-semibold">

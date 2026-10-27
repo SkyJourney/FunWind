@@ -1,5 +1,6 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { announcements, getWebDb, siteSettings } from "@funwind/db";
+import { SITE_NAME, SITE_TAGLINE } from "@/lib/site";
 
 /**
  * 站点框架配置（M9，site_settings JSON，不建独立表）：导航/友链/页脚。
@@ -23,9 +24,22 @@ export interface SiteChrome {
   footerText: string;
   /** 当前品牌 LOGO（LOGO 池 active 文件名）；null = 无（回退占位图标） */
   logoActive: string | null;
+  /** 站点身份（M10.6b）：名称/副标题；未配置回退 SITE_NAME/SITE_TAGLINE */
+  identity: SiteIdentity;
 }
 
-const EMPTY: SiteChrome = { nav: [], links: [], footerText: "", logoActive: null };
+export interface SiteIdentity {
+  name: string;
+  tagline: string;
+}
+
+const EMPTY: SiteChrome = {
+  nav: [],
+  links: [],
+  footerText: "",
+  logoActive: null,
+  identity: { name: SITE_NAME, tagline: SITE_TAGLINE },
+};
 const TTL_MS = 30_000;
 
 interface CacheBox {
@@ -47,6 +61,7 @@ export async function getSiteChrome(): Promise<SiteChrome> {
       links: parseLinks(byKey.get("site.links")),
       footerText: parseFooter(byKey.get("site.footer")),
       logoActive: parseLogo(byKey.get("site.logo")),
+      identity: parseIdentity(byKey.get("site.identity")),
     };
     g.__fwSiteChrome = { value: chrome, at: Date.now() };
     return chrome;
@@ -93,6 +108,20 @@ function parseLogo(raw: unknown): string | null {
   const active = typeof o?.active === "string" ? o.active : null;
   if (!active || !/^logo-[a-z0-9]+\.png$/.test(active)) return null;
   return items.some((i) => i.file === active) ? active : null;
+}
+
+/** 站点身份（site.identity JSON）：空值回退默认常量；name 截 40、tagline 截 80（导出供单测） */
+export function parseIdentity(raw: unknown): SiteIdentity {
+  const o = raw as { name?: unknown; tagline?: unknown } | null;
+  const name =
+    typeof o?.name === "string" && o.name.trim() !== "" ? o.name.trim().slice(0, 40) : SITE_NAME;
+  const tagline = typeof o?.tagline === "string" ? o.tagline.trim().slice(0, 80) : SITE_TAGLINE;
+  return { name, tagline };
+}
+
+/** 站点身份便捷读取（走 chrome 的 TTL 缓存；管理保存后 invalidate 即时生效） */
+export async function getSiteIdentity(): Promise<SiteIdentity> {
+  return (await getSiteChrome()).identity;
 }
 
 function parseNav(raw: unknown): NavItem[] {

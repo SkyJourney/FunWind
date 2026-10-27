@@ -11,15 +11,19 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { checkPermission, getModeratedForumIds } from "@/lib/authz/service";
 import { unreadPmTotal } from "@/lib/pm/queries";
-import { bannerAnnouncement, getSiteChrome } from "@/lib/site-chrome";
+import { bannerAnnouncement, getSiteChrome, getSiteIdentity } from "@/lib/site-chrome";
 // 模块注册表求值（注册 + 封板）：任何内核调用前加载
 import "@/modules";
 import "./globals.css";
 
-export const metadata: Metadata = {
-  title: { default: "FunWind · 青翼字幕组", template: "%s · FunWind" },
-  description: "青翼字幕组新论坛——现代、轻主题、移动优先的 ACG 情怀社区。",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  // 站点身份可配（M10.6b）：chrome TTL 缓存内读取，后台改名下一请求生效
+  const { name, tagline } = await getSiteIdentity();
+  return {
+    title: { default: name, template: `%s · ${name}` },
+    description: tagline,
+  };
+}
 
 export const viewport: Viewport = {
   // 移动端探测三件套：缺 width=device-width 时手机按 ~980px 桌面视口渲染整页缩小（S5-B 修复）
@@ -66,6 +70,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <SiteHeader
             user={user}
             chromeNav={chrome.nav}
+            siteName={chrome.identity.name}
             notificationsOn={notificationsOn}
             showAdmin={showAdmin}
             logoUrl={chrome.logoActive ? "/brand/logo" : null}

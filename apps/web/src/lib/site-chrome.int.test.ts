@@ -4,6 +4,7 @@ import { eq, sql } from "drizzle-orm";
 import { announcements, getWebDb, siteSettings } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
+import { SITE_NAME, SITE_TAGLINE } from "@/lib/site";
 import { bannerAnnouncement, getSiteChrome, invalidateSiteChrome } from "./site-chrome";
 
 let tdb: TempDb;
@@ -19,7 +20,13 @@ afterAll(async () => {
 
 describe.skipIf(skipDb)("站点框架配置（site-chrome）", () => {
   it("默认空配置；非法结构被丢弃（不抛错）", async () => {
-    expect(await getSiteChrome()).toEqual({ nav: [], links: [], footerText: "", logoActive: null });
+    expect(await getSiteChrome()).toEqual({
+      nav: [],
+      links: [],
+      footerText: "",
+      logoActive: null,
+      identity: { name: SITE_NAME, tagline: SITE_TAGLINE }, // M10.6b：身份可配，空库回默认
+    });
     await db()
       .insert(siteSettings)
       .values([

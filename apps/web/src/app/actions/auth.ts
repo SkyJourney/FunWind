@@ -164,7 +164,11 @@ export const registerAction = defineAction({
       // 开放注册：邮箱验证令牌（验证前可登录、可浏览，写类权限由评估器拦截）
       const token = await issueEmailToken(newId, "verify");
       const { APP_URL: appUrl } = await import("@/lib/site");
-      await sendMail(email, verifyEmailMail(`${appUrl}/verify/${token}`));
+      const { getSiteIdentity } = await import("@/lib/site-chrome");
+      const siteName = await getSiteIdentity()
+        .then((i) => i.name)
+        .catch(() => undefined);
+      await sendMail(email, verifyEmailMail(`${appUrl}/verify/${token}`, siteName));
     }
 
     await createSession(newId, {

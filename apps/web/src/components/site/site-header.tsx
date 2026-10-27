@@ -53,17 +53,25 @@ export function BrandMark({
 }
 
 /** 右栏品牌卡（xl+）：大尺寸 LOGO 的正式展示位（96px + 站名 + slogan）。 */
-export function BrandCard({ logoUrl }: { logoUrl?: string | null }) {
+export function BrandCard({
+  logoUrl,
+  siteName,
+  tagline,
+}: {
+  logoUrl?: string | null;
+  siteName: string;
+  tagline: string;
+}) {
   return (
     <section className="rounded-xl border bg-card p-5 text-center">
       <Link
         href="/"
         className="inline-flex flex-col items-center gap-2"
-        aria-label="青翼字幕组 首页"
+        aria-label={`${siteName} 首页`}
       >
         <BrandMark size={96} logoUrl={logoUrl} />
-        <span className="text-lg font-bold tracking-tight">青翼字幕组</span>
-        <span className="text-xs text-muted-foreground">日语·ACG 情怀社区</span>
+        <span className="text-lg font-bold tracking-tight">{siteName}</span>
+        <span className="text-xs text-muted-foreground">{tagline}</span>
       </Link>
     </section>
   );
@@ -72,6 +80,7 @@ export function BrandCard({ logoUrl }: { logoUrl?: string | null }) {
 export function SiteHeader({
   user,
   chromeNav,
+  siteName,
   notificationsOn,
   showAdmin,
   logoUrl,
@@ -79,6 +88,8 @@ export function SiteHeader({
 }: {
   user: SessionUser | null;
   chromeNav: NavItem[];
+  /** 站点身份（M10.6b）：chrome 可配名称，回退默认常量 */
+  siteName: string;
   notificationsOn: boolean;
   showAdmin: boolean;
   /** LOGO 池当前项输出地址（/brand/logo）；null = 无池项（回退静态素材/占位） */
@@ -97,12 +108,12 @@ export function SiteHeader({
       <div className="mx-auto flex h-16 max-w-6xl items-center gap-2 px-4 sm:gap-3 sm:px-6 md:h-14">
         <Link
           href="/"
-          aria-label="青翼字幕组 首页"
+          aria-label={`${siteName} 首页`}
           className="flex min-w-0 shrink-0 items-center gap-2 font-semibold tracking-tight"
         >
           <BrandMark size={36} logoUrl={logoUrl} />
           {/* 站点名全端常显（M10.5 站长反馈：移动顶栏没有站点名） */}
-          <span className="truncate text-[15px] md:text-base">青翼字幕组</span>
+          <span className="truncate text-[15px] md:text-base">{siteName}</span>
         </Link>
         <MainNav items={navLinks} className="hidden md:flex" />
         <div className="ml-auto flex items-center gap-0.5 sm:gap-1">

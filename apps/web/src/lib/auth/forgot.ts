@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { getWebDb, normalizeKey, users } from "@funwind/db";
 import { APP_URL } from "@/lib/site";
+import { getSiteIdentity } from "@/lib/site-chrome";
 import { claimMail, resetPasswordMail, sendMail } from "./mailer";
 import { MAX_EMAIL_LENGTH } from "./email";
 import { rateLimit } from "./ratelimit";
@@ -36,7 +37,14 @@ async function defaultDeliver(user: { id: number; hasPassword: boolean }, email:
   const purpose = user.hasPassword ? "reset" : "claim";
   const token = await issueEmailToken(user.id, purpose);
   const link = `${APP_URL}/${purpose}/${token}`;
-  await sendMail(email, purpose === "claim" ? claimMail(link) : resetPasswordMail(link));
+  // 站点身份可配（M10.6b）：读失败回退模板默认站名，不阻塞发信
+  const siteName = await getSiteIdentity()
+    .then((i) => i.name)
+    .catch(() => undefined);
+  await sendMail(
+    email,
+    purpose === "claim" ? claimMail(link, siteName) : resetPasswordMail(link, siteName),
+  );
 }
 
 /** 无论结果如何都返回 void：调用方一律跳转到同一个中性视图 */
