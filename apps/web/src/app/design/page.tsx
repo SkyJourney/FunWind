@@ -1,5 +1,6 @@
 import { Archive, ArrowRight, Bell, CreditCard, LogOut, Settings, User } from "lucide-react";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { isDevEnv } from "@/lib/dev-only";
 import { ThemeSwitcher } from "@/components/theme-switcher";
@@ -95,7 +96,11 @@ export default function TokensPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">FunWind 设计令牌</h1>
           <p className="mt-1 text-muted-foreground">
-            三层令牌 · M1 基线 —— 原子层（primitives）→ 语义层（semantic）→ 主题包（default / dark）
+            三层令牌 · M1 基线 —— 原子层（primitives）→ 语义层（semantic）→ 主题包（default /
+            dark）·{" "}
+            <Link href="/design/motion" className="text-primary hover:underline">
+              动效演示（S4）→
+            </Link>
           </p>
         </div>
         <ThemeSwitcher />

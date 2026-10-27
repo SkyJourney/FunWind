@@ -43,6 +43,12 @@
   --font-sans: var(--fw-font-sans);
   --font-mono: var(--fw-font-mono);
 
+  /* 动效曲线 → Tailwind ease-* 工具类（ease-out-soft / ease-spring / ease-exit / ease-inout） */
+  --ease-out-soft: var(--fw-ease-out);
+  --ease-spring: var(--fw-ease-spring);
+  --ease-exit: var(--fw-ease-exit);
+  --ease-inout: var(--fw-ease-inout);
+
   --shadow-1: var(--shadow-1);
   --shadow-2: var(--shadow-2);
   --shadow-3: var(--shadow-3);
@@ -55,6 +61,79 @@
   body {
     @apply bg-background font-sans text-foreground antialiased;
     line-height: var(--fw-leading-normal);
+  }
+}
+
+/* ===== S4 动效基线（docs/M10.5-S4-VISUAL-MOTION.md）：只动 transform/opacity ===== */
+
+/* 进场（列表/卡片首屏）：配合 style={{ animationDelay }} 做 stagger 错落 */
+@keyframes fw-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+.fw-enter {
+  animation: fw-enter var(--fw-dur-base) var(--fw-ease-out) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fw-enter {
+    animation: none;
+  }
+}
+
+/* 页面级 View Transitions（经 lib/motion/view-transition 触发，html[data-vt] 选型）：
+   fade=默认淡入微位移；push=前进自右切入；pop=返回自左切入；expand=自触点圆形扩散打开 */
+::view-transition-old(root) {
+  animation: vt-fade-out var(--fw-dur-base) var(--fw-ease-exit) both;
+}
+::view-transition-new(root) {
+  animation: vt-fade-in var(--fw-dur-base) var(--fw-ease-out) both;
+}
+html[data-vt="push"]::view-transition-new(root) {
+  animation: vt-push-in var(--fw-dur-slow) var(--fw-ease-out) both;
+}
+html[data-vt="pop"]::view-transition-new(root) {
+  animation: vt-pop-in var(--fw-dur-slow) var(--fw-ease-out) both;
+}
+html[data-vt="expand"]::view-transition-new(root) {
+  animation: vt-expand var(--fw-dur-spring) var(--fw-ease-out) both;
+}
+@keyframes vt-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes vt-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes vt-push-in {
+  from {
+    opacity: 0.6;
+    transform: translateX(28px);
+  }
+}
+@keyframes vt-pop-in {
+  from {
+    opacity: 0.6;
+    transform: translateX(-28px);
+  }
+}
+@keyframes vt-expand {
+  from {
+    clip-path: circle(0px at var(--vt-x, 50%) var(--vt-y, 50%));
+  }
+  to {
+    clip-path: circle(142% at var(--vt-x, 50%) var(--vt-y, 50%));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none !important;
   }
 }
 
