@@ -2,9 +2,11 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import {
   conversations,
   conversationMembers,
+  follows,
   getWebDb,
   messages,
   notifications,
+  userProfiles,
   users,
 } from "@funwind/db";
 import type { Subject } from "@/lib/authz/types";
@@ -23,7 +25,14 @@ import { isDuplicateKey } from "@/lib/auth/register";
  */
 
 export type SendCode =
-  "login" | "not_found" | "forbidden" | "self" | "reason_required" | "quota_exceeded";
+  | "login"
+  | "not_found"
+  | "forbidden"
+  | "self"
+  | "reason_required"
+  | "quota_exceeded"
+  | "pm_off"
+  | "pm_following";
 
 export type SendResult =
   { ok: true; conversationId: number } | { ok: false; code: SendCode; message: string };
@@ -55,6 +64,38 @@ export async function sendMessage(
     .where(and(eq(users.id, recipientId), eq(users.state, "active")))
     .limit(1);
   if (!recipient) return { ok: false, code: "not_found", message: "对方不存在或已注销" };
+
+  // 收件方私信权限（M10.5 站长功能补全）：off=拒收；following=仅收自己关注的人的信。
+  // 判定在服务端（UI 只是前置提示）；经 user_profiles.pm_policy，写路径仅本人偏好设置。
+  const [policyRow] = await getWebDb()
+    .select({ pmPolicy: userProfiles.pmPolicy })
+    .from(userProfiles)
+    .where(eq(userProfiles.userId, recipientId))
+    .limit(1);
+  const policy = policyRow?.pmPolicy ?? "all";
+  if (policy === "off") {
+    return { ok: false, code: "pm_off", message: "对方已关闭私信" };
+  }
+  if (policy === "following") {
+    const [back] = await getWebDb()
+      .select({ userId: follows.userId })
+      .from(follows)
+      .where(
+        and(
+          eq(follows.userId, recipientId),
+          eq(follows.targetType, "user"),
+          eq(follows.targetId, senderId),
+        ),
+      )
+      .limit(1);
+    if (!back) {
+      return {
+        ok: false,
+        code: "pm_following",
+        message: "对方仅接受关注的人的私信（可先关注对方）",
+      };
+    }
+  }
 
   const limits = await limitsFor(viewer);
   const perDay = limits.pmPerDay ?? 0;

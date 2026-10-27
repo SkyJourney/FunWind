@@ -4,7 +4,7 @@
  * 夹具：901 公告站 / 902 茶话会 / 903 考古分舵(902 的子版块) / 904 字幕组内部区(restricted) /
  *       905 不上目录 / 906 投稿审核区；分区 900。主题 900001..900008（900007 待审核、900008 已驳回）。
  */
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import {
   DEMO,
   files,
@@ -33,7 +33,7 @@ import {
   getThreadView,
   listThreads,
 } from "./threads";
-import { getProfile } from "./users";
+import { getProfile, getUserReplies, getUserThreads } from "./users";
 import { buildViewerScope, visiblePredicate } from "./visibility";
 
 let tdb: TempDb;
@@ -482,6 +482,40 @@ describe.skipIf(skipDb)("查询层 · 真实 MySQL", () => {
         coverUrl: null,
         excerpt: "没有图的纯文本",
       });
+    });
+
+    it("用户公开内容（S5-B2）：分页夹取、不存在作者空页、null 正文摘要", async () => {
+      // 找一个有非首帖回复的作者
+      const [author] = await db()
+        .select({ uid: posts.authorId })
+        .from(posts)
+        .where(sql`posts.floor > 1`)
+        .limit(1);
+      expect(author).toBeDefined();
+      const replies = await getUserReplies(guest, author!.uid, 1);
+      expect(replies.total).toBeGreaterThan(0);
+      expect(replies.items.every((r) => r.threadId > 0)).toBe(true);
+
+      // 不存在的作者：空页 + 夹取后的页码
+      const none = await getUserThreads(guest, 987654, 1);
+      expect(none.total).toBe(0);
+      expect(none.items).toEqual([]);
+      const far = await getUserThreads(guest, DEMO.alice, 999);
+      expect(far.page).toBe(far.totalPages);
+
+      // 回帖正文为 null → 摘要为 null（body_md 可空列的分支）
+      const [target] = await db()
+        .select({ id: posts.id, body: posts.bodyMd })
+        .from(posts)
+        .where(and(eq(posts.authorId, author!.uid), sql`${posts.floor} > 1`))
+        .limit(1);
+      await db().update(posts).set({ bodyMd: null }).where(eq(posts.id, target!.id));
+      try {
+        const after = await getUserReplies(guest, author!.uid, 1);
+        expect(after.items.find((r) => r.postId === target!.id)?.excerpt).toBeNull();
+      } finally {
+        await db().update(posts).set({ bodyMd: target!.body }).where(eq(posts.id, target!.id));
+      }
     });
 
     it("热帖：按回复数倒序，权限口径与内容流一致", async () => {

@@ -1,0 +1,1 @@
+ALTER TABLE `user_profiles` ADD `pm_policy` enum('all','following','off') DEFAULT 'all' NOT NULL;

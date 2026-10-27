@@ -10,10 +10,12 @@ import {
   conversationMembers,
   DEMO,
   eventOutbox,
+  follows,
   getWebDb,
   messages,
   notifications,
   siteSettings,
+  userProfiles,
   users,
 } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -242,6 +244,45 @@ describe.skipIf(skipDb)("私信（M10）", () => {
     const others = new Set(list.map((c) => c.otherId));
     expect(others.has(DEMO.alice)).toBe(true);
     expect(others.has(DEMO.team)).toBe(false);
+  });
+
+  it("私信权限（M10.5）：off 拒收 / following 仅收关注者的信 / all 不设限", async () => {
+    await db()
+      .insert(userProfiles)
+      .values({ userId: DEMO.team, pmPolicy: "off" })
+      .onDuplicateKeyUpdate({ set: { pmPolicy: "off" } });
+    expect(await sendMessage(alice, DEMO.team, "off 拒收")).toMatchObject({
+      ok: false,
+      code: "pm_off",
+    });
+
+    await db()
+      .update(userProfiles)
+      .set({ pmPolicy: "following" })
+      .where(eq(userProfiles.userId, DEMO.team));
+    expect(await sendMessage(alice, DEMO.team, "非关注者")).toMatchObject({
+      ok: false,
+      code: "pm_following",
+    });
+    // team 关注 alice 之后放行（follows 表直接造行，幂等清理）
+    await db()
+      .insert(follows)
+      .values({
+        userId: DEMO.team,
+        targetType: "user",
+        targetId: DEMO.alice,
+        createdAt: sql`NOW()`,
+      });
+    expect(await sendMessage(alice, DEMO.team, "关注者可发")).toMatchObject({ ok: true });
+    await db()
+      .delete(follows)
+      .where(and(eq(follows.userId, DEMO.team), eq(follows.targetId, DEMO.alice)));
+
+    await db()
+      .update(userProfiles)
+      .set({ pmPolicy: "all" })
+      .where(eq(userProfiles.userId, DEMO.team));
+    expect(await sendMessage(alice, DEMO.team, "恢复 all")).toMatchObject({ ok: true });
   });
 
   it("unreadPmTotal：角标总数与会话列表未读之和一致，打开会话后清零", async () => {

@@ -67,10 +67,11 @@ export function BottomTabBar({
             ]
           : []),
         {
-          href: `/u/${user.id}`,
+          href: "/me",
           label: "我的",
           icon: CircleUserRound,
-          isActive: (p) => seg("/u")(p) || seg("/settings")(p) || seg("/points")(p),
+          isActive: (p) =>
+            seg("/me")(p) || seg("/settings")(p) || seg("/points")(p) || seg("/u")(p),
         },
       ]
     : [

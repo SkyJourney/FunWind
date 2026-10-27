@@ -31,3 +31,25 @@ export const sendMessageAction = defineAction({
     redirect(`/messages/${r.conversationId}`);
   },
 });
+
+const policyInput = z.object({
+  policy: z.enum(["all", "following", "off"]),
+  back: z.string().max(200).default("/me"),
+});
+
+/** 本人私信权限偏好（M10.5 功能补全）：唯一写路径；判定在 pm service。 */
+export const updatePmPolicyAction = defineAction({
+  name: "pm.policy.update",
+  auth: "user",
+  input: policyInput,
+  async run(ctx, input) {
+    const { getWebDb, userProfiles } = await import("@funwind/db");
+    const { eq } = await import("drizzle-orm");
+    await getWebDb()
+      .update(userProfiles)
+      .set({ pmPolicy: input.policy })
+      .where(eq(userProfiles.userId, ctx.subject.userId!));
+    revalidatePath("/me");
+    redirect(input.back);
+  },
+});
