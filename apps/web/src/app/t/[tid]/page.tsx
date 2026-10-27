@@ -205,7 +205,7 @@ export default async function ThreadPage({ params, searchParams }: Params) {
   };
 
   return (
-    <main className="mx-auto max-w-4xl space-y-4 px-4 py-8 sm:px-6 lg:px-8">
+    <main className="mx-auto max-w-3xl space-y-4 px-4 py-8 sm:px-6">
       <ViewBeacon tid={thread.id} />
       <nav className="flex items-center gap-1.5 text-sm text-muted-foreground">
         <Link href="/" className="inline-flex items-center gap-1 hover:text-primary">
@@ -326,9 +326,10 @@ export default async function ThreadPage({ params, searchParams }: Params) {
           {repliesHeading(replies.total, replies.page, replies.totalPages)}
         </h2>
         {replies.items.length === 0 && (
-          <p className="rounded-xl border bg-card p-6 text-center text-sm text-muted-foreground">
-            暂无回帖，抢个沙发？
-          </p>
+          <div className="rounded-xl border border-dashed bg-card/50 px-6 py-10 text-center">
+            <p className="font-medium">还没有回帖</p>
+            <p className="mt-1 text-sm text-muted-foreground">来抢沙发，点亮这个主题</p>
+          </div>
         )}
         {replies.items.map((f) => {
           // 父帖不可见时不渲染链接；可见时：本页内（或首帖）用页内锚点，否则带页码

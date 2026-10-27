@@ -137,9 +137,13 @@ html[data-vt="expand"]::view-transition-new(root) {
   }
 }
 
-/* 帖子正文（净化后的 MD 渲染产物）：仅用语义令牌着色 */
+/* 帖子正文（净化后的 MD 渲染产物）：仅用语义令牌着色；限 68ch 阅读行长（M10.5 S4 质感表） */
 .content-md {
   text-indent: 0;
+  max-width: 68ch;
+}
+.content-md img {
+  border-radius: var(--fw-radius-md);
 }
 .content-md p {
   margin: 0.5rem 0;

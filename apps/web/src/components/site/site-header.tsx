@@ -9,9 +9,12 @@ import { ThemeMenu } from "@/components/site/theme-menu";
 import { UserMenu } from "@/components/site/user-menu";
 
 /**
- * 全站顶栏（M10.5 壳）：粘性 + 毛玻璃。桌面 = 品牌 + 主导航（含管理可配项）+ 工具区；
- * 移动端导航收进底部 Tab 与用户菜单，顶栏只留 品牌/搜索/铃铛/头像。
+ * 品牌 LOGO（M10.5 视效试用）：NEXT_PUBLIC_LOGO 填 /logo/ 下文件名（不含尺寸后缀与扩展名）
+ * 时渲染图片素材（112/224 双档，srcSet 视网膜自适应），否则回退 Wind 图标占位。
+ * 正式机制 = LOGO 池后台管理（docs/LOGO-POOL.md，S5 阶段 C），届时由此处改为读 site_settings。
  */
+const LOGO_BASE = process.env.NEXT_PUBLIC_LOGO ?? "";
+
 export function SiteHeader({
   user,
   chromeNav,
@@ -40,9 +43,21 @@ export function SiteHeader({
           aria-label="青翼字幕组 首页"
           className="flex shrink-0 items-center gap-2 font-semibold tracking-tight"
         >
-          <span className="flex size-7 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Wind className="size-4" aria-hidden />
-          </span>
+          {LOGO_BASE ? (
+            // eslint-disable-next-line @next/next/no-img-element -- 品牌位固定素材（本地 /logo 双档），不经图片优化域
+            <img
+              src={`${LOGO_BASE}-112.png`}
+              srcSet={`${LOGO_BASE}-112.png 1x, ${LOGO_BASE}-224.png 2x`}
+              alt=""
+              width={28}
+              height={28}
+              className="size-7 rounded-lg object-contain"
+            />
+          ) : (
+            <span className="flex size-7 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+              <Wind className="size-4" aria-hidden />
+            </span>
+          )}
           <span className="hidden sm:inline">青翼字幕组</span>
         </Link>
         <MainNav items={navLinks} className="hidden md:flex" />

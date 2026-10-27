@@ -1,15 +1,21 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { MessageSquareOff } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/session";
 import { conversationList } from "@/lib/pm/queries";
 import { sendMessageAction } from "@/app/actions/pm";
 import { Card, CardContent } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { EmptyState } from "@/components/empty-state";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "私信" };
 
-/** 私信会话列表（M10）：按最近消息倒序 + 每会话未读数；?to= 发起新会话。 */
+/**
+ * 私信会话列表（M10 逻辑 + M10.5 视觉）：最近消息倒序 + 未读徽标 + 最后一条预览（「我：」前缀）。
+ * 发起模型（站长定）：不设独立发起入口，从公开页/作者行/悬浮名片进入（?to= 为统一落点）。
+ */
 export default async function MessagesPage({
   searchParams,
 }: {
@@ -22,15 +28,15 @@ export default async function MessagesPage({
   const to = sp.to !== undefined && /^\d+$/.test(sp.to) ? Number(sp.to) : null;
 
   return (
-    <main className="mx-auto max-w-3xl space-y-4 px-4 py-8 sm:px-6 lg:px-8">
-      <header>
+    <main className="mx-auto max-w-2xl space-y-4 px-4 py-8 sm:px-6">
+      <header className="flex flex-wrap items-baseline justify-between gap-2">
         <h1 className="text-2xl font-bold tracking-tight">私信</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          与其他会员的一对一对话。系统消息不走私信，在
-          <Link href="/notifications?cat=message" className="mx-1 text-primary hover:underline">
-            通知中心
+        <p className="text-xs text-muted-foreground">
+          在
+          <Link href="/boards" className="mx-1 text-primary hover:underline">
+            版块
           </Link>
-          查看。
+          或他人主页点「✉ 私信」发起对话
         </p>
       </header>
 
@@ -78,22 +84,37 @@ export default async function MessagesPage({
       )}
 
       {list.length === 0 ? (
-        <p className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground">
-          还没有私信。在用户资料页点「私信」开始对话。
-        </p>
+        <EmptyState
+          icon={MessageSquareOff}
+          title="还没有私信"
+          description="在帖子作者或他人主页找到 TA，点「✉ 私信」就能开始对话"
+          action="/boards"
+        />
       ) : (
         <ul className="divide-y rounded-xl border bg-card">
           {list.map((c) => (
             <li key={c.conversationId}>
               <Link
                 href={`/messages/${c.conversationId}`}
-                className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-accent/40"
+                className="flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-accent/40"
               >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">
-                    {c.otherDeleted ? "已注销用户" : (c.otherName ?? "未知用户")}
+                <Avatar size="default">
+                  <AvatarFallback>{(c.otherName ?? "?").slice(0, 1).toUpperCase()}</AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-1">
+                  <p className="flex items-baseline justify-between gap-2">
+                    <span className="truncate text-sm font-semibold">
+                      {c.otherDeleted ? "已注销用户" : (c.otherName ?? "未知用户")}
+                    </span>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {c.lastMessageAt ?? ""}
+                    </span>
                   </p>
-                  <p className="text-xs text-muted-foreground">{c.lastMessageAt ?? "还没有消息"}</p>
+                  <p className="truncate text-[13px] text-muted-foreground">
+                    {c.preview
+                      ? `${c.preview.senderIsSelf ? "我：" : ""}${c.preview.body}`
+                      : "还没有消息"}
+                  </p>
                 </div>
                 {c.unread > 0 && (
                   <span className="shrink-0 rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">

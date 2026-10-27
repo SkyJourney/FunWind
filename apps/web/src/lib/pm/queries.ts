@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { conversations, conversationMembers, getWebDb, messages, users } from "@funwind/db";
 
-/** 会话列表（最近消息倒序）+ 未读数（id 大于自己指针的对方消息数）。 */
+/** 会话列表（最近消息倒序）+ 未读数（id 大于自己指针的对方消息数）+ 最后一条预览。 */
 export async function conversationList(userId: number): Promise<
   {
     conversationId: number;
@@ -10,6 +10,8 @@ export async function conversationList(userId: number): Promise<
     otherDeleted: boolean;
     lastMessageAt: string | null;
     unread: number;
+    /** 会话内最新一条的发送者与正文（列表预览；senderIsSelf 用于「我：」前缀） */
+    preview: { senderIsSelf: boolean; body: string } | null;
   }[]
 > {
   const rows = await getWebDb()
@@ -65,8 +67,29 @@ export async function conversationList(userId: number): Promise<
     .groupBy(messages.conversationId);
   const unreadByConv = new Map(unreadRows.map((r) => [r.conversationId, Number(r.n)]));
 
+  // 每会话最新一条（窗口函数取 per-group 最大 id，再取正文）
+  const latestRows = await getWebDb()
+    .select({
+      conversationId: messages.conversationId,
+      senderId: messages.senderId,
+      body: messages.body,
+    })
+    .from(messages)
+    .where(
+      inArray(
+        messages.id,
+        getWebDb()
+          .select({ mid: sql<number>`MAX(${messages.id})` })
+          .from(messages)
+          .where(inArray(messages.conversationId, convIds))
+          .groupBy(messages.conversationId),
+      ),
+    );
+  const latestByConv = new Map(latestRows.map((m) => [m.conversationId, m]));
+
   return rows.map((r) => {
     const other = otherByConv.get(r.conversationId);
+    const latest = latestByConv.get(r.conversationId);
     return {
       conversationId: r.conversationId,
       otherId: other?.userId ?? 0,
@@ -74,6 +97,13 @@ export async function conversationList(userId: number): Promise<
       otherDeleted: other?.state === "deleted",
       lastMessageAt: r.lastMessageAt,
       unread: unreadByConv.get(r.conversationId) ?? 0,
+      preview:
+        latest === undefined
+          ? null
+          : {
+              senderIsSelf: latest.senderId === userId,
+              body: latest.body.length > 60 ? `${latest.body.slice(0, 60)}…` : latest.body,
+            },
     };
   });
 }
@@ -115,5 +145,14 @@ export async function unreadPmTotal(userId: number): Promise<number> {
         sql`${messages.senderId} <> ${userId}`,
       ),
     );
+  return Number(row.n);
+}
+
+/** 本人今日已发送条数（对话页额度提示；口径与 service 的 quota 校验一致：自然日）。 */
+export async function sentTodayCount(userId: number): Promise<number> {
+  const [row] = await getWebDb()
+    .select({ n: sql<number>`COUNT(*)` })
+    .from(messages)
+    .where(and(eq(messages.senderId, userId), sql`DATE(${messages.createdAt}) = CURDATE()`));
   return Number(row.n);
 }

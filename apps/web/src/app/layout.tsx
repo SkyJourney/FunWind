@@ -21,6 +21,9 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
+  // 移动端探测三件套：缺 width=device-width 时手机按 ~980px 桌面视口渲染整页缩小（S5-B 修复）
+  width: "device-width",
+  initialScale: 1,
   // iOS 刘海屏：允许内容延伸到安全区，底部 Tab 自行让位（env(safe-area-inset-bottom)）
   viewportFit: "cover",
 };
