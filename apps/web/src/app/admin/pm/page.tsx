@@ -1,9 +1,9 @@
+import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 import Link from "next/link";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { pmStats, recentMessages } from "@/lib/pm/admin";
 import { deleteMessageAction } from "./actions";
 import { Card, CardContent } from "@/components/ui/card";
-import { SubmitButton } from "@/components/ui/submit-button";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "私信管理" };
@@ -91,12 +91,14 @@ export default async function AdminPmPage({
                   placeholder="删除理由（必填）"
                   className="w-40 rounded-lg border bg-background px-2.5 py-1 text-xs"
                 />
-                <SubmitButton
+                <ConfirmSubmit
+                  title="删除消息"
+                  description="确认删除此消息？"
                   className="rounded-lg border px-2.5 py-1 text-xs text-destructive hover:bg-destructive/10 disabled:opacity-60"
                   pendingText="…"
                 >
                   删除
-                </SubmitButton>
+                </ConfirmSubmit>
               </form>
             </div>
           </li>

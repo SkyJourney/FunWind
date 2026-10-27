@@ -484,6 +484,29 @@ describe.skipIf(skipDb)("查询层 · 真实 MySQL", () => {
       });
     });
 
+    it("首帖不可见时不泄露封面和摘要", async () => {
+      const [orig] = await db()
+        .select({ id: posts.id, state: posts.state, body: posts.bodyMd })
+        .from(posts)
+        .innerJoin(threads, eq(threads.firstPostId, posts.id))
+        .where(eq(threads.id, 900001));
+      try {
+        await db()
+          .update(posts)
+          .set({ state: "hidden", bodyMd: "![secret](/files/secret) 隐藏正文" })
+          .where(eq(posts.id, orig.id));
+        const item = (await getHomeFeed(guest)).items.find((t) => t.id === 900001)!;
+        expect(item).toMatchObject({ coverUrl: null, excerpt: null });
+        const moderatorItem = (await getHomeFeed(admin)).items.find((t) => t.id === 900001)!;
+        expect(moderatorItem).toMatchObject({ coverUrl: "/files/secret", excerpt: "隐藏正文" });
+      } finally {
+        await db()
+          .update(posts)
+          .set({ state: orig.state, bodyMd: orig.body })
+          .where(eq(posts.id, orig.id));
+      }
+    });
+
     it("用户公开内容（S5-B2）：分页夹取、不存在作者空页、null 正文摘要", async () => {
       // 找一个有非首帖回复的作者
       const [author] = await db()

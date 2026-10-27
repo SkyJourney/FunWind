@@ -1,5 +1,8 @@
+import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ClipboardCheck } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { getModeratedForumIds } from "@/lib/authz/service";
 import { requireModerator } from "@/lib/authz/require-admin";
@@ -66,9 +69,12 @@ export default async function ReviewPage({ searchParams }: Params) {
       </nav>
 
       {items.length === 0 ? (
-        <p className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground">
-          {tab === "pending" ? "所辖版块没有待审核的内容。" : "所辖版块没有已删除或屏蔽的内容。"}
-        </p>
+        <EmptyState
+          icon={ClipboardCheck}
+          title={
+            tab === "pending" ? "所辖版块没有待审核的内容。" : "所辖版块没有已删除或屏蔽的内容。"
+          }
+        />
       ) : (
         <ul className="space-y-2">
           {items.map((item) => (
@@ -108,12 +114,14 @@ export default async function ReviewPage({ searchParams }: Params) {
                         required
                         className="w-44 rounded-lg border bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
                       />
-                      <SubmitButton
+                      <ConfirmSubmit
+                        title="驳回内容"
+                        description="确认驳回此内容并通知作者？"
                         className="rounded-lg border px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-60"
                         pendingText="…"
                       >
                         驳回
-                      </SubmitButton>
+                      </ConfirmSubmit>
                     </form>
                   </div>
                 ) : (
@@ -126,12 +134,14 @@ export default async function ReviewPage({ searchParams }: Params) {
                       required
                       className="w-44 rounded-lg border bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
                     />
-                    <SubmitButton
+                    <ConfirmSubmit
+                      title="恢复内容"
+                      description="确认恢复此内容？"
                       className="ml-1 rounded-lg border px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-60"
                       pendingText="…"
                     >
                       恢复
-                    </SubmitButton>
+                    </ConfirmSubmit>
                   </form>
                 )}
               </div>

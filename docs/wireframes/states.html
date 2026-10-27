@@ -45,7 +45,8 @@
       <div style="display: grid; gap: 4px">
         <h1 class="h-page">四态图例</h1>
         <p class="sub">
-          每个页面必须回答四种非常态：加载中 / 空 / 出错 / 权限门控。本页定义全站统一的模式，S5 落地时逐页套用（不再逐页发明）。
+          每个页面必须回答四种非常态：加载中 / 空 / 出错 / 权限门控。本页定义全站统一的模式，S5
+          落地时逐页套用（不再逐页发明）。
         </p>
       </div>
 
@@ -72,7 +73,9 @@
             </div>
           </div>
           <p class="sub">
-            落地方式：App Router <b>loading.tsx</b>（列表页/主题页/搜索/私信/通知首屏）——骨架结构必须复用对应页的布局组件，禁止通用转圈。
+            落地方式：App Router
+            <b>loading.tsx</b
+            >（列表页/主题页/搜索/私信/通知首屏）——骨架结构必须复用对应页的布局组件，禁止通用转圈。
             交互内加载（提交/加载更多）用按钮内 spinner。
           </p>
         </section>
@@ -87,8 +90,10 @@
             <span class="btn ghost sm">浏览版块</span>
           </div>
           <p class="sub">
-            三要素缺一不可：图标占位（S3 上色时可换插画）、解释性文案（说清「为什么空」）、主行动按钮（把用户推向下一步）。
-            适用：搜索无结果 / 版块暂无主题 / 无通知 / 无会话 / 关注动态为空（各自的文案在 B2/B3 页面线稿标注）。
+            三要素缺一不可：图标占位（S3
+            上色时可换插画）、解释性文案（说清「为什么空」）、主行动按钮（把用户推向下一步）。
+            适用：搜索无结果 / 版块暂无主题 / 无通知 / 无会话 / 关注动态为空（各自的文案在 B2/B3
+            页面线稿标注）。
           </p>
         </section>
 
@@ -105,8 +110,8 @@
             </div>
           </div>
           <p class="sub">
-            落地方式：error.tsx（含 global-error.tsx）+ not-found.tsx
-            专属 404（同样的插图占位 + 「去搜索/回首页」）。文案保持社区口吻，错误 ID 方便对日志。
+            落地方式：error.tsx（含 global-error.tsx）+ not-found.tsx 专属 404（同样的插图占位 +
+            「去搜索/回首页」）。文案保持社区口吻，错误 ID 方便对日志。
           </p>
         </section>
 
@@ -120,22 +125,24 @@
             <span class="btn primary sm">回复查看</span>
           </div>
           <p class="sub">
-            门控五态沿用现网逻辑（购买/回复可见/登录可见/无权限/过期），S4 只统一视觉：虚线边框 + 斜纹底 +
-            「规则一句话 + 行动按钮」。404（受限版块/帖子不可见）保持不暴露存在性的现有语义。
+            门控五态沿用现网逻辑（购买/回复可见/登录可见/无权限/过期），S4 只统一视觉：虚线边框 +
+            斜纹底 + 「规则一句话 +
+            行动按钮」。404（受限版块/帖子不可见）保持不暴露存在性的现有语义。
           </p>
         </section>
       </div>
 
       <div class="note">
-        <b>补充口径</b>：① 以上四态组件将进入 <b>src/components/</b>（Skeleton 已有，EmptyState / ErrorState
-        为 S5 新增），业务页禁止手写替代品；② 表单提交失败用 Toaster（sonner 已接）+ 字段级错误回显，不占用本页模式；③
-        后台页同样适用（骨架/空态在 B4 线稿标注）。
+        <b>补充口径</b>：① 以上四态组件将进入 <b>src/components/</b>（Skeleton 已有，EmptyState /
+        ErrorState 为 S5 新增），业务页禁止手写替代品；② 表单提交失败用 Toaster（sonner 已接）+
+        字段级错误回显，不占用本页模式；③ 后台页同样适用（骨架/空态在 B4 线稿标注）。
       </div>
     </main>
 
     <div class="bppill">
       <i>断点</i><span class="bp-base">base &lt;640</span><span class="bp-sm">sm 640</span
-    ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span><span class="bp-xl">xl 1280</span>
+      ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span
+      ><span class="bp-xl">xl 1280</span>
     </div>
   </body>
 </html>

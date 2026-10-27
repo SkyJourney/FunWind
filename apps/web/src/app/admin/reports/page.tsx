@@ -1,7 +1,7 @@
+import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 import Link from "next/link";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { reportQueue } from "@/lib/reports/service";
-import { SubmitButton } from "@/components/ui/submit-button";
 import { handleReportAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -85,23 +85,27 @@ export default async function AdminReportsPage({ searchParams }: Params) {
                         placeholder="处理说明（回给举报人）"
                         className="w-48 rounded-lg border bg-background px-2.5 py-1.5 text-sm"
                       />
-                      <SubmitButton
+                      <ConfirmSubmit
+                        title="处理举报"
+                        description="确认提交此举报处理结果？"
                         className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
                         pendingText="…"
                       >
                         处置
-                      </SubmitButton>
+                      </ConfirmSubmit>
                     </form>
                     <form action={handleReportAction}>
                       <input type="hidden" name="reportId" value={item.id} />
                       <input type="hidden" name="outcome" value="dismissed" />
                       <input type="hidden" name="note" value="经核实不构成违规" />
-                      <SubmitButton
+                      <ConfirmSubmit
+                        title="处理举报"
+                        description="确认提交此举报处理结果？"
                         className="rounded-lg border px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-60"
                         pendingText="…"
                       >
                         忽略
-                      </SubmitButton>
+                      </ConfirmSubmit>
                     </form>
                   </div>
                 )}

@@ -14,6 +14,10 @@ import { tagsOfThreads } from "@/lib/interact/tags";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { ReplyComposer } from "@/components/posting/reply-composer";
+import { PostActionLink } from "@/components/posting/post-action-link";
+import { deletePostAction, restorePostAction } from "@/app/actions/posts";
+import { reportPostAction } from "@/app/actions/reports";
+import { hidePostAction } from "@/app/admin/review/actions";
 import { draftKey } from "@/components/editor/draft";
 import { createReplyAction } from "@/app/actions/replies";
 import { getPointsName } from "@/lib/auth/settings";
@@ -112,25 +116,22 @@ export default async function ThreadPage({ params, searchParams }: Params) {
           <Link href={`/p/${postId}/edit`} className="text-primary hover:underline">
             编辑
           </Link>
-          <Link href={`/p/${postId}/delete`} className="text-primary hover:underline">
-            删除
-          </Link>
+          <PostActionLink
+            postId={postId}
+            kind="delete"
+            action={deletePostAction}
+            reasonRequired={authorId !== viewer.userId}
+          />
         </>
       )}
       {canHidePost(authorId, state) && (
-        <Link href={`/p/${postId}/hide`} className="text-primary hover:underline">
-          屏蔽
-        </Link>
+        <PostActionLink postId={postId} kind="hide" action={hidePostAction} />
       )}
       {canRestorePost(state) && (
-        <Link href={`/p/${postId}/restore`} className="text-primary hover:underline">
-          恢复
-        </Link>
+        <PostActionLink postId={postId} kind="restore" action={restorePostAction} />
       )}
       {canReport && state === "visible" && (
-        <Link href={`/p/${postId}/report`} className="text-muted-foreground hover:text-primary">
-          举报
-        </Link>
+        <PostActionLink postId={postId} kind="report" action={reportPostAction} />
       )}
     </>
   );

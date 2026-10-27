@@ -10,7 +10,7 @@ import type { HomeFeedItem } from "@/lib/queries/threads";
 export function FeedCard({ item, forumName }: { item: HomeFeedItem; forumName?: string }) {
   const author = item.authorDeleted || !item.authorName ? "已注销" : item.authorName;
   return (
-    <article className="flex gap-4 rounded-xl border bg-card p-4 shadow-1 transition-shadow duration-150 hover:shadow-2">
+    <article className="flex gap-4 rounded-xl border bg-card p-4 shadow-1 transition-shadow duration-fast hover:shadow-2">
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
           {forumName && (

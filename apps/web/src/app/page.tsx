@@ -144,9 +144,17 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
               }
             />
           ) : (
-            <div className="fw-enter grid gap-2.5">
-              {feed.items.map((item) => (
-                <FeedCard key={item.id} item={item} forumName={feedForumName(item.forumId)} />
+            <div className="grid gap-2.5">
+              {feed.items.map((item, index) => (
+                <div
+                  key={item.id}
+                  className={page === 1 && index < 10 ? "fw-enter" : undefined}
+                  style={
+                    page === 1 && index < 10 ? { animationDelay: `${index * 50}ms` } : undefined
+                  }
+                >
+                  <FeedCard item={item} forumName={feedForumName(item.forumId)} />
+                </div>
               ))}
             </div>
           )}
@@ -176,9 +184,10 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
           </div>
         </div>
 
-        {/* 右栏（xl）：模块槽位预留 + 热帖 + 统计 + 热门版块 */}
+        {/* 右栏（xl）：品牌 + 模块槽位（签到卡）+ 热帖 + 统计 + 热门版块 */}
         <aside className="hidden space-y-4 self-start xl:sticky xl:top-24 xl:block">
           <BrandCard logoUrl={chrome.logoActive ? "/brand/logo" : null} />
+          <Slot name="home.rail" />
           <section className="rounded-xl border bg-card p-4">
             <h2 className="flex items-center gap-1.5 text-sm font-semibold">
               <Flame className="size-4 text-primary" aria-hidden /> 本站热帖

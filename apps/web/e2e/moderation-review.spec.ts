@@ -92,6 +92,7 @@ test("审核流：xiaoyi 在 906 发帖 → pending 仅作者可见 → admin �
       .locator('input[name="reason"]')
       .fill("E2E 驳回理由：内容不完整");
     await adminPage.locator("li", { hasText: title }).getByRole("button", { name: "驳回" }).click();
+    await adminPage.getByRole("button", { name: "确认" }).click();
     await expect(adminPage).toHaveURL(/\/admin\/review\?rejected=1/);
     await adminCtx.close();
 
@@ -151,13 +152,37 @@ test("屏蔽→恢复：admin 屏蔽公开内容（理由）→ 作者收通知 
 
   await adminPage.goto(reviewThreadUrl);
   await adminPage.getByRole("link", { name: "屏蔽" }).first().click();
-  await adminPage.locator("#moderation-reason").fill("E2E 屏蔽理由：临时屏蔽");
-  await adminPage.getByRole("button", { name: "屏蔽", exact: true }).click();
-  await expect(adminPage).toHaveURL(/\/t\/\d+$/);
+  await adminPage.getByLabel("理由（必填）").fill("E2E 屏蔽理由：临时屏蔽");
+  const actionResponse = adminPage.waitForResponse((response) => {
+    const request = response.request();
+    return request.method() === "POST" && Boolean(request.headers()["next-action"]);
+  });
+  await adminPage.getByRole("button", { name: "确认屏蔽" }).click();
+  const response = await actionResponse;
+  console.log("moderation-hide-action-response", response.status());
+  // 当前路由本来就是 /t/{tid}，URL 断言不能作为 Action 完成信号；等待版主视图状态横幅。
+  await expect(adminPage.getByText(/该主题已被隐藏/)).toBeVisible();
+  // hidePostAction 成功后仍重定向到同一主题页；核对数据库真实迁移，避免旧 URL 造成假阳性。
+  const hiddenState = await withE2eDb(async (q) =>
+    q.query<{ post_state: string; thread_state: string }>(
+      `SELECT p.state AS post_state, t.state AS thread_state
+         FROM posts p JOIN threads t ON t.id = p.thread_id
+        WHERE p.id = t.first_post_id AND t.id = ?`,
+      [Number(reviewThreadUrl.match(/\/t\/(\d+)/)![1])],
+    ),
+  );
+  expect(hiddenState[0]).toMatchObject({ post_state: "hidden", thread_state: "hidden" });
 
-  // 普通用户 404
-  const res = await authorPage.goto(reviewThreadUrl);
-  expect(res?.status()).toBe(404);
+  // hidden 内容仅版主可见；作者与普通访客均按 404 隐藏存在性
+  const authorRes = await authorPage.goto(reviewThreadUrl);
+  expect(authorRes?.status()).toBe(404);
+  await expect(authorPage.getByText("待审核正文（已补全）")).toHaveCount(0);
+  const guestCtx = await browser.newContext();
+  const guestPage = await guestCtx.newPage();
+  const guestRes = await guestPage.goto(reviewThreadUrl);
+  expect(guestRes?.status()).toBe(404);
+  await expect(guestPage.getByText("待审核正文（已补全）")).toHaveCount(0);
+  await guestCtx.close();
   // 作者收通知
   await authorPage.goto("/notifications?cat=moderation");
   await expect(authorPage.getByText(/E2E 屏蔽理由/).first()).toBeVisible();
@@ -165,9 +190,19 @@ test("屏蔽→恢复：admin 屏蔽公开内容（理由）→ 作者收通知 
   // admin 恢复（理由必填），内容重新公开
   await adminPage.goto(reviewThreadUrl);
   await adminPage.getByRole("link", { name: "恢复" }).first().click();
-  await adminPage.locator("#moderation-reason").fill("E2E 恢复：整改完成");
-  await adminPage.getByRole("button", { name: "恢复" }).click();
-  await expect(adminPage).toHaveURL(/\/t\/\d+(\?page=\d+)?#p\d+$/);
+  await adminPage.getByLabel("理由（必填）").fill("E2E 恢复：整改完成");
+  await adminPage.getByRole("button", { name: "确认恢复" }).click();
+  // 同 URL 不代表 Action 完成；恢复后版主视角的隐藏横幅应消失，且状态回到 visible。
+  await expect(adminPage.getByText(/该主题已被隐藏/)).toHaveCount(0);
+  const restored = await withE2eDb(async (q) =>
+    q.query<{ post_state: string; thread_state: string }>(
+      `SELECT p.state AS post_state, t.state AS thread_state
+         FROM posts p JOIN threads t ON t.id = p.thread_id
+        WHERE p.id = t.first_post_id AND t.id = ?`,
+      [Number(reviewThreadUrl.match(/\/t\/(\d+)/)![1])],
+    ),
+  );
+  expect(restored[0]).toMatchObject({ post_state: "visible", thread_state: "visible" });
   await expect(authorPage.goto(reviewThreadUrl)).resolves.toBeTruthy();
   await authorCtx.close();
   await adminCtx.close();

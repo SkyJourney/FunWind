@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Search } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
+import { Button } from "@/components/ui/button";
 import { ThreadRow } from "@/components/content/thread-row";
 import { Pagination } from "@/components/content/pagination";
 import { getCurrentSubject } from "@/lib/authz/subject";
@@ -75,20 +77,22 @@ export default async function SearchPage({ searchParams }: Params) {
       </header>
 
       {!q ? (
-        <p className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground">
-          输入关键词搜索全站的主题与帖子。支持中日文。
-        </p>
+        <EmptyState
+          icon={Search}
+          title="输入关键词搜索全站的主题与帖子。"
+          description="支持中日文。"
+        />
       ) : result.hits.length === 0 ? (
-        <div className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground">
-          <p>没有找到与「{q}」相关的内容。</p>
-          <p className="mt-2">
-            试试更短的关键词，或者去
-            <Link href="/" className="text-primary hover:underline">
-              版块目录
-            </Link>
-            逛逛。
-          </p>
-        </div>
+        <EmptyState
+          icon={Search}
+          title={`没有找到与「${q}」相关的内容。`}
+          description="试试更短的关键词，或者去版块目录逛逛。"
+          action={
+            <Button asChild variant="outline" size="sm">
+              <Link href="/">版块目录</Link>
+            </Button>
+          }
+        />
       ) : (
         <div className="space-y-2">
           {result.hits.map((h) => (

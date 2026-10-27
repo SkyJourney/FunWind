@@ -175,21 +175,28 @@
 
     <main class="page wrap">
       <div class="main">
-        <div class="small t2">版块 / <a href="forum.html" style="text-decoration: underline">动画·アニメ</a> / 发新主题</div>
+        <div class="small t2">
+          版块 / <a href="forum.html" style="text-decoration: underline">动画·アニメ</a> / 发新主题
+        </div>
 
-        <div class="title-input"><span>请输入标题（必填）</span><span class="t3 small">0 / 100</span></div>
+        <div class="title-input">
+          <span>请输入标题（必填）</span><span class="t3 small">0 / 100</span>
+        </div>
 
         <!-- 编辑器外壳 -->
         <div class="card pad" style="display: grid; gap: 10px">
           <div style="display: flex; align-items: center; gap: 8px">
-            <div class="modes"><span class="on">✏ 所见即所得</span><span>&lt;&gt; 源码</span><span>◇ 预览</span></div>
+            <div class="modes">
+              <span class="on">✏ 所见即所得</span><span>&lt;&gt; 源码</span><span>◇ 预览</span>
+            </div>
             <span class="t3 small" style="margin-left: auto">草稿已保存 12:04</span>
           </div>
           <div class="tools">
             <span class="tool">B</span><span class="tool">I</span><span class="tool">S</span>
-            <span class="tool">•≡</span><span class="tool">❝</span><span class="tool">&lt;/&gt;</span>
-            <span class="tool">↶</span><span class="tool">↷</span>
-            <span class="tool wide">🔒 门控</span><span class="tool wide">📊 投票</span>
+            <span class="tool">•≡</span><span class="tool">❝</span
+            ><span class="tool">&lt;/&gt;</span> <span class="tool">↶</span
+            ><span class="tool">↷</span> <span class="tool wide">🔒 门控</span
+            ><span class="tool wide">📊 投票</span>
           </div>
           <div class="body-area">正文，支持 Markdown。可直接粘贴图片（自动上传）……</div>
         </div>
@@ -219,7 +226,9 @@
         <div class="card pad" style="display: grid; gap: 10px">
           <div style="display: flex; align-items: center">
             <span class="field-label">📊 发起投票</span>
-            <div class="seg" style="margin-left: auto"><span class="on">单选</span><span>多选</span></div>
+            <div class="seg" style="margin-left: auto">
+              <span class="on">单选</span><span>多选</span>
+            </div>
           </div>
           <div class="opt-input">选项 1：非常满意</div>
           <div class="opt-input">选项 2：不错</div>
@@ -237,17 +246,22 @@
         <!-- 门控 -->
         <div style="display: grid; gap: 8px">
           <span class="field-label">🔒 内容门控</span>
-          <div class="seg"><span class="on">无门控</span><span>回复可见</span><span>翼币购买</span></div>
+          <div class="seg">
+            <span class="on">无门控</span><span>回复可见</span><span>翼币购买</span>
+          </div>
         </div>
 
-        <div class="small" style="
+        <div
+          class="small"
+          style="
             border: 1px solid var(--line);
             border-left: 3px solid var(--line-strong);
             border-radius: var(--r-sm);
             padding: 8px 12px;
             color: var(--t2);
             background: var(--surface);
-          ">
+          "
+        >
           本版启用先审后发：提交后进入审核队列，通过前仅自己可见。
         </div>
 
@@ -259,10 +273,14 @@
 
         <div class="note">
           <b>B2-编辑器 · 注记</b><br />
-          ① 双模式编辑器（TipTap/CodeMirror）与草稿、门控、投票逻辑全部沿用现网，线稿只重排<b>视觉外壳</b>：模式切换改分段控件、工具栏横向可滚。<br />
-          ② <b>附件改拖拽区 + 行内进度条</b>（S1 盘点的「上传只有按钮文字变化」在此解决）；粘贴图片直传同进度。<br />
-          ③ 发布按钮提交中转 spinner 并禁用（防双击，现网 SubmitButton 已有，视觉强化）；成功 → toast + 跳转主题页。<br />
-          ④ 门控三态改分段控件（原 native select ×7 清理计划的一部分）；投票选项不足 2 条时发布按钮禁用。<br />
+          ①
+          双模式编辑器（TipTap/CodeMirror）与草稿、门控、投票逻辑全部沿用现网，线稿只重排<b>视觉外壳</b>：模式切换改分段控件、工具栏横向可滚。<br />
+          ② <b>附件改拖拽区 + 行内进度条</b>（S1
+          盘点的「上传只有按钮文字变化」在此解决）；粘贴图片直传同进度。<br />
+          ③ 发布按钮提交中转 spinner 并禁用（防双击，现网 SubmitButton 已有，视觉强化）；成功 →
+          toast + 跳转主题页。<br />
+          ④ 门控三态改分段控件（原 native select ×7 清理计划的一部分）；投票选项不足 2
+          条时发布按钮禁用。<br />
           ⑤ 移动端：工具栏/模式切换吸顶（编辑长文时始终可达），键盘顶起由 visualViewport 处理。
         </div>
       </div>
@@ -270,7 +288,8 @@
 
     <div class="bppill">
       <i>断点</i><span class="bp-base">base &lt;640</span><span class="bp-sm">sm 640</span
-    ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span><span class="bp-xl">xl 1280</span>
+      ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span
+      ><span class="bp-xl">xl 1280</span>
     </div>
   </body>
 </html>

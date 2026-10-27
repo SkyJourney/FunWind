@@ -46,6 +46,7 @@ test("私信管理：发送 → 管理页可见 → 删除（正文标记 + 审�
     .locator("li", { hasText: "M10 补做：管理删我" })
     .getByRole("button", { name: "删除" })
     .click();
+  await adminPage.getByRole("button", { name: "确认" }).click();
   await expect(adminPage).toHaveURL(/\/admin\/pm\?deleted=1/);
   await expect(adminPage.getByText(/已由管理员删除：E2E 删除理由/)).toBeVisible();
 
@@ -87,6 +88,7 @@ test("投票管理：关闭投票 → 已截止标记；删除投票 → 主题�
     const row = adminPage.locator("li", { hasText: /E2E 投票管理/ });
     await expect(row).toBeVisible();
     await row.getByRole("button", { name: "删除投票" }).click();
+    await adminPage.getByRole("button", { name: "确认" }).click();
     await expect(adminPage).toHaveURL(/\/admin\/poll\?deleted=1/);
 
     // 主题回普通帖（投票块消失、kind 回 normal）

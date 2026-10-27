@@ -1,8 +1,10 @@
+import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 import Link from "next/link";
+import { ChartNoAxesColumn } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
 import { requireModerator } from "@/lib/authz/require-admin";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { pollAdminList } from "@/lib/poll/admin";
-import { SubmitButton } from "@/components/ui/submit-button";
 import { closePollAction, deletePollAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -36,9 +38,7 @@ export default async function AdminPollPage({ searchParams }: Params) {
       )}
 
       {items.length === 0 ? (
-        <p className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground">
-          没有投票（或你管辖的版块内没有）。
-        </p>
+        <EmptyState icon={ChartNoAxesColumn} title="没有投票（或你管辖的版块内没有）。" />
       ) : (
         <ul className="space-y-2">
           {items.map((p) => (
@@ -62,22 +62,26 @@ export default async function AdminPollPage({ searchParams }: Params) {
                   {!p.closed && (
                     <form action={closePollAction}>
                       <input type="hidden" name="pollId" value={p.pollId} />
-                      <SubmitButton
+                      <ConfirmSubmit
+                        title="关闭投票"
+                        description="确认关闭此投票？"
                         className="rounded-lg border px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-60"
                         pendingText="…"
                       >
                         关闭投票
-                      </SubmitButton>
+                      </ConfirmSubmit>
                     </form>
                   )}
                   <form action={deletePollAction}>
                     <input type="hidden" name="pollId" value={p.pollId} />
-                    <SubmitButton
+                    <ConfirmSubmit
+                      title="删除投票"
+                      description="确认删除此投票？主题将保留。"
                       className="rounded-lg border px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-60"
                       pendingText="…"
                     >
                       删除投票
-                    </SubmitButton>
+                    </ConfirmSubmit>
                   </form>
                 </div>
               </div>

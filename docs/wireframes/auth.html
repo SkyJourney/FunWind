@@ -79,8 +79,9 @@
         <div style="display: grid; gap: 4px">
           <h1 class="h-page">Auth 六页 · 一览</h1>
           <p class="sub">
-            六页共用居中窄卡壳（现网 AuthShell）：登录 / 注册 / 找回密码 / 重置密码 / 认领老账号 / 邮箱验证。S5
-            落地时全部换 shadcn 基件（清理 ui-bits.tsx 手写控件），视觉重排不动任何校验与安全语义。
+            六页共用居中窄卡壳（现网 AuthShell）：登录 / 注册 / 找回密码 / 重置密码 / 认领老账号 /
+            邮箱验证。S5 落地时全部换 shadcn 基件（清理 ui-bits.tsx
+            手写控件），视觉重排不动任何校验与安全语义。
           </p>
         </div>
 
@@ -105,18 +106,35 @@
         <div class="duo">
           <div class="card authcard">
             <h2 style="font-size: 16px">注册（邀请码模式）</h2>
-            <div class="field"><label>邀请码</label><div class="in">E2E-INVITE-CODE</div></div>
-            <div class="field"><label>用户名</label><div class="in">2–16 字符</div></div>
-            <div class="field"><label>邮箱</label><div class="in">you@example.com</div></div>
-            <div class="field"><label>密码（至少 8 位）</label><div class="in">••••••••</div></div>
+            <div class="field">
+              <label>邀请码</label>
+              <div class="in">E2E-INVITE-CODE</div>
+            </div>
+            <div class="field">
+              <label>用户名</label>
+              <div class="in">2–16 字符</div>
+            </div>
+            <div class="field">
+              <label>邮箱</label>
+              <div class="in">you@example.com</div>
+            </div>
+            <div class="field">
+              <label>密码（至少 8 位）</label>
+              <div class="in">••••••••</div>
+            </div>
             <span class="btn primary" style="width: 100%">凭邀请码注册</span>
-            <div class="okline">开放注册模式：站点配置切换后，邀请码字段自动隐藏，按钮变「注册」。</div>
+            <div class="okline">
+              开放注册模式：站点配置切换后，邀请码字段自动隐藏，按钮变「注册」。
+            </div>
           </div>
 
           <div class="card authcard">
             <h2 style="font-size: 16px">找回密码</h2>
             <p class="sub">输入注册邮箱，我们会发送重置链接</p>
-            <div class="field"><label>注册邮箱</label><div class="in">you@example.com</div></div>
+            <div class="field">
+              <label>注册邮箱</label>
+              <div class="in">you@example.com</div>
+            </div>
             <span class="btn primary" style="width: 100%">发送邮件</span>
             <div class="okline">已提交：若该邮箱已注册，邮件已发出（防枚举口径，原文保留）。</div>
             <div class="authfoot">老账号没有密码？<b>认领老账号</b></div>
@@ -125,8 +143,14 @@
           <div class="card authcard">
             <h2 style="font-size: 16px">设置新密码（邮件令牌）</h2>
             <div class="okline">链接有效：为 <b>demo_admin</b> 设置新密码</div>
-            <div class="field"><label>新密码（至少 8 位）</label><div class="in">••••••••</div></div>
-            <div class="field"><label>确认新密码</label><div class="in">••••••••</div></div>
+            <div class="field">
+              <label>新密码（至少 8 位）</label>
+              <div class="in">••••••••</div>
+            </div>
+            <div class="field">
+              <label>确认新密码</label>
+              <div class="in">••••••••</div>
+            </div>
             <span class="btn primary" style="width: 100%">保存并登录</span>
             <div class="authfoot">令牌一次性，消费后即失效（现网安全语义）。</div>
           </div>
@@ -134,25 +158,37 @@
           <div class="card authcard">
             <h2 style="font-size: 16px">认领老账号</h2>
             <p class="sub">老站用户首次登录：通过邮箱邮件链接确认身份</p>
-            <div class="field"><label>注册邮箱</label><div class="in">alice@demo.local</div></div>
+            <div class="field">
+              <label>注册邮箱</label>
+              <div class="in">alice@demo.local</div>
+            </div>
             <span class="btn primary" style="width: 100%">发送认领邮件</span>
-            <div class="okline">邮件落地页 = 设置新密码表单（同「重置密码」形态），完成后自动登录。</div>
+            <div class="okline">
+              邮件落地页 = 设置新密码表单（同「重置密码」形态），完成后自动登录。
+            </div>
           </div>
         </div>
 
         <div class="card authcard">
           <h2 style="font-size: 16px">邮箱验证</h2>
           <p class="sub">令牌链接落地页</p>
-          <div class="okline">为 <b>demo_admin</b> 验证邮箱 you@example.com —— 点击下方按钮完成验证（防邮件预取误消费令牌，安全设计保留）。</div>
+          <div class="okline">
+            为 <b>demo_admin</b> 验证邮箱 you@example.com ——
+            点击下方按钮完成验证（防邮件预取误消费令牌，安全设计保留）。
+          </div>
           <span class="btn primary" style="width: 100%">完成验证</span>
           <div class="authfoot">无效/过期令牌 → 同卡壳内的错误态（states.html ③）。</div>
         </div>
 
         <div class="note">
           <b>B3-Auth · 注记</b><br />
-          ① 六页统一窄卡壳 + 顶部品牌回链；字段/按钮全部换 shadcn Input/Button（现网 ui-bits 手写控件退役）。<br />
-          ② 全部安全语义原样保留：邀请码一次性核销、找回/认领防枚举文案、令牌一次性消费、邮箱验证按钮确认（防 prefetch）、登录频控（10 分钟 5 次）。<br />
-          ③ 密码可见性切换（小眼睛）为唯一新增微交互；错误 = 字段下方行内文案（states.html ③口径），不用弹窗。<br />
+          ① 六页统一窄卡壳 + 顶部品牌回链；字段/按钮全部换 shadcn Input/Button（现网 ui-bits
+          手写控件退役）。<br />
+          ②
+          全部安全语义原样保留：邀请码一次性核销、找回/认领防枚举文案、令牌一次性消费、邮箱验证按钮确认（防
+          prefetch）、登录频控（10 分钟 5 次）。<br />
+          ③ 密码可见性切换（小眼睛）为唯一新增微交互；错误 = 字段下方行内文案（states.html
+          ③口径），不用弹窗。<br />
           ④ 登录成功 → 回跳来源页或首页；注册成功 → 自动登录（现网行为）。<br />
           ⑤ 移动端：卡壳全宽 -32px 边距，键盘遮挡由 visualViewport 滚动补偿。
         </div>
@@ -161,7 +197,8 @@
 
     <div class="bppill">
       <i>断点</i><span class="bp-base">base &lt;640</span><span class="bp-sm">sm 640</span
-    ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span><span class="bp-xl">xl 1280</span>
+      ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span
+      ><span class="bp-xl">xl 1280</span>
     </div>
   </body>
 </html>

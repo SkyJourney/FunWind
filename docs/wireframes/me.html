@@ -177,7 +177,10 @@
         </div>
 
         <!-- 资产条 -->
-        <div class="card" style="border-top: 0; border-radius: 0 0 var(--r-lg) var(--r-lg); margin-top: -14px">
+        <div
+          class="card"
+          style="border-top: 0; border-radius: 0 0 var(--r-lg) var(--r-lg); margin-top: -14px"
+        >
           <div class="me-wallet">
             <div><b>1,024</b><span>翼币</span></div>
             <div><b>36</b><span>主题</span></div>
@@ -196,9 +199,7 @@
         </div>
 
         <!-- 我的内容 -->
-        <div class="utabs">
-          <span class="on">我的主题 36</span><span>我的回复 892</span>
-        </div>
+        <div class="utabs"><span class="on">我的主题 36</span><span>我的回复 892</span></div>
         <div class="card mini-feed">
           <div class="urow">
             <span class="pill outline">站点公告</span>
@@ -221,11 +222,13 @@
         <div class="card">
           <div class="me-row">
             <span class="ic"><span class="glyph"></span></span>
-            <span class="lbl">我的关注</span><span class="t3 small">32 人 · 8 版块</span><span class="arr">›</span>
+            <span class="lbl">我的关注</span><span class="t3 small">32 人 · 8 版块</span
+            ><span class="arr">›</span>
           </div>
           <div class="me-row">
             <span class="ic"><span class="glyph"></span></span>
-            <span class="lbl">我的积分</span><span class="t3 small">台账与规则</span><span class="arr">›</span>
+            <span class="lbl">我的积分</span><span class="t3 small">台账与规则</span
+            ><span class="arr">›</span>
           </div>
           <div class="me-row">
             <span class="ic"><span class="glyph"></span></span>
@@ -246,16 +249,20 @@
           </div>
           <div class="me-row">
             <span class="ic"><span class="glyph"></span></span>
-            <span class="lbl">私信权限</span><span class="t3 small">所有人</span><span class="arr">›</span>
+            <span class="lbl">私信权限</span><span class="t3 small">所有人</span
+            ><span class="arr">›</span>
           </div>
           <div class="me-row">
             <span class="ic"><span class="glyph"></span></span>
             <span class="lbl">外观</span>
-            <div class="theme-row"><span>浅色</span><span class="on">跟随系统</span><span>暗色</span></div>
+            <div class="theme-row">
+              <span>浅色</span><span class="on">跟随系统</span><span>暗色</span>
+            </div>
           </div>
           <div class="me-row">
             <span class="ic"><span class="glyph"></span></span>
-            <span class="lbl">管理后台</span><span class="t3 small">版主/管理员可见</span><span class="arr">›</span>
+            <span class="lbl">管理后台</span><span class="t3 small">版主/管理员可见</span
+            ><span class="arr">›</span>
           </div>
         </div>
 
@@ -265,14 +272,19 @@
 
         <div class="note">
           <b>B3-我的聚合页 · 注记（⟦D4⟧ 定稿落地页，底部 Tab「我的」直达）</b><br />
-          ① 内容为主：身份行 + 资产条（翼币/主题/获赞）之后，紧跟<b>我的主题/我的回复</b>内容 Tab（复用公开页的主题行组件，同一套查询加 self 过滤）。<br />
-          ② 服务/偏好两组入口取代旧顶栏文字链堆：关注、积分、私信（未读徽标）、通知（未读徽标）、头像资料、<b>外观（主题切换常驻行——移动端主题入口就此闭环）</b>、管理后台（权限显隐）。<br />
+          ① 内容为主：身份行 + 资产条（翼币/主题/获赞）之后，紧跟<b>我的主题/我的回复</b>内容
+          Tab（复用公开页的主题行组件，同一套查询加 self 过滤）。<br />
+          ②
+          服务/偏好两组入口取代旧顶栏文字链堆：关注、积分、私信（未读徽标）、通知（未读徽标）、头像资料、<b>外观（主题切换常驻行——移动端主题入口就此闭环）</b>、管理后台（权限显隐）。<br />
           ③ 「编辑」= 头像设置（现网唯一资料编辑页）；S5 若扩展资料编辑再拆。<br />
           ④ 退出登录居中破坏性行（现网 LogoutForm 语义+清草稿逻辑不变）。<br />
-          ⑤ 桌面端本页同样可用（居中 640），但桌面用户主要入口仍在顶栏用户菜单——两处指向同一组目的地。<br />
+          ⑤ 桌面端本页同样可用（居中
+          640），但桌面用户主要入口仍在顶栏用户菜单——两处指向同一组目的地。<br />
           ⑥ 未读徽标 = 服务端渲染初值（与底部 Tab 同口径），进页即清的通知在返回时刷新。<br />
-          ⑦ <b>私信权限行（⟦功能补全⟧ 2026-10-27 站长定）</b>：点开 = 分段选择「所有人 / 仅我关注的人 / 关闭私信」（默认所有人，兼容现网）。<br />
-          ⑧ S5 落地时：新增 /me 路由 + 底部 Tab 指向切换；公开页 /u/[uid] 保留（本页注记见 profile.html）。
+          ⑦ <b>私信权限行（⟦功能补全⟧ 2026-10-27 站长定）</b>：点开 = 分段选择「所有人 /
+          仅我关注的人 / 关闭私信」（默认所有人，兼容现网）。<br />
+          ⑧ S5 落地时：新增 /me 路由 + 底部 Tab 指向切换；公开页 /u/[uid] 保留（本页注记见
+          profile.html）。
         </div>
       </div>
     </main>
@@ -287,7 +299,8 @@
 
     <div class="bppill">
       <i>断点</i><span class="bp-base">base &lt;640</span><span class="bp-sm">sm 640</span
-    ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span><span class="bp-xl">xl 1280</span>
+      ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span
+      ><span class="bp-xl">xl 1280</span>
     </div>
   </body>
 </html>

@@ -5,46 +5,36 @@ export type NavKind = "fade" | "push" | "pop";
  * template.tsx 每次路由切换重挂载时消费并播放对应进场动画（纯 CSS 令牌，零依赖）。
  * 退场动画不做（Next App Router 无稳定退场钩子；进场已足够表达方向语汇——S4 §3.2）。
  */
-let pending: NavKind = "fade";
+let pending: { kind: NavKind; target: string; time: number } | null = null;
 
-/** 顶层级路径 → 方向序（后进 = push）。未列出的路径取中位（fade）。 */
-const ORDER = [
-  "/",
-  "/boards",
-  "/f",
-  "/t",
-  "/submit",
-  "/follows",
-  "/search",
-  "/messages",
-  "/notifications",
-  "/points",
-  "/u",
-  "/me",
-  "/admin",
-];
-
-export function setNavKind(kind: NavKind): void {
-  pending = kind;
+/** 顶层栏目同级；版块和内容详情属于更深层级。 */
+function rank(pathname: string): number | null {
+  if (pathname === "/") return 0;
+  if (/^\/(f|t|u)\/[^/]+/.test(pathname)) return 2;
+  if (
+    /^\/(boards|follows|search|messages|notifications|points|me|admin|submit)(\/|$)/.test(pathname)
+  ) {
+    return pathname.split("/").filter(Boolean).length > 1 ? 2 : 1;
+  }
+  return null;
 }
 
-export function consumeNavKind(): NavKind {
-  const k = pending;
-  pending = "fade";
-  return k;
+export function setNavKind(kind: NavKind, target = ""): void {
+  pending = { kind, target, time: Date.now() };
 }
 
-function rank(pathname: string): number {
-  const idx = ORDER.indexOf(pathname);
-  if (idx >= 0) return idx;
-  const hit = ORDER.findIndex((p) => p !== "/" && pathname.startsWith(`${p}/`));
-  return hit >= 0 ? hit : Math.floor(ORDER.length / 2);
+export function consumeNavKind(pathname = ""): NavKind {
+  const value = pending;
+  pending = null;
+  return value && (!value.target || value.target === pathname) && Date.now() - value.time < 5000
+    ? value.kind
+    : "fade";
 }
 
-/** 方向判定：目标层级更深 → push；更浅 → pop；同层 → fade。 */
+/** 方向判定：目标层级更深 → push；更浅 → pop；同层或未知 → fade。 */
 export function kindBetween(from: string, to: string): NavKind {
-  if (from === to) return "fade";
   const a = rank(from);
   const b = rank(to);
-  return b > a ? "push" : b < a ? "pop" : "fade";
+  if (a === null || b === null || a === b) return "fade";
+  return b > a ? "push" : "pop";
 }

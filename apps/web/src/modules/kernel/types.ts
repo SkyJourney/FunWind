@@ -126,7 +126,12 @@ export type EventConsumer<K extends EventName = EventName> = (
 // ---------- 槽位清单（M2 仅启用 home.*；页面级槽位随 M3 建页扩充） ----------
 // M7 新增：profile.header（资料页徽章卡）/ thread.user-badge（帖子页作者行的荣誉徽章位）——docs/MODULES.md 留档
 export type SlotName =
-  "home.after-header" | "home.footer-notice" | "profile.header" | "thread.user-badge";
+  | "home.after-header"
+  /** 首页右栏（仅 xl 宽桌侧栏渲染）：签到卡等次要信息位 */
+  | "home.rail"
+  | "home.footer-notice"
+  | "profile.header"
+  | "thread.user-badge";
 
 /** 槽位渲染上下文：最小起步，M3 随页面语义扩展（threadId/forumId/user 等）。M7 扩 userId */
 export interface SlotContext {

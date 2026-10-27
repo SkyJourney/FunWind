@@ -21,11 +21,14 @@ export const sendMessageAction = defineAction({
   async run(ctx, input) {
     const r = await sendMessage(ctx.subject, input.recipientId, input.body);
     // 失败回跳保留 to 参数（发起新会话表单在 /messages?to=）
-    const back = input.back.startsWith("/")
-      ? input.back
-      : `/messages${input.recipientId ? `?to=${input.recipientId}` : ""}`;
+    const back =
+      input.back.startsWith("/") && !input.back.startsWith("//") && !input.back.includes("\\")
+        ? input.back
+        : `/messages${input.recipientId ? `?to=${input.recipientId}` : ""}`;
     if (!r.ok) {
-      redirect(`${back}?pm=${encodeURIComponent(r.code)}`);
+      const url = new URL(back, "http://localhost");
+      url.searchParams.set("pm", r.code);
+      redirect(`${url.pathname}${url.search}${url.hash}`);
     }
     revalidatePath("/messages");
     redirect(`/messages/${r.conversationId}`);

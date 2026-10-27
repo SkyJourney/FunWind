@@ -1,3 +1,4 @@
+import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 import { desc } from "drizzle-orm";
 import { announcements, getWebDb } from "@funwind/db";
 import { requireAdmin } from "@/lib/authz/require-admin";
@@ -131,12 +132,14 @@ export default async function AdminAnnouncementsPage({ searchParams }: Params) {
                 {a.endsAt === null && (
                   <form action={endAnnouncementAction}>
                     <input type="hidden" name="id" value={a.id} />
-                    <SubmitButton
+                    <ConfirmSubmit
+                      title="下线公告"
+                      description="确认下线此公告？"
                       className="text-xs text-destructive hover:underline disabled:opacity-60"
                       pendingText="…"
                     >
                       下线
-                    </SubmitButton>
+                    </ConfirmSubmit>
                   </form>
                 )}
               </li>

@@ -1,3 +1,4 @@
+import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/authz/require-admin";
@@ -118,12 +119,14 @@ export default async function AdminUserDetailPage({ params, searchParams }: Para
                 placeholder="理由（必填，写入审计与通知）"
                 className="w-full rounded-lg border bg-background px-2.5 py-1.5 text-sm"
               />
-              <SubmitButton
+              <ConfirmSubmit
+                title="施加限制"
+                description="确认对该用户施加所选限制？"
                 className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
                 pendingText="…"
               >
                 施加限制
-              </SubmitButton>
+              </ConfirmSubmit>
             </form>
 
             {detail.restrictions.length > 0 && (
@@ -146,12 +149,14 @@ export default async function AdminUserDetailPage({ params, searchParams }: Para
                           placeholder="解除说明（必填）"
                           className="w-52 rounded-lg border bg-background px-2.5 py-1 text-xs"
                         />
-                        <SubmitButton
+                        <ConfirmSubmit
+                          title="解除限制"
+                          description="确认解除该用户的限制？"
                           className="rounded-lg border px-2.5 py-1 text-xs hover:bg-accent disabled:opacity-60"
                           pendingText="…"
                         >
                           解除
-                        </SubmitButton>
+                        </ConfirmSubmit>
                       </form>
                     )}
                   </li>
@@ -179,12 +184,14 @@ export default async function AdminUserDetailPage({ params, searchParams }: Para
                     <input type="hidden" name="userId" value={detail.id} />
                     <input type="hidden" name="roleKey" value={r.roleKey} />
                     <input type="hidden" name="scopeId" value={r.scopeId} />
-                    <SubmitButton
+                    <ConfirmSubmit
+                      title="撤销角色"
+                      description="确认撤销该用户的角色？"
                       className="text-xs text-destructive hover:underline disabled:opacity-60"
                       pendingText="…"
                     >
                       撤销
-                    </SubmitButton>
+                    </ConfirmSubmit>
                   </form>
                 </li>
               ))}

@@ -39,6 +39,7 @@ test.beforeAll(async () => {
 test("未登录：签到条只给登录引导（不显示任何他人活动）", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByText("登录后签到")).toBeVisible();
+  await expect(page.getByText("登录后签到")).toHaveCount(1);
   await expect(page.getByRole("button", { name: "签到" })).toHaveCount(0);
 });
 
@@ -47,9 +48,10 @@ test("签到 → 状态翻转、连签 1 天、随机奖励 1–5 入账、台�
   const before = await balanceOf(page, USERS.member);
 
   await page.goto("/");
-  await expect(page.getByText(/今日未签到/)).toBeVisible();
+  // 宽桌下签到信息有两处呈现（窄屏横铺条 xl:hidden + 右栏卡），断言取可见的那一处
+  await expect(page.getByText(/今日未签到/).filter({ visible: true })).toBeVisible();
   await page.getByRole("button", { name: "签到" }).click();
-  await expect(page.getByText(/今日已签到 ✓ 已连签 1 天/)).toBeVisible();
+  await expect(page.getByText(/今日已签到 ✓ 已连签 1 天/).filter({ visible: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "签到" })).toHaveCount(0);
 
   // 奖励在 1–5 之间（旧站 punch.reward 语义）
@@ -79,9 +81,9 @@ test("迁移历史驱动连签：昨日已签 → 今日签到连签 2 天", asy
   });
   await loginAs(context, USERS.team);
   await page.goto("/");
-  await expect(page.getByText(/今日未签到 · 已连签 1 天/)).toBeVisible(); // 未签时连签到昨天
+  await expect(page.getByText(/今日未签到 · 已连签 1 天/).filter({ visible: true })).toBeVisible(); // 未签时连签到昨天
   await page.getByRole("button", { name: "签到" }).click();
-  await expect(page.getByText(/今日已签到 ✓ 已连签 2 天/)).toBeVisible();
+  await expect(page.getByText(/今日已签到 ✓ 已连签 2 天/).filter({ visible: true })).toBeVisible();
 });
 
 test("模块停用：签到条消失，主体不受影响；恢复启用后回来", async ({ page, context }) => {
@@ -92,7 +94,9 @@ test("模块停用：签到条消失，主体不受影响；恢复启用后回�
     );
   });
   await page.goto("/");
-  await expect(page.getByText(/每日签到|今日未签到|今日已签到/)).toHaveCount(0);
+  await expect(
+    page.getByText(/每日签到|今日未签到|今日已签到/).filter({ visible: true }),
+  ).toHaveCount(0);
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible(); // 首页主体不受损
 
   await withE2eDb(async (q) => {
@@ -100,5 +104,5 @@ test("模块停用：签到条消失，主体不受影响；恢复启用后回�
   });
   await page.goto("/");
   // member 在前一个用例已签到（连签 1 天）；恢复启用后签到条按 member 的状态渲染
-  await expect(page.getByText(/今日已签到 ✓ 已连签 1 天/)).toBeVisible();
+  await expect(page.getByText(/今日已签到 ✓ 已连签 1 天/).filter({ visible: true })).toBeVisible();
 });

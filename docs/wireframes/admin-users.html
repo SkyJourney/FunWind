@@ -163,9 +163,13 @@
 
           <div style="border-top: 1px solid var(--line); padding-top: 12px">
             <p class="h-sec small">限制管理</p>
-            <div class="seg" style="margin: 8px 0"><span class="on">无</span><span>禁言</span><span>封禁</span></div>
+            <div class="seg" style="margin: 8px 0">
+              <span class="on">无</span><span>禁言</span><span>封禁</span>
+            </div>
             <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center">
-              <div class="f-in" style="flex: 1; min-width: 200px">理由（必填，进审计并通知对方）…</div>
+              <div class="f-in" style="flex: 1; min-width: 200px">
+                理由（必填，进审计并通知对方）…
+              </div>
               <div class="f-in" style="width: 130px">期限：7 天</div>
               <span class="btn destructive sm">施加限制</span>
             </div>
@@ -180,7 +184,9 @@
 
           <div style="border-top: 1px solid var(--line); padding-top: 12px">
             <p class="h-sec small">角色</p>
-            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px">
+            <div
+              style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px"
+            >
               <span class="pill outline">member</span>
               <div class="f-in" style="width: 160px">授予角色…</div>
               <span class="btn ghost sm">授予</span>
@@ -189,7 +195,9 @@
 
           <div style="border-top: 1px solid var(--line); padding-top: 12px">
             <p class="h-sec small">积分调整</p>
-            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px">
+            <div
+              style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px"
+            >
               <div class="f-in" style="width: 110px">± 数额</div>
               <div class="f-in" style="flex: 1; min-width: 200px">理由（必填）…</div>
               <span class="btn primary sm">调整</span>
@@ -199,8 +207,10 @@
 
         <div class="note">
           <b>B4-用户域（后台） · 注记</b><br />
-          ① 列表：现网「用户名包含匹配」保留；行 = 头像 + 名字 + 角色/状态 pill + id/注册/期限元信息；分页同版块页。<br />
-          ② 详情四区：头卡 / 限制管理 / 角色 / 积分调整——全部沿用现网 Server Action 与审计（before 记录）；<b>施加限制与解除走确认 Dialog（B2 模式）</b>，理由必填校验不变。<br />
+          ① 列表：现网「用户名包含匹配」保留；行 = 头像 + 名字 + 角色/状态 pill +
+          id/注册/期限元信息；分页同版块页。<br />
+          ② 详情四区：头卡 / 限制管理 / 角色 / 积分调整——全部沿用现网 Server Action 与审计（before
+          记录）；<b>施加限制与解除走确认 Dialog（B2 模式）</b>，理由必填校验不变。<br />
           ③ 期限改分段+快捷档（7/30 天/自定义），替代原生 select（S5 清理计划）。<br />
           ④ 封禁中用户行内 pill 常亮标识；「查看公开页」直达 /u/[uid]。空态/无结果按 states.html。
         </div>
@@ -209,7 +219,8 @@
 
     <div class="bppill">
       <i>断点</i><span class="bp-base">base &lt;640</span><span class="bp-sm">sm 640</span
-    ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span><span class="bp-xl">xl 1280</span>
+      ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span
+      ><span class="bp-xl">xl 1280</span>
     </div>
   </body>
 </html>

@@ -50,7 +50,7 @@ function MicroDemo() {
         aria-pressed={liked}
       >
         <Heart
-          className="size-4 transition-transform duration-500 ease-spring"
+          className="size-4 transition-transform duration-spring ease-spring"
           style={{ transform: liked ? "scale(1.25)" : "scale(1)" }}
           fill={liked ? "currentColor" : "none"}
         />
@@ -101,7 +101,7 @@ function DirectionalDemo() {
           返回 pop（自左切入）
         </Button>
         <p className="text-xs text-muted-foreground">
-          真实路由过渡 = withViewTransition(() =&gt; router.push(..))，S5 接线。
+          实际路由使用方向性进场，跨路由扩散尚未接线。
         </p>
       </div>
     </div>
@@ -114,7 +114,7 @@ function ExpandDemo() {
   return (
     <>
       <Card
-        className="max-w-sm cursor-pointer transition-shadow duration-150 hover:shadow-2"
+        className="max-w-sm cursor-pointer transition-shadow duration-fast hover:shadow-2"
         onClick={(e) => {
           captureTransitionOrigin(e.clientX, e.clientY);
           void withViewTransition(() => setOpen(true), "expand");
@@ -193,7 +193,7 @@ export function MotionDemo() {
       <Section
         id="l2"
         title="L2 · 页面级方向性过渡（400ms）"
-        desc="左切进入、右切返回；浏览器支持 View Transitions 时由路由接线自动播放。"
+        desc="左切进入、右切返回；实际路由使用 CSS 方向性进场。"
       >
         <DirectionalDemo />
       </Section>

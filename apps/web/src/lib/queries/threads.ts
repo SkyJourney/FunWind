@@ -231,6 +231,10 @@ export async function getHomeFeed(
             items.map((i) => i.id),
           ),
           eq(posts.floor, 1),
+          visiblePredicate(
+            { forumId: threads.forumId, state: posts.state, authorId: posts.authorId },
+            scope,
+          ),
         ),
       );
     for (const b of bodies) media.set(b.tid, extractFeedMedia(b.bodyMd));

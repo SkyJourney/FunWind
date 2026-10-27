@@ -25,7 +25,9 @@ test.describe("模块装卸闭环（checkin，M7 起为真实模块）", () => {
 
     // 3. 签到条出现（Slot 渲染；游客看到登录引导——不泄露任何他人活动）
     await page.goto("/");
-    await expect(page.getByText(/每日签到|今日未签到|今日已签到/).first()).toBeVisible();
+    await expect(
+      page.getByText(/每日签到|今日未签到|今日已签到/).filter({ visible: true }),
+    ).toBeVisible();
     // 4. 装卸不影响宿主页
     await expect(page.getByRole("heading", { level: 1 })).toContainText("青翼字幕组");
   });
@@ -37,7 +39,9 @@ test.describe("模块装卸闭环（checkin，M7 起为真实模块）", () => {
     expect(off.ok()).toBeTruthy();
 
     await page.goto("/");
-    await expect(page.getByText(/每日签到|今日未签到|今日已签到/)).toHaveCount(0);
+    await expect(
+      page.getByText(/每日签到|今日未签到|今日已签到/).filter({ visible: true }),
+    ).toHaveCount(0);
     await expect(page.getByRole("heading", { level: 1 })).toContainText("青翼字幕组");
 
     // 恢复启用（默认态），避免污染后续用例
@@ -75,6 +79,6 @@ test.describe("真实登录驱动事件（不再靠 dev 接口伪造）", () => 
 
     expect(await loggedInEvents()).toEqual([{ actor_id: 90004, source: "auth" }]);
     await page.goto("/");
-    await expect(page.getByText(/今日未签到|今日已签到/).first()).toBeVisible();
+    await expect(page.getByText(/今日未签到|今日已签到/).filter({ visible: true })).toBeVisible();
   });
 });

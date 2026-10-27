@@ -72,7 +72,7 @@ async function renderCheckinBar() {
   const { checkinAction } = await import("@/app/actions/checkin");
   const status = await getCheckinStatus(user.id);
   return (
-    <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border bg-card px-4 py-3">
+    <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border bg-card px-4 py-3 xl:hidden">
       <div className="min-w-0">
         <p className="text-sm font-medium">
           {status.checkedInToday
@@ -100,12 +100,53 @@ async function renderCheckinBar() {
   );
 }
 
+/**
+ * 首页右栏签到卡（M10.5 视觉规范）：xl 宽桌的侧栏位。
+ * 与横铺签到条共用同一份状态——窄屏由 home.after-header 承担，桌面由本卡承担，互斥不重复。
+ */
+async function renderCheckinRail() {
+  const user = await getCurrentUser();
+  // 游客的签到引导由主列横铺条承担（唯一出口）；此处不渲染，避免同一信息出现两遍
+  if (!user) return null;
+  const { checkinAction } = await import("@/app/actions/checkin");
+  const status = await getCheckinStatus(user.id);
+  return (
+    <section className="rounded-xl border bg-card p-4">
+      <h2 className="text-sm font-semibold">每日签到</h2>
+      <p className="mt-1 text-xs text-muted-foreground">
+        {status.checkedInToday
+          ? `今日已签到 ✓ 已连签 ${status.streak} 天`
+          : `今日未签到 · 已连签 ${status.streak} 天`}
+      </p>
+      <p className="mt-0.5 text-xs text-muted-foreground">
+        本月已签 {status.monthDates.length} 天 · 累计 {status.totalDays} 天
+      </p>
+      <div className="mt-2">
+        <MiniCalendar status={status} />
+      </div>
+      {!status.checkedInToday && (
+        <form action={checkinAction} className="mt-3">
+          <button
+            type="submit"
+            className="w-full rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            签到
+          </button>
+        </form>
+      )}
+    </section>
+  );
+}
+
 export const checkinModule = defineModule({
   id: "checkin",
   description:
     "签到模块：每日签到（北京时间自然日边界）+ 连签计数 + 随机奖励（earn.checkin，punch.reward 配置）；首页签到条与本月迷你日历。",
   pointChannels: [{ key: "earn.checkin", direction: "earn", label: "签到奖励" }],
   slots: {
+    // 窄屏：主列顶部横铺条（md+ 隐藏，由 home.rail 承担）
     "home.after-header": renderCheckinBar,
+    // 宽桌：右栏签到卡（xl 侧栏）
+    "home.rail": renderCheckinRail,
   },
 });

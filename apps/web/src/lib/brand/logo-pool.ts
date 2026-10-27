@@ -49,36 +49,45 @@ export async function getLogoPoolRaw(): Promise<LogoPool> {
 
 const sqlNow = () => sql`NOW()`;
 
-export async function writePool(pool: LogoPool): Promise<void> {
-  await getWebDb()
-    .insert(siteSettings)
-    .values({ key: KEY, value: pool, updatedAt: sqlNow() })
-    .onDuplicateKeyUpdate({ set: { value: pool, updatedAt: sqlNow() } });
+async function updatePool(change: (pool: LogoPool) => LogoPool): Promise<LogoPool> {
+  const next = await getWebDb().transaction(async (tx) => {
+    await tx
+      .insert(siteSettings)
+      .values({ key: KEY, value: { items: [], active: null }, updatedAt: sqlNow() })
+      .onDuplicateKeyUpdate({ set: { key: KEY } });
+    const [row] = await tx
+      .select({ value: siteSettings.value })
+      .from(siteSettings)
+      .where(eq(siteSettings.key, KEY))
+      .for("update");
+    const pool = change(parseLogoPool(row?.value));
+    await tx
+      .update(siteSettings)
+      .set({ value: pool, updatedAt: sqlNow() })
+      .where(eq(siteSettings.key, KEY));
+    return pool;
+  });
   invalidateSiteChrome();
+  return next;
 }
 
 export async function setActiveLogo(file: string): Promise<void> {
-  const pool = await getLogoPoolRaw();
-  if (!pool.items.some((i) => i.file === file)) return;
-  await writePool({ ...pool, active: file });
+  await updatePool((pool) =>
+    pool.items.some((i) => i.file === file) ? { ...pool, active: file } : pool,
+  );
 }
 
 /** 停用并移出池（文件保留在磁盘，误删可手工找回）；当前项被移除则回到 Wind 占位。 */
 export async function removeLogo(file: string): Promise<void> {
-  const pool = await getLogoPoolRaw();
-  const items = pool.items.filter((i) => i.file !== file);
-  await writePool({
-    items,
+  await updatePool((pool) => ({
+    items: pool.items.filter((i) => i.file !== file),
     active: pool.active === file ? null : pool.active,
-  });
+  }));
 }
 
 /** 入池登记（DB 半）：由 fs 侧 addLogo 在写盘成功后调用。 */
 export async function registerLogo(name: string, file: string): Promise<LogoPool> {
-  const pool = await getLogoPoolRaw();
-  const next: LogoPool = { items: [...pool.items, { file, name }], active: file };
-  await writePool(next);
-  return next;
+  return updatePool((pool) => ({ items: [...pool.items, { file, name }], active: file }));
 }
 
 /** 读取池内 LOGO 字节（/brand/logo）；不传 file 时取当前项，file 必须在池内；无可输出返回 null。 */

@@ -1,4 +1,6 @@
 /** 认证页共享外壳：居中卡片 + 统一错误/提示渲染（M4） */
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 export function AuthShell({
   title,
@@ -50,8 +52,7 @@ export function Field({
   return (
     <label className="block space-y-1">
       <span className="text-sm text-muted-foreground">{label}</span>
-      <input
-        className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-ring"
+      <Input
         name={name}
         type={type}
         placeholder={placeholder}
@@ -64,11 +65,8 @@ export function Field({
 
 export function SubmitButton({ label }: { label: string }) {
   return (
-    <button
-      type="submit"
-      className="mt-2 w-full rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-    >
+    <Button type="submit" className="mt-2 w-full">
       {label}
-    </button>
+    </Button>
   );
 }

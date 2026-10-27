@@ -112,8 +112,8 @@
         <div style="display: grid; gap: 4px">
           <h1 class="h-page">举报 / 删除 / 屏蔽 → 就地确认，不再整页跳转</h1>
           <p class="sub">
-            现网的 /p/[pid]/report、/delete、/hide、/restore 是四个整页表单；改为 Dialog（桌面居中 / 移动端底部
-            sheet）+ Server Action，成功后 toast + 原地更新，阅读上下文不丢。
+            现网的 /p/[pid]/report、/delete、/hide、/restore 是四个整页表单；改为 Dialog（桌面居中 /
+            移动端底部 sheet）+ Server Action，成功后 toast + 原地更新，阅读上下文不丢。
           </p>
         </div>
 
@@ -166,22 +166,28 @@
             <span class="btn primary" style="width: 100%">提交举报</span>
             <span class="btn ghost" style="width: 100%">取消</span>
           </div>
-          <span class="pill" style="position: absolute; top: 10px; left: 12px">移动端形态：底部 sheet</span>
+          <span class="pill" style="position: absolute; top: 10px; left: 12px"
+            >移动端形态：底部 sheet</span
+          >
         </div>
 
         <div class="note">
           <b>B2-确认操作 · 注记</b><br />
-          ① 四个整页确认表单迁移为 Dialog（桌面居中）/<b>bottom sheet</b>（移动端，下滑或点遮罩取消）；路由不再跳走，返回键语义不变（sheet 可逐层关闭）。<br />
-          ② 提交走既有 Server Action；成功 → sonner toast（「已提交举报」）+ 原地状态更新；失败 → 表单内错误回显（不吞原因）。<br />
+          ① 四个整页确认表单迁移为 Dialog（桌面居中）/<b>bottom sheet</b
+          >（移动端，下滑或点遮罩取消）；路由不再跳走，返回键语义不变（sheet 可逐层关闭）。<br />
+          ② 提交走既有 Server Action；成功 → sonner toast（「已提交举报」）+ 原地状态更新；失败 →
+          表单内错误回显（不吞原因）。<br />
           ③ 破坏性主按钮（删除）用 destructive 语义令牌，色值 S3 定。<br />
-          ④ 本页为模式图例：落地时 /p/[pid]/report|delete|hide|restore 改为页内组件 + action 直调，旧路由保留重定向一个版本以兼容旧链接。
+          ④ 本页为模式图例：落地时 /p/[pid]/report|delete|hide|restore 改为页内组件 + action
+          直调，旧路由保留重定向一个版本以兼容旧链接。
         </div>
       </div>
     </main>
 
     <div class="bppill">
       <i>断点</i><span class="bp-base">base &lt;640</span><span class="bp-sm">sm 640</span
-    ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span><span class="bp-xl">xl 1280</span>
+      ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span
+      ><span class="bp-xl">xl 1280</span>
     </div>
   </body>
 </html>

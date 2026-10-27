@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import { consumeNavKind } from "@/lib/motion/nav-kind";
 
 /**
@@ -9,7 +10,7 @@ import { consumeNavKind } from "@/lib/motion/nav-kind";
  * 退场不处理——Next App Router 无稳定退场钩子，进场已表达方向语汇（S4 §3.2）。
  */
 export default function Template({ children }: { children: ReactNode }) {
-  const kind = consumeNavKind();
+  const kind = consumeNavKind(usePathname());
   const anim =
     kind === "push"
       ? "vt-push-in var(--fw-dur-slow) var(--fw-ease-out) both"

@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { Heart } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
+import { Button } from "@/components/ui/button";
 import { redirect } from "next/navigation";
 import { ThreadRow } from "@/components/content/thread-row";
 import { Pagination } from "@/components/content/pagination";
@@ -34,16 +37,16 @@ export default async function FollowsPage({
       </header>
 
       {feed.items.length === 0 ? (
-        <div className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground">
-          <p>还没有可显示的动态。</p>
-          <p className="mt-2">
-            去{" "}
-            <Link href="/" className="text-primary hover:underline">
-              版块页
-            </Link>{" "}
-            或 用户资料页关注感兴趣的内容，新帖就会出现在这里。
-          </p>
-        </div>
+        <EmptyState
+          icon={Heart}
+          title="还没有可显示的动态。"
+          description="去版块页或用户资料页关注感兴趣的内容，新帖就会出现在这里。"
+          action={
+            <Button asChild variant="outline" size="sm">
+              <Link href="/">版块页</Link>
+            </Button>
+          }
+        />
       ) : (
         <div className="space-y-2">
           {feed.items.map((t) => (

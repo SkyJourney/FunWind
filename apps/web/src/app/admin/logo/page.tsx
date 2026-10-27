@@ -1,9 +1,9 @@
-import { CheckCircle2, Upload } from "lucide-react";
+import { CheckCircle2, Trash2, Upload } from "lucide-react";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { getLogoPoolRaw } from "@/lib/brand/logo-pool";
 import { Card, CardContent } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { ConfirmSubmit } from "./confirm-submit";
+import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 import { removeLogoAction, setActiveLogoAction, uploadLogoAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -102,14 +102,12 @@ export default async function LogoAdminPage({
                     className="size-14 rounded-lg border object-contain"
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="flex items-center gap-1.5 text-sm font-medium">
-                      {item.name}
-                      {active && (
-                        <span className="inline-flex items-center gap-0.5 text-xs text-primary">
-                          <CheckCircle2 className="size-3.5" aria-hidden /> 当前
-                        </span>
-                      )}
-                    </p>
+                    <p className="truncate text-sm font-medium">{item.name}</p>
+                    {active && (
+                      <p className="mt-0.5 flex items-center gap-0.5 text-xs text-primary">
+                        <CheckCircle2 className="size-3.5 shrink-0" aria-hidden /> 当前生效中
+                      </p>
+                    )}
                     <p className="truncate text-xs text-muted-foreground">{item.file}</p>
                   </div>
                   <div className="flex shrink-0 flex-col gap-1.5">
@@ -123,7 +121,14 @@ export default async function LogoAdminPage({
                     )}
                     <form action={removeLogoAction}>
                       <input type="hidden" name="file" value={item.file} />
-                      <ConfirmSubmit label="移除" message="移出 LOGO 池？" />
+                      <ConfirmSubmit
+                        title="移除这枚 LOGO？"
+                        description="将该 LOGO 移出池并取消登记；不影响当前生效的 LOGO 展示，文件保留在服务器磁盘，可重新上传入池。"
+                        className="w-full rounded-md border px-2.5 py-1 text-xs text-destructive hover:bg-destructive/10"
+                        pendingText="处理中…"
+                      >
+                        <Trash2 className="inline size-3" aria-hidden /> 移除
+                      </ConfirmSubmit>
                     </form>
                   </div>
                 </CardContent>

@@ -12,6 +12,7 @@
 export type VtKind = "fade" | "push" | "pop" | "expand";
 
 let pendingOrigin: { x: number; y: number } | null = null;
+let activeTransition = 0;
 
 export function captureTransitionOrigin(x: number, y: number): void {
   pendingOrigin = { x, y };
@@ -33,13 +34,16 @@ export async function withViewTransition(
   origin?: { x: number; y: number } | null,
 ): Promise<void> {
   const doc = document as DocumentWithVT;
+  const o = origin ?? pendingOrigin;
+  pendingOrigin = null;
   if (!doc.startViewTransition || prefersReducedMotion()) {
     await update();
     return;
   }
-  const o = origin ?? pendingOrigin;
-  pendingOrigin = null;
+  const transition = ++activeTransition;
   const root = doc.documentElement;
+  root.style.removeProperty("--vt-x");
+  root.style.removeProperty("--vt-y");
   if (kind === "expand" && o) {
     root.style.setProperty("--vt-x", `${o.x}px`);
     root.style.setProperty("--vt-y", `${o.y}px`);
@@ -49,9 +53,10 @@ export async function withViewTransition(
     const vt = doc.startViewTransition(() => Promise.resolve(update()));
     await vt.finished.catch(() => {});
   } finally {
-    delete root.dataset.vt;
-    // 圆心一次性消费：清理避免残留影响下一次无显式圆心的 expand
-    root.style.removeProperty("--vt-x");
-    root.style.removeProperty("--vt-y");
+    if (transition === activeTransition) {
+      delete root.dataset.vt;
+      root.style.removeProperty("--vt-x");
+      root.style.removeProperty("--vt-y");
+    }
   }
 }

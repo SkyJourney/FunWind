@@ -81,6 +81,36 @@ describe("withViewTransition", () => {
     expect(document.documentElement.style.getPropertyValue("--vt-x")).toBe("");
   });
 
+  it("降级时也消费圆心，后续过渡不会沿用", async () => {
+    setReduced(true);
+    captureTransitionOrigin(10, 20);
+    await withViewTransition(() => {}, "expand");
+    setReduced(false);
+    const stub = installVT();
+    await withViewTransition(() => {}, "expand");
+    expect(stub.during[0]).toEqual({ vt: "expand", x: "", y: "" });
+  });
+
+  it("较早的过渡结束不会清除较新的状态", async () => {
+    setReduced(false);
+    const finish: Array<() => void> = [];
+    (document as unknown as { startViewTransition?: unknown }).startViewTransition = (
+      cb: () => void,
+    ) => {
+      cb();
+      return { finished: new Promise<void>((resolve) => finish.push(resolve)) };
+    };
+    const first = withViewTransition(() => {}, "push");
+    const second = withViewTransition(() => {}, "expand", { x: 5, y: 6 });
+    finish[0]!();
+    await first;
+    expect(document.documentElement.dataset.vt).toBe("expand");
+    expect(document.documentElement.style.getPropertyValue("--vt-x")).toBe("5px");
+    finish[1]!();
+    await second;
+    expect(document.documentElement.dataset.vt).toBeUndefined();
+  });
+
   it("expand：captureTransitionOrigin 的指针位置作圆心，且一次性消费", async () => {
     setReduced(false);
     const stub = installVT();

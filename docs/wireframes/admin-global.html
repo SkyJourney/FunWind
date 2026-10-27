@@ -61,13 +61,19 @@
         <div style="display: grid; gap: 4px">
           <h1 class="h-page">B4 · 全局状态落地规格（loading / error / 404）</h1>
           <p class="sub">
-            全站当前 41 页零路由边界（S1 盘点 ①）；本表定稿每个边界文件的位置与内容。骨架形状必须复用对应页布局（states.html ①），禁止通用转圈。
+            全站当前 41 页零路由边界（S1 盘点
+            ①）；本表定稿每个边界文件的位置与内容。骨架形状必须复用对应页布局（states.html
+            ①），禁止通用转圈。
           </p>
         </div>
 
         <div class="card" style="overflow-x: auto">
           <table class="spec">
-            <tr><th>边界文件（app/ 下）</th><th>形态</th><th>覆盖路由</th></tr>
+            <tr>
+              <th>边界文件（app/ 下）</th>
+              <th>形态</th>
+              <th>覆盖路由</th>
+            </tr>
             <tr>
               <td><b>loading.tsx</b>（feed 骨架）</td>
               <td>主列 + 右栏位占位：筛选条骨架 + 3 张流卡片骨架（thumb+两行文字）</td>
@@ -85,7 +91,9 @@
             </tr>
             <tr>
               <td><b>error.tsx</b></td>
-              <td>states.html ③：「页面开小差了」+ 错误 ID + 重试/回首页（client 组件，reset()）</td>
+              <td>
+                states.html ③：「页面开小差了」+ 错误 ID + 重试/回首页（client 组件，reset()）
+              </td>
               <td>app 根（捕获全部未处理段错误）</td>
             </tr>
             <tr>
@@ -95,7 +103,11 @@
             </tr>
             <tr>
               <td><b>not-found.tsx</b></td>
-              <td>404 专属：插图占位 +「页面不存在或你无权访问」+ 去首页/去搜索（<b>保持受限内容 404 不暴露存在性</b>的语义）</td>
+              <td>
+                404 专属：插图占位 +「页面不存在或你无权访问」+ 去首页/去搜索（<b
+                  >保持受限内容 404 不暴露存在性</b
+                >的语义）
+              </td>
               <td>全站 + notFound() 调用处</td>
             </tr>
           </table>
@@ -142,9 +154,16 @@
 
         <div class="note">
           <b>B4-全局 · 注记</b><br />
-          ① loading.tsx 是 RSC 边界：只放骨架不取数；骨架组件复用 S5 抽出的布局组件（同一组件传 skeleton 态，保证形状永不错位）。<b>安全红线（E2E 实测修正）</b>：loading 边界会使响应提前以 200 流式开始，段内 notFound() 无法再改写状态码——因此 loading.tsx 仅允许出现在确定不会 notFound() 的段（/boards、/search）；版块页、主题页、编辑页、私信/通知等 404 能力路由一律不加，原规格中的 /t、/u、/p、/messages、/notifications 条目作废。<br />
-          ② 后台 15 页不加 per-page loading（force-dynamic 后台页轻量、命中率高）；后台空态/错误同样套 states.html 图例。<br />
-          ③ 404 文案刻意二义（「不存在或无权访问」）——受限版块/帖子的 notFound() 语义不因新页面泄露。<br />
+          ① loading.tsx 是 RSC 边界：只放骨架不取数；骨架组件复用 S5 抽出的布局组件（同一组件传
+          skeleton 态，保证形状永不错位）。<b>安全红线（E2E 实测修正）</b>：loading
+          边界会使响应提前以 200 流式开始，段内 notFound() 无法再改写状态码——因此 loading.tsx
+          仅允许出现在确定不会 notFound()
+          的段（/boards、/search）；版块页、主题页、编辑页、私信/通知等 404
+          能力路由一律不加，原规格中的 /t、/u、/p、/messages、/notifications 条目作废。<br />
+          ② 后台 15 页不加 per-page loading（force-dynamic
+          后台页轻量、命中率高）；后台空态/错误同样套 states.html 图例。<br />
+          ③ 404 文案刻意二义（「不存在或无权访问」）——受限版块/帖子的 notFound()
+          语义不因新页面泄露。<br />
           ④ error.tsx 的错误 ID = 时间戳短码，便于对服务端日志；dev 环境额外显示原始错误摘要。<br />
           ⑤ 本表连同前四份线稿，S2 四批全部完成（前台 26 + 后台 15 + 全局规格）。
         </div>
@@ -153,7 +172,8 @@
 
     <div class="bppill">
       <i>断点</i><span class="bp-base">base &lt;640</span><span class="bp-sm">sm 640</span
-    ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span><span class="bp-xl">xl 1280</span>
+      ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span
+      ><span class="bp-xl">xl 1280</span>
     </div>
   </body>
 </html>
