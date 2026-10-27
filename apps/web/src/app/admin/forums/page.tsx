@@ -32,7 +32,7 @@ const inputCls =
 export default async function ForumsAdminPage({
   searchParams,
 }: {
-  searchParams: Promise<{ err?: string; created?: string }>;
+  searchParams: Promise<{ err?: string; created?: string; "confirm-delete"?: string }>;
 }) {
   // 入口鉴权约定：第一个 await 必须是 requireAdmin（admin-entry-guard 静态守护）
   await requireAdmin("site.admin");
@@ -46,6 +46,14 @@ export default async function ForumsAdminPage({
 
   const tree = new ForumTree(rows);
   const sp = await searchParams;
+  // 无 JS 回退（M10.6d）：?confirm-delete=<fid> 渲染原生表单确认段
+  const confirmDeleteId = Number(sp["confirm-delete"]);
+  const confirmDelete = rows.find(
+    (r) =>
+      r.id === confirmDeleteId &&
+      (childCount.get(r.id) ?? 0) === 0 &&
+      (threadCount.get(r.id) ?? 0) === 0,
+  );
 
   return (
     <div className="space-y-5">
@@ -64,6 +72,27 @@ export default async function ForumsAdminPage({
         >
           {ERR_TEXT[sp.err] ?? "操作失败，请重试。"}
         </p>
+      )}
+
+      {confirmDelete && (
+        <div
+          role="alertdialog"
+          aria-label="确认删除版块"
+          className="rounded-xl border border-warning/40 bg-warning/10 p-4"
+        >
+          <p className="text-sm font-medium">
+            无脚本模式 · 确认删除「{confirmDelete.name}」（#{confirmDelete.id}）？
+          </p>
+          <p className="mt-1 text-xs text-warning">
+            该版块为空（无主题、无子版块），删除后不可恢复。
+          </p>
+          <form action={deleteForumAction} className="mt-3 flex gap-2">
+            <input type="hidden" name="fid" value={confirmDelete.id} />
+            <SubmitButton className="rounded-lg bg-destructive px-4 py-1.5 text-sm font-medium text-white hover:bg-destructive/90 disabled:opacity-60">
+              确认删除
+            </SubmitButton>
+          </form>
+        </div>
       )}
 
       {/* 新建 */}
@@ -194,6 +223,16 @@ export default async function ForumsAdminPage({
                           <Trash2 className="size-3" aria-hidden /> 删除
                         </ConfirmSubmit>
                       </form>
+                    )}
+                    {deletable && (
+                      <noscript>
+                        <a
+                          href={`?confirm-delete=${n.id}`}
+                          className="text-xs text-warning underline"
+                        >
+                          无脚本删除
+                        </a>
+                      </noscript>
                     )}
                   </span>
                 </CardContent>

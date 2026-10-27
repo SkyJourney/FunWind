@@ -19,13 +19,8 @@ export default async function ClaimPage({
         <p className="text-sm text-muted-foreground">
           设置新密码后，你在老论坛的发帖、勋章、青翼币将全部回归。
         </p>
-        <Field
-          label="新密码（至少 8 位）"
-          name="password"
-          type="password"
-          autoComplete="new-password"
-        />
-        <Field label="确认新密码" name="confirm" type="password" autoComplete="new-password" />
+        <Field label="新密码（至少 8 位）" name="password" password autoComplete="new-password" />
+        <Field label="确认新密码" name="confirm" password autoComplete="new-password" />
         <SubmitButton label="认领并登录" />
       </form>
     </AuthShell>

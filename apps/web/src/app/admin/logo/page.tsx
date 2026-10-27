@@ -22,12 +22,17 @@ const ERR_TEXT: Record<string, string> = {
 export default async function LogoAdminPage({
   searchParams,
 }: {
-  searchParams: Promise<{ err?: string }>;
+  searchParams: Promise<{ err?: string; "confirm-remove"?: string }>;
 }) {
   // 入口鉴权约定：第一个 await 必须是 requireAdmin（admin-entry-guard 静态守护）
   await requireAdmin("site.admin");
   const pool = await getLogoPoolRaw();
   const sp = await searchParams;
+  // 无 JS 回退（M10.6d）：?confirm-remove=<file> 渲染原生表单确认段（有 JS 时 ConfirmSubmit 对话框接管）
+  const confirmRemove =
+    sp["confirm-remove"] && pool.items.some((i) => i.file === sp["confirm-remove"])
+      ? pool.items.find((i) => i.file === sp["confirm-remove"])!
+      : null;
 
   return (
     <div className="space-y-5">
@@ -47,6 +52,25 @@ export default async function LogoAdminPage({
         >
           {ERR_TEXT[sp.err] ?? "操作失败，请重试。"}
         </p>
+      )}
+
+      {confirmRemove && (
+        <div
+          role="alertdialog"
+          aria-label="确认移除"
+          className="rounded-xl border border-warning/40 bg-warning/10 p-4"
+        >
+          <p className="text-sm font-medium">无脚本模式 · 确认移除「{confirmRemove.name}」？</p>
+          <p className="mt-1 text-xs text-warning">
+            将把该 LOGO 移出池并取消登记；不影响当前生效项展示，文件保留在服务器磁盘。
+          </p>
+          <form action={removeLogoAction} className="mt-3 flex gap-2">
+            <input type="hidden" name="file" value={confirmRemove.file} />
+            <SubmitButton className="rounded-lg bg-destructive px-4 py-1.5 text-sm font-medium text-white hover:bg-destructive/90 disabled:opacity-60">
+              确认移除
+            </SubmitButton>
+          </form>
+        </div>
       )}
 
       {/* 上传 */}
@@ -129,6 +153,14 @@ export default async function LogoAdminPage({
                       >
                         <Trash2 className="inline size-3" aria-hidden /> 移除
                       </ConfirmSubmit>
+                      <noscript>
+                        <a
+                          href={`?confirm-remove=${encodeURIComponent(item.file)}`}
+                          className="mt-1 block text-center text-xs text-warning underline"
+                        >
+                          无脚本模式移除
+                        </a>
+                      </noscript>
                     </form>
                   </div>
                 </CardContent>

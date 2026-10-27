@@ -39,6 +39,16 @@ const FORBIDDEN_COLUMNS = new Set(["raw", "content_raw"]);
 const LEGACY_TABLE_RE = /^(migration|legacy)_/;
 const LEGACY_COLUMN_RE = /^legacy_|_legacy$/;
 const LEGACY_ENUM_VALUES = new Set(["migrated", "legacy"]);
+/**
+ * 显式豁免（设计依据见注释，新增须先过评审）：
+ * users.legacy_password_hash / legacy_password_pending——双轨密码（docs/PASSWORD-DUAL-TRACK.md），
+ * "legacy" 语义是「旧凭据材料」而非「迁移痕迹列」；唯一写入方为迁移回填脚本，
+ * 应用层只读判定与设密时置 NULL，不携带任何旧站行数据。
+ */
+const LEGACY_COLUMN_ALLOWLIST = new Set([
+  "users.legacy_password_hash",
+  "users.legacy_password_pending",
+]);
 
 type AnyTable = Parameters<typeof getTableConfig>[0];
 
@@ -76,9 +86,10 @@ export function checkSchemaRules(schemaModule: Record<string, unknown>): RuleVio
       if (FORBIDDEN_COLUMNS.has(col.name)) add(name, "no-archive-column", `不得保留列 ${col.name}`);
     }
 
-    // 2b. 运行时不认识旧站
+    // 2b. 运行时不认识旧站（白名单见 LEGACY_COLUMN_ALLOWLIST 注释）
     if (LEGACY_TABLE_RE.test(name)) add(name, "no-legacy", `表名 ${name} 带迁移/旧站痕迹`);
     for (const col of cfg.columns) {
+      if (LEGACY_COLUMN_ALLOWLIST.has(`${name}.${col.name}`)) continue;
       if (LEGACY_COLUMN_RE.test(col.name)) add(name, "no-legacy", `列 ${col.name} 带旧站痕迹`);
       const enumValues = (col as unknown as { enumValues?: readonly string[] }).enumValues;
       const bad = enumValues?.filter((v) => LEGACY_ENUM_VALUES.has(v));

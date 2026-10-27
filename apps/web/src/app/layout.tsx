@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from "react";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { logoutAction } from "@/app/actions/auth";
@@ -12,6 +13,7 @@ import { getCurrentSubject } from "@/lib/authz/subject";
 import { checkPermission, getModeratedForumIds } from "@/lib/authz/service";
 import { unreadPmTotal } from "@/lib/pm/queries";
 import { bannerAnnouncement, getSiteChrome, getSiteIdentity } from "@/lib/site-chrome";
+import { QueryToast } from "@/components/feedback/query-toast";
 // 模块注册表求值（注册 + 封板）：任何内核调用前加载
 import "@/modules";
 import "./globals.css";
@@ -104,6 +106,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </footer>
           )}
           <BottomTabBar user={user ? { id: user.id } : null} pmOn={pmOn} pmUnread={pmUnread} />
+          <Suspense fallback={null}>
+            <QueryToast />
+          </Suspense>
           <Toaster position="top-center" />
         </ThemeProvider>
       </body>

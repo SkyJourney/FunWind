@@ -81,7 +81,7 @@ test.describe("生产构建", () => {
   }) => {
     await page.goto("/login");
     await page.getByLabel("用户名或邮箱").fill("nobody_prod_smoke");
-    await page.getByLabel("密码").fill("whatever-password-1");
+    await page.getByLabel("密码", { exact: true }).fill("whatever-password-1");
     await page.getByRole("button", { name: "登录" }).click();
     await expect(page.getByText("用户名或密码错误")).toBeVisible();
 

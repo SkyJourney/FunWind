@@ -65,7 +65,7 @@ test.describe("真实登录驱动事件（不再靠 dev 接口伪造）", () => 
     // 密码错误：不得派发事件
     await page.goto("/login");
     await page.getByLabel("用户名或邮箱").fill("demo_member");
-    await page.getByLabel("密码").fill("definitely-wrong-password");
+    await page.getByLabel("密码", { exact: true }).fill("definitely-wrong-password");
     await page.getByRole("button", { name: "登录" }).click();
     await expect(page.getByText("用户名或密码错误")).toBeVisible();
     expect(await loggedInEvents()).toEqual([]);
@@ -73,7 +73,7 @@ test.describe("真实登录驱动事件（不再靠 dev 接口伪造）", () => 
     // 真实登录
     await page.goto("/login");
     await page.getByLabel("用户名或邮箱").fill("demo_admin");
-    await page.getByLabel("密码").fill("e2e-admin-pass");
+    await page.getByLabel("密码", { exact: true }).fill("e2e-admin-pass");
     await page.getByRole("button", { name: "登录" }).click();
     await expect(page.getByRole("button", { name: "demo_admin" })).toBeVisible();
 

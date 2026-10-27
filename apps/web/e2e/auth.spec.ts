@@ -129,7 +129,7 @@ test.describe("M4 · 用户与认证", () => {
     await expect(page.getByRole("link", { name: "登录", exact: true })).toBeVisible();
     await page.goto("/login");
     await page.getByLabel("用户名或邮箱").fill(EMAIL);
-    await page.getByLabel("密码").fill("new-pass-456");
+    await page.getByLabel("密码", { exact: true }).fill("new-pass-456");
     await page.getByRole("button", { name: "登录" }).click();
     await expect(page.getByRole("button", { name: USERNAME })).toBeVisible();
   });
@@ -156,12 +156,12 @@ test.describe("M4 · 用户与认证", () => {
   test("登录失败统一话术（防枚举）", async ({ page }) => {
     await page.goto("/login");
     await page.getByLabel("用户名或邮箱").fill("no_such_user_xyz");
-    await page.getByLabel("密码").fill("whatever123");
+    await page.getByLabel("密码", { exact: true }).fill("whatever123");
     await page.getByRole("button", { name: "登录" }).click();
     await expect(page.getByText("用户名或密码错误")).toBeVisible();
 
     await page.getByLabel("用户名或邮箱").fill(EMAIL);
-    await page.getByLabel("密码").fill("wrong-pass");
+    await page.getByLabel("密码", { exact: true }).fill("wrong-pass");
     await page.getByRole("button", { name: "登录" }).click();
     await expect(page.getByText("用户名或密码错误")).toBeVisible();
   });
@@ -169,7 +169,7 @@ test.describe("M4 · 用户与认证", () => {
   test("封禁用户登录被拒并展示理由", async ({ page }) => {
     await page.goto("/login");
     await page.getByLabel("用户名或邮箱").fill("demo_banned");
-    await page.getByLabel("密码").fill("e2e-banned-pass");
+    await page.getByLabel("密码", { exact: true }).fill("e2e-banned-pass");
     await page.getByRole("button", { name: "登录" }).click();
     await expect(page.getByText(/账号已被封禁/)).toBeVisible();
     await expect(page.getByText(/E2E 封禁夹具/)).toBeVisible();
@@ -229,7 +229,7 @@ test.describe("M4 · 用户与认证", () => {
     const attempt = async (ident: string, pw: string) => {
       await page.goto("/login");
       await page.getByLabel("用户名或邮箱").fill(ident);
-      await page.getByLabel("密码").fill(pw);
+      await page.getByLabel("密码", { exact: true }).fill(pw);
       await page.getByRole("button", { name: "登录" }).click();
       const throttled = page.getByText("尝试过于频繁");
       const invalid = page.getByText("用户名或密码错误");
@@ -249,7 +249,7 @@ test.describe("M4 · 用户与认证", () => {
     // 对照：USERNAME 已被挡，但另一个账号（封禁夹具，密码正确）不受牵连，走到的是封禁提示而不是“过于频繁”
     await page.goto("/login");
     await page.getByLabel("用户名或邮箱").fill("demo_banned");
-    await page.getByLabel("密码").fill("e2e-banned-pass");
+    await page.getByLabel("密码", { exact: true }).fill("e2e-banned-pass");
     await page.getByRole("button", { name: "登录" }).click();
     await expect(page.getByText(/账号已被封禁/)).toBeVisible();
     await expect(page.getByText("尝试过于频繁")).toHaveCount(0);

@@ -33,12 +33,7 @@ export default async function RegisterPage({
         )}
         <Field label="用户名" name="username" placeholder="2-20 位（中文/字母/数字/下划线）" />
         <Field label="邮箱" name="email" type="email" autoComplete="email" />
-        <Field
-          label="密码（至少 8 位）"
-          name="password"
-          type="password"
-          autoComplete="new-password"
-        />
+        <Field label="密码（至少 8 位）" name="password" password autoComplete="new-password" />
         <SubmitButton label={mode === "invite" ? "凭邀请码注册" : "注册"} />
         <p className="text-center text-xs text-muted-foreground">
           当前注册方式：{mode === "invite" ? "邀请制" : "开放注册（需邮箱验证）"}

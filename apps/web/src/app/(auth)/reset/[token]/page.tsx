@@ -16,13 +16,8 @@ export default async function ResetPage({
     <AuthShell title="设置新密码" error={error}>
       <form action={resetPasswordAction} className="space-y-4">
         <input type="hidden" name="token" value={token} />
-        <Field
-          label="新密码（至少 8 位）"
-          name="password"
-          type="password"
-          autoComplete="new-password"
-        />
-        <Field label="确认新密码" name="confirm" type="password" autoComplete="new-password" />
+        <Field label="新密码（至少 8 位）" name="password" password autoComplete="new-password" />
+        <Field label="确认新密码" name="confirm" password autoComplete="new-password" />
         <SubmitButton label="保存并登录" />
       </form>
     </AuthShell>

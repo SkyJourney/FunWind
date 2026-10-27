@@ -31,7 +31,7 @@ export default async function LoginPage({
     >
       <form action={loginAction} className="space-y-4">
         <Field label="用户名或邮箱" name="identifier" autoComplete="username" />
-        <Field label="密码" name="password" type="password" autoComplete="current-password" />
+        <Field label="密码" name="password" password autoComplete="current-password" />
         <SubmitButton label="登录" />
       </form>
     </AuthShell>

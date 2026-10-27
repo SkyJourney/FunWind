@@ -15,7 +15,8 @@ export function loadRootEnv(): NodeJS.ProcessEnv {
   const rootEnv = join(repoRoot, ".env");
   const legacyEnv = join(repoRoot, "migration/.env");
   const target = existsSync(rootEnv) ? rootEnv : existsSync(legacyEnv) ? legacyEnv : null;
-  if (target) dotenv({ path: target, override: false });
+  // quiet：dotenv 18 默认打印注入横幅，会被 Next dev overlay 计为 Console Error 噪音（M10.6d）
+  if (target) dotenv({ path: target, override: false, quiet: true });
   return process.env;
 }
 

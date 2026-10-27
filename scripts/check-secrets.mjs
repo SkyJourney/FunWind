@@ -38,6 +38,7 @@ const EMAIL_ALLOW_ADDRESSES = new Set(["sky.jiang.s.z@gmail.com"]);
 /** 这些文件里刻意用合成的“看起来像真实域名”的邮箱做脱敏函数的测试输入 */
 const EMAIL_ALLOW_PATHS = new Set([
   "migration/src/lib/pii.test.ts",
+  "packages/db/src/e2e-fixtures.ts", // E2E 夹具合成账号（*.test.local / *.e2e.local）
   "apps/web/src/lib/auth/email.test.ts", // 邮箱格式校验的合成输入（含刻意畸形的地址）
   "scripts/check-secrets.test.mjs",
 ]);

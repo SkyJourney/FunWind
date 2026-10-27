@@ -27,7 +27,7 @@ async function resetLegacyFixture(): Promise<void> {
 async function uiLogin(page: Page, identifier: string, password: string): Promise<void> {
   await page.goto("/login");
   await page.getByLabel("用户名或邮箱").fill(identifier);
-  await page.getByLabel("密码").fill(password);
+  await page.getByLabel("密码", { exact: true }).fill(password);
   await page.getByRole("button", { name: "登录" }).click();
 }
 

@@ -9,7 +9,7 @@ import { NextResponse, type NextRequest } from "next/server";
 const MUST_CHANGE_COOKIE = "fw_must_change"; // 与 lib/auth/session.ts MUST_CHANGE_COOKIE 同值（edge 不引 server 模块）
 const CHANGE_PATH = "/settings/password";
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   if (req.cookies.get(MUST_CHANGE_COOKIE)?.value !== "1") return NextResponse.next();
   if (req.nextUrl.pathname.startsWith(CHANGE_PATH)) return NextResponse.next();
   const url = req.nextUrl.clone();

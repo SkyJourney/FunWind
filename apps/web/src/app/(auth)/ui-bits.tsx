@@ -1,6 +1,7 @@
-/** 认证页共享外壳：居中卡片 + 统一错误/提示渲染（M4） */
+/** 认证页共享外壳：居中卡片 + 统一错误/提示渲染（M4）；密码字段带可见性切换（M10.6d） */
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordField } from "@/components/auth/password-field";
 
 export function AuthShell({
   title,
@@ -41,6 +42,8 @@ export function Field({
   placeholder,
   required = true,
   autoComplete,
+  password = false,
+  minLength,
 }: {
   label: string;
   name: string;
@@ -48,17 +51,30 @@ export function Field({
   placeholder?: string;
   required?: boolean;
   autoComplete?: string;
+  /** 密码语义：渲染带可见性切换的输入（忽略 type） */
+  password?: boolean;
+  minLength?: number;
 }) {
   return (
     <label className="block space-y-1">
       <span className="text-sm text-muted-foreground">{label}</span>
-      <Input
-        name={name}
-        type={type}
-        placeholder={placeholder}
-        required={required}
-        autoComplete={autoComplete}
-      />
+      {password ? (
+        <PasswordField
+          name={name}
+          placeholder={placeholder}
+          required={required}
+          autoComplete={autoComplete}
+          minLength={minLength}
+        />
+      ) : (
+        <Input
+          name={name}
+          type={type}
+          placeholder={placeholder}
+          required={required}
+          autoComplete={autoComplete}
+        />
+      )}
     </label>
   );
 }
