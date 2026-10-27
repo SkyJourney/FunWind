@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>线稿 · 头像设置</title>
+    <link rel="stylesheet" href="_shared/wireframe.css" />
+    <style>
+      .wrap {
+        max-width: 560px;
+      }
+      .cur {
+        display: flex;
+        gap: 14px;
+        align-items: center;
+      }
+      .cur .avatar {
+        width: 76px;
+        height: 76px;
+        font-size: 26px;
+      }
+      .dropzone {
+        border: 1.5px dashed var(--line-strong);
+        border-radius: var(--r-md);
+        padding: 22px;
+        display: grid;
+        justify-items: center;
+        gap: 6px;
+        color: var(--t2);
+        font-size: 13px;
+        background: var(--surface);
+      }
+      .stage {
+        position: relative;
+        height: 320px;
+        border-radius: var(--r-lg);
+        border: 1px solid var(--line);
+        overflow: hidden;
+        background: var(--canvas);
+      }
+      .backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgb(20 20 24 / 0.5);
+      }
+      .crop-dlg {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: min(360px, calc(100% - 32px));
+        background: var(--surface);
+        border-radius: var(--r-lg);
+        box-shadow: 0 12px 40px rgb(0 0 0 / 0.25);
+        padding: 18px;
+        display: grid;
+        gap: 12px;
+      }
+      .crop-area {
+        aspect-ratio: 1;
+        background:
+          linear-gradient(135deg, transparent 49.4%, var(--t3) 49.4% 50.6%, transparent 50.6%),
+          var(--sunken);
+        border-radius: var(--r-sm);
+        position: relative;
+        overflow: hidden;
+      }
+      .crop-box {
+        position: absolute;
+        inset: 18% 22%;
+        border: 2px solid #fff;
+        box-shadow: 0 0 0 999px rgb(20 20 24 / 0.55);
+        border-radius: 6px;
+      }
+      .crop-box::after {
+        content: "";
+        position: absolute;
+        right: -5px;
+        bottom: -5px;
+        width: 12px;
+        height: 12px;
+        background: #fff;
+        border-radius: 2px;
+      }
+      .slider {
+        height: 4px;
+        border-radius: 2px;
+        background: var(--sunken);
+        position: relative;
+      }
+      .slider i {
+        position: absolute;
+        left: 30%;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: var(--ink);
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <span class="brand"><span class="logo"></span>青翼字幕组</span>
+      <nav class="topnav">
+        <a href="home-feed-list.html">首页</a>
+        <a href="forum.html">版块</a>
+        <a href="#">动态</a>
+      </nav>
+      <div class="top-tools">
+        <span class="ico"><span class="glyph"></span></span>
+        <span class="avatar">A</span>
+      </div>
+    </header>
+
+    <main class="page wrap">
+      <div class="main">
+        <h1 class="h-page">头像设置</h1>
+
+        <div class="card pad cur">
+          <span class="avatar">A</span>
+          <div style="flex: 1">
+            <b style="font-size: 14px">当前头像</b>
+            <p class="sub">支持 JPG / PNG / WebP，≤ 2MB。上传后在弹层中裁剪为方图。</p>
+          </div>
+        </div>
+
+        <div class="dropzone">
+          <span class="glyph" style="width: 22px; height: 22px"></span>
+          <b>拖拽或点击选择图片</b>
+          <span class="t3 small">选择后进入裁剪</span>
+        </div>
+
+        <!-- 裁剪弹层（示意） -->
+        <div class="stage">
+          <div class="backdrop"></div>
+          <div class="crop-dlg">
+            <b>调整裁剪范围</b>
+            <div class="crop-area"><div class="crop-box"></div></div>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span class="t3 small">缩小</span>
+              <div class="slider" style="flex: 1"><i></i></div>
+              <span class="t3 small">放大</span>
+            </div>
+            <div style="display: flex; gap: 8px; justify-content: flex-end">
+              <span class="btn ghost sm">取消</span>
+              <span class="btn primary sm">确认裁剪并上传</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="note">
+          <b>B3-头像设置 · 注记</b><br />
+          ① 裁剪交互沿用现网 react-image-crop，视觉重排：裁剪框加白色描边 + 四角拖拽手柄 + 暗色遮罩 + 底部缩放滑杆；确认后行内进度（复用上传进度条模式）。<br />
+          ② 移动端弹层形态为 bottom sheet（复用 confirm-dialog 的移动端形态）。<br />
+          ③ 失败行内回显（格式/超限），不用整页报错；上传成功后当前头像就地刷新（缓存戳翻新，现网逻辑）。<br />
+          ④ 本页入口：我的聚合页「头像与资料」行 + 用户菜单「头像设置」。
+        </div>
+      </div>
+    </main>
+
+    <div class="bppill">
+      <i>断点</i><span class="bp-base">base &lt;640</span><span class="bp-sm">sm 640</span
+    ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span><span class="bp-xl">xl 1280</span>
+    </div>
+  </body>
+</html>

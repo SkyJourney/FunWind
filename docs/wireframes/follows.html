@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>线稿 · 关注动态</title>
+    <link rel="stylesheet" href="_shared/wireframe.css" />
+    <style>
+      .wrap {
+        max-width: 720px;
+      }
+      .sort {
+        margin-left: auto;
+        display: flex;
+        gap: 2px;
+        color: var(--t3);
+        font-size: 13px;
+      }
+      .sort span {
+        padding: 4px 8px;
+        border-radius: 6px;
+      }
+      .sort .on {
+        background: var(--ink-soft);
+        color: var(--t1);
+        font-weight: 600;
+      }
+      .manage-grid {
+        display: grid;
+        gap: 10px;
+      }
+      .mg-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+      .mg-row .lbl {
+        font-size: 13px;
+        color: var(--t2);
+        width: 84px;
+        flex-shrink: 0;
+      }
+      .chip .x {
+        opacity: 0.55;
+        margin-left: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <span class="brand"><span class="logo"></span>青翼字幕组</span>
+      <nav class="topnav">
+        <a href="home-feed-list.html">首页</a>
+        <a href="forum.html">版块</a>
+        <a class="on" href="#">动态</a>
+      </nav>
+      <div class="top-tools">
+        <span class="ico"><span class="glyph"></span></span>
+        <span class="avatar">A</span>
+      </div>
+    </header>
+
+    <main class="page wrap">
+      <div class="main">
+        <div style="display: flex; align-items: center; gap: 8px">
+          <div class="chips scroll" style="flex: 1">
+            <span class="chip on">全部</span>
+            <span class="chip">版块的新主题</span>
+            <span class="chip">关注的人</span>
+          </div>
+          <div class="sort"><span class="on">最新</span><span>未读</span></div>
+        </div>
+
+        <!-- 动态流（复用主题行形态，带来源标记） -->
+        <div class="feed">
+          <article class="card feed-item">
+            <div class="txt">
+              <div class="small t3" style="display: flex; gap: 6px">
+                <span class="pill">纸巾君</span><span class="t3">发布了新主题</span>
+              </div>
+              <h2 class="title">时轴工程模板 v3：双层描边与 TL 轨道规范（附工程）</h2>
+              <div class="meta"><span>字幕技术</span><span>12 分钟前</span><span>回复 9</span></div>
+            </div>
+            <div class="thumb">封面</div>
+          </article>
+          <article class="card feed-item">
+            <div class="txt">
+              <div class="small t3" style="display: flex; gap: 6px">
+                <span class="pill">动画·アニメ</span><span class="t3">有新主题</span>
+              </div>
+              <h2 class="title">『众神的恶作剧』第 02 话 [720p][简体外挂]</h2>
+              <div class="meta"><span>银古の箱</span><span>1 小时前</span><span>回复 15</span></div>
+            </div>
+          </article>
+          <article class="card feed-item">
+            <div class="txt">
+              <div class="small t3" style="display: flex; gap: 6px">
+                <span class="pill">银古の箱</span><span class="t3">回复了主题</span>
+              </div>
+              <h2 class="title">2026 年 10 月新番追番清单 + 期中吐槽楼</h2>
+              <p class="excerpt">「10 月整体质量比我预期高，尤其 22:31 那段作画……」</p>
+              <div class="meta"><span>动漫讨论区</span><span>2 小时前</span></div>
+            </div>
+          </article>
+        </div>
+
+        <div style="display: grid; justify-items: center">
+          <span class="btn ghost">加载更多</span>
+        </div>
+
+        <!-- 关注管理 -->
+        <div class="card pad manage-grid">
+          <div class="h-sec small">关注管理</div>
+          <div class="mg-row">
+            <span class="lbl">版块 · 8</span>
+            <span class="chip">动画·アニメ<span class="x">×</span></span>
+            <span class="chip">日剧·ドラマ<span class="x">×</span></span>
+            <span class="chip">音乐·OST<span class="x">×</span></span>
+            <span class="chip t3">…</span>
+          </div>
+          <div class="mg-row">
+            <span class="lbl">人 · 32</span>
+            <span class="chip">纸巾君<span class="x">×</span></span>
+            <span class="chip">银古の箱<span class="x">×</span></span>
+            <span class="chip t3">…</span>
+          </div>
+        </div>
+
+        <div class="note">
+          <b>B3-关注动态 · 注记</b><br />
+          ① 数据 = 现网 follows-feed（关注版块/用户新帖）；新增类型筛选 chips（全部/版块/人）与「未读」排序（轻量增强，S5 可裁）。<br />
+          ② 行首 pill 标来源（谁/哪个版块 + 动作词）；「回复了主题」带摘要行并深链到楼层。<br />
+          ③ 关注管理：chips 行尾 × 就地取关（弹确认 Dialog，复用 B2 模式）；取关后动态即时消失。<br />
+          ④ 空态：「还没有关注任何内容」+「去版块页点关注，新内容会出现在这里」+ 去版块逛逛。<br />
+          ⑤ 入口：桌面顶栏「动态」+ 移动端「我的」→「我的关注」。
+        </div>
+      </div>
+    </main>
+
+    <div class="bppill">
+      <i>断点</i><span class="bp-base">base &lt;640</span><span class="bp-sm">sm 640</span
+    ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span><span class="bp-xl">xl 1280</span>
+    </div>
+  </body>
+</html>
