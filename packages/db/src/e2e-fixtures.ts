@@ -43,6 +43,8 @@ export const E2E_FIX = {
   archived: 955, // 已归档（isArchived=true）：只读，回复入口应给出归档说明
   prefixAiring: 9501,
   placeholderUser: 95001, // state=deleted 的「已注销用户」占位账号
+  /** 双轨密码账号（M10.6c）：旧哈希可登录→强制换密（docs/PASSWORD-DUAL-TRACK.md） */
+  legacyUser: 95002,
   alice: 90001, // 演示种子里的用户（头像挂在她身上）
   member: 90005, // 演示种子里的用户：已购买门控附件帖的付费门控
   thread: {
@@ -165,6 +167,33 @@ export async function seedE2eFixtures(db: Db, alice = E2E_FIX.alice): Promise<vo
     .insert(userProfiles)
     .values({ userId: alice, avatarFileId: pngId })
     .onDuplicateKeyUpdate({ set: { avatarFileId: incoming("avatar_file_id") } });
+
+  // ---------- 双轨密码账号：legacy 口径 md5(md5(pwd)+salt)（WindidUtility::buildPassword） ----------
+  {
+    const { createHash } = await import("node:crypto");
+    const md5 = (s: string) => createHash("md5").update(s, "utf8").digest("hex");
+    const legacyPassword = "e2e-legacy-pass";
+    const salt = "E2e9Xx";
+    await db
+      .insert(users)
+      .values({
+        id: F.legacyUser,
+        username: "e2e_legacy_user",
+        usernameKey: "e2e_legacy_user",
+        email: "legacy@e2e.local",
+        emailKey: "legacy@e2e.local",
+        // password_hash 置空 = 迁移账号形态；旧材料 + pending = 旧密码可登录一次
+        legacyPasswordHash: `md5$${md5(md5(legacyPassword) + salt)}$${salt}`,
+        legacyPasswordPending: true,
+        createdAt: AT,
+      })
+      .onDuplicateKeyUpdate({
+        set: {
+          legacyPasswordHash: incoming("legacy_password_hash"),
+          legacyPasswordPending: incoming("legacy_password_pending"),
+        },
+      });
+  }
 
   // ---------- 版块 ----------
   await db

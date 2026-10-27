@@ -65,6 +65,14 @@ export const users = mysqlTable(
     /** 邮箱归一化唯一键（小写）；NULL = 没有邮箱，多个 NULL 不冲突 */
     emailKey: varchar("email_key", { length: 128 }),
     passwordHash: varchar("password_hash", { length: 255 }),
+    /**
+     * 双轨密码（docs/PASSWORD-DUAL-TRACK.md）：旧站哈希材料整体存 `md5$<hash>$<salt>`。
+     * 唯一写入方 = 迁移回填脚本（migration/backfill-legacy-password）；应用层唯一合法写动作 =
+     * 用户完成密码更新时置 NULL（pending 保留作出身证明，不再参与判定）。零数据部署不写 → 默认新态。
+     */
+    legacyPasswordHash: text("legacy_password_hash"),
+    /** true = 旧哈希可登录（登录后强制换新密）；判定源即本列，会话不加热点字段 */
+    legacyPasswordPending: boolean("legacy_password_pending").notNull().default(false),
     emailVerifiedAt: dt("email_verified_at"),
     /** deleted = 已注销：保留行以维持引用完整，个人信息已清除 */
     state: mysqlEnum("state", ["active", "deleted"]).notNull().default("active"),

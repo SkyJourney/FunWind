@@ -29,18 +29,23 @@ export const FORGOT_LIMITS = {
 export interface ForgotDeps {
   /** 响应之后执行的任务（生产：Next 的 after()）；单测注入以验证“响应不等发信” */
   defer: (task: () => Promise<void>) => void;
-  /** 为该用户签发令牌并发信；缺省走真实令牌与邮件 */
-  deliver?: (user: { id: number; hasPassword: boolean }, email: string) => Promise<void>;
+  /** 为该用户签发令牌并发信；缺省走真实令牌与邮件（siteName 由调用方预取，避免 after() 内做首个 DB 查询） */
+  deliver?: (
+    user: { id: number; hasPassword: boolean },
+    email: string,
+    siteName?: string,
+  ) => Promise<void>;
 }
 
-async function defaultDeliver(user: { id: number; hasPassword: boolean }, email: string) {
+async function defaultDeliver(
+  user: { id: number; hasPassword: boolean },
+  email: string,
+  siteName?: string,
+) {
   const purpose = user.hasPassword ? "reset" : "claim";
   const token = await issueEmailToken(user.id, purpose);
   const link = `${APP_URL}/${purpose}/${token}`;
-  // 站点身份可配（M10.6b）：读失败回退模板默认站名，不阻塞发信
-  const siteName = await getSiteIdentity()
-    .then((i) => i.name)
-    .catch(() => undefined);
+  // 站点身份可配（M10.6b）：未取到（调用方读取失败）回退模板默认站名
   await sendMail(
     email,
     purpose === "claim" ? claimMail(link, siteName) : resetPasswordMail(link, siteName),
@@ -85,9 +90,15 @@ export async function requestAccountEmail(
   if (ip === null && !rateLimit("forgot-global", global.max, global.windowMs).allowed) return;
 
   const deliver = deps.deliver ?? defaultDeliver;
+  // 站点身份预取（M10.6c 教训）：chrome 有 30s TTL 全局缓存，放请求内是 ~0ms 命中；
+  // 放 after() 里会拖慢投递（dev 观测 30s+，首查迟到的连接初始化），E2E 找回轮询一度超时。
+  // 对存在/不存在的邮箱一视同仁地读，防枚举时序不受影响。
+  const siteName = await getSiteIdentity()
+    .then((i) => i.name)
+    .catch(() => undefined);
   deps.defer(async () => {
     try {
-      await deliver({ id: user.id, hasPassword: user.passwordHash !== null }, email);
+      await deliver({ id: user.id, hasPassword: user.passwordHash !== null }, email, siteName);
     } catch (e) {
       // 响应早已发出，这里只能记日志；用户重新申请即可
       console.error("[auth] 找回邮件发送失败:", e);

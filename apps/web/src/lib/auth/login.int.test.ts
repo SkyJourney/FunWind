@@ -107,7 +107,11 @@ describe.skipIf(skipDb)("登录判定 · 真实 MySQL", () => {
     });
 
     it("对照：真实校验下，对的密码通过、错的不通过；已注销账号不能登录", async () => {
-      expect(await login("alice_s2", PW)).toEqual({ ok: true, userId: aliceId });
+      expect(await login("alice_s2", PW)).toEqual({
+        ok: true,
+        userId: aliceId,
+        mustChangePassword: false,
+      });
       expect(await login("alice_s2", "nope")).toEqual({ ok: false, reason: "invalid" });
       expect(await login("gone_s2", PW)).toEqual({ ok: false, reason: "invalid" });
     });
@@ -144,7 +148,11 @@ describe.skipIf(skipDb)("登录判定 · 真实 MySQL", () => {
         ok: false,
         reason: "throttled",
       });
-      expect(await login("alice_s2", PW, "192.0.2.77")).toEqual({ ok: true, userId: aliceId });
+      expect(await login("alice_s2", PW, "192.0.2.77")).toEqual({
+        ok: true,
+        userId: aliceId,
+        mustChangePassword: false,
+      });
     });
 
     it("“尝试过于频繁”不泄露账号是否存在：存在与不存在的标识符，从 invalid 变 throttled 的时机完全一致", async () => {
@@ -185,7 +193,11 @@ describe.skipIf(skipDb)("登录判定 · 真实 MySQL", () => {
         });
       }
       // 29 次失败：合法用户从新 IP 仍能登录（成功会退还额度）
-      expect(await login("alice_s2", PW, "10.2.0.1")).toEqual({ ok: true, userId: aliceId });
+      expect(await login("alice_s2", PW, "10.2.0.1")).toEqual({
+        ok: true,
+        userId: aliceId,
+        mustChangePassword: false,
+      });
       // 再来 1 次失败 → 30 次，总桶满
       expect(await login("alice-s2@example.com", "guess", "10.1.1.1")).toEqual({
         ok: false,

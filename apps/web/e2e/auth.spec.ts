@@ -17,7 +17,7 @@ const MAIL_API = "http://127.0.0.1:8025/api/v1";
  * 必须按 `since` 过滤：MailPit 会跨次运行保留旧邮件，不过滤的话一见到旧邮件就返回，拿到的是上一次运行的过期令牌。
  */
 async function latestLinkFor(email: string, subjectPart: string, since: number): Promise<string> {
-  const deadline = Date.now() + 10_000;
+  const deadline = Date.now() + 30_000; // dev 模式 after() 可能慢 10s+（Turbo 流收尾延迟），放宽轮询上限
   for (;;) {
     const res = await fetch(`${MAIL_API}/messages?limit=20`);
     const data = (await res.json()) as {
@@ -106,6 +106,7 @@ test.describe("M4 · 用户与认证", () => {
   });
 
   test("找回流程（已设密账户）：邮件链接 → 重置密码 → 新密码登录", async ({ page }) => {
+    test.setTimeout(90_000); // dev 模式页面导航慢，重置+登出+重登全流程超 30s
     await page.goto("/forgot");
     await page.getByLabel("注册邮箱").fill(EMAIL);
     const since = Date.now() - 1000; // 容忍时间戳取整
@@ -118,9 +119,15 @@ test.describe("M4 · 用户与认证", () => {
     await page.getByLabel("确认新密码").fill("new-pass-456");
     await page.getByRole("button", { name: "保存并登录" }).click();
 
-    await expect(page).toHaveURL(/login/);
-    await expect(page.getByText("密码已重置")).toBeVisible();
+    // M10.6c：重置并登录——直接进站，不再回登录页重输
+    await expect(page).toHaveURL(/\/(\?notice=password-reset)?$/);
+    await expect(page.getByRole("button", { name: USERNAME })).toBeVisible();
 
+    // 退出后再用新密码登录（验证新密码落库）
+    await page.getByRole("button", { name: USERNAME }).click();
+    await page.getByRole("button", { name: "退出" }).click();
+    await expect(page.getByRole("link", { name: "登录", exact: true })).toBeVisible();
+    await page.goto("/login");
     await page.getByLabel("用户名或邮箱").fill(EMAIL);
     await page.getByLabel("密码").fill("new-pass-456");
     await page.getByRole("button", { name: "登录" }).click();
@@ -128,6 +135,7 @@ test.describe("M4 · 用户与认证", () => {
   });
 
   test("认领流程（无密码老账户 demo_alice）：邮件链接 → 设密 → 登录", async ({ page }) => {
+    test.setTimeout(90_000); // 同上：邮件轮询 + 多次导航
     await page.goto("/forgot");
     await page.getByLabel("注册邮箱").fill("alice@demo.local");
     const since = Date.now() - 1000;
@@ -140,11 +148,8 @@ test.describe("M4 · 用户与认证", () => {
     await page.getByLabel("确认新密码").fill("alice-pass-789");
     await page.getByRole("button", { name: "认领并登录" }).click();
 
-    await expect(page).toHaveURL(/login/);
-    await expect(page.getByText("账号认领成功")).toBeVisible();
-    await page.getByLabel("用户名或邮箱").fill("demo_alice");
-    await page.getByLabel("密码").fill("alice-pass-789");
-    await page.getByRole("button", { name: "登录" }).click();
+    // M10.6c：认领并登录——设密成功直接建立会话进入站点
+    await expect(page).toHaveURL(/\/(\?notice=claimed)?$/);
     await expect(page.getByRole("button", { name: "demo_alice" })).toBeVisible();
   });
 

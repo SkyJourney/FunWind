@@ -1,6 +1,6 @@
 import { and, eq, or } from "drizzle-orm";
 import { getWebDb, normalizeKey, users } from "@funwind/db";
-import { hashPassword, verifyPassword } from "./password";
+import { hashPassword, verifyLegacyPassword, verifyPassword } from "./password";
 import { rateLimit, rateLimitRefund } from "./ratelimit";
 
 /**
@@ -33,13 +33,20 @@ export const LOGIN_LIMITS = {
 } as const;
 
 export type LoginOutcome =
-  | { ok: true; userId: number }
+  | {
+      ok: true;
+      userId: number;
+      /** 双轨（docs/PASSWORD-DUAL-TRACK.md）：旧哈希命中 → true，调用方必须送强制换密流程 */
+      mustChangePassword: boolean;
+    }
   /** throttled：IP 桶或 (IP, 标识符) 桶超限（与账号是否存在无关）；invalid：用户名或密码错误 */
   | { ok: false; reason: "throttled" | "invalid" };
 
 export interface LoginDeps {
   /** 密码校验（单测注入以计数；缺省 argon2id） */
   verify?: (hash: string, password: string) => Promise<boolean>;
+  /** 旧站哈希校验（单测注入；缺省 md5(md5(pwd)+salt) 常数时间比较） */
+  verifyLegacy?: (stored: string, password: string) => boolean;
 }
 
 /** 假哈希：与真哈希同参数，进程内只生成一次 */
@@ -49,7 +56,12 @@ const getDummyHash = () => (dummyHash ??= hashPassword(`dummy:${Math.random()}:$
 /** 用归一化键（username_key / email_key）查找；已注销账号不可登录 */
 async function findUserByKey(key: string) {
   const rows = await getWebDb()
-    .select({ id: users.id, passwordHash: users.passwordHash })
+    .select({
+      id: users.id,
+      passwordHash: users.passwordHash,
+      legacyPasswordHash: users.legacyPasswordHash,
+      legacyPasswordPending: users.legacyPasswordPending,
+    })
     .from(users)
     .where(and(eq(users.state, "active"), or(eq(users.usernameKey, key), eq(users.emailKey, key))))
     .limit(1);
@@ -61,6 +73,7 @@ export async function attemptLogin(
   deps: LoginDeps = {},
 ): Promise<LoginOutcome> {
   const verify = deps.verify ?? verifyPassword;
+  const verifyLegacy = deps.verifyLegacy ?? verifyLegacyPassword;
   const identifier = input.identifier.trim();
   const identKey = identifier.length <= MAX_IDENTIFIER_LENGTH ? normalizeKey(identifier) : null;
 
@@ -79,13 +92,26 @@ export async function attemptLogin(
   const user = identKey === null ? null : await findUserByKey(identKey);
   const userOk = user === null || take(`login-user:${user.id}`, LOGIN_LIMITS.user);
 
-  // 恒做一次校验：没有可校验的真哈希就校验假哈希
   const realHash = user?.passwordHash ?? null;
-  const matched = await verify(realHash ?? (await getDummyHash()), input.password);
+  // 恒做一次 argon2 校验（C1 时序）：没有真哈希（迁移账号全是 NULL）就校验假哈希
+  const verifyHash = realHash ?? (await getDummyHash());
+  const argonMatched = (await verify(verifyHash, input.password)) && realHash !== null;
 
-  if (user !== null && realHash !== null && matched && userOk) {
+  // 双轨：argon2 未中且账号带旧哈希材料 → 旧算法兜底（md5 校验 ~µs 级，不破坏恒定工作量的时序面）
+  let legacyOk = false;
+  if (
+    !argonMatched &&
+    user !== null &&
+    userOk &&
+    user.legacyPasswordPending &&
+    user.legacyPasswordHash !== null
+  ) {
+    legacyOk = verifyLegacy(user.legacyPasswordHash, input.password);
+  }
+
+  if (user !== null && userOk && (argonMatched || legacyOk)) {
     for (const key of held) rateLimitRefund(key); // 成功不占额度
-    return { ok: true, userId: user.id };
+    return { ok: true, userId: user.id, mustChangePassword: legacyOk };
   }
   return { ok: false, reason: "invalid" };
 }

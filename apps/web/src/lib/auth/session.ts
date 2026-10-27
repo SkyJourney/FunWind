@@ -1,6 +1,6 @@
 import { cache } from "react";
 import { cookies } from "next/headers";
-import { and, eq, gt, sql } from "drizzle-orm";
+import { and, eq, gt, ne, sql } from "drizzle-orm";
 import { getWebDb, sessions, users } from "@funwind/db";
 import { findActiveGlobalBan } from "@/lib/authz/restrictions";
 import { generateToken, hashToken } from "./token";
@@ -15,8 +15,11 @@ import { generateToken, hashToken } from "./token";
  */
 
 export const SESSION_COOKIE = "fw_session";
+/** 双轨强制换密快速门（middleware 只读 cookie，不查库；真源 = users.legacy_password_pending） */
+export const MUST_CHANGE_COOKIE = "fw_must_change";
 const SESSION_TTL_MS = 30 * 24 * 3600 * 1000; // 30 天
-const isSecureSite = () => (process.env.APP_URL ?? "").startsWith("https://");
+/** 双轨换密 cookie 与会话 cookie 同一套 Secure 判定（http://127.0.0.1 下浏览器拒收 Secure） */
+export const isSecureSite = () => (process.env.APP_URL ?? "").startsWith("https://");
 
 export interface SessionUser {
   id: number;
@@ -124,4 +127,15 @@ export async function destroyCurrentSession(): Promise<void> {
 export async function revokeAllForUser(userId: number): Promise<void> {
   const db = getWebDb();
   await db.delete(sessions).where(eq(sessions.userId, userId));
+}
+
+/** 改密后吊销**其他**会话（保留当前设备，用户不被踢出）；当前无会话 cookie 时不删任何行 */
+export async function revokeOtherSessions(userId: number): Promise<void> {
+  const store = await cookies();
+  const token = store.get(SESSION_COOKIE)?.value;
+  if (!token) return;
+  const db = getWebDb();
+  await db
+    .delete(sessions)
+    .where(and(eq(sessions.userId, userId), ne(sessions.id, hashToken(token))));
 }

@@ -39,4 +39,5 @@ export const USERS = {
   admin: 90004,
   member: 90005, // 已购买门控 9001
   team: 90006, // 演示团队成员：可读受限版块 904；余额 50
+  legacyUser: 95002, // 双轨密码账号（M10.6c）：旧密码 e2e-legacy-pass，登录后强制换密
 } as const;

@@ -4,7 +4,7 @@ import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
-import { headers } from "next/headers";
+import { headers, cookies } from "next/headers";
 import { getWebDb, users } from "@funwind/db";
 import { findActiveGlobalBan } from "@/lib/authz/restrictions";
 import { defineAction } from "@/lib/actions/define-action";
@@ -17,7 +17,13 @@ import { hashPassword } from "@/lib/auth/password";
 import { checkUsername } from "@/lib/auth/username";
 import { takeInviteAttempt } from "@/lib/auth/invite-limit";
 import { InviteCodeError, RegisterError, registerUser } from "@/lib/auth/register";
-import { createSession, destroyCurrentSession, revokeAllForUser } from "@/lib/auth/session";
+import {
+  createSession,
+  destroyCurrentSession,
+  revokeAllForUser,
+  MUST_CHANGE_COOKIE,
+  isSecureSite,
+} from "@/lib/auth/session";
 import { rateLimit } from "@/lib/auth/ratelimit";
 import { issueEmailToken } from "@/lib/auth/tokens";
 import { sendMail, verifyEmailMail } from "@/lib/auth/mailer";
@@ -79,7 +85,7 @@ export const loginAction = defineAction({
           ),
       );
     }
-    const user = { id: outcome.userId };
+    const user = { id: outcome.userId, mustChange: outcome.mustChangePassword };
 
     // 全站封禁拦截（含理由与期限）
     const ban = await findActiveGlobalBan(user.id);
@@ -94,12 +100,23 @@ export const loginAction = defineAction({
       .update(users)
       .set({ lastLoginAt: sql`NOW()` })
       .where(eq(users.id, user.id));
+    if (user.mustChange) {
+      // 双轨强制换密：cookie 是 middleware 的快速门（不查库）；真源是 users.legacy_password_pending
+      const store = await cookies();
+      store.set(MUST_CHANGE_COOKIE, "1", {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: isSecureSite(),
+        path: "/",
+        maxAge: 3600,
+      });
+    }
     await createSession(user.id, {
       ip: ctx.ip,
       userAgent: (await headers()).get("user-agent") ?? "",
     });
     await safeEmit("user.logged_in", { userId: user.id });
-    redirect("/");
+    redirect(user.mustChange ? "/settings/password?force=1" : "/");
   },
 });
 
@@ -195,7 +212,7 @@ export const resetPasswordAction = defineAction({
   name: "auth.reset",
   auth: "guest",
   input: z.object({ token: text(256), password: text(PASSWORD_MAX), confirm: text(PASSWORD_MAX) }),
-  async run(_ctx, { token, password, confirm }) {
+  async run(ctx, { token, password, confirm }) {
     if (password.length < 8) {
       redirect(
         "/reset/" + encodeURIComponent(token) + "?error=" + encodeURIComponent("密码至少 8 位"),
@@ -224,10 +241,20 @@ export const resetPasswordAction = defineAction({
     const db = getWebDb();
     await db
       .update(users)
-      .set({ passwordHash: await hashPassword(password) })
+      .set({
+        passwordHash: await hashPassword(password),
+        legacyPasswordHash: null, // 设密即销毁旧哈希凭据（双轨闭环）
+        legacyPasswordPending: false,
+      })
       .where(eq(users.id, userId));
     await revokeAllForUser(userId);
-    redirect("/login?message=" + encodeURIComponent("密码已重置，请用新密码登录"));
+    // 重置并登录（M10.6c）：验邮即登录，不再要求回登录页重输一遍
+    await createSession(userId, {
+      ip: ctx.ip,
+      userAgent: (await headers()).get("user-agent") ?? "",
+    });
+    await safeEmit("user.logged_in", { userId });
+    redirect("/?notice=password-reset");
   },
 });
 
@@ -235,7 +262,7 @@ export const claimAction = defineAction({
   name: "auth.claim",
   auth: "guest",
   input: z.object({ token: text(256), password: text(PASSWORD_MAX), confirm: text(PASSWORD_MAX) }),
-  async run(_ctx, { token, password, confirm }) {
+  async run(ctx, { token, password, confirm }) {
     if (password.length < 8) {
       redirect(
         "/claim/" + encodeURIComponent(token) + "?error=" + encodeURIComponent("密码至少 8 位"),
@@ -268,15 +295,26 @@ export const claimAction = defineAction({
       .where(eq(users.id, userId))
       .limit(1);
     if (rows[0]?.passwordHash) {
+      // 已设密账号不认领（认领链接 30 天有效，防旧链接变成密码重置）
       redirect("/login?error=" + encodeURIComponent("该账号已设置过密码，请直接登录"));
     }
 
     await db
       .update(users)
-      .set({ passwordHash: await hashPassword(password) })
+      .set({
+        passwordHash: await hashPassword(password),
+        legacyPasswordHash: null, // 认领即销毁旧哈希材料（双轨闭环）
+        legacyPasswordPending: false,
+      })
       .where(eq(users.id, userId));
     await revokeAllForUser(userId);
-    redirect("/login?message=" + encodeURIComponent("账号认领成功，请登录"));
+    // 认领并登录（M10.6c）：按钮语义落地——设密成功直接建立会话进入站点
+    await createSession(userId, {
+      ip: ctx.ip,
+      userAgent: (await headers()).get("user-agent") ?? "",
+    });
+    await safeEmit("user.logged_in", { userId });
+    redirect("/?notice=claimed");
   },
 });
 
@@ -300,6 +338,7 @@ export const logoutAction = defineAction({
   auth: "guest",
   async run() {
     await destroyCurrentSession();
+    (await cookies()).delete(MUST_CHANGE_COOKIE);
     redirect("/");
   },
 });
