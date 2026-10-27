@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>线稿 · 后台其余页（9 页紧凑）</title>
+    <link rel="stylesheet" href="_shared/wireframe.css" />
+    <style>
+      .wrap {
+        max-width: 880px;
+      }
+      .pg-sec {
+        display: grid;
+        gap: 10px;
+        padding-bottom: 8px;
+        border-bottom: 1px dashed var(--line);
+        padding-top: 4px;
+      }
+      .pg-sec:last-of-type {
+        border-bottom: 0;
+      }
+      .seg {
+        display: flex;
+        gap: 2px;
+        background: var(--sunken);
+        border-radius: var(--r-sm);
+        padding: 2px;
+        font-size: 13px;
+        width: fit-content;
+      }
+      .seg span {
+        padding: 4px 12px;
+        border-radius: 6px;
+        color: var(--t2);
+      }
+      .seg .on {
+        background: var(--surface);
+        color: var(--t1);
+        font-weight: 600;
+        box-shadow: var(--shadow);
+      }
+      .f-in {
+        border: 1px solid var(--line-strong);
+        border-radius: var(--r-sm);
+        padding: 8px 12px;
+        color: var(--t3);
+        font-size: 13px;
+        background: var(--surface);
+      }
+      .tb {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+      .tb th,
+      .tb td {
+        border-bottom: 1px solid var(--line);
+        padding: 8px 10px;
+        text-align: left;
+      }
+      .tb th {
+        color: var(--t2);
+        background: var(--sunken);
+        font-weight: 600;
+      }
+      .mt {
+        display: inline-grid;
+        place-items: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        font-size: 12px;
+      }
+      .mt.yes {
+        background: var(--ink);
+        color: #fff;
+      }
+      .mt.no {
+        border: 1px solid var(--line);
+        color: var(--t3);
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <span class="brand"><span class="logo"></span>青翼字幕组</span>
+      <nav class="topnav">
+        <a href="admin-dashboard.html">后台</a>
+        <a class="on" href="#">其余页 · 紧凑线稿</a>
+      </nav>
+    </header>
+
+    <main class="page wrap">
+      <div class="main">
+        <div style="display: grid; gap: 4px">
+          <h1 class="h-page">后台其余 9 页 · 紧凑线稿</h1>
+          <p class="sub">
+            壳与交互模式同前（分组侧栏 / 确认 Dialog / 表格+筛选）；每节只画差异结构。所有原生 select →
+            shadcn Select、checkbox → Switch、危险操作 → 确认 Dialog（S5 清理清单）。
+          </p>
+        </div>
+
+        <!-- 举报处理 -->
+        <section class="pg-sec" id="reports">
+          <h2 class="h-sec">举报处理 <span class="t3 small">/admin/reports · admin.reports</span></h2>
+          <div class="seg"><span class="on">待处理 4</span><span>已处置 27</span></div>
+          <div class="card q-card" style="padding: 14px">
+            <div class="q-head" style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center">
+              <b style="font-size: 14px">举报 #88</b>
+              <span class="pill outline">帖子广告</span>
+              <span class="small t2">对象：『代练接单』#3 · 举报人：茶会常客</span>
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center">
+              <div class="f-in" style="flex: 1; min-width: 200px">处置备注…</div>
+              <span class="btn ghost sm">驳回举报</span>
+              <span class="btn primary sm">处置（删内容/警告）</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- 投票管理 -->
+        <section class="pg-sec" id="poll">
+          <h2 class="h-sec">投票管理 <span class="t3 small">/admin/poll · 版主</span></h2>
+          <div class="card" style="overflow-x: auto">
+            <table class="tb">
+              <tr><th>所属主题</th><th>状态</th><th>票数</th><th>截止</th><th></th></tr>
+              <tr>
+                <td>本话作画你满意吗？</td><td><span class="pill">进行中</span></td><td>31</td><td>3 天后</td>
+                <td style="text-align: right"><span class="btn ghost sm">关闭…</span></td>
+              </tr>
+              <tr>
+                <td>字幕组年会时间调查</td><td><span class="pill outline">已截止</span></td><td>128</td><td>—</td>
+                <td style="text-align: right"><span class="btn ghost sm">删除…</span></td>
+              </tr>
+            </table>
+          </div>
+        </section>
+
+        <!-- 私信管理 -->
+        <section class="pg-sec" id="pm">
+          <h2 class="h-sec">私信管理 <span class="t3 small">/admin/pm · admin.logs</span></h2>
+          <div class="stat-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px">
+            <div class="card" style="padding: 12px"><b style="font-size: 18px">1,208</b><span class="t3 small" style="display: block">会话总数</span></div>
+            <div class="card" style="padding: 12px"><b style="font-size: 18px">8,941</b><span class="t3 small" style="display: block">消息总数</span></div>
+            <div class="card" style="padding: 12px"><b style="font-size: 18px">6</b><span class="t3 small" style="display: block">本月删除</span></div>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+            <div class="f-in" style="width: 200px">按用户 uid 筛选…</div>
+            <span class="btn ghost sm">筛选</span>
+          </div>
+          <p class="small t2">消息行：发送者 → 接收者 · 摘要 · 时间 · [删除违规…]（确认 + 审计 before）</p>
+        </section>
+
+        <!-- 角色与授权 -->
+        <section class="pg-sec" id="authz">
+          <h2 class="h-sec">角色与授权 <span class="t3 small">/admin/authz · admin.roles</span></h2>
+          <div class="stat-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px">
+            <div class="card" style="padding: 14px">
+              <b>admin</b> <span class="pill">内置</span>
+              <p class="small t2">站点管理员 · 42 项权限 · 1 人</p>
+              <span class="btn ghost sm" style="margin-top: 6px">授权矩阵 →</span>
+            </div>
+            <div class="card" style="padding: 14px">
+              <b>moderator</b> <span class="pill">内置</span>
+              <p class="small t2">版主 · forum.moderate 作用域 · 5 人</p>
+              <span class="btn ghost sm" style="margin-top: 6px">授权矩阵 →</span>
+            </div>
+          </div>
+          <p class="small t2">授权矩阵页：角色切换（Select）+ 权限点表（作用域列 + ✓/− 单元格，点按切换即保存并审计）。版块权限视角页：面包屑 + 有效策略卡 + 版主名单 + 作用域链展示。</p>
+        </section>
+
+        <!-- 积分 -->
+        <section class="pg-sec" id="points">
+          <h2 class="h-sec">积分 <span class="t3 small">/admin/points · admin.points</span></h2>
+          <div class="card" style="overflow-x: auto">
+            <table class="tb">
+              <tr><th>动作</th><th>分值</th><th>日上限</th></tr>
+              <tr><td>发主题</td><td><div class="f-in" style="width: 70px">3</div></td><td><div class="f-in" style="width: 70px">20</div></td></tr>
+              <tr><td>发回复</td><td><div class="f-in" style="width: 70px">2</div></td><td>共享上限</td></tr>
+            </table>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+            <div class="f-in" style="width: 200px">按用户名手工调整…</div>
+            <div class="f-in" style="width: 90px">± 50</div>
+            <span class="btn primary sm">调整（需理由）</span>
+          </div>
+        </section>
+
+        <!-- 徽章 -->
+        <section class="pg-sec" id="badges">
+          <h2 class="h-sec">徽章 <span class="t3 small">/admin/badges · admin.badges</span></h2>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap">
+            <span class="card" style="padding: 10px 14px; display: grid; place-items: center">◆ 精华作者</span>
+            <span class="card" style="padding: 10px 14px; display: grid; place-items: center">◆ 字幕组</span>
+            <span class="card" style="padding: 10px 14px; display: grid; place-items: center">◆ 老翼友</span>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+            <div class="f-in" style="width: 200px">按用户名授予…</div>
+            <div class="f-in" style="width: 140px">选择徽章…</div>
+            <span class="btn primary sm">授予（审计）</span>
+          </div>
+        </section>
+
+        <!-- 公告 -->
+        <section class="pg-sec" id="announcements">
+          <h2 class="h-sec">公告 <span class="t3 small">/admin/announcements · 版主</span></h2>
+          <div class="card" style="overflow-x: auto">
+            <table class="tb">
+              <tr><th>标题</th><th>受众</th><th>横幅</th><th>窗口</th><th></th></tr>
+              <tr>
+                <td>10 月站点维护公告</td><td>全部</td><td><span class="mt yes">✓</span></td><td>10-20 → 10-31</td>
+                <td style="text-align: right"><span class="btn ghost sm">编辑</span> <span class="btn ghost sm">删除…</span></td>
+              </tr>
+            </table>
+          </div>
+          <p class="small t2">新建/编辑：标题 + 正文(textarea) + 受众(全部/仅登录 分段) + 横幅开关(Switch) + 起止时间；防预取与有效期校验沿用现网。</p>
+        </section>
+
+        <!-- 审计日志 -->
+        <section class="pg-sec" id="logs">
+          <h2 class="h-sec">审计日志 <span class="t3 small">/admin/logs · admin.logs</span></h2>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center">
+            <div class="seg"><span class="on">全部</span><span>auth</span><span>moderation</span><span>admin</span></div>
+            <div class="f-in" style="width: 150px">行为人筛选…</div>
+            <span class="btn ghost sm" style="margin-left: auto">导出 CSV</span>
+          </div>
+          <div class="card" style="overflow-x: auto">
+            <table class="tb">
+              <tr><th>时间</th><th>行为人</th><th>事件</th><th>对象</th><th>备注</th></tr>
+              <tr><td>12:04</td><td>纸巾君</td><td>post.deleted</td><td>#962801</td><td>发布广告</td></tr>
+              <tr><td>11:58</td><td>demo_admin</td><td>role.granted</td><td>茶会常客</td><td>moderator</td></tr>
+            </table>
+          </div>
+        </section>
+
+        <div class="note">
+          <b>B4-其余页 · 注记</b><br />
+          ① 九页全部复用已定稿模式：表格+筛选（日志/投票/公告）、卡片队列（举报）、表单+清单（积分/徽章/公告/用户）；无新交互模式。<br />
+          ② S5 清理挂账：原生 select×7 → Select、checkbox → Switch、textarea → 受控 Textarea（通知/公告/私信管理/积分/徽章/授权矩阵/附件面板）。<br />
+          ③ 每页自身 requireAdmin 二次拦截与审计 before 语义不变（线稿不改动权限面）。<br />
+          ④ 表格行 hover 高亮；数字 tabular-nums；空态按 states.html（「还没有举报」等）。
+        </div>
+      </div>
+    </main>
+
+    <div class="bppill">
+      <i>断点</i><span class="bp-base">base &lt;640</span><span class="bp-sm">sm 640</span
+    ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span><span class="bp-xl">xl 1280</span>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>线稿 · 后台看板（含后台壳）</title>
+    <link rel="stylesheet" href="_shared/wireframe.css" />
+    <style>
+      .admin {
+        max-width: 1152px;
+        display: grid;
+        gap: 24px;
+      }
+      @media (min-width: 768px) {
+        .admin {
+          grid-template-columns: 192px minmax(0, 1fr);
+        }
+      }
+      .side {
+        display: none;
+      }
+      @media (min-width: 768px) {
+        .side {
+          display: block;
+        }
+      }
+      .side .grp {
+        margin-bottom: 18px;
+      }
+      .side .grp p {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--t3);
+        padding: 0 8px;
+        margin-bottom: 4px;
+      }
+      .side a {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 8px;
+        border-radius: 8px;
+        color: var(--t2);
+        font-size: 13px;
+      }
+      .side a.on {
+        background: var(--ink-soft);
+        color: var(--t1);
+        font-weight: 600;
+      }
+      .side a .glyph {
+        width: 14px;
+        height: 14px;
+      }
+      .stat-grid {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(2, 1fr);
+      }
+      @media (min-width: 900px) {
+        .stat-grid {
+          grid-template-columns: repeat(4, 1fr);
+        }
+      }
+      .stat {
+        padding: 14px 16px;
+      }
+      .stat b {
+        font-size: 22px;
+        letter-spacing: -0.01em;
+        font-variant-numeric: tabular-nums;
+      }
+      .stat span {
+        display: block;
+        color: var(--t3);
+        font-size: 12px;
+      }
+      .bars {
+        display: flex;
+        align-items: flex-end;
+        gap: 3px;
+        height: 96px;
+        margin-top: 10px;
+      }
+      .bars i {
+        flex: 1;
+        border-radius: 3px 3px 0 0;
+        background: var(--ink-soft);
+      }
+      .bars i.hi {
+        background: var(--ink);
+      }
+      .m-side {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 14px;
+      }
+      @media (min-width: 768px) {
+        .m-side {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <span class="brand"><span class="logo"></span>青翼字幕组</span>
+      <nav class="topnav">
+        <a href="home-feed-list.html">首页</a>
+        <a href="forum.html">版块</a>
+        <a href="#">动态</a>
+      </nav>
+      <div class="top-tools">
+        <span class="ico"><span class="glyph"></span></span>
+        <span class="avatar">A</span>
+      </div>
+    </header>
+
+    <main class="page admin">
+      <!-- 移动端：后台菜单按钮（抽屉已在 S1 实现，此处示意） -->
+      <div class="m-side">
+        <span class="btn ghost sm">☰ 后台菜单</span>
+        <span class="small t2">后台管理</span>
+      </div>
+
+      <!-- 分组侧栏（桌面，S1 AdminShell 结构） -->
+      <aside class="side">
+        <div class="grp">
+          <p>总览</p>
+          <a class="on" href="#"><span class="glyph"></span>看板</a>
+        </div>
+        <div class="grp">
+          <p>内容</p>
+          <a href="admin-review.html"><span class="glyph"></span>内容审核</a>
+          <a href="admin-pages.html#reports"><span class="glyph"></span>举报处理</a>
+          <a href="admin-pages.html#poll"><span class="glyph"></span>投票管理</a>
+          <a href="admin-pages.html#pm"><span class="glyph"></span>私信管理</a>
+        </div>
+        <div class="grp">
+          <p>用户</p>
+          <a href="admin-users.html"><span class="glyph"></span>用户管理</a>
+          <a href="admin-pages.html#authz"><span class="glyph"></span>角色与授权</a>
+        </div>
+        <div class="grp">
+          <p>系统</p>
+          <a href="admin-pages.html#announcements"><span class="glyph"></span>公告</a>
+          <a href="admin-pages.html#points"><span class="glyph"></span>积分</a>
+          <a href="admin-pages.html#badges"><span class="glyph"></span>徽章</a>
+          <a href="admin-pages.html#logs"><span class="glyph"></span>审计日志</a>
+        </div>
+        <div class="grp">
+          <a href="home-feed-list.html">← 返回社区</a>
+        </div>
+      </aside>
+
+      <div style="min-width: 0; display: grid; gap: 16px; align-content: start">
+        <div>
+          <h1 class="h-page">后台管理 · 看板</h1>
+          <p class="sub">数据总览（admin.logs 权限可见）</p>
+        </div>
+
+        <div class="stat-grid">
+          <div class="card stat"><b>10,763</b><span>用户</span></div>
+          <div class="card stat"><b>1,408</b><span>主题</span></div>
+          <div class="card stat"><b>31,468</b><span>帖子</span></div>
+          <div class="card stat"><b>0</b><span>今日登录</span></div>
+        </div>
+
+        <div class="stat-grid" style="grid-template-columns: 1fr">
+          <div class="card stat">
+            <span>注册趋势 · 近 30 天</span>
+            <div class="bars">
+              <i style="height: 20%"></i><i style="height: 34%"></i><i style="height: 28%"></i
+              ><i style="height: 46%"></i><i style="height: 40%"></i><i class="hi" style="height: 78%"></i
+              ><i style="height: 55%"></i><i style="height: 62%"></i><i style="height: 48%"></i
+              ><i style="height: 70%"></i><i style="height: 36%"></i><i style="height: 52%"></i>
+            </div>
+            <span class="t3 small" style="margin-top: 6px">30 天合计 0 · 数据源 event_log.user_logged_in</span>
+          </div>
+        </div>
+
+        <div class="note">
+          <b>B4-后台壳与看板 · 注记</b><br />
+          ① 本页即 S1 AdminShell 的线框定格：分组侧栏（总览/内容/用户/系统）+ 移动端抽屉（已实现）；所有后台页共用此壳，后续线稿不再重复画壳。<br />
+          ② 看板 = 现网结构（总量四卡 + 三张 30 天趋势 CSS 柱状图）；S5 上色：柱体用 primary/70、hover 显示数值 tooltip、卡片 hover 抬升（S4 L1）。<br />
+          ③ 数字一律 tabular-nums；「今日登录」口径保持 event_log 真实登录事件。<br />
+          ④ 权限显隐照旧：菜单按 admin.*/版主派生，本线稿展示管理员全量视角。
+        </div>
+      </div>
+    </main>
+
+    <div class="bppill">
+      <i>断点</i><span class="bp-base">base &lt;640</span><span class="bp-sm">sm 640</span
+    ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span><span class="bp-xl">xl 1280</span>
+    </div>
+  </body>
+</html>

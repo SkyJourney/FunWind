@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>线稿 · 内容审核队列</title>
+    <link rel="stylesheet" href="_shared/wireframe.css" />
+    <style>
+      .wrap {
+        max-width: 860px;
+      }
+      .ntab {
+        display: flex;
+        gap: 2px;
+        background: var(--sunken);
+        border-radius: var(--r-sm);
+        padding: 2px;
+        font-size: 13px;
+      }
+      .ntab span {
+        padding: 6px 16px;
+        border-radius: 6px;
+        color: var(--t2);
+      }
+      .ntab .on {
+        background: var(--surface);
+        color: var(--t1);
+        font-weight: 600;
+        box-shadow: var(--shadow);
+      }
+      .q-card {
+        display: grid;
+        gap: 8px;
+        padding: 16px;
+      }
+      .q-head {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .q-body {
+        font-size: 14px;
+        line-height: 1.65;
+        color: var(--t1);
+      }
+      .q-meta {
+        color: var(--t3);
+        font-size: 12px;
+      }
+      .q-acts {
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <span class="brand"><span class="logo"></span>青翼字幕组</span>
+      <nav class="topnav">
+        <a href="admin-dashboard.html">后台</a>
+        <a class="on" href="#">内容审核</a>
+      </nav>
+    </header>
+
+    <main class="page wrap">
+      <div class="main">
+        <div>
+          <h1 class="h-page">内容审核</h1>
+          <p class="sub">版主作用域：仅显示你所辖版块的队列（当前：动画·アニメ、日剧·ドラマ）</p>
+        </div>
+
+        <div class="ntab"><span class="on">待审 12</span><span>已删隐 3（回收站）</span></div>
+
+        <div class="card q-card">
+          <div class="q-head">
+            <span class="pill">主题</span>
+            <b style="font-size: 14.5px">『来自深渊 第二季』第 01 话求助</b>
+            <span class="pill outline">动画·アニメ</span>
+          </div>
+          <p class="q-body">求第二季资源，最好 1080p 的，感谢各位大佬！</p>
+          <div class="q-meta"><i class="avatar-s"></i>新 registrant · 10 分钟前 · 先审后发队列</div>
+          <div class="q-acts">
+            <span class="btn ghost sm">驳回…</span>
+            <span class="btn primary sm">通过</span>
+          </div>
+        </div>
+
+        <div class="card q-card">
+          <div class="q-head">
+            <span class="pill">回复</span>
+            <b style="font-size: 14.5px">回复：10月新番吐槽楼</b>
+            <span class="pill outline">动漫讨论区</span>
+          </div>
+          <p class="q-body">这季作画确实顶，不过剧情有点赶，希望后面能圆回来……（含 2 张图）</p>
+          <div class="q-meta"><i class="avatar-s"></i>茶会常客 · 32 分钟前</div>
+          <div class="q-acts">
+            <span class="btn ghost sm">驳回…</span>
+            <span class="btn primary sm">通过</span>
+          </div>
+        </div>
+
+        <div class="card q-card" style="border-style: dashed">
+          <div class="q-head">
+            <span class="pill">主题（已删隐 · 回收站）</span>
+            <b style="font-size: 14.5px">[广告] 代练接单看这里</b>
+          </div>
+          <div class="q-meta">删除人：纸巾君（版主）· 3 天前 · <b>恢复</b> 或 30 天后自动清除</div>
+          <div class="q-acts"><span class="btn ghost sm">恢复</span></div>
+        </div>
+
+        <div class="note">
+          <b>B4-内容审核 · 注记</b><br />
+          ① 现网结构保留：双 Tab（待审 / 已删隐回收站）、逐条处置、通过后补发事件与计数（逻辑不动，纯视觉重排为<b>卡片队列</b>）。<br />
+          ② 驳回 = 必填理由 → Dialog（复用 B2 confirm-dialog 模式），理由进审计与作者通知。<br />
+          ③ 回收站行：dashed 边框区分常态；「恢复」同样二次确认；30 天自动清除口径显示在行内。<br />
+          ④ 版主作用域提示常驻页头（「仅显示你所辖版块」），与管理员全量视角区分。<br />
+          ⑤ 不做批量操作：逐条处置保持审计细粒度（现网决策延续）。
+        </div>
+      </div>
+    </main>
+
+    <div class="bppill">
+      <i>断点</i><span class="bp-base">base &lt;640</span><span class="bp-sm">sm 640</span
+    ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span><span class="bp-xl">xl 1280</span>
+    </div>
+  </body>
+</html>

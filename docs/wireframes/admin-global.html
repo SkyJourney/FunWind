@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>线稿 · 全局状态落地规格</title>
+    <link rel="stylesheet" href="_shared/wireframe.css" />
+    <style>
+      .wrap {
+        max-width: 880px;
+      }
+      table.spec {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+      table.spec th,
+      table.spec td {
+        border-bottom: 1px solid var(--line);
+        padding: 8px 10px;
+        text-align: left;
+        vertical-align: top;
+      }
+      table.spec th {
+        color: var(--t2);
+        background: var(--sunken);
+        font-weight: 600;
+      }
+      .skeleton-feed {
+        display: grid;
+        gap: 8px;
+      }
+      .sk-row {
+        display: flex;
+        gap: 12px;
+        padding: 12px;
+      }
+      .nf {
+        border: 1.5px dashed var(--line-strong);
+        border-radius: var(--r-lg);
+        padding: 36px 20px;
+        display: grid;
+        justify-items: center;
+        gap: 10px;
+        color: var(--t2);
+        background: var(--surface);
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <span class="brand"><span class="logo"></span>青翼字幕组 · S2 线稿</span>
+      <nav class="topnav">
+        <a href="index.html">总览</a>
+        <a class="on" href="#">全局状态落地规格</a>
+      </nav>
+    </header>
+
+    <main class="page wrap">
+      <div class="main">
+        <div style="display: grid; gap: 4px">
+          <h1 class="h-page">B4 · 全局状态落地规格（loading / error / 404）</h1>
+          <p class="sub">
+            全站当前 41 页零路由边界（S1 盘点 ①）；本表定稿每个边界文件的位置与内容。骨架形状必须复用对应页布局（states.html ①），禁止通用转圈。
+          </p>
+        </div>
+
+        <div class="card" style="overflow-x: auto">
+          <table class="spec">
+            <tr><th>边界文件（app/ 下）</th><th>形态</th><th>覆盖路由</th></tr>
+            <tr>
+              <td><b>loading.tsx</b>（feed 骨架）</td>
+              <td>主列 + 右栏位占位：筛选条骨架 + 3 张流卡片骨架（thumb+两行文字）</td>
+              <td>/（首页）、/boards、/follows</td>
+            </tr>
+            <tr>
+              <td><b>loading.tsx</b>（阅读骨架）</td>
+              <td>标题条骨架 + 楼层卡骨架 ×2 + 快速回复位</td>
+              <td>/t/[tid]、/p/[pid]/edit、/f/[fid]/new</td>
+            </tr>
+            <tr>
+              <td><b>loading.tsx</b>（列表骨架）</td>
+              <td>标题骨架 + 行列表骨架 ×6</td>
+              <td>/search、/messages、/notifications、/points、/u/[uid]</td>
+            </tr>
+            <tr>
+              <td><b>error.tsx</b></td>
+              <td>states.html ③：「页面开小差了」+ 错误 ID + 重试/回首页（client 组件，reset()）</td>
+              <td>app 根（捕获全部未处理段错误）</td>
+            </tr>
+            <tr>
+              <td><b>global-error.tsx</b></td>
+              <td>极简版（无壳依赖）：同文案 + 刷新按钮</td>
+              <td>根布局级兜底</td>
+            </tr>
+            <tr>
+              <td><b>not-found.tsx</b></td>
+              <td>404 专属：插图占位 +「页面不存在或你无权访问」+ 去首页/去搜索（<b>保持受限内容 404 不暴露存在性</b>的语义）</td>
+              <td>全站 + notFound() 调用处</td>
+            </tr>
+          </table>
+        </div>
+
+        <!-- 示例：feed 骨架 -->
+        <div>
+          <p class="h-sec small">示例：首页 loading.tsx（feed 骨架 = 真实布局的同构占位）</p>
+          <div class="skeleton-feed" style="margin-top: 8px">
+            <div class="sk" style="height: 14px; width: 38%"></div>
+            <div class="sk" style="height: 12px; width: 60%"></div>
+            <div class="card sk-row">
+              <div class="sk" style="width: 108px; aspect-ratio: 16/10"></div>
+              <div style="flex: 1; display: grid; gap: 7px; align-content: start">
+                <div class="sk" style="height: 11px; width: 32%"></div>
+                <div class="sk" style="height: 15px; width: 88%"></div>
+                <div class="sk" style="height: 11px; width: 45%"></div>
+              </div>
+            </div>
+            <div class="card sk-row">
+              <div class="sk" style="width: 108px; aspect-ratio: 16/10"></div>
+              <div style="flex: 1; display: grid; gap: 7px; align-content: start">
+                <div class="sk" style="height: 11px; width: 28%"></div>
+                <div class="sk" style="height: 15px; width: 76%"></div>
+                <div class="sk" style="height: 11px; width: 40%"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 404 示例 -->
+        <div>
+          <p class="h-sec small">示例：not-found.tsx（404 专属页）</p>
+          <div class="nf" style="margin-top: 8px">
+            <span class="big-glyph"></span>
+            <b>页面不存在，或你无权访问</b>
+            <span class="small t3">链接可能已过期——试试搜索，或回首页逛逛</span>
+            <div style="display: flex; gap: 8px">
+              <span class="btn primary sm">回首页</span>
+              <span class="btn ghost sm">去搜索</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="note">
+          <b>B4-全局 · 注记</b><br />
+          ① loading.tsx 是 RSC 边界：只放骨架不取数；骨架组件复用 S5 抽出的布局组件（同一组件传 skeleton 态，保证形状永不错位）。<br />
+          ② 后台 15 页不加 per-page loading（force-dynamic 后台页轻量、命中率高）；后台空态/错误同样套 states.html 图例。<br />
+          ③ 404 文案刻意二义（「不存在或无权访问」）——受限版块/帖子的 notFound() 语义不因新页面泄露。<br />
+          ④ error.tsx 的错误 ID = 时间戳短码，便于对服务端日志；dev 环境额外显示原始错误摘要。<br />
+          ⑤ 本表连同前四份线稿，S2 四批全部完成（前台 26 + 后台 15 + 全局规格）。
+        </div>
+      </div>
+    </main>
+
+    <div class="bppill">
+      <i>断点</i><span class="bp-base">base &lt;640</span><span class="bp-sm">sm 640</span
+    ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span><span class="bp-xl">xl 1280</span>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>线稿 · 用户管理 / 用户详情</title>
+    <link rel="stylesheet" href="_shared/wireframe.css" />
+    <style>
+      .wrap {
+        max-width: 860px;
+      }
+      .search {
+        display: flex;
+        gap: 8px;
+      }
+      .search .in {
+        flex: 1;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--r-md);
+        padding: 10px 14px;
+        color: var(--t3);
+        font-size: 14px;
+        background: var(--surface);
+      }
+      .urow {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+      .urow:last-child {
+        border-bottom: 0;
+      }
+      .urow .avatar {
+        width: 36px;
+        height: 36px;
+        flex-shrink: 0;
+      }
+      .urow .mid {
+        flex: 1;
+        min-width: 0;
+        display: grid;
+        gap: 1px;
+      }
+      .urow .nm {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        flex-wrap: wrap;
+        font-weight: 600;
+        font-size: 14px;
+      }
+      .urow .meta {
+        color: var(--t3);
+        font-size: 12px;
+      }
+      .h2s {
+        font-size: 15px;
+        font-weight: 600;
+        margin: 8px 0 0;
+      }
+      .limit-row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        padding: 9px 0;
+        border-bottom: 1px dashed var(--line);
+        font-size: 13.5px;
+      }
+      .limit-row:last-child {
+        border-bottom: 0;
+      }
+      .seg {
+        display: flex;
+        gap: 2px;
+        background: var(--sunken);
+        border-radius: var(--r-sm);
+        padding: 2px;
+        font-size: 13px;
+      }
+      .seg span {
+        padding: 5px 12px;
+        border-radius: 6px;
+        color: var(--t2);
+      }
+      .seg .on {
+        background: var(--surface);
+        color: var(--t1);
+        font-weight: 600;
+        box-shadow: var(--shadow);
+      }
+      .f-in {
+        border: 1px solid var(--line-strong);
+        border-radius: var(--r-sm);
+        padding: 9px 12px;
+        color: var(--t3);
+        font-size: 13px;
+        background: var(--surface);
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <span class="brand"><span class="logo"></span>青翼字幕组</span>
+      <nav class="topnav">
+        <a href="admin-dashboard.html">后台</a>
+        <a class="on" href="#">用户管理</a>
+      </nav>
+    </header>
+
+    <main class="page wrap">
+      <div class="main">
+        <!-- A. 列表 -->
+        <div>
+          <h1 class="h-page">用户管理</h1>
+          <p class="sub">按用户名包含匹配搜索（admin.users）</p>
+        </div>
+        <div class="search">
+          <div class="in">输入用户名关键字…</div>
+          <span class="btn primary">搜索</span>
+        </div>
+        <div class="card">
+          <div class="urow">
+            <span class="avatar">纸</span>
+            <div class="mid">
+              <div class="nm">纸巾君 <span class="pill outline">字幕组</span></div>
+              <div class="meta">#90005 · 注册于 2026-03-03 · 正常</div>
+            </div>
+            <span class="btn ghost sm">详情 →</span>
+          </div>
+          <div class="urow">
+            <span class="avatar">B</span>
+            <div class="mid">
+              <div class="nm">demo_banned <span class="pill">封禁中</span></div>
+              <div class="meta">#90003 · 注册于 2026-03-01 · 期限至 2026-11-01</div>
+            </div>
+            <span class="btn ghost sm">详情 →</span>
+          </div>
+          <div class="urow">
+            <span class="avatar">茶</span>
+            <div class="mid">
+              <div class="nm">茶会常客</div>
+              <div class="meta">#90042 · 注册于 2026-04-12 · 正常</div>
+            </div>
+            <span class="btn ghost sm">详情 →</span>
+          </div>
+        </div>
+
+        <!-- B. 详情 -->
+        <h2 class="h2s">用户详情（/admin/users/[uid]，下例 = demo_banned）</h2>
+        <div class="card" style="display: grid; gap: 14px; padding: 18px">
+          <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap">
+            <span class="avatar" style="width: 48px; height: 48px">B</span>
+            <div style="flex: 1; min-width: 200px">
+              <b>demo_banned</b> <span class="pill">封禁中</span>
+              <div class="meta" style="color: var(--t3); font-size: 12px">
+                #90003 · banned@demo.local · 注册 2026-03-01 · 主题 2 · 回复 17
+              </div>
+            </div>
+            <span class="btn ghost sm">查看公开页</span>
+          </div>
+
+          <div style="border-top: 1px solid var(--line); padding-top: 12px">
+            <p class="h-sec small">限制管理</p>
+            <div class="seg" style="margin: 8px 0"><span class="on">无</span><span>禁言</span><span>封禁</span></div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center">
+              <div class="f-in" style="flex: 1; min-width: 200px">理由（必填，进审计并通知对方）…</div>
+              <div class="f-in" style="width: 130px">期限：7 天</div>
+              <span class="btn destructive sm">施加限制</span>
+            </div>
+            <div style="margin-top: 10px">
+              <div class="limit-row">
+                <span class="pill">封禁</span><span class="t2">发布广告（纸巾君）</span
+                ><span class="t3 small" style="margin-left: auto">至 2026-11-01</span
+                ><span class="btn ghost sm">解除</span>
+              </div>
+            </div>
+          </div>
+
+          <div style="border-top: 1px solid var(--line); padding-top: 12px">
+            <p class="h-sec small">角色</p>
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px">
+              <span class="pill outline">member</span>
+              <div class="f-in" style="width: 160px">授予角色…</div>
+              <span class="btn ghost sm">授予</span>
+            </div>
+          </div>
+
+          <div style="border-top: 1px solid var(--line); padding-top: 12px">
+            <p class="h-sec small">积分调整</p>
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px">
+              <div class="f-in" style="width: 110px">± 数额</div>
+              <div class="f-in" style="flex: 1; min-width: 200px">理由（必填）…</div>
+              <span class="btn primary sm">调整</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="note">
+          <b>B4-用户域（后台） · 注记</b><br />
+          ① 列表：现网「用户名包含匹配」保留；行 = 头像 + 名字 + 角色/状态 pill + id/注册/期限元信息；分页同版块页。<br />
+          ② 详情四区：头卡 / 限制管理 / 角色 / 积分调整——全部沿用现网 Server Action 与审计（before 记录）；<b>施加限制与解除走确认 Dialog（B2 模式）</b>，理由必填校验不变。<br />
+          ③ 期限改分段+快捷档（7/30 天/自定义），替代原生 select（S5 清理计划）。<br />
+          ④ 封禁中用户行内 pill 常亮标识；「查看公开页」直达 /u/[uid]。空态/无结果按 states.html。
+        </div>
+      </div>
+    </main>
+
+    <div class="bppill">
+      <i>断点</i><span class="bp-base">base &lt;640</span><span class="bp-sm">sm 640</span
+    ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span><span class="bp-xl">xl 1280</span>
+    </div>
+  </body>
+</html>
