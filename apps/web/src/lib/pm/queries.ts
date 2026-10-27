@@ -95,3 +95,25 @@ export async function otherMemberOf(
     .limit(1);
   return row?.userId ?? null;
 }
+
+/** 全站未读私信总数（顶栏/底部导航角标）：与 conversationList 的未读口径一致（指针之后的对方消息）。 */
+export async function unreadPmTotal(userId: number): Promise<number> {
+  // 无 GROUP BY 的 COUNT 恒返回一行
+  const [row] = await getWebDb()
+    .select({ n: sql<number>`COUNT(*)` })
+    .from(messages)
+    .innerJoin(
+      conversationMembers,
+      and(
+        eq(conversationMembers.conversationId, messages.conversationId),
+        eq(conversationMembers.userId, userId),
+      ),
+    )
+    .where(
+      and(
+        sql`(${conversationMembers.lastReadMessageId} IS NULL OR ${messages.id} > ${conversationMembers.lastReadMessageId})`,
+        sql`${messages.senderId} <> ${userId}`,
+      ),
+    );
+  return Number(row.n);
+}

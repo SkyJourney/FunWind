@@ -1,13 +1,15 @@
-import type { Metadata } from "next";
-import Link from "next/link";
+import type { Metadata, Viewport } from "next";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { logoutAction } from "@/app/actions/auth";
-import { LogoutForm } from "@/components/auth/logout-form";
-import { NotificationBell } from "@/components/notifications/notification-bell";
+import { BottomTabBar } from "@/components/site/bottom-tab-bar";
+import { SiteHeader } from "@/components/site/site-header";
 import { AnnouncementBanner } from "@/components/site/announcement-banner";
 import { getEnabledModuleIds } from "@/modules/kernel/state";
 import { getCurrentUser } from "@/lib/auth/session";
+import { getCurrentSubject } from "@/lib/authz/subject";
+import { checkPermission, getModeratedForumIds } from "@/lib/authz/service";
+import { unreadPmTotal } from "@/lib/pm/queries";
 import { bannerAnnouncement, getSiteChrome } from "@/lib/site-chrome";
 // 模块注册表求值（注册 + 封板）：任何内核调用前加载
 import "@/modules";
@@ -18,11 +20,33 @@ export const metadata: Metadata = {
   description: "青翼字幕组新论坛——现代、轻主题、移动优先的 ACG 情怀社区。",
 };
 
+export const viewport: Viewport = {
+  // iOS 刘海屏：允许内容延伸到安全区，底部 Tab 自行让位（env(safe-area-inset-bottom)）
+  viewportFit: "cover",
+};
+
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const user = await getCurrentUser();
-  // 通知模块停用时铃铛不渲染（模块装卸语义；读取契约对停用模块的存量数据无意义）
-  const notificationsOn = user !== null && (await getEnabledModuleIds()).has("notifications");
-  const [chrome, banner] = await Promise.all([getSiteChrome(), bannerAnnouncement(user !== null)]);
+  // 模块停用时不渲染对应入口（模块装卸语义）；游客一律不算
+  const enabled = user !== null ? await getEnabledModuleIds() : null;
+  const notificationsOn = enabled?.has("notifications") ?? false;
+  const pmOn = enabled?.has("pm") ?? false;
+  const [chrome, banner, pmUnread, showAdmin] = await Promise.all([
+    getSiteChrome(),
+    bannerAnnouncement(user !== null),
+    pmOn && user ? unreadPmTotal(user.id) : Promise.resolve(0),
+    user !== null
+      ? (async () => {
+          // 「管理后台」入口可见性：站点管理员或任一版块版主（与 /admin 布局门禁同口径）
+          const subject = await getCurrentSubject();
+          const [siteAdmin, moderated] = await Promise.all([
+            checkPermission(subject, "site.admin"),
+            getModeratedForumIds(subject),
+          ]);
+          return siteAdmin.allowed || moderated.length > 0;
+        })()
+      : Promise.resolve(false),
+  ]);
 
   return (
     <html lang="zh-CN" suppressHydrationWarning>
@@ -34,76 +58,19 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           disableTransitionOnChange
         >
           <AnnouncementBanner banner={banner} />
-          <header className="border-b">
-            <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3 sm:px-6 lg:px-8">
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                <Link href="/" className="font-semibold tracking-tight hover:text-primary">
-                  青翼字幕组
-                </Link>
-                {/* 站点导航（管理可配；空则不渲染） */}
-                <nav className="flex flex-wrap items-center gap-3 text-sm" aria-label="站点导航">
-                  {chrome.nav.map((n) => (
-                    <Link
-                      key={`${n.label}:${n.href}`}
-                      href={n.href}
-                      className="text-muted-foreground hover:text-foreground"
-                    >
-                      {n.label}
-                    </Link>
-                  ))}
-                  <Link href="/search" className="text-muted-foreground hover:text-foreground">
-                    搜索
-                  </Link>
-                </nav>
-              </div>
-              <div className="flex items-center gap-3 text-sm">
-                {user ? (
-                  <>
-                    {notificationsOn && <NotificationBell />}
-                    <Link href={`/u/${user.id}`} className="font-medium hover:text-primary">
-                      {user.username}
-                    </Link>
-                    <Link href="/points" className="text-muted-foreground hover:text-foreground">
-                      积分
-                    </Link>
-                    <Link href="/follows" className="text-muted-foreground hover:text-foreground">
-                      动态
-                    </Link>
-                    <Link href="/messages" className="text-muted-foreground hover:text-foreground">
-                      私信
-                    </Link>
-                    <Link
-                      href="/settings/avatar"
-                      className="text-muted-foreground hover:text-foreground"
-                    >
-                      头像
-                    </Link>
-                    <LogoutForm action={logoutAction}>
-                      <button type="submit" className="text-muted-foreground hover:text-foreground">
-                        退出
-                      </button>
-                    </LogoutForm>
-                  </>
-                ) : (
-                  <>
-                    <Link href="/login" className="hover:text-primary">
-                      登录
-                    </Link>
-                    <Link
-                      href="/register"
-                      className="rounded-lg bg-primary px-3 py-1.5 font-medium text-primary-foreground hover:bg-primary/90"
-                    >
-                      注册
-                    </Link>
-                  </>
-                )}
-              </div>
-            </div>
-          </header>
+          <SiteHeader
+            user={user}
+            chromeNav={chrome.nav}
+            notificationsOn={notificationsOn}
+            showAdmin={showAdmin}
+            logoutAction={logoutAction}
+          />
           {children}
+          {/* 移动端底部 Tab 占位：内容不被固定栏遮挡 */}
+          <div aria-hidden className="h-16 md:hidden" />
           {chrome.links.length > 0 && (
-            <footer className="mt-12 border-t py-6">
-              <div className="mx-auto max-w-5xl space-y-2 px-4 sm:px-6 lg:px-8">
+            <footer className="border-t py-6">
+              <div className="mx-auto max-w-6xl space-y-2 px-4 sm:px-6 lg:px-8">
                 <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                   <span className="font-medium text-foreground">友情链接</span>
                   {chrome.links.map((l) => (
@@ -125,6 +92,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               </div>
             </footer>
           )}
+          <BottomTabBar user={user ? { id: user.id } : null} pmOn={pmOn} pmUnread={pmUnread} />
           <Toaster position="top-center" />
         </ThemeProvider>
       </body>

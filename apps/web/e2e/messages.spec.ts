@@ -59,10 +59,12 @@ test("A 发私信 → B 未读（铃铛徽标 + 会话列表未读数）→ B �
   await bCtx.close();
 });
 
-test("顶栏「私信」入口可见", async ({ page, context }) => {
+test("「私信」入口可见（M10.5 起在用户菜单与移动端底部 Tab）", async ({ page, context }) => {
   await loginAs(context, USERS.alice);
   await page.goto("/");
-  await expect(page.getByRole("link", { name: "私信" })).toBeVisible();
+  await page.getByRole("button", { name: "demo_alice" }).click();
+  // Radix DropdownMenuItem asChild(Link) 的可达角色是 menuitem
+  await expect(page.getByRole("menuitem", { name: "私信" })).toBeVisible();
 });
 
 test("游客访问带 to 的私信页 → 登录跳转", async ({ browser }) => {

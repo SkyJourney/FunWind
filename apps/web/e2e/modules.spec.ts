@@ -71,7 +71,7 @@ test.describe("真实登录驱动事件（不再靠 dev 接口伪造）", () => 
     await page.getByLabel("用户名或邮箱").fill("demo_admin");
     await page.getByLabel("密码").fill("e2e-admin-pass");
     await page.getByRole("button", { name: "登录" }).click();
-    await expect(page.getByRole("link", { name: "demo_admin" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "demo_admin" })).toBeVisible();
 
     expect(await loggedInEvents()).toEqual([{ actor_id: 90004, source: "auth" }]);
     await page.goto("/");

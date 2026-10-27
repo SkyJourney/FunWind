@@ -62,7 +62,7 @@ test.describe("权限内核", () => {
   test("受限版块：普通会员 → 404", async ({ page, context }) => {
     await loginAs(context, USERS.member);
     await page.goto("/");
-    await expect(page.getByRole("link", { name: "demo_member" })).toBeVisible(); // 确认已登录
+    await expect(page.getByRole("button", { name: "demo_member" })).toBeVisible(); // 确认已登录（用户菜单触发按钮）
     for (const fid of RESTRICTED_FORUMS) {
       const res = await page.goto(`/f/${fid}`);
       expect(res?.status(), `fid ${fid}`).toBe(404);

@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Slot } from "@/modules/kernel/slot";
 import { ThreadRow } from "@/components/content/thread-row";
+import { ForumDirectory } from "@/components/content/forum-directory";
 import { isDevEnv } from "@/lib/dev-only";
 import { getForumTree } from "@/lib/authz/snapshot";
 import { getCurrentSubject } from "@/lib/authz/subject";
@@ -39,46 +40,7 @@ export default async function HomePage() {
 
       <Slot name="home.after-header" />
 
-      <section className="space-y-6">
-        {dir.groups.map(({ section, forums }) => (
-          <div key={section?.id ?? "loose"}>
-            {section && (
-              <h2 className="mb-2 border-b pb-1 text-base font-semibold text-foreground/90">
-                {section.name}
-              </h2>
-            )}
-            <div className="grid gap-3 sm:grid-cols-2">
-              {forums.map((forum) => (
-                <div key={forum.id} className="rounded-xl border bg-card p-4">
-                  <Link
-                    href={`/f/${forum.id}`}
-                    className="font-medium hover:text-primary hover:underline"
-                  >
-                    {forum.name}
-                  </Link>
-                  {forum.description && (
-                    <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                      {forum.description}
-                    </p>
-                  )}
-                  <div className="mt-2 text-xs text-muted-foreground">
-                    主题 {forum.threadCount}
-                    {forum.subs.length > 0 && (
-                      <span className="ml-3 inline-flex flex-wrap gap-x-2">
-                        {forum.subs.map((s) => (
-                          <Link key={s.id} href={`/f/${s.id}`} className="hover:text-primary">
-                            ↳ {s.name}
-                          </Link>
-                        ))}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </section>
+      <ForumDirectory dir={dir} />
 
       <section>
         <h2 className="mb-2 flex items-center gap-1.5 border-b pb-1 text-base font-semibold">

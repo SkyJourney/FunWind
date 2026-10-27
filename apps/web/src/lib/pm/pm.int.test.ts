@@ -20,7 +20,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
-import { conversationList, otherMemberOf } from "./queries";
+import { conversationList, otherMemberOf, unreadPmTotal } from "./queries";
 import { openConversation, sendMessage } from "./service";
 
 let tdb: TempDb;
@@ -242,5 +242,19 @@ describe.skipIf(skipDb)("私信（M10）", () => {
     const others = new Set(list.map((c) => c.otherId));
     expect(others.has(DEMO.alice)).toBe(true);
     expect(others.has(DEMO.team)).toBe(false);
+  });
+
+  it("unreadPmTotal：角标总数与会话列表未读之和一致，打开会话后清零", async () => {
+    const r = await sendMessage(alice, DEMO.team, "角标用私信");
+    if (!r.ok) throw new Error(r.code);
+    const list = await conversationList(DEMO.team);
+    const sum = list.reduce((acc, c) => acc + c.unread, 0);
+    expect(await unreadPmTotal(DEMO.team)).toBe(sum);
+    expect(sum).toBeGreaterThan(0);
+
+    const conv = list.find((c) => c.conversationId === r.conversationId)!;
+    expect(await openConversation(DEMO.team, conv.conversationId)).toBe(true);
+    const after = await conversationList(DEMO.team);
+    expect(await unreadPmTotal(DEMO.team)).toBe(after.reduce((acc, c) => acc + c.unread, 0));
   });
 });

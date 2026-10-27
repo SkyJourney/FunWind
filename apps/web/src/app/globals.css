@@ -1,6 +1,9 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* dark: 变体跟随 <html data-theme>（next-themes attribute 模式），与令牌层同轨；否则 dark: 走 prefers-color-scheme 双轨脱节 */
+@custom-variant dark (&:is([data-theme="dark"] *));
+
 /* 三层令牌（决策见 docs/FRONTEND-DESIGN.md）：原子 → 语义 → 主题包 */
 @import "../styles/tokens/primitives.css";
 @import "../styles/tokens/semantic.css";

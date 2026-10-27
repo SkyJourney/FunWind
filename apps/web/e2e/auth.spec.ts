@@ -78,7 +78,8 @@ test.describe("M4 · 用户与认证", () => {
     await page.getByRole("button", { name: "凭邀请码注册" }).click();
 
     await expect(page).toHaveURL(/127\.0\.0\.1:3100\/$|\/$/);
-    await expect(page.getByRole("link", { name: USERNAME })).toBeVisible();
+    // M10.5 用户区收进顶栏菜单：触发按钮的可达名含用户名
+    await expect(page.getByRole("button", { name: USERNAME })).toBeVisible();
 
     // Cookie 安全属性（http 站点 Secure=false；HttpOnly 无法由 JS 读取——经 context 断言）
     const cookies = await page.context().cookies();
@@ -88,7 +89,8 @@ test.describe("M4 · 用户与认证", () => {
     expect(session!.sameSite).toBe("Lax");
     expect(session!.secure).toBe(false); // http 环境自动判定
 
-    // 退出
+    // 退出（M10.5 起在用户菜单内）
+    await page.getByRole("button", { name: USERNAME }).click();
     await page.getByRole("button", { name: "退出" }).click();
     await expect(page.getByRole("link", { name: "登录", exact: true })).toBeVisible();
   });
@@ -122,7 +124,7 @@ test.describe("M4 · 用户与认证", () => {
     await page.getByLabel("用户名或邮箱").fill(EMAIL);
     await page.getByLabel("密码").fill("new-pass-456");
     await page.getByRole("button", { name: "登录" }).click();
-    await expect(page.getByRole("link", { name: USERNAME })).toBeVisible();
+    await expect(page.getByRole("button", { name: USERNAME })).toBeVisible();
   });
 
   test("认领流程（无密码老账户 demo_alice）：邮件链接 → 设密 → 登录", async ({ page }) => {
@@ -143,7 +145,7 @@ test.describe("M4 · 用户与认证", () => {
     await page.getByLabel("用户名或邮箱").fill("demo_alice");
     await page.getByLabel("密码").fill("alice-pass-789");
     await page.getByRole("button", { name: "登录" }).click();
-    await expect(page.getByRole("link", { name: "demo_alice" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "demo_alice" })).toBeVisible();
   });
 
   test("登录失败统一话术（防枚举）", async ({ page }) => {
