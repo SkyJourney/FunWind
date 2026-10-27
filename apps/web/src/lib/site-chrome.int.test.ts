@@ -19,7 +19,7 @@ afterAll(async () => {
 
 describe.skipIf(skipDb)("站点框架配置（site-chrome）", () => {
   it("默认空配置；非法结构被丢弃（不抛错）", async () => {
-    expect(await getSiteChrome()).toEqual({ nav: [], links: [], footerText: "" });
+    expect(await getSiteChrome()).toEqual({ nav: [], links: [], footerText: "", logoActive: null });
     await db()
       .insert(siteSettings)
       .values([

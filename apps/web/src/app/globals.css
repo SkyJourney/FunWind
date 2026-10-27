@@ -80,6 +80,11 @@
   .fw-enter {
     animation: none;
   }
+  /* template.tsx 的方向性进场在 reduce 下关闭 */
+  [style*="vt-push-in"],
+  [style*="vt-pop-in"] {
+    animation: none !important;
+  }
 }
 
 /* 页面级 View Transitions（经 lib/motion/view-transition 触发，html[data-vt] 选型）：

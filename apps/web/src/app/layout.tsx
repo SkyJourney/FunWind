@@ -5,6 +5,7 @@ import { logoutAction } from "@/app/actions/auth";
 import { BottomTabBar } from "@/components/site/bottom-tab-bar";
 import { SiteHeader } from "@/components/site/site-header";
 import { AnnouncementBanner } from "@/components/site/announcement-banner";
+import { NavKindCapture } from "@/components/site/nav-kind-capture";
 import { getEnabledModuleIds } from "@/modules/kernel/state";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getCurrentSubject } from "@/lib/authz/subject";
@@ -61,11 +62,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           disableTransitionOnChange
         >
           <AnnouncementBanner banner={banner} />
+          <NavKindCapture />
           <SiteHeader
             user={user}
             chromeNav={chrome.nav}
             notificationsOn={notificationsOn}
             showAdmin={showAdmin}
+            logoUrl={chrome.logoActive ? "/brand/logo" : null}
             logoutAction={logoutAction}
           />
           {children}

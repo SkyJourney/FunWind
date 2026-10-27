@@ -22,6 +22,7 @@ interface NavEntry {
   need:
     | {
         admin:
+          | "site.admin"
           | "admin.roles"
           | "admin.points"
           | "admin.badges"
@@ -62,6 +63,10 @@ const NAV_GROUPS: { label: string; items: NavEntry[] }[] = [
       { href: "/admin/badges", label: "徽章", need: { admin: "admin.badges" } },
       { href: "/admin/logs", label: "审计日志", need: { admin: "admin.logs" } },
     ],
+  },
+  {
+    label: "站点管理",
+    items: [{ href: "/admin/logo", label: "LOGO 管理", need: { admin: "site.admin" } }],
   },
 ];
 

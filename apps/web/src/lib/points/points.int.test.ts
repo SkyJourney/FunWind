@@ -11,6 +11,7 @@ import { registerModule } from "@/modules/kernel/registry";
 import { defineModule } from "@/modules/kernel/types";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { applyPoints, applyPointsInTx, builtinChannel, resolveChannelOrThrow } from "./apply";
+import { getLedgerPage } from "./ledger";
 import {
   IdempotencyConflictError,
   InsufficientPointsError,
@@ -431,5 +432,25 @@ describe.skipIf(skipDb)("applyPoints · 真实 MySQL", () => {
       expect(await account(99030)).toMatchObject({ balance: 7 });
       spy.mockRestore();
     });
+  });
+
+  it("台账页查询（M10.5 补测）：余额快照 + 分页夹取 + 无账户用户按 0 处理", async () => {
+    const a = await applyPoints(
+      { userId: DEMO.team, channel: "earn.gate_sale", delta: 5, idempotencyKey: key("ledger") },
+      noEmit,
+    );
+    const b = await applyPoints(
+      { userId: DEMO.team, channel: "earn.gate_sale", delta: 3, idempotencyKey: key("ledger") },
+      noEmit,
+    );
+    const page1 = await getLedgerPage(DEMO.team, 1);
+    expect(page1.balance).toBe(b.balanceAfter);
+    expect(page1.lifetimeEarned).toBeGreaterThanOrEqual(a.balanceAfter);
+    expect(page1.items[0]?.delta).toBe(3); // 倒序：最新在前
+    const far = await getLedgerPage(DEMO.team, 999);
+    expect(far.page).toBe(far.totalPages);
+    const nobody = await getLedgerPage(87654321, 1);
+    expect(nobody.balance).toBe(0);
+    expect(nobody.items).toEqual([]);
   });
 });

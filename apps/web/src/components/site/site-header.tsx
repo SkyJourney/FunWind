@@ -9,16 +9,27 @@ import { ThemeMenu } from "@/components/site/theme-menu";
 import { UserMenu } from "@/components/site/user-menu";
 
 /**
- * 品牌 LOGO（M10.5 视效试用）：NEXT_PUBLIC_LOGO 填 /logo/ 下文件名（不含尺寸后缀与扩展名）
- * 时渲染图片素材（112/224 双档，srcSet 视网膜自适应），否则回退 Wind 图标占位。
- * 正式机制 = LOGO 池后台管理（docs/LOGO-POOL.md，S5 阶段 C），届时由此处改为读 site_settings。
- * 尺寸：顶栏 36px（--logo-top）；右栏品牌卡 96px（BrandCard，size prop）。
+ * 品牌 LOGO（M10.5 LOGO 池定稿）：优先级 = 后台池当前项（/brand/logo，chrome 传入）
+ * ＞ NEXT_PUBLIC_LOGO 静态素材（/logo 双档）＞ Wind 占位。
+ * 尺寸：顶栏 36px；右栏品牌卡 96px（BrandCard）。
  */
 const LOGO_BASE = process.env.NEXT_PUBLIC_LOGO ?? "";
 
-/** 品牌图（LOGO 素材或回退占位）；size = 渲染边长 px。 */
-export function BrandMark({ size = 36 }: { size?: 28 | 36 | 96 }) {
+/** 品牌图（池当前项/静态素材/回退占位）；size = 渲染边长 px。 */
+export function BrandMark({
+  size = 36,
+  logoUrl,
+}: {
+  size?: 28 | 36 | 96;
+  logoUrl?: string | null;
+}) {
   const cls = size === 96 ? "size-24" : size === 36 ? "size-9" : "size-7";
+  if (logoUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- 品牌位（/brand/logo 公开路由或本地静态素材），不经图片优化域
+      <img src={logoUrl} alt="" width={size} height={size} className={`${cls} object-contain`} />
+    );
+  }
   if (LOGO_BASE) {
     return (
       // eslint-disable-next-line @next/next/no-img-element -- 品牌位固定素材（本地 /logo 双档），不经图片优化域
@@ -42,7 +53,7 @@ export function BrandMark({ size = 36 }: { size?: 28 | 36 | 96 }) {
 }
 
 /** 右栏品牌卡（xl+）：大尺寸 LOGO 的正式展示位（96px + 站名 + slogan）。 */
-export function BrandCard() {
+export function BrandCard({ logoUrl }: { logoUrl?: string | null }) {
   return (
     <section className="rounded-xl border bg-card p-5 text-center">
       <Link
@@ -50,7 +61,7 @@ export function BrandCard() {
         className="inline-flex flex-col items-center gap-2"
         aria-label="青翼字幕组 首页"
       >
-        <BrandMark size={96} />
+        <BrandMark size={96} logoUrl={logoUrl} />
         <span className="text-lg font-bold tracking-tight">青翼字幕组</span>
         <span className="text-xs text-muted-foreground">日语·ACG 情怀社区</span>
       </Link>
@@ -63,12 +74,15 @@ export function SiteHeader({
   chromeNav,
   notificationsOn,
   showAdmin,
+  logoUrl,
   logoutAction,
 }: {
   user: SessionUser | null;
   chromeNav: NavItem[];
   notificationsOn: boolean;
   showAdmin: boolean;
+  /** LOGO 池当前项输出地址（/brand/logo）；null = 无池项（回退静态素材/占位） */
+  logoUrl?: string | null;
   logoutAction: (formData: FormData) => Promise<void>;
 }) {
   const navLinks: NavLink[] = [
@@ -86,7 +100,7 @@ export function SiteHeader({
           aria-label="青翼字幕组 首页"
           className="flex min-w-0 shrink-0 items-center gap-2 font-semibold tracking-tight"
         >
-          <BrandMark size={36} />
+          <BrandMark size={36} logoUrl={logoUrl} />
           {/* 站点名全端常显（M10.5 站长反馈：移动顶栏没有站点名） */}
           <span className="truncate text-[15px] md:text-base">青翼字幕组</span>
         </Link>

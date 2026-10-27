@@ -21,9 +21,11 @@ export interface SiteChrome {
   nav: NavItem[];
   links: FriendLink[];
   footerText: string;
+  /** 当前品牌 LOGO（LOGO 池 active 文件名）；null = 无（回退占位图标） */
+  logoActive: string | null;
 }
 
-const EMPTY: SiteChrome = { nav: [], links: [], footerText: "" };
+const EMPTY: SiteChrome = { nav: [], links: [], footerText: "", logoActive: null };
 const TTL_MS = 30_000;
 
 interface CacheBox {
@@ -44,6 +46,7 @@ export async function getSiteChrome(): Promise<SiteChrome> {
       nav: parseNav(byKey.get("site.nav")),
       links: parseLinks(byKey.get("site.links")),
       footerText: parseFooter(byKey.get("site.footer")),
+      logoActive: parseLogo(byKey.get("site.logo")),
     };
     g.__fwSiteChrome = { value: chrome, at: Date.now() };
     return chrome;
@@ -81,6 +84,15 @@ export async function bannerAnnouncement(loggedIn: boolean): Promise<{
     .orderBy(desc(announcements.id))
     .limit(1);
   return row ?? null;
+}
+
+/** LOGO 池当前项（site.logo JSON 的 active；文件名校验与 lib/brand/logo-pool 同口径） */
+function parseLogo(raw: unknown): string | null {
+  const o = raw as { items?: unknown; active?: unknown } | null;
+  const items = Array.isArray(o?.items) ? (o.items as { file?: unknown }[]) : [];
+  const active = typeof o?.active === "string" ? o.active : null;
+  if (!active || !/^logo-[a-z0-9]+\.png$/.test(active)) return null;
+  return items.some((i) => i.file === active) ? active : null;
 }
 
 function parseNav(raw: unknown): NavItem[] {

@@ -10,6 +10,7 @@ import { getForumTree } from "@/lib/authz/snapshot";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { getDirectory } from "@/lib/queries/forums";
 import { getHomeFeed, getHotThreads } from "@/lib/queries/threads";
+import { getSiteChrome } from "@/lib/site-chrome";
 
 export const metadata: Metadata = { title: "青翼字幕组" };
 export const dynamic = "force-dynamic";
@@ -33,6 +34,7 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
   const page = Math.max(1, Math.trunc(Number(params.page)) || 1);
 
   const viewer = await getCurrentSubject();
+  const chrome = await getSiteChrome();
   const [tree, dir, feed, hot] = await Promise.all([
     getForumTree(),
     getDirectory(viewer),
@@ -176,7 +178,7 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
 
         {/* 右栏（xl）：模块槽位预留 + 热帖 + 统计 + 热门版块 */}
         <aside className="hidden space-y-4 self-start xl:sticky xl:top-24 xl:block">
-          <BrandCard />
+          <BrandCard logoUrl={chrome.logoActive ? "/brand/logo" : null} />
           <section className="rounded-xl border bg-card p-4">
             <h2 className="flex items-center gap-1.5 text-sm font-semibold">
               <Flame className="size-4 text-primary" aria-hidden /> 本站热帖
