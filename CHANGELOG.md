@@ -15,8 +15,10 @@
   与 `/admin/invites` 邀请码管理；robots/sitemap。
 - **批次 c 账号域**：`/settings` 设置中心（改密/改邮箱/资料/通知偏好）+ 双轨密码
   （旧哈希回填可登录→强制换新密，docs/PASSWORD-DUAL-TRACK.md）+ 认领/重置成功直接登录。
-- **批次 d 打磨清账**：M10.5 未完成项全量（无 JS 确认回退、就地 toast、控件/空态收尾、HoverCard、
-  VT 专项验收、dotenv 静音、a11y 抽查）。
+- **批次 d 打磨清账**：危险操作无 JS 确认回退（同页确认段×3）、统一就地 toast（query-toast，notice 码通道）、
+  auth 密码可见性切换（四页全部密码字段）、HoverCard 悬浮名片（作者行触点，含 pm_policy 三态与关注/私信快捷）、
+  积分规则卡（/points 实时回表）、关注动态类型筛选（/follows?type=）、跨路由 VT 专项验收
+  （push 实拍 + pop 链路核对 + reduce 降级，M10.6 里程碑第六节）、dotenv 横幅静音、middleware→proxy 更名。
 
 ### Added（M10：投票与私信）
 

@@ -8,24 +8,29 @@ import { Pagination } from "@/components/content/pagination";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { getForumTree } from "@/lib/authz/snapshot";
-import { getFollowFeed } from "@/lib/queries/follows-feed";
+import { getFollowFeed, type FollowFeedType } from "@/lib/queries/follows-feed";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "关注动态" };
 
-/** 关注动态（M8）：关注的版块新帖 + 关注用户的发帖。只聚合新版行为（旧动态流不迁） */
+/** 关注动态（M8）：关注的版块新帖 + 关注用户的发帖。只聚合新版行为（旧动态流不迁）。
+ * M10.6d：类型筛选 chips（全部/版块/人，线稿注记①）。 */
 export default async function FollowsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{ page?: string; type?: string }>;
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  const rawPage = Math.max(1, Number((await searchParams).page ?? "1") || 1);
+  const sp = await searchParams;
+  const rawPage = Math.max(1, Number(sp.page ?? "1") || 1);
+  const type: FollowFeedType = sp.type === "forum" || sp.type === "user" ? sp.type : "all";
   const [feed, tree] = await Promise.all([
-    getFollowFeed(await getCurrentSubject(), rawPage),
+    getFollowFeed(await getCurrentSubject(), rawPage, type),
     getForumTree(),
   ]);
+
+  const chipHref = (t: FollowFeedType) => (t === "all" ? "/follows" : `/follows?type=${t}`);
 
   return (
     <main className="mx-auto max-w-4xl space-y-4 px-4 py-8 sm:px-6 lg:px-8">
@@ -35,6 +40,29 @@ export default async function FollowsPage({
           关注的版块 {feed.forumCount} 个 · 用户 {feed.userCount} 人 · 共 {feed.total} 帖
         </p>
       </header>
+
+      <nav aria-label="动态类型筛选" className="flex flex-wrap gap-1.5 text-sm">
+        {(
+          [
+            ["all", "全部"],
+            ["forum", `版块（${feed.forumCount}）`],
+            ["user", `用户（${feed.userCount}）`],
+          ] as const
+        ).map(([value, label]) => (
+          <Link
+            key={value}
+            href={chipHref(value)}
+            aria-current={type === value ? "true" : undefined}
+            className={
+              type === value
+                ? "rounded-full bg-primary px-3 py-1 font-medium text-primary-foreground"
+                : "rounded-full border px-3 py-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            }
+          >
+            {label}
+          </Link>
+        ))}
+      </nav>
 
       {feed.items.length === 0 ? (
         <EmptyState

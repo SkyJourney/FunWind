@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserHoverCard } from "@/components/content/user-hover-card";
 import { avatarKeyOf } from "@/lib/queries/users";
 import { fileUrl } from "@/lib/files";
 import { Slot } from "@/modules/kernel/slot";
@@ -9,6 +10,7 @@ import { Slot } from "@/modules/kernel/slot";
  * 一律显示「已注销」，不显示占位用户名里的 uid、也不提供个人页链接（占位账号不开个人页）。
  * M7：头像（有则显示，无则首字母，M7-3）+ 荣誉徽章位（thread.user-badge 槽位，
  * 由徽章模块注册；模块停用或作者无徽章时整段不渲染）。
+ * M10.6d：桌面 hover 出悬浮名片（S2 profile 线稿定稿项；页面渲染期预取，无第二跳）。
  */
 export async function UserBadge({
   uid,
@@ -45,11 +47,13 @@ export async function UserBadge({
       {inner}
     </span>
   ) : (
-    <Link
-      href={`/u/${uid}`}
-      className="inline-flex items-center gap-1.5 text-sm hover:text-primary"
-    >
-      {inner}
-    </Link>
+    <UserHoverCard uid={uid} name={name}>
+      <Link
+        href={`/u/${uid}`}
+        className="inline-flex items-center gap-1.5 text-sm hover:text-primary"
+      >
+        {inner}
+      </Link>
+    </UserHoverCard>
   );
 }

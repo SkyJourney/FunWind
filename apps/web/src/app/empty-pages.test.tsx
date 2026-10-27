@@ -75,7 +75,7 @@ describe("页面空态", () => {
     render(await FollowsPage({ searchParams: Promise.resolve({}) }));
     expect(screen.getByText("还没有可显示的动态。")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "版块页" })).toHaveAttribute("href", "/");
-    expect(mocks.feed).toHaveBeenCalledWith({ userId: 1 }, 1);
+    expect(mocks.feed).toHaveBeenCalledWith({ userId: 1 }, 1, "all");
   });
 
   it.each([

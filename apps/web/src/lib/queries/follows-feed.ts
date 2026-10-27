@@ -34,7 +34,13 @@ export interface FollowFeedPage {
   userCount: number;
 }
 
-export async function getFollowFeed(viewer: Subject, rawPage: number): Promise<FollowFeedPage> {
+export type FollowFeedType = "all" | "forum" | "user";
+
+export async function getFollowFeed(
+  viewer: Subject,
+  rawPage: number,
+  type: FollowFeedType = "all",
+): Promise<FollowFeedPage> {
   if (viewer.userId === null) {
     return { items: [], total: 0, page: 1, totalPages: 1, forumCount: 0, userCount: 0 };
   }
@@ -50,11 +56,14 @@ export async function getFollowFeed(viewer: Subject, rawPage: number): Promise<F
     forumCount: forumIds.length,
     userCount: userIds.length,
   };
-  if (forumIds.length === 0 && userIds.length === 0) return empty;
+  // 类型筛选（M10.6d，线稿①）：forum = 仅关注版块的新帖；user = 仅关注用户的发帖
+  const matchForumIds = type === "user" ? [] : forumIds;
+  const matchUserIds = type === "forum" ? [] : userIds;
+  if (matchForumIds.length === 0 && matchUserIds.length === 0) return empty;
 
   // 关注的版块必须可读且上目录；关注用户的帖子必须出自可读版块（scope 兜底不可见性）
-  const forumMatch = forumIds.length > 0 ? inArray(threads.forumId, forumIds) : undefined;
-  const userMatch = userIds.length > 0 ? inArray(threads.authorId, userIds) : undefined;
+  const forumMatch = matchForumIds.length > 0 ? inArray(threads.forumId, matchForumIds) : undefined;
+  const userMatch = matchUserIds.length > 0 ? inArray(threads.authorId, matchUserIds) : undefined;
   const listedFilter = listed.length > 0 ? inArray(threads.forumId, listed) : undefined;
   if (listedFilter === undefined)
     return { ...empty, forumCount: forumIds.length, userCount: userIds.length };

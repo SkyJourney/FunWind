@@ -6,9 +6,40 @@ import { getPointsName } from "@/lib/auth/settings";
 import { getCurrentUser } from "@/lib/auth/session";
 import { channelLabel } from "@/lib/points/labels";
 import { getLedgerPage } from "@/lib/points/ledger";
+import { getPointRewardConfig, getPunchRewardConfig } from "@/lib/points/reward-load";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "我的积分" };
+
+const cap = (n: number) => (n === 0 ? "不限" : `每日 ≤ ${n}`);
+
+/** 积分规则卡（M10.6d，S2 points 线稿定稿项）：当前生效的奖励值（后台可改，实时回表）。 */
+async function PointsRulesCard() {
+  const [pointsName, reward, punch] = await Promise.all([
+    getPointsName(),
+    getPointRewardConfig(),
+    getPunchRewardConfig(),
+  ]);
+  const items = [
+    { label: "发帖", value: `+${reward.post}（${cap(reward.postDailyCap)}）` },
+    { label: "回帖", value: `+${reward.reply}（${cap(reward.replyDailyCap)}）` },
+    { label: "每日签到", value: `随机 ${punch.min}–${punch.max}` },
+  ];
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{pointsName}规则</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-wrap gap-2 text-sm">
+        {items.map((it) => (
+          <span key={it.label} className="rounded-full bg-muted px-3 py-1 text-muted-foreground">
+            <span className="font-medium text-foreground">{it.label}</span> {it.value}
+          </span>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
 
 export default async function PointsPage({
   searchParams,
@@ -38,6 +69,8 @@ export default async function PointsPage({
           <span>共 {ledger.total} 条记录</span>
         </CardContent>
       </Card>
+
+      <PointsRulesCard />
 
       <Card>
         <CardContent className="pt-6">
