@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Slot } from "@/modules/kernel/slot";
 import { FeedCard } from "@/components/content/feed-card";
+import { BrandCard } from "@/components/site/site-header";
 import { EmptyState } from "@/components/empty-state";
 import { isDevEnv } from "@/lib/dev-only";
 import { getForumTree } from "@/lib/authz/snapshot";
@@ -174,7 +175,8 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
         </div>
 
         {/* 右栏（xl）：模块槽位预留 + 热帖 + 统计 + 热门版块 */}
-        <aside className="hidden space-y-4 self-start xl:sticky xl:top-20 xl:block">
+        <aside className="hidden space-y-4 self-start xl:sticky xl:top-24 xl:block">
+          <BrandCard />
           <section className="rounded-xl border bg-card p-4">
             <h2 className="flex items-center gap-1.5 text-sm font-semibold">
               <Flame className="size-4 text-primary" aria-hidden /> 本站热帖
