@@ -413,6 +413,8 @@ a {
 /* 版块页列表行 */
 .rows {
   display: grid;
+  /* 同 .page：显式轨道防子项 min-content（nowrap 标题）撑破列宽 */
+  grid-template-columns: minmax(0, 1fr);
 }
 .row {
   display: flex;
