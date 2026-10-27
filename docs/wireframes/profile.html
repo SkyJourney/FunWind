@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>线稿 · 个人公开页（内容聚合式）</title>
+    <link rel="stylesheet" href="_shared/wireframe.css" />
+    <style>
+      .wrap {
+        max-width: 760px;
+      }
+      .prof-head {
+        display: flex;
+        gap: 16px;
+        padding: 20px;
+        align-items: flex-start;
+        flex-wrap: wrap;
+      }
+      .prof-head .avatar {
+        width: 76px;
+        height: 76px;
+        font-size: 26px;
+        flex-shrink: 0;
+      }
+      .prof-id {
+        flex: 1;
+        min-width: 240px;
+        display: grid;
+        gap: 4px;
+      }
+      .prof-name {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .prof-name b {
+        font-size: 20px;
+        letter-spacing: -0.01em;
+      }
+      .prof-stats {
+        display: flex;
+        gap: 18px;
+        color: var(--t2);
+        font-size: 13px;
+        margin-top: 4px;
+      }
+      .prof-stats b {
+        color: var(--t1);
+      }
+      .prof-acts {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        align-self: flex-start;
+      }
+      .utabs {
+        display: flex;
+        gap: 2px;
+        background: var(--sunken);
+        border-radius: var(--r-sm);
+        padding: 2px;
+        font-size: 13px;
+      }
+      .utabs span {
+        padding: 6px 16px;
+        border-radius: 6px;
+        color: var(--t2);
+      }
+      .utabs .on {
+        background: var(--surface);
+        color: var(--t1);
+        font-weight: 600;
+        box-shadow: var(--shadow);
+      }
+      .urow {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+      .urow:last-child {
+        border-bottom: 0;
+      }
+      .urow .t {
+        flex: 1;
+        min-width: 0;
+        font-weight: 600;
+        font-size: 14px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .badge-cell {
+        display: grid;
+        justify-items: center;
+        gap: 6px;
+        padding: 14px;
+        text-align: center;
+      }
+      .badge-cell .medal {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        border: 2px solid var(--line-strong);
+        display: grid;
+        place-items: center;
+        color: var(--t2);
+        font-size: 15px;
+        font-weight: 700;
+      }
+      .hover-card-demo {
+        position: relative;
+        height: 210px;
+        border-radius: var(--r-lg);
+        border: 1px solid var(--line);
+        background: var(--canvas);
+        overflow: hidden;
+      }
+      .hc {
+        position: absolute;
+        left: 24px;
+        top: 46px;
+        width: 280px;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: var(--r-md);
+        box-shadow: 0 10px 30px rgb(0 0 0 / 0.14);
+        padding: 14px;
+        display: grid;
+        gap: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <span class="brand"><span class="logo"></span>青翼字幕组</span>
+      <nav class="topnav">
+        <a href="home-feed-list.html">首页</a>
+        <a href="forum.html">版块</a>
+        <a href="#">动态</a>
+      </nav>
+      <div class="top-tools">
+        <span class="ico"><span class="glyph"></span></span>
+        <span class="avatar">A</span>
+      </div>
+    </header>
+
+    <main class="page wrap">
+      <div class="main">
+        <!-- 身份头卡 -->
+        <div class="card prof-head">
+          <span class="avatar">纸</span>
+          <div class="prof-id">
+            <div class="prof-name">
+              <b>纸巾君</b>
+              <span class="pill outline">魔界 LV64</span>
+              <span class="pill">字幕组 · 时轴</span>
+            </div>
+            <span class="sub">时效组打杂，专治对不齐的轴。ACG 考古爱好者。</span>
+            <div class="prof-stats">
+              <span><b>56</b> 主题</span>
+              <span><b>892</b> 回复</span>
+              <span><b>1.2k</b> 获赞</span>
+              <span><b>234</b> 关注者</span>
+            </div>
+          </div>
+          <div class="prof-acts">
+            <span class="btn primary sm">+ 关注</span>
+            <span class="btn ghost sm">✉ 私信</span>
+            <span class="ico">⋯</span>
+          </div>
+        </div>
+
+        <!-- 内容 Tabs：聚合为主 -->
+        <div class="utabs">
+          <span class="on">主题 56</span><span>回复 892</span><span>徽章 7</span>
+        </div>
+
+        <!-- 主题 Tab（内容流，复用主题行组件） -->
+        <div class="card">
+          <div class="rows">
+            <div class="urow">
+              <span class="pill outline">10月新番</span>
+              <span class="t">『虫师 续章』第 03 话 [1080p][简体内嵌]</span>
+              <span class="t3 small">回复 42 · 1 小时前</span>
+            </div>
+            <div class="urow">
+              <span class="pill outline">完结</span>
+              <span class="t">『一周的朋友』BD-BOX 开箱 + 全卷字幕质检报告</span>
+              <span class="t3 small">回复 87 · 昨天</span>
+            </div>
+            <div class="urow">
+              <span class="pill outline">字幕技术</span>
+              <span class="t">时轴工程模板 v3：双层描边与 TL 轨道规范（附工程）</span>
+              <span class="t3 small">回复 129 · 3 天前</span>
+            </div>
+            <div class="urow">
+              <span class="t">新人时轴入坑指南（2026 修订版）</span>
+              <span class="t3 small">回复 58 · 上周</span>
+            </div>
+          </div>
+        </div>
+        <div class="pager"><span class="pg on">1</span><span class="pg">2</span><span class="pg">3</span></div>
+
+        <div class="note">
+          <b>B3-个人公开页 · 注记（⟦回答「点人落地页」⟧）</b><br />
+          ① <b>内容聚合为主</b>：头卡（身份+数据+两个动作）只占一屏顶部，下方全部是<b>TA 的公开内容</b>——主题 / 回复 / 徽章三个 Tab。旧式「资料卡页面」（一堆字段+留言板）不做。<br />
+          ② 回复 Tab：每行 = 「在『主题名』中回复：摘要…」+ 楼层深链（点击直达楼层锚点）；受限内容按访客权限过滤（现网 visibility 语义）。<br />
+          ③ 徽章 Tab：徽章网格（图标+名称+获得时间），点击出说明浮层。<br />
+          ④ 动作区：+关注（原地切换+动效）；<b>✉ 私信 = 发起私信的标准入口</b>（带 to 深链进会话）；「⋯」= 复制主页链接 / （版主可见）限制管理入口。<br />
+          ⑤ 本人浏览自己公开页时：按钮区变「编辑头像/资料」，内容 Tab 不变。<br />
+          ⑥ 游客：关注/私信按钮 → 登录引导（现网口径）。<br />
+          ⑦ 数据面（S5 排期参考）：主题/回复列表需要新的用户内容查询（分页、含版块徽标与权限过滤），预计 lib/queries/users.ts 扩展 2 个查询。
+        </div>
+
+        <!-- 悬浮名片（桌面 hover 组件，私信发起的关键路径） -->
+        <div style="display: grid; gap: 4px; margin-top: 8px">
+          <span class="h-sec">桌面端：hover 头像 → 悬浮名片（快速发起私信的路径）</span>
+        </div>
+        <div class="hover-card-demo">
+          <span class="pill" style="position: absolute; top: 10px; left: 12px">楼层作者行 hover 触发（示意）</span>
+          <div class="hc">
+            <div style="display: flex; gap: 10px; align-items: center">
+              <span class="avatar" style="width: 44px; height: 44px">纸</span>
+              <div>
+                <b>纸巾君</b>
+                <div class="t3 small">魔界 LV64 · 字幕组 · 时轴</div>
+              </div>
+            </div>
+            <div class="small t2">主题 56 · 回复 892 · 关注者 234</div>
+            <div style="display: flex; gap: 8px">
+              <span class="btn primary sm" style="flex: 1">+ 关注</span>
+              <span class="btn ghost sm" style="flex: 1">✉ 私信</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="note">
+          <b>发起私信的完整路径图（⟦回答「发起思想」⟧）</b><br />
+          内容里遇到想私聊的人 → <b>桌面</b>：hover 头像出名片 → ✉；或作者行「⋯」菜单 → 发送私信。<b>移动端</b>：点头像/名字 → 本公开页 → ✉。<br />
+          通知/关注列表 → 点进公开页 → ✉。所有路径最终汇到 <code>/messages?to=uid</code>（会话不存在自动建，额度/禁言闸门不变）。<br />
+          <b>不提供</b>：私信列表的「发起私信」按钮、全站用户检索——无通讯录概念下这两者是骚扰敞口与负体验。
+        </div>
+      </div>
+    </main>
+
+    <div class="bppill">
+      <i>断点</i><span class="bp-base">base &lt;640</span><span class="bp-sm">sm 640</span
+    ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span><span class="bp-xl">xl 1280</span>
+    </div>
+  </body>
+</html>

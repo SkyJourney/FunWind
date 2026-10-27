@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>线稿 · 私信列表</title>
+    <link rel="stylesheet" href="_shared/wireframe.css" />
+    <style>
+      .wrap {
+        max-width: 640px;
+      }
+      .conv {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        padding: 13px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+      .conv:last-child {
+        border-bottom: 0;
+      }
+      .conv .avatar {
+        width: 42px;
+        height: 42px;
+        flex-shrink: 0;
+      }
+      .conv .mid {
+        flex: 1;
+        min-width: 0;
+        display: grid;
+        gap: 2px;
+      }
+      .conv .name {
+        font-weight: 600;
+        font-size: 14.5px;
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .conv .time {
+        color: var(--t3);
+        font-size: 12px;
+        font-weight: 400;
+        flex-shrink: 0;
+      }
+      .conv .prev {
+        color: var(--t2);
+        font-size: 13px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .conv .n {
+        min-width: 18px;
+        height: 18px;
+        border-radius: 9px;
+        background: var(--ink);
+        color: #fff;
+        font-size: 11px;
+        line-height: 18px;
+        text-align: center;
+        padding: 0 5px;
+        flex-shrink: 0;
+      }
+      .conv.on {
+        background: var(--sunken);
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <span class="brand"><span class="logo"></span>青翼字幕组</span>
+      <nav class="topnav">
+        <a href="home-feed-list.html">首页</a>
+        <a href="forum.html">版块</a>
+        <a href="#">动态</a>
+      </nav>
+      <div class="top-tools">
+        <span class="ico"><span class="glyph"></span></span>
+        <span class="avatar">A</span>
+      </div>
+    </header>
+
+    <main class="page wrap">
+      <div class="main">
+        <div style="display: flex; align-items: center; gap: 10px">
+          <h1 class="h-page">私信</h1>
+          <span class="sub" style="margin-left: auto">从别人的主页或帖子作者行发起</span>
+        </div>
+
+        <div class="card">
+          <div class="conv on">
+            <span class="avatar">纸</span>
+            <div class="mid">
+              <div class="name"><span>纸巾君</span><span class="time">21:20</span></div>
+              <div class="prev">我：对比图发你了，暗部那 4 处镜头标注在工程里</div>
+            </div>
+          </div>
+          <div class="conv">
+            <span class="avatar">茶</span>
+            <div class="mid">
+              <div class="name"><span>茶会常客</span><span class="time">昨天</span></div>
+              <div class="prev">求问 03 话 ED 卡原画名单有人整理吗？</div>
+            </div>
+            <span class="n">3</span>
+          </div>
+          <div class="conv">
+            <span class="avatar">银</span>
+            <div class="mid">
+              <div class="name"><span>银古の箱</span><span class="time">周二</span></div>
+              <div class="prev">下一话你来跟时轴？素材我打包好了</div>
+            </div>
+          </div>
+          <div class="conv">
+            <span class="avatar">人</span>
+            <div class="mid">
+              <div class="name"><span>人事部</span><span class="time">10-20</span></div>
+              <div class="prev">你的入职流程走完了，欢迎加入～</div>
+            </div>
+          </div>
+          <div class="conv">
+            <span class="avatar">黑</span>
+            <div class="mid">
+              <div class="name"><span>黑胶退烧</span><span class="time">10-18</span></div>
+              <div class="prev">OST 扫描图已补 600dpi 版本</div>
+            </div>
+          </div>
+        </div>
+
+        <p class="t3 small" style="text-align: center">—— 已加载全部 5 个会话 ——</p>
+
+        <div class="note">
+          <b>B2-私信列表 · 注记（⟦修订⟧ 发起模型，2026-10-27 站长定）</b><br />
+          ① <b>不设「发起私信」独立入口</b>：站点没有通讯录/好友概念，独立发起 = 全站用户检索，体验差且是骚扰敞口。私信一律从<b>内容与关系的上下文</b>发起——<br />
+          └ 帖子/回复的作者行「⋯ 更多」菜单 → 发送私信；<br />
+          └ 桌面 hover 头像弹出<b>悬浮名片</b>（头像/称号/主题数/关注 + 关注、私信按钮，S5 新组件）；<br />
+          └ <b>个人公开页</b>（profile.html）的头卡「✉ 私信」按钮；<br />
+          └ 通知行、粉丝/关注列表 → 先落对方公开页再发起。<br />
+          ② `/messages?to=uid` 深链保留，作为上述所有入口的统一落点（会话不存在自动建，现网逻辑）。<br />
+          ③ 行点击进入对话（打开即已读）；移动端左滑快捷操作（标记已读/删除，S4 手势定义）。<br />
+          ④ 空态按 states.html 三要素：「还没有私信」+「在帖子或主页里找到TA，点 ✉ 就能聊」+「去首页逛逛」。<br />
+          ⑤ 会话搜索（按会话对方名过滤）列为 S5 增强候选，不阻塞本期。
+        </div>
+      </div>
+    </main>
+
+    <nav class="tabbar">
+      <span class="tab"><span class="glyph"></span>首页</span>
+      <span class="tab"><span class="glyph"></span>版块</span>
+      <span class="tab raise"><span class="disc"></span>发帖</span>
+      <span class="tab on"><span class="glyph"></span>消息</span>
+      <span class="tab"><span class="glyph round"></span>我的</span>
+    </nav>
+
+    <div class="bppill">
+      <i>断点</i><span class="bp-base">base &lt;640</span><span class="bp-sm">sm 640</span
+    ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span><span class="bp-xl">xl 1280</span>
+    </div>
+  </body>
+</html>

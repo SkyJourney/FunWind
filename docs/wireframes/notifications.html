@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>线稿 · 通知中心</title>
+    <link rel="stylesheet" href="_shared/wireframe.css" />
+    <style>
+      .wrap {
+        max-width: 720px;
+      }
+      .ntab {
+        display: flex;
+        gap: 2px;
+        background: var(--sunken);
+        border-radius: var(--r-sm);
+        padding: 2px;
+        font-size: 13px;
+        overflow-x: auto;
+      }
+      .ntab span {
+        flex-shrink: 0;
+        padding: 6px 14px;
+        border-radius: 6px;
+        color: var(--t2);
+      }
+      .ntab .on {
+        background: var(--surface);
+        color: var(--t1);
+        font-weight: 600;
+        box-shadow: var(--shadow);
+      }
+      .nrow {
+        display: flex;
+        gap: 12px;
+        padding: 13px 16px;
+        border-bottom: 1px solid var(--line);
+        align-items: flex-start;
+      }
+      .nrow:last-child {
+        border-bottom: 0;
+      }
+      .nrow .ic {
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        background: var(--sunken);
+        display: grid;
+        place-items: center;
+        flex-shrink: 0;
+      }
+      .nrow .ic.unread {
+        background: var(--ink-soft);
+      }
+      .nrow .bd {
+        flex: 1;
+        min-width: 0;
+        display: grid;
+        gap: 2px;
+      }
+      .nrow .txt {
+        font-size: 14px;
+        line-height: 1.55;
+      }
+      .nrow.unread-row .txt {
+        font-weight: 600;
+      }
+      .nrow .tm {
+        color: var(--t3);
+        font-size: 12px;
+      }
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--ink);
+        flex-shrink: 0;
+        margin-top: 6px;
+      }
+      .grp {
+        padding: 10px 4px 2px;
+        color: var(--t3);
+        font-size: 12px;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <span class="brand"><span class="logo"></span>青翼字幕组</span>
+      <nav class="topnav">
+        <a href="home-feed-list.html">首页</a>
+        <a href="forum.html">版块</a>
+        <a href="#">动态</a>
+      </nav>
+      <div class="top-tools">
+        <span class="ico"><span class="glyph"></span></span>
+        <span class="avatar">A</span>
+      </div>
+    </header>
+
+    <main class="page wrap">
+      <div class="main">
+        <div style="display: flex; align-items: center; gap: 10px">
+          <h1 class="h-page">通知</h1>
+          <span class="btn ghost sm" style="margin-left: auto">全部已读</span>
+        </div>
+
+        <div class="ntab">
+          <span class="on">互动 4</span><span>私信</span><span>审核</span><span>账号</span><span>公告</span>
+        </div>
+
+        <div class="card">
+          <div class="grp">今天</div>
+          <div class="nrow unread-row">
+            <span class="ic unread"><span class="glyph"></span></span>
+            <div class="bd">
+              <span class="txt">纸巾君 回复了你的主题『虫师 续章 第 03 话』</span>
+              <span class="tm">21:20 · 点击查看该楼层</span>
+            </div>
+            <span class="dot"></span>
+          </div>
+          <div class="nrow unread-row">
+            <span class="ic unread"><span class="glyph"></span></span>
+            <div class="bd">
+              <span class="txt">茶会常客 赞了你的回帖（#3）</span>
+              <span class="tm">20:44</span>
+            </div>
+            <span class="dot"></span>
+          </div>
+          <div class="nrow unread-row">
+            <span class="ic unread"><span class="glyph"></span></span>
+            <div class="bd">
+              <span class="txt">银古の箱 关注了你</span>
+              <span class="tm">18:02 · 查看TA的主页</span>
+            </div>
+            <span class="dot"></span>
+          </div>
+          <div class="grp">更早</div>
+          <div class="nrow">
+            <span class="ic"><span class="glyph"></span></span>
+            <div class="bd">
+              <span class="txt">你关注的版块『动画·アニメ』有新主题：10月新番吐槽楼</span>
+              <span class="tm">昨天</span>
+            </div>
+          </div>
+          <div class="nrow">
+            <span class="ic"><span class="glyph"></span></span>
+            <div class="bd">
+              <span class="txt">你的主题『一周的朋友 BD 开箱』获得精华标记 +20 翼币</span>
+              <span class="tm">昨天</span>
+            </div>
+          </div>
+        </div>
+
+        <span class="btn ghost" style="justify-self: center">加载更多</span>
+
+        <div class="note">
+          <b>B2-通知中心 · 注记</b><br />
+          ① 分类 Tab = 现网六分类（互动/私信/审核/账号/公告/全部），徽标数字入 Tab；行首图标按分类占位（S3 上色/图标化）。<br />
+          ② 行点击 = 深链直达（回复→帖子锚点、赞→回帖、关注→对方主页、私信→会话并清未读，现网 deep-link 语义不变）；点击即单条已读，未读行加粗+右侧点标记。<br />
+          ③ 时间轴分组（今天/更早）仅作视觉分隔，不改游标分页逻辑；「全部已读」保留二次确认 toast（不可撤销操作）。<br />
+          ④ 空态按 states.html（「这里很安静」+ 说明 + 「去热门版块看看」）。<br />
+          ⑤ 顶栏铃铛下拉 = 本页前 5 条的预览，样式与本页行同构（一套组件两处用）。
+        </div>
+      </div>
+    </main>
+
+    <nav class="tabbar">
+      <span class="tab"><span class="glyph"></span>首页</span>
+      <span class="tab"><span class="glyph"></span>版块</span>
+      <span class="tab raise"><span class="disc"></span>发帖</span>
+      <span class="tab on"><span class="glyph"></span>消息</span>
+      <span class="tab"><span class="glyph round"></span>我的</span>
+    </nav>
+
+    <div class="bppill">
+      <i>断点</i><span class="bp-base">base &lt;640</span><span class="bp-sm">sm 640</span
+    ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span><span class="bp-xl">xl 1280</span>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>线稿 · 危险操作确认（Dialog 化）</title>
+    <link rel="stylesheet" href="_shared/wireframe.css" />
+    <style>
+      .stage {
+        position: relative;
+        border-radius: var(--r-lg);
+        overflow: hidden;
+        border: 1px solid var(--line);
+        min-height: 380px;
+        background: var(--canvas);
+      }
+      .ghost-page {
+        opacity: 0.35;
+        padding: 16px;
+        display: grid;
+        gap: 10px;
+        filter: blur(0.3px);
+      }
+      .backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgb(20 20 24 / 0.45);
+      }
+      .dlg {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: min(400px, calc(100% - 32px));
+        background: var(--surface);
+        border-radius: var(--r-lg);
+        box-shadow: 0 12px 40px rgb(0 0 0 / 0.25);
+        padding: 20px;
+        display: grid;
+        gap: 12px;
+      }
+      .dlg h3 {
+        font-size: 16px;
+      }
+      .dlg .reason {
+        border: 1px solid var(--line-strong);
+        border-radius: var(--r-sm);
+        min-height: 84px;
+        padding: 10px 12px;
+        color: var(--t3);
+        font-size: 13px;
+        background: var(--surface);
+      }
+      .dlg .acts {
+        display: flex;
+        gap: 8px;
+        justify-content: flex-end;
+      }
+      .btn.destructive {
+        background: var(--t1);
+        color: #fff;
+      }
+      .pair {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: 1fr;
+      }
+      @media (min-width: 860px) {
+        .pair {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+      .sheet-demo {
+        position: relative;
+        height: 300px;
+        border-radius: var(--r-lg);
+        border: 1px solid var(--line);
+        overflow: hidden;
+        background: var(--canvas);
+      }
+      .sheet {
+        position: absolute;
+        inset-inline: 0;
+        bottom: 0;
+        background: var(--surface);
+        border-radius: 16px 16px 0 0;
+        padding: 14px 16px 22px;
+        display: grid;
+        gap: 10px;
+        box-shadow: 0 -8px 30px rgb(0 0 0 / 0.18);
+      }
+      .grab {
+        width: 36px;
+        height: 4px;
+        border-radius: 2px;
+        background: var(--line-strong);
+        margin: 0 auto;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <span class="brand"><span class="logo"></span>青翼字幕组 · S2 线稿</span>
+      <nav class="topnav">
+        <a href="index.html">总览</a>
+        <a class="on" href="#">危险操作确认</a>
+      </nav>
+    </header>
+
+    <main class="page" style="max-width: 920px">
+      <div class="main">
+        <div style="display: grid; gap: 4px">
+          <h1 class="h-page">举报 / 删除 / 屏蔽 → 就地确认，不再整页跳转</h1>
+          <p class="sub">
+            现网的 /p/[pid]/report、/delete、/hide、/restore 是四个整页表单；改为 Dialog（桌面居中 / 移动端底部
+            sheet）+ Server Action，成功后 toast + 原地更新，阅读上下文不丢。
+          </p>
+        </div>
+
+        <!-- 桌面：居中 Dialog（以举报为例，叠在帖子页上） -->
+        <div class="stage">
+          <div class="ghost-page">
+            <div class="sk" style="height: 14px; width: 30%"></div>
+            <div class="sk" style="height: 120px"></div>
+            <div class="sk" style="height: 80px; width: 90%"></div>
+          </div>
+          <div class="backdrop"></div>
+          <div class="dlg">
+            <h3>举报帖子</h3>
+            <p class="sub">#3 · 茶会常客：云海那段确实神了……</p>
+            <div class="reason">填写举报理由（必填，10–200 字）……</div>
+            <div class="acts">
+              <span class="btn ghost sm">取消</span>
+              <span class="btn primary sm">提交举报</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 三个变体 -->
+        <div class="pair">
+          <div class="card pad" style="display: grid; gap: 10px">
+            <div class="h-sec">删除（作者/版主）</div>
+            <p class="sub">删除后进入回收站，版主可恢复；30 天后清除。</p>
+            <div class="acts" style="justify-content: flex-end">
+              <span class="btn ghost sm">取消</span>
+              <span class="btn destructive sm">确认删除</span>
+            </div>
+          </div>
+          <div class="card pad" style="display: grid; gap: 10px">
+            <div class="h-sec">屏蔽 / 恢复（版主）</div>
+            <p class="sub">屏蔽需理由并通知作者；恢复同样二次确认。</p>
+            <div class="acts" style="justify-content: flex-end">
+              <span class="btn ghost sm">取消</span>
+              <span class="btn primary sm">确认屏蔽</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 移动端 bottom sheet -->
+        <div class="sheet-demo">
+          <div class="backdrop"></div>
+          <div class="sheet">
+            <span class="grab"></span>
+            <b>举报帖子</b>
+            <div class="reason" style="min-height: 64px">填写举报理由……</div>
+            <span class="btn primary" style="width: 100%">提交举报</span>
+            <span class="btn ghost" style="width: 100%">取消</span>
+          </div>
+          <span class="pill" style="position: absolute; top: 10px; left: 12px">移动端形态：底部 sheet</span>
+        </div>
+
+        <div class="note">
+          <b>B2-确认操作 · 注记</b><br />
+          ① 四个整页确认表单迁移为 Dialog（桌面居中）/<b>bottom sheet</b>（移动端，下滑或点遮罩取消）；路由不再跳走，返回键语义不变（sheet 可逐层关闭）。<br />
+          ② 提交走既有 Server Action；成功 → sonner toast（「已提交举报」）+ 原地状态更新；失败 → 表单内错误回显（不吞原因）。<br />
+          ③ 破坏性主按钮（删除）用 destructive 语义令牌，色值 S3 定。<br />
+          ④ 本页为模式图例：落地时 /p/[pid]/report|delete|hide|restore 改为页内组件 + action 直调，旧路由保留重定向一个版本以兼容旧链接。
+        </div>
+      </div>
+    </main>
+
+    <div class="bppill">
+      <i>断点</i><span class="bp-base">base &lt;640</span><span class="bp-sm">sm 640</span
+    ><span class="bp-md">md 768</span><span class="bp-lg">lg 1024</span><span class="bp-xl">xl 1280</span>
+    </div>
+  </body>
+</html>
