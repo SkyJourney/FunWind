@@ -42,18 +42,73 @@ export const metadata: Metadata = { title: "设计令牌" };
 // Slot 读库（模块横幅），演示页接受动态渲染（M3 建页时统一定缓存策略）
 export const dynamic = "force-dynamic";
 
-const PRIMITIVES = [
-  { label: "cyan 500", value: "var(--fw-cyan-500)" },
-  { label: "cyan 700", value: "var(--fw-cyan-700)" },
-  { label: "teal 500", value: "var(--fw-teal-500)" },
-  { label: "green 500", value: "var(--fw-green-500)" },
-  { label: "amber 500", value: "var(--fw-amber-500)" },
-  { label: "red 500", value: "var(--fw-red-500)" },
-  { label: "blue 500", value: "var(--fw-blue-500)" },
-  { label: "gray 100", value: "var(--fw-gray-100)" },
-  { label: "gray 500", value: "var(--fw-gray-500)" },
-  { label: "gray 900", value: "var(--fw-gray-900)" },
-];
+const BRAND_SCALE = [
+  ["50", "#ecfeff"],
+  ["100", "#cffafe"],
+  ["200", "#a5f3fc"],
+  ["300", "#67e8f9"],
+  ["400", "#22d3ee"],
+  ["500", "#06b6d4"],
+  ["600", "#0891b2"],
+  ["700", "#0e7490"],
+  ["800", "#155e75"],
+  ["900", "#164e63"],
+  ["950", "#083344"],
+] as const;
+
+const GRAY_SCALE = [
+  ["50", "#f8fafc"],
+  ["100", "#f1f5f9"],
+  ["200", "#e2e8f0"],
+  ["300", "#cbd5e1"],
+  ["400", "#94a3b8"],
+  ["500", "#64748b"],
+  ["600", "#475569"],
+  ["700", "#334155"],
+  ["800", "#1e293b"],
+  ["900", "#0f172a"],
+  ["950", "#020617"],
+] as const;
+
+const SEMANTIC_ACCENTS = [
+  ["success / green-600", "var(--fw-green-600)"],
+  ["warning / amber-600", "var(--fw-amber-600)"],
+  ["info / blue-500", "var(--fw-blue-500)"],
+  ["destructive / red-600", "var(--fw-red-600)"],
+] as const;
+
+const ROLE_COLORS = [
+  ["--primary", "品牌青 700：主按钮 / 链接 / 当前态"],
+  ["--primary-foreground", "主按钮文字（白）"],
+  ["--accent", "选中底 / hover 面（青 50）"],
+  ["--secondary", "次要按钮面（灰 100）"],
+  ["--muted", "弱化面 / 代码底（灰 100）"],
+  ["--muted-foreground", "次要文字（灰 500）"],
+  ["--border / --input", "描边 / 输入框边（灰 200）"],
+  ["--ring", "焦点环（青 500）"],
+  ["--background / --card", "页面底（灰 50）/ 卡片面（白）"],
+] as const;
+
+const SPACE_STEPS = [
+  ["--fw-space-1", "0.25rem"],
+  ["--fw-space-2", "0.5rem"],
+  ["--fw-space-3", "0.75rem"],
+  ["--fw-space-4", "1rem"],
+  ["--fw-space-6", "1.5rem"],
+  ["--fw-space-8", "2rem"],
+  ["--fw-space-12", "3rem"],
+  ["--fw-space-16", "4rem"],
+] as const;
+
+const MOTION_TOKENS = [
+  ["--fw-dur-fast", "150ms", "L1 微交互（按压/开关）"],
+  ["--fw-dur-base", "250ms", "常规淡入位移 / 弹层"],
+  ["--fw-dur-slow", "400ms", "页面级方向性过渡"],
+  ["--fw-dur-spring", "500ms", "过冲回弹 / 触点扩散"],
+  ["--fw-ease-out", "曲线", "进场：加速度切入缓停"],
+  ["--fw-ease-spring", "曲线", "刹车过冲回弹"],
+  ["--fw-ease-exit", "曲线", "退场加速离场"],
+] as const;
 
 const TEXT_SIZES = [
   ["--fw-text-xs", "12px"],
@@ -109,29 +164,72 @@ export default function TokensPage() {
       {/* 槽位宿主：M2 演示（home.after-header 当前无注册渲染器，渲染 null） */}
       <Slot name="home.after-header" />
 
-      <Section id="colors" title="1. 色彩" subtitle="原子层色板采样；组件经由语义令牌引用（下排）">
-        <div className="grid grid-cols-5 gap-2 sm:grid-cols-10">
-          {PRIMITIVES.map((c) => (
-            <div key={c.label} className="space-y-1 text-center">
-              <div className="h-10 rounded-md border" style={{ background: c.value }} />
-              <div className="text-xs text-muted-foreground">{c.label}</div>
+      <Section
+        id="colors"
+        title="1. 色彩（S3 定稿）"
+        subtitle="品牌青 + 冷调中性灰 + 语义色；组件一律经由语义令牌引用，切主题只换变量"
+      >
+        <div className="space-y-5">
+          <div>
+            <p className="mb-2 text-sm font-medium">
+              品牌青 · --fw-cyan-*（--primary 取 700，配白字对比 4.8:1）
+            </p>
+            <div className="grid grid-cols-6 gap-2 sm:grid-cols-11">
+              {BRAND_SCALE.map(([step, hex]) => (
+                <div key={step} className="space-y-1 text-center">
+                  <div className="h-10 rounded-md border" style={{ background: hex }} />
+                  <div className="text-xs text-muted-foreground">{step}</div>
+                  <div className="hidden text-[10px] text-muted-foreground/70 sm:block">{hex}</div>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
-          {[
-            ["primary", "bg-primary text-primary-foreground"],
-            ["secondary", "bg-secondary text-secondary-foreground"],
-            ["muted", "bg-muted text-muted-foreground"],
-            ["accent", "bg-accent text-accent-foreground"],
-            ["destructive", "bg-destructive text-destructive-foreground"],
-            ["card / 边框", "bg-card text-card-foreground border"],
-            ["background", "bg-background text-foreground border"],
-          ].map(([name, cls]) => (
-            <div key={name} className={`rounded-lg px-3 py-4 text-center text-sm ${cls}`}>
-              {name}
+          </div>
+          <div>
+            <p className="mb-2 text-sm font-medium">
+              中性灰 · --fw-gray-*（冷调，页面底 50 / 卡片白 / 暗色端 950）
+            </p>
+            <div className="grid grid-cols-6 gap-2 sm:grid-cols-11">
+              {GRAY_SCALE.map(([step, hex]) => (
+                <div key={step} className="space-y-1 text-center">
+                  <div className="h-10 rounded-md border" style={{ background: hex }} />
+                  <div className="text-xs text-muted-foreground">{step}</div>
+                  <div className="hidden text-[10px] text-muted-foreground/70 sm:block">{hex}</div>
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
+          <div>
+            <p className="mb-2 text-sm font-medium">
+              语义色（success / warning / info / destructive）
+            </p>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {SEMANTIC_ACCENTS.map(([name, value]) => (
+                <div key={name} className="flex items-center gap-2 rounded-lg border p-2">
+                  <span className="size-8 rounded-md" style={{ background: value }} />
+                  <span className="text-xs text-muted-foreground">{name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="mb-2 text-sm font-medium">
+              语义角色（组件唯一允许引用的一层；下方色块即真实变量值）
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {ROLE_COLORS.map(([token, usage]) => (
+                <div key={token} className="flex items-center gap-3 rounded-lg border p-2.5">
+                  <span
+                    className="size-8 shrink-0 rounded-md border"
+                    style={{ background: `var(${token.split(" /")[0]})` }}
+                  />
+                  <div className="min-w-0">
+                    <code className="text-xs">{token}</code>
+                    <p className="truncate text-xs text-muted-foreground">{usage}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </Section>
 
@@ -147,7 +245,27 @@ export default function TokensPage() {
         </div>
       </Section>
 
-      <Section id="radius" title="3. 圆角与阴影" subtitle="4/8/12/16 圆角阶 + 三档阴影">
+      <Section
+        id="space"
+        title="3. 间距"
+        subtitle="4px 基数八档（组件内边距/堆叠间距一律取档，不裸写）"
+      >
+        <div className="space-y-2 rounded-xl border bg-card p-6">
+          {SPACE_STEPS.map(([token, size]) => (
+            <div key={token} className="flex items-center gap-4">
+              <code className="w-32 shrink-0 text-xs text-muted-foreground">{token}</code>
+              <div className="h-3 rounded bg-primary/70" style={{ width: `var(${token})` }} />
+              <code className="ml-auto text-xs text-muted-foreground">{size}</code>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      <Section
+        id="radius"
+        title="4. 圆角与阴影"
+        subtitle="4/8/12/16 圆角阶 + 三档阴影（静止 1 / 悬浮 2 / 弹层 3）"
+      >
         <div className="flex flex-wrap gap-4">
           {["sm", "md", "lg", "xl"].map((r) => (
             <div key={r} className="text-center">
@@ -171,8 +289,27 @@ export default function TokensPage() {
       </Section>
 
       <Section
+        id="motion"
+        title="5. 动效令牌"
+        subtitle="时长四档 + 曲线三支（S4 定稿）；可玩示例见 /design/motion"
+      >
+        <div className="rounded-xl border bg-card">
+          {MOTION_TOKENS.map(([token, value, usage]) => (
+            <div
+              key={token}
+              className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b px-4 py-2.5 last:border-b-0"
+            >
+              <code className="w-36 shrink-0 text-xs">{token}</code>
+              <span className="w-16 shrink-0 text-xs text-muted-foreground">{value}</span>
+              <span className="text-sm text-muted-foreground">{usage}</span>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      <Section
         id="components"
-        title="4. 组件样例（shadcn/ui 首批 10 件）"
+        title="6. 组件样例（shadcn/ui 首批 10 件）"
         subtitle="全部经由语义令牌着色，随主题即时切换"
       >
         <div className="grid gap-6 lg:grid-cols-2">
@@ -295,7 +432,7 @@ export default function TokensPage() {
 
       <footer className="flex items-center justify-between border-t pt-6 text-sm text-muted-foreground">
         <span>
-          M1 · 工程骨架 —— 主题包 <code className="text-xs">default</code> 与{" "}
+          M10.5 · S3 色彩定稿 —— 主题包 <code className="text-xs">default</code> 与{" "}
           <code className="text-xs">dark</code> 已就绪，「复刻·青翼2010」于 M11 交付
         </span>
         <a

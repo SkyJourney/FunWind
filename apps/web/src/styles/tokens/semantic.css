@@ -14,8 +14,8 @@
   --popover: #ffffff;
   --popover-foreground: var(--fw-gray-900);
 
-  /* 品牌：青 600，hover 青 700 */
-  --primary: var(--fw-cyan-600);
+  /* 品牌：青 700（S3 校准：配白字对比 4.8:1 过 WCAG AA；青 600 保留给大尺寸图形/图形位） */
+  --primary: var(--fw-cyan-700);
   --primary-foreground: #ffffff;
 
   --secondary: var(--fw-gray-100);
@@ -31,7 +31,8 @@
   --destructive-foreground: #ffffff;
 
   --success: var(--fw-green-600);
-  --warning: var(--fw-amber-500);
+  /* S3 校准：amber-500 → 600，警示条文字（warning/10 底）可读性达标 */
+  --warning: var(--fw-amber-600);
   --info: var(--fw-blue-500);
 
   --border: var(--fw-gray-200);
