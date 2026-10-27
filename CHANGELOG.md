@@ -5,6 +5,19 @@
 
 ## [Unreleased]
 
+### Added（M10.6：M11 前功能补全——进行中）
+
+完整记录见 [docs/milestones/M10.6-feature-completion.md](docs/milestones/M10.6-feature-completion.md)。
+
+- **批次 a 板块管理**：`/admin/forums` 树形管理与编辑页（三策略/可见性/isListed/归档/排序/父级迁移环检测/
+  前缀 CRUD），删除保护（有内容仅归档），全部变更写审计并失效权限快照；门禁 `site.admin`。
+- **批次 b 站点配置**：`/admin/settings`（站点身份可配化——替换顶栏/邮件等硬编码、注册模式、频控编辑器）
+  与 `/admin/invites` 邀请码管理；robots/sitemap。
+- **批次 c 账号域**：`/settings` 设置中心（改密/改邮箱/资料/通知偏好）+ 双轨密码
+  （旧哈希回填可登录→强制换新密，docs/PASSWORD-DUAL-TRACK.md）+ 认领/重置成功直接登录。
+- **批次 d 打磨清账**：M10.5 未完成项全量（无 JS 确认回退、就地 toast、控件/空态收尾、HoverCard、
+  VT 专项验收、dotenv 静音、a11y 抽查）。
+
 ### Added（M10：投票与私信）
 
 完整记录见 [docs/milestones/M10-poll-pm.md](docs/milestones/M10-poll-pm.md)。
