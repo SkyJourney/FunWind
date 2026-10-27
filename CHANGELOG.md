@@ -19,6 +19,9 @@
   auth 密码可见性切换（四页全部密码字段）、HoverCard 悬浮名片（作者行触点，含 pm_policy 三态与关注/私信快捷）、
   积分规则卡（/points 实时回表）、关注动态类型筛选（/follows?type=）、跨路由 VT 专项验收
   （push 实拍 + pop 链路核对 + reduce 降级，M10.6 里程碑第六节）、dotenv 横幅静音、middleware→proxy 更名。
+- **旧板块可见性回填**（2026-10-28 站长指示）：migration/src/backfill-forum-policies.ts 按旧库
+  nw_bbs_forum.allow_* 列忠实映射——字幕制作组/技术分流组/会议室/站务管理组四版块 restricted（读+写），
+  六个 team-* 角色版块作用域授权核对补齐；青翼办公室等其余 37 版块按旧数据为公开。M13 迁移演练须包含本脚本。
 
 ### Added（M10：投票与私信）
 
