@@ -26,7 +26,7 @@ const FLASH: Record<string, string> = {
   register: "注册策略已保存。",
   limits: "频控配置已保存。",
   email_verification: "邮箱验证策略已保存。",
-  mail_sent: "测试邮件已发出——请查收（dev 环境进 Mailpit）。",
+  mail_sent: "测试邮件已发出——请查收（dev 若用 Mailpit 则进 Mailpit，否则进真实邮箱）。",
 };
 
 const MAIL_ERROR: Record<string, string> = {
