@@ -2,8 +2,7 @@ import { eq } from "drizzle-orm";
 import { getWebDb, notificationPreferences } from "@funwind/db";
 import { getCurrentUser } from "@/lib/auth/session";
 import { NOTIF_PREF_TYPES } from "@/lib/notifications/pref-types";
-import { SubmitButton } from "@/components/ui/submit-button";
-import { toggleNotifPrefAction } from "../actions";
+import { PrefToggleButton } from "@/components/settings/pref-toggles";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "通知偏好" };
@@ -32,8 +31,8 @@ export default async function NotificationSettingsPage() {
       </p>
       <div className="hidden items-center gap-2 px-4 text-xs text-muted-foreground sm:flex">
         <span className="flex-1">场景</span>
-        <span className="w-32 text-center">站内</span>
-        <span className="w-32 text-center">邮件</span>
+        <span className="w-28 text-center">站内</span>
+        <span className="w-28 text-center">邮件</span>
       </div>
       {NOTIF_PREF_TYPES.map((t) => (
         <div
@@ -44,32 +43,24 @@ export default async function NotificationSettingsPage() {
             <p className="text-sm font-medium">{t.label}</p>
             <p className="text-xs text-muted-foreground">{t.description}</p>
           </div>
-          <form action={toggleNotifPrefAction} className="w-32">
-            <input type="hidden" name="type" value={t.type} />
-            <input type="hidden" name="channel" value="in_app" />
-            <input type="hidden" name="enabled" value={inApp(t.type) ? "off" : "on"} />
-            <SubmitButton
-              className={`w-full rounded-lg border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-60 ${
-                inApp(t.type) ? "text-success" : "text-muted-foreground"
-              }`}
-              pendingText="…"
-            >
-              {inApp(t.type) ? "已开启" : "已关闭"}
-            </SubmitButton>
-          </form>
-          <form action={toggleNotifPrefAction} className="w-32">
-            <input type="hidden" name="type" value={t.type} />
-            <input type="hidden" name="channel" value="email" />
-            <input type="hidden" name="enabled" value={email(t.type) ? "off" : "on"} />
-            <SubmitButton
-              className={`w-full rounded-lg border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-60 ${
-                email(t.type) ? "text-success" : "text-muted-foreground"
-              }`}
-              pendingText="…"
-            >
-              {email(t.type) ? "已开启" : "已关闭"}
-            </SubmitButton>
-          </form>
+          <div className="w-28">
+            <PrefToggleButton
+              type={t.type}
+              channel="in_app"
+              initialEnabled={inApp(t.type)}
+              onLabel="站内通知已开启"
+              offLabel="站内通知已关闭"
+            />
+          </div>
+          <div className="w-28">
+            <PrefToggleButton
+              type={t.type}
+              channel="email"
+              initialEnabled={email(t.type)}
+              onLabel="邮件通知已开启"
+              offLabel="邮件通知已关闭"
+            />
+          </div>
         </div>
       ))}
       {/* S7 每日汇总（email 渠道专属；发送时刻由后台配置） */}
@@ -81,19 +72,15 @@ export default async function NotificationSettingsPage() {
             小时内登录过的日子不会发送。发送时刻由站点配置。
           </p>
         </div>
-        <form action={toggleNotifPrefAction} className="w-32">
-          <input type="hidden" name="type" value="email.digest" />
-          <input type="hidden" name="channel" value="email" />
-          <input type="hidden" name="enabled" value={email("email.digest") ? "off" : "on"} />
-          <SubmitButton
-            className={`w-full rounded-lg border px-3 py-1.5 text-xs hover:bg-accent disabled:opacity-60 ${
-              email("email.digest") ? "text-success" : "text-muted-foreground"
-            }`}
-            pendingText="…"
-          >
-            {email("email.digest") ? "已开启" : "已关闭"}
-          </SubmitButton>
-        </form>
+        <div className="w-28">
+          <PrefToggleButton
+            type="email.digest"
+            channel="email"
+            initialEnabled={email("email.digest")}
+            onLabel="每日汇总已开启"
+            offLabel="每日汇总已关闭"
+          />
+        </div>
       </div>
     </div>
   );
