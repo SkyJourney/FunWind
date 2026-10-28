@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import { editorExtensions } from "./markdown/extensions";
 import type { InsertApi } from "./insert-api";
 import { EditorToolbar } from "./toolbar";
+import { TableToolbar } from "./table-toolbar";
 
 /**
  * 所见即所得编辑器（M6.3 第 2 步）。内容以 Markdown 载入与导出；每次用户改动（不含程序性的 setContent）
@@ -71,6 +72,7 @@ export function RichEditor({
     <div className="fw-editor rounded-lg border border-input bg-card shadow-1 focus-within:ring-2 focus-within:ring-ring/50">
       <div className="sticky top-16 z-10 rounded-t-lg border-b bg-card/95 backdrop-blur md:top-14">
         <EditorToolbar editor={editor} />
+        <TableToolbar editor={editor} />
       </div>
       <EditorContent editor={editor} />
     </div>

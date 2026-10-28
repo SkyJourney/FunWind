@@ -50,3 +50,36 @@ test("编辑区有外框，列表 / 引用 / 代码 / 表格 / 标题与正文�
   await expect(page.getByRole("tooltip")).toContainText("加粗");
   await ctx.close();
 });
+
+test("表格：插入后出现表格工具条；Tab 走格并在表尾自动加行；删除整个表格后工具条消失", async ({
+  browser,
+}) => {
+  const ctx = await browser.newContext();
+  await loginAs(ctx, USERS.member);
+  const page = await ctx.newPage();
+  await page.goto(`/f/${FIX.compose.id}`);
+  await page.getByRole("link", { name: "发新主题" }).click();
+  await page.locator(".fw-rich-editor").waitFor();
+  const discard = page.getByRole("button", { name: "丢弃" });
+  if (await discard.isVisible()) await discard.click();
+
+  await expect(page.getByRole("toolbar", { name: "表格工具" })).toHaveCount(0);
+  await page.getByRole("button", { name: "插入表格" }).click();
+  const bar = page.getByRole("toolbar", { name: "表格工具" });
+  await expect(bar).toBeVisible();
+  const rows = page.locator(".fw-rich-editor tr");
+  await expect(rows).toHaveCount(3);
+
+  // 插入后光标在第一格：连按 Tab 走完 3×3 的 9 格，再按一次在表尾自动新增一行
+  for (let i = 0; i < 9; i++) await page.keyboard.press("Tab");
+  await expect(rows).toHaveCount(4);
+
+  // 工具条：右侧插列后每行多一格
+  await bar.getByRole("button", { name: "在右侧插入列" }).click();
+  await expect(page.locator(".fw-rich-editor tr:first-child > *")).toHaveCount(4);
+
+  await bar.getByRole("button", { name: "删除整个表格" }).click();
+  await expect(page.locator(".fw-rich-editor table")).toHaveCount(0);
+  await expect(page.getByRole("toolbar", { name: "表格工具" })).toHaveCount(0);
+  await ctx.close();
+});
