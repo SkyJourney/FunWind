@@ -38,7 +38,8 @@ export function editorExtensions(options: { conditions?: readonly GateConditionO
     Markdown.configure({ marked: parser }),
     CodeBlock,
     TableKit,
-    Image,
+    // 行内图片：表情图（/emoji/…）要和文字同一行；独占一行的图仍是「只含一张图的段落」，Markdown 序列化不变
+    Image.configure({ inline: true }),
     options.conditions ? Gate.configure({ conditions: options.conditions }) : Gate,
   ];
 }

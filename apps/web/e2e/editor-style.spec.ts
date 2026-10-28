@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { FIX } from "./support/fixtures";
+import { bodyEditor, fillSource } from "./support/editor";
 import { USERS, loginAs } from "./support/session";
 
 /**
@@ -108,5 +109,47 @@ test("锁定内容块：标题与解锁方式由条件目录渲染；换成回�
   // 存储语法不变：仍是 :::gate{… unlock="reply"}
   await page.getByRole("button", { name: "切换到源码" }).click();
   await expect(page.locator(".cm-content")).toContainText(':::gate{key="g1" unlock="reply"}');
+  await ctx.close();
+});
+
+test("表情面板：搜索并插入；再点按钮可关闭；图片表情与文字同一行", async ({ browser }) => {
+  const ctx = await browser.newContext();
+  await loginAs(ctx, USERS.member);
+  const page = await ctx.newPage();
+  await page.goto(`/f/${FIX.compose.id}`);
+  await page.getByRole("link", { name: "发新主题" }).click();
+  await page.locator(".fw-rich-editor").waitFor();
+  const discard = page.getByRole("button", { name: "丢弃" });
+  if (await discard.isVisible()) await discard.click();
+  await bodyEditor(page).click();
+  await page.keyboard.type("好");
+
+  const trigger = page.getByRole("button", { name: "表情", exact: true });
+  await trigger.click();
+  const search = page.getByLabel("搜索表情");
+  await expect(search).toBeFocused();
+  await search.fill("点赞");
+  await page.getByRole("gridcell", { name: "赞" }).click();
+  await expect(bodyEditor(page)).toContainText("👍");
+  await expect(search).toHaveCount(0);
+
+  // 再次打开后，再点同一个按钮 = 关闭（回归：外部按下先关、点击又切回打开）
+  await trigger.click();
+  await expect(page.getByLabel("搜索表情")).toBeVisible();
+  await trigger.click();
+  await expect(page.getByLabel("搜索表情")).toHaveCount(0);
+
+  // 图片表情（M10.9 的数据源）与文字同一行：一个段落、不换行、高度不超过一行半
+  await page.getByRole("button", { name: "切换到源码" }).click();
+  await fillSource(page, "你好 ![表情](/emoji/134.gif) 再见");
+  await page.getByRole("button", { name: "切换到所见即所得" }).click();
+  const p = bodyEditor(page).locator("p");
+  await expect(p).toHaveCount(1);
+  await expect(p.locator("img:not(.ProseMirror-separator)")).toBeVisible();
+  const box = await p.boundingBox();
+  const imgBox = await p.locator("img:not(.ProseMirror-separator)").boundingBox();
+  expect(imgBox!.y).toBeGreaterThanOrEqual(box!.y - 1);
+  expect(imgBox!.y + imgBox!.height).toBeLessThanOrEqual(box!.y + box!.height + 1);
+  expect(box!.height).toBeLessThan(90);
   await ctx.close();
 });

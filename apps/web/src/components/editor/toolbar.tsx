@@ -16,6 +16,7 @@ import {
   ListOrdered,
   Lock,
   Minus,
+  Smile,
   Quote,
   Redo2,
   RemoveFormatting,
@@ -32,9 +33,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { EmojiPanel } from "./emoji-panel";
 import { nextGateKey } from "./gate-keys";
 import { defaultGateAttrs } from "./markdown/gate";
 
@@ -51,18 +53,20 @@ export function normalizeHref(raw: string): string {
   return `https://${v}`;
 }
 
-interface ToolButtonProps {
+type ToolButtonProps = Omit<
+  React.ComponentProps<typeof Button>,
+  "children" | "title" | "variant"
+> & {
   icon: LucideIcon;
   label: string;
   shortcut?: string;
   active?: boolean;
-  disabled?: boolean;
-  onClick?: () => void;
-}
+};
 
 /**
  * 工具栏按钮：图标 + 即时 Tooltip（名称 + 快捷键）。名称同时是 aria-label，触屏与读屏靠它；
  * 触控目标移动端不小于 44px，桌面端保持紧凑。onMouseDown 阻止默认行为：点按钮不让编辑区失焦、选区不丢。
+ * 其余属性与 ref 透传给按钮：作为 `PopoverTrigger asChild` 的子元素时，开关与 aria-expanded 由 Radix 注入。
  */
 function ToolButton({
   icon: Icon,
@@ -70,7 +74,8 @@ function ToolButton({
   shortcut,
   active = false,
   disabled = false,
-  onClick,
+  onMouseDown,
+  ...rest
 }: ToolButtonProps) {
   return (
     <Tooltip>
@@ -80,10 +85,13 @@ function ToolButton({
           size="sm"
           variant={active ? "secondary" : "ghost"}
           aria-label={label}
-          aria-pressed={active}
+          aria-pressed={rest["aria-expanded"] === undefined ? active : undefined}
           disabled={disabled}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={onClick}
+          {...rest}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            onMouseDown?.(e);
+          }}
           className="min-h-11 min-w-11 shrink-0 px-2 sm:min-h-9 sm:min-w-9"
         >
           <Icon className="size-4" aria-hidden />
@@ -156,9 +164,9 @@ export function EditorToolbar({
   // 链接弹层：⌘/Ctrl+K 或点按钮打开；打开时带出当前链接地址
   const [linkOpen, setLinkOpen] = useState(false);
   const [href, setHref] = useState("");
-  const openLink = () => {
-    setHref((editor.getAttributes("link").href as string | undefined) ?? "");
-    setLinkOpen(true);
+  const onLinkOpenChange = (next: boolean) => {
+    if (next) setHref((editor.getAttributes("link").href as string | undefined) ?? "");
+    setLinkOpen(next);
   };
   useEffect(() => {
     const dom = editor.view.dom;
@@ -186,6 +194,15 @@ export function EditorToolbar({
       chain().extendMarkRange("link").setLink({ href: url }).run();
     }
     setLinkOpen(false);
+  };
+
+  // 表情弹层：选中即插入；Shift 点击连续插入（弹层不关，也不抢走编辑区焦点）
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const insertEmoji = (emoji: string, keepOpen: boolean) => {
+    const c = editor.chain();
+    if (!keepOpen) c.focus();
+    c.insertContent(emoji).run();
+    if (!keepOpen) setEmojiOpen(false);
   };
 
   const headingLabel = state.heading ? `标题 ${state.heading}` : "标题";
@@ -262,19 +279,16 @@ export function EditorToolbar({
           disabled={!state.canMark}
           onClick={() => chain().toggleCode().run()}
         />
-        <Popover open={linkOpen} onOpenChange={setLinkOpen}>
-          <PopoverAnchor asChild>
-            <span className="inline-flex">
-              <ToolButton
-                icon={LinkIcon}
-                label="链接"
-                shortcut={`${mod}K`}
-                active={state.link}
-                disabled={!state.canLink}
-                onClick={openLink}
-              />
-            </span>
-          </PopoverAnchor>
+        <Popover open={linkOpen} onOpenChange={onLinkOpenChange}>
+          <PopoverTrigger asChild>
+            <ToolButton
+              icon={LinkIcon}
+              label="链接"
+              shortcut={`${mod}K`}
+              active={state.link}
+              disabled={!state.canLink}
+            />
+          </PopoverTrigger>
           <PopoverContent
             onOpenAutoFocus={(e) => {
               // 焦点交给地址输入框（默认会落到弹层容器）
@@ -283,7 +297,8 @@ export function EditorToolbar({
             }}
             onCloseAutoFocus={(e) => {
               e.preventDefault();
-              editor.commands.focus();
+              // 弹层关闭动画结束时编辑器可能已卸载（切换模式 / 离开页面）：已销毁就不再聚焦
+              if (!editor.isDestroyed) editor.commands.focus();
             }}
           >
             <form
@@ -382,6 +397,26 @@ export function EditorToolbar({
             onClick={onUploadImage}
           />
         )}
+        <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
+          <PopoverTrigger asChild>
+            <ToolButton icon={Smile} label="表情" />
+          </PopoverTrigger>
+          <PopoverContent
+            className="w-auto p-2"
+            onOpenAutoFocus={(e) => {
+              // 焦点交给搜索框
+              e.preventDefault();
+              (e.currentTarget as HTMLElement).querySelector("input")?.focus();
+            }}
+            onCloseAutoFocus={(e) => {
+              e.preventDefault();
+              // 弹层关闭动画结束时编辑器可能已卸载（切换模式 / 离开页面）：已销毁就不再聚焦
+              if (!editor.isDestroyed) editor.commands.focus();
+            }}
+          >
+            <EmojiPanel onPick={insertEmoji} />
+          </PopoverContent>
+        </Popover>
         <ToolButton
           icon={TableIcon}
           label="插入表格"

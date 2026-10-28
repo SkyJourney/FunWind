@@ -37,7 +37,7 @@ test("会员：正文插入图片，发布后主题页的正文图片指向 /fil
     buffer: PNG_1X1,
   });
   // 图片以图片节点出现在编辑器里
-  await expect(bodyEditor(page).locator("img")).toBeVisible();
+  await expect(bodyEditor(page).locator("img:not(.ProseMirror-separator)")).toBeVisible();
   await page.getByRole("button", { name: "发布主题" }).click();
   await expect(page).toHaveURL(/\/t\/\d+$/);
   await expect(page.locator('.content-md img[src^="/files/"]').first()).toBeVisible();
@@ -56,7 +56,7 @@ test("会员：工具栏上传图片 → 附件面板出现「正文图片」；
   const chooser = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "上传图片" }).click();
   await (await chooser).setFiles({ name: "图.png", mimeType: "image/png", buffer: PNG_1X1 });
-  await expect(bodyEditor(page).locator("img")).toHaveCount(1);
+  await expect(bodyEditor(page).locator("img:not(.ProseMirror-separator)")).toHaveCount(1);
   const row = page.getByTestId("inline-image-row");
   await expect(row).toHaveCount(1);
   // 缩略图是真实可加载的 /files 图
@@ -64,7 +64,7 @@ test("会员：工具栏上传图片 → 附件面板出现「正文图片」；
 
   // 移除条目 = 删正文引用
   await page.getByRole("button", { name: "移除正文图片：图片 1" }).click();
-  await expect(bodyEditor(page).locator("img")).toHaveCount(0);
+  await expect(bodyEditor(page).locator("img:not(.ProseMirror-separator)")).toHaveCount(0);
   await expect(row).toHaveCount(0);
 
   // 先作为附件上传，再「插入正文」：转入正文图片组，不再留在下载附件里
@@ -74,7 +74,7 @@ test("会员：工具栏上传图片 → 附件面板出现「正文图片」；
   const att = page.getByTestId("attachment-row").filter({ hasText: "封面.png" });
   await expect(att).toBeVisible();
   await page.getByRole("button", { name: "插入正文：封面.png" }).click();
-  await expect(bodyEditor(page).locator("img")).toHaveCount(1);
+  await expect(bodyEditor(page).locator("img:not(.ProseMirror-separator)")).toHaveCount(1);
   await expect(row).toHaveCount(1);
   await expect(att).toHaveCount(0);
 
