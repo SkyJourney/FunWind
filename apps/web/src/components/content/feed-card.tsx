@@ -7,10 +7,21 @@ import type { HomeFeedItem } from "@/lib/queries/threads";
  * 首页内容流卡片（M10.5 S5，D1 列表流定稿）：左文右图；
  * 版块徽标可点（进版块），标题可点（进主题）；无图帖自动收缩为纯文本卡。
  */
-export function FeedCard({ item, forumName }: { item: HomeFeedItem; forumName?: string }) {
+export function FeedCard({
+  item,
+  forumName,
+  className,
+}: {
+  item: HomeFeedItem;
+  forumName?: string;
+  /** 附加到根元素的类（流式追加项的进场淡入类由此传入） */
+  className?: string;
+}) {
   const author = item.authorDeleted || !item.authorName ? "已注销" : item.authorName;
   return (
-    <article className="flex gap-4 rounded-xl border bg-card p-4 shadow-1 transition-shadow duration-fast hover:shadow-2">
+    <article
+      className={`flex gap-4 rounded-xl border bg-card p-4 shadow-1 transition-shadow duration-fast hover:shadow-2${className ? ` ${className}` : ""}`}
+    >
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
           {forumName && (

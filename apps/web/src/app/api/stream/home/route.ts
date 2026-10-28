@@ -1,11 +1,9 @@
 import { getForumTree } from "@/lib/authz/snapshot";
 import { getCurrentSubject } from "@/lib/authz/subject";
-import { getHomeFeed, type HomeFeedItem } from "@/lib/queries/threads";
+import { getHomeFeed } from "@/lib/queries/threads";
 import { parsePositiveInt, parseStreamPage } from "@/lib/stream/page";
 import { streamJson, streamRateLimit } from "@/lib/stream/respond";
-
-/** 首页内容流的条目：在 HomeFeedItem 上补板块名，客户端追加渲染时不必再取版块树 */
-export type HomeStreamItem = HomeFeedItem & { forumName: string | null };
+import type { HomeStreamItem } from "@/lib/stream/types";
 
 /**
  * 首页内容流的追加取数（M10.7，BUG3）。GET `?sec=&sort=&page=`，参数口径与首页一致。

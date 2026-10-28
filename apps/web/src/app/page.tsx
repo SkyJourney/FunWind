@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Slot } from "@/modules/kernel/slot";
 import { FeedCard } from "@/components/content/feed-card";
+import { HomeFeedStream } from "@/components/content/home-feed-stream";
 import { BrandCard } from "@/components/site/site-header";
 import { EmptyState } from "@/components/empty-state";
 import { isDevEnv } from "@/lib/dev-only";
@@ -66,6 +67,12 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
     const qs = q.toString();
     return qs ? `/?${qs}` : "/";
   };
+
+  /** 流式追加的取数地址：与首页同一组 sec / sort 参数（page 由组件追加） */
+  const streamQuery = new URLSearchParams();
+  if (sectionId) streamQuery.set("sec", String(sectionId));
+  if (sort !== "last") streamQuery.set("sort", sort);
+  const streamEndpoint = `/api/stream/home${streamQuery.size ? `?${streamQuery}` : ""}`;
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
@@ -146,44 +153,38 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
               }
             />
           ) : (
-            <div className="grid gap-2.5">
-              {feed.items.map((item, index) => (
-                <div
-                  key={item.id}
-                  className={page === 1 && index < 10 ? "fw-enter" : undefined}
-                  style={
-                    page === 1 && index < 10 ? { animationDelay: `${index * 50}ms` } : undefined
-                  }
+            <>
+              {/* 直达 ?page=N 时从第 N 页起流式追加；往前翻仍走真链接（URL 冻结约定） */}
+              {page > 1 && (
+                <Link
+                  href={feedHref({ page: page - 1 })}
+                  className="block text-center text-sm text-muted-foreground hover:text-primary"
                 >
-                  <FeedCard item={item} forumName={feedForumName(item.forumId)} />
-                </div>
-              ))}
-            </div>
+                  ← 上一页
+                </Link>
+              )}
+              {/* M10.7 BUG3：首屏服务端渲染，后续页触底自动追加；底部「加载更多」是指向下一页的真链接（无 JS 兜底） */}
+              <HomeFeedStream
+                endpoint={streamEndpoint}
+                fallbackHref={feedHref({ page: 1 })}
+                startPage={page}
+                hasMore={feed.hasMore}
+                seedIds={feed.items.map((i) => i.id)}
+              >
+                {feed.items.map((item, index) => (
+                  <div
+                    key={item.id}
+                    className={page === 1 && index < 10 ? "fw-enter" : undefined}
+                    style={
+                      page === 1 && index < 10 ? { animationDelay: `${index * 50}ms` } : undefined
+                    }
+                  >
+                    <FeedCard item={item} forumName={feedForumName(item.forumId)} />
+                  </div>
+                ))}
+              </HomeFeedStream>
+            </>
           )}
-
-          {/* 分页：加载更多（D2：追加式留 S5 增强，先以偏移翻页闭环） */}
-          <div className="flex items-center justify-center gap-4 py-2 text-sm">
-            {page > 1 && (
-              <Link
-                href={feedHref({ page: page - 1 })}
-                className="text-muted-foreground hover:text-primary"
-              >
-                ← 上一页
-              </Link>
-            )}
-            {feed.hasMore ? (
-              <Link
-                href={feedHref({ page: page + 1 })}
-                className="rounded-lg border px-4 py-2 transition-colors hover:bg-accent"
-              >
-                加载更多
-              </Link>
-            ) : (
-              feed.items.length > 0 && (
-                <span className="text-muted-foreground">已加载全部 {feed.items.length} 条</span>
-              )
-            )}
-          </div>
         </div>
 
         {/* 右栏（xl）：品牌 + 模块槽位（签到卡）+ 热帖 + 统计 + 热门板块 */}
