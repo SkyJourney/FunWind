@@ -1,4 +1,5 @@
 import { ViewBeacon } from "@/components/content/view-beacon";
+import { ImageLightbox } from "@/components/content/image-lightbox";
 import { ArrowLeft, Clock, Eye, MessageSquare, Paperclip, XCircle } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -429,6 +430,7 @@ export default async function ThreadPage({ params, searchParams }: Params) {
           </Card>
         )}
       </section>
+      <ImageLightbox />
     </main>
   );
 }

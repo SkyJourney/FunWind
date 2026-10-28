@@ -5,6 +5,7 @@ import { FileText, MessageSquare, MessageSquareOff } from "lucide-react";
 import { getWebDb, userProfiles } from "@funwind/db";
 import { RichContent } from "@/components/content/rich-content";
 import { ThreadRow } from "@/components/content/thread-row";
+import { ImageLightbox } from "@/components/content/image-lightbox";
 import { EmptyState } from "@/components/empty-state";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -258,6 +259,7 @@ export default async function ProfilePage({
           ← 返回首页
         </Link>
       </div>
+      <ImageLightbox />
     </main>
   );
 }
