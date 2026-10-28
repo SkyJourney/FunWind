@@ -145,8 +145,9 @@ export function releaseNavKind(root: HTMLElement = document.documentElement): vo
  * - **收起**：随后用站内链接回到**打开它的那个列表页**（同一 pathname + search），详情页以同一位置缩回。
  *
  * 收起的圆心取「点击时卡片在文档中的位置」：站内链接导航到列表页后页面停在顶部（Next 不恢复滚动），
- * 只有当该位置落在第一屏内，圆才会缩向那张卡；落在第一屏之外（卡片在页面深处）就退化成普通 pop 滑动，
- * 缩向一片空白比不收起更糟。记录只存内存（整页刷新即失效），一次性消费。
+ * 该位置落在第一屏内时，圆缩向那张卡；落在第一屏之外（卡片在页面深处）就找不到焦点，
+ * 改缩向可视区域的底部中心（缩向屏幕之外的一片空白没有意义，而退化成 pop 滑动会让「收起」时有时无）。
+ * 记录只存内存（整页刷新即失效），一次性消费。
  *
  * **坐标系**：clip-path 的 `circle(... at X Y)` 相对**被命名元素自己的盒子**（template.tsx 里全宽的
  * `[data-fw-page]` 包装 div：左边恒为 0，顶部 = 顶栏等 chrome 的高度）。所以写进 --vt-x / --vt-y 的是
@@ -233,22 +234,27 @@ export function resolveNavKind(
 
   if (base === "pop" && lastExpand) {
     const record = lastExpand;
-    // 回到的正是打开这张详情的列表页：一次性消费记录
-    if (record.fromKey === info.to && record.toPath === pathOf(info.from)) {
+    // 回到的正是打开这张详情的列表页：一次性消费记录。
+    // 只比 pathname：返回链接（如顶栏「首页」）不带打开时的筛选 / 翻页查询串（?sec=、?page=），
+    // 严格比较会让「从筛选后的首页打开 → 回首页」退化成普通 pop
+    if (pathOf(record.fromKey) === pathOf(info.to) && record.toPath === pathOf(info.from)) {
       lastExpand = null;
-      if (record.docY < viewport.innerHeight - 24) {
-        // 列表页（新页）停在顶部，卡片在视口中的 y = docY；旧页（详情）的盒子顶 = pageTop − scrollY
-        const width = viewport.innerWidth ?? viewport.innerHeight * 1.5;
-        return {
-          kind: "collapse",
-          origin: {
-            x: record.x,
-            y: record.docY - viewport.pageTop + viewport.scrollY,
-            // 列表页在顶部：卡片在视口中的 y = docY
-            r: coverRadius(record.x, record.docY, width, viewport.innerHeight),
-          },
-        };
-      }
+      const width = viewport.innerWidth ?? viewport.innerHeight * 1.5;
+      // 列表页（新页）停在顶部：卡片在第一屏内时缩向它（视口 y = docY）；
+      // 在第一屏之外（点击时已滚动很深）就找不到焦点，改缩向可视区域的底部中心，
+      // 比退化成普通 pop 更能保持「收起」的一致观感
+      const inFirstScreen = record.docY < viewport.innerHeight - 24;
+      const x = inFirstScreen ? record.x : width / 2;
+      const viewportY = inFirstScreen ? record.docY : viewport.innerHeight;
+      // 旧页（详情）的盒子顶 = pageTop − scrollY，圆心相对它的盒子
+      return {
+        kind: "collapse",
+        origin: {
+          x,
+          y: viewportY - viewport.pageTop + viewport.scrollY,
+          r: coverRadius(x, viewportY, width, viewport.innerHeight),
+        },
+      };
     }
   }
   return { kind: base, origin: null };

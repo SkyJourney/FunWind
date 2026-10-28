@@ -253,16 +253,34 @@ describe("resolveNavKind（触点扩散 / 收起）", () => {
     expect(back("/").kind).toBe("pop");
   });
 
-  it("卡片在第一屏之外（点击时已滚动很深）：回到列表页停在顶部，缩向一片空白不如不收起 → 退化为 pop", () => {
+  it("卡片在第一屏之外（点击时已滚动很深）：找不到焦点，仍然 collapse，圆心 = 可视区域底部中心", () => {
     const [title] = cardLink();
     resolveNavKind(info({ anchor: title! }), { ...viewport, scrollY: 2000 }); // docY = 2200
-    expect(back("/")).toEqual({ kind: "pop", origin: null });
+    const result = back("/");
+    expect(result.kind).toBe("collapse");
+    // 视口底部中心 (500, 800)，换算成相对旧页包装盒子：y 减去 pageTop
+    expect(result.origin).toMatchObject({ x: 500, y: 800 - 57 });
+    expect(result.origin!.r).toBeGreaterThanOrEqual(Math.hypot(500, 800));
+    expect(result.origin!.r).toBeLessThan(Math.hypot(500, 800) + 20);
   });
 
-  it("回到的不是打开它的那一页（带不同查询串 / 另一个列表）→ 普通 pop，记录保留给对的那次", () => {
+  it("底部中心收起时详情页滚动过：圆心 y 同样要加回 scrollY", () => {
+    const [title] = cardLink();
+    resolveNavKind(info({ anchor: title! }), { ...viewport, scrollY: 2000 });
+    const result = back("/", { ...viewport, scrollY: 500 });
+    expect(result.origin).toMatchObject({ x: 500, y: 800 - 57 + 500 });
+  });
+
+  it("回到的是同一个列表页但查询串不同（打开时带了 ?sec= 筛选，返回链接是 /）→ 仍然 collapse", () => {
+    const [title] = cardLink();
+    resolveNavKind(info({ from: "/?sec=4", anchor: title! }), viewport);
+    expect(back("/").kind).toBe("collapse");
+  });
+
+  it("回到的不是打开它的那一页（另一个列表）→ 普通 pop，记录保留给对的那次", () => {
     const [title] = cardLink();
     resolveNavKind(info({ from: "/f/3", anchor: title! }), viewport);
-    expect(back("/f/3?page=2").kind).toBe("pop");
+    expect(back("/f/4").kind).toBe("pop");
     expect(back("/f/3").kind).toBe("collapse");
   });
 

@@ -289,7 +289,7 @@ test.describe("触点扩散与收起（内容卡片 → 主题页）", () => {
     expect(mid.now).toBeLessThan(mid.end * 0.85);
   });
 
-  test("卡片在第一屏之外（滚得很深才点）：回去时退化为普通 pop 滑动，不缩向空白", async ({
+  test("从板块页打开的帖子，点顶栏首页回去：回到的不是打开它的列表页，是普通 pop 滑动", async ({
     page,
   }) => {
     await installTransitionProbe(page);
@@ -307,6 +307,77 @@ test.describe("触点扩散与收起（内容卡片 → 主题页）", () => {
     await page.locator("header a[href='/']").first().click();
     await expect(page).toHaveURL(/\/$/);
     expect((await readTransitions(page)).starts).toEqual(["pop"]);
+  });
+
+  test("首页滚得很深才点开帖子：回去时找不到焦点，仍然收起，圆心 = 可视区域底部中心", async ({
+    page,
+  }) => {
+    await installTransitionProbe(page);
+    await page.goto("/");
+    const links = page.locator("main article h3 a");
+    await expect(links.first()).toBeVisible();
+    await page.evaluate(() => window.scrollTo(0, 1400));
+    await page.waitForTimeout(300);
+    const viewport = page.viewportSize()!;
+    // 取滚动后落在视口内的第一张卡片（文档位置远在第一屏之外）
+    let href = "";
+    for (let i = 0, n = await links.count(); i < n; i++) {
+      const box = await links.nth(i).boundingBox();
+      if (box && box.y > 80 && box.y + box.height < viewport.height - 10) {
+        href = (await links.nth(i).getAttribute("href"))!;
+        await page.request.get(href);
+        await page.mouse.click(box.x + 10, box.y + box.height / 2);
+        break;
+      }
+    }
+    expect(href).not.toBe("");
+    await expect(page).toHaveURL(new RegExp(`${href}$`));
+    await expect.poll(() => navAttr(page), { timeout: 3000 }).toBeNull();
+
+    const pageTop = await pageTopOf(page);
+    // 详情页不一定停在 0（从很深的位置打开，Next 会滚到页面区块顶部）：旧页盒子顶 = pageTop − scrollY
+    const scrollY = await page.evaluate(() => Math.round(window.scrollY));
+    await resetTransitions(page);
+    await page.locator("header a[href='/']").first().click();
+    await expect(page).toHaveURL(/\/$/);
+    await expect
+      .poll(async () => (await readTransitions(page)).animations, { timeout: 5000 })
+      .toEqual(expect.arrayContaining(["::view-transition-old(page)|vt-page-collapse"]));
+    const reading = await readTransitions(page);
+    expect(reading.starts).toEqual(["collapse"]);
+    // 底部中心 (宽度/2, 视口高度) 换算成相对旧页包装盒子的坐标
+    expect(reading.origins[0]).toMatchObject({
+      x: `${Math.round(viewport.width / 2)}px`,
+      y: `${viewport.height - pageTop + scrollY}px`,
+    });
+    // 新页静止垫底：只有旧页在收起
+    expect(reading.animations.some((a) => a.startsWith("::view-transition-new(page)"))).toBe(false);
+  });
+
+  test("首页切了分区（?sec=）再点开帖子：点顶栏首页回去仍然收起（查询串不同不影响）", async ({
+    page,
+  }) => {
+    await installTransitionProbe(page);
+    await page.goto("/");
+    const section = page.locator("a[href^='/?sec=']").first();
+    await expect(section).toBeVisible();
+    await section.click();
+    await expect(page).toHaveURL(/[?&]sec=/);
+    const link = page.locator("main article h3 a").first();
+    await expect(link).toBeVisible();
+    const href = (await link.getAttribute("href"))!;
+    await page.request.get(href);
+    await page.waitForTimeout(500);
+    await link.click();
+    await expect(page).toHaveURL(new RegExp(`${href}$`));
+    await expect.poll(() => navAttr(page), { timeout: 3000 }).toBeNull();
+
+    await resetTransitions(page);
+    await page.locator("header a[href='/']").first().click();
+    await expect(page).toHaveURL(/\/$/);
+    await expect
+      .poll(async () => (await readTransitions(page)).starts, { timeout: 5000 })
+      .toEqual(["collapse"]);
   });
 
   test("卡片里的其它链接（板块名）不扩散，是普通前进", async ({ page }) => {
