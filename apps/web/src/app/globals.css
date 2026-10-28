@@ -155,12 +155,109 @@
   }
 }
 
-/* 页面级 View Transitions（经 lib/motion/view-transition 触发，html[data-vt] 选型）：
-   fade=默认淡入微位移；push=前进自右切入；pop=返回自左切入；expand=自触点圆形扩散打开 */
-::view-transition-old(root) {
+/* ===== 页面级过渡（M10.7 Step 4b）=====
+   template.tsx 用 React <ViewTransition> 给页面内容打 `.fw-page` 类；浏览器同时持有新旧两张快照，进退场都能动。
+   方向由 <html data-nav> 决定（lib/motion/nav-kind.ts）：push 前进 / pop 返回 / 其余（fade 或缺省）淡入淡出。 */
+
+/* 位移令牌：移动端 28px，桌面减半（S4 §3.2「桌面克制」） */
+:root {
+  --fw-page-shift: 28px;
+}
+@media (min-width: 768px) {
+  :root {
+    --fw-page-shift: 14px;
+  }
+}
+
+/* 过渡期间覆盖层不拦截指针事件：用户在动画中的点击仍落到真实页面上 */
+::view-transition {
+  pointer-events: none;
+}
+
+/* 路由过渡下 root（顶栏 / 底部 Tab / 页脚等 layout 内容）保持静止，不做交叉淡入；页面内容由 .fw-page 各自动画 */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+}
+
+/* 缺省 / fade：旧页快速淡出，新页淡入 */
+::view-transition-old(.fw-page) {
+  animation: var(--fw-dur-fast) var(--fw-ease-exit) both vt-page-fade-out;
+}
+::view-transition-new(.fw-page) {
+  animation: var(--fw-dur-base) var(--fw-ease-out) both vt-page-fade-in;
+}
+/* push 前进：旧页向左退出，新页自右切入（透明度 0.6 → 1） */
+:root[data-nav="push"]::view-transition-old(.fw-page) {
+  animation: var(--fw-dur-fast) var(--fw-ease-exit) both vt-page-out-left;
+}
+:root[data-nav="push"]::view-transition-new(.fw-page) {
+  animation: var(--fw-dur-slow) var(--fw-ease-out) both vt-page-in-right;
+}
+/* pop 返回：旧页向右退出，新页自左切入 */
+:root[data-nav="pop"]::view-transition-old(.fw-page) {
+  animation: var(--fw-dur-fast) var(--fw-ease-exit) both vt-page-out-right;
+}
+:root[data-nav="pop"]::view-transition-new(.fw-page) {
+  animation: var(--fw-dur-slow) var(--fw-ease-out) both vt-page-in-left;
+}
+@keyframes vt-page-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes vt-page-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes vt-page-out-left {
+  to {
+    translate: calc(var(--fw-page-shift) * -1) 0;
+    opacity: 0;
+  }
+}
+@keyframes vt-page-out-right {
+  to {
+    translate: var(--fw-page-shift) 0;
+    opacity: 0;
+  }
+}
+@keyframes vt-page-in-right {
+  from {
+    translate: var(--fw-page-shift) 0;
+    opacity: 0.6;
+  }
+}
+@keyframes vt-page-in-left {
+  from {
+    translate: calc(var(--fw-page-shift) * -1) 0;
+    opacity: 0.6;
+  }
+}
+
+/* 锚定顶栏与底部 Tab：命名成独立的组、抬高层级、不播动画。否则页面组（画在 root 之上）会在滚动过的长页里
+   盖住吸顶的顶栏；旧快照直接隐藏，避免新旧两份同时可见的一闪（官方推荐做法） */
+::view-transition-group(fw-site-header),
+::view-transition-group(fw-bottom-tabs) {
+  animation: none;
+  z-index: 100;
+}
+::view-transition-old(fw-site-header),
+::view-transition-old(fw-bottom-tabs) {
+  display: none;
+}
+::view-transition-new(fw-site-header),
+::view-transition-new(fw-bottom-tabs) {
+  animation: none;
+}
+
+/* 同文档状态过渡（lib/motion/view-transition 的 withViewTransition，/design/motion 演示）：由 html[data-vt] 选型，
+   与上面的路由过渡（html[data-nav]）互不干扰 */
+html[data-vt]::view-transition-old(root) {
   animation: vt-fade-out var(--fw-dur-base) var(--fw-ease-exit) both;
 }
-::view-transition-new(root) {
+html[data-vt]::view-transition-new(root) {
   animation: vt-fade-in var(--fw-dur-base) var(--fw-ease-out) both;
 }
 html[data-vt="push"]::view-transition-new(root) {
@@ -203,9 +300,11 @@ html[data-vt="expand"]::view-transition-new(root) {
     clip-path: circle(142% at var(--vt-x, 50%) var(--vt-y, 50%));
   }
 }
+/* 减少动态效果：全部页面过渡与同文档过渡归零（明确决策） */
 @media (prefers-reduced-motion: reduce) {
-  ::view-transition-old(root),
-  ::view-transition-new(root) {
+  ::view-transition-old(*),
+  ::view-transition-new(*),
+  ::view-transition-group(*) {
     animation: none !important;
   }
 }

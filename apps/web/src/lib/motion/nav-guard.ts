@@ -53,6 +53,11 @@ export interface NavFailure {
 export interface NavGuardHandlers {
   /** 导航状态变化（进度条 / 慢提示的数据源） */
   onStatus(status: NavStatus): void;
+  /**
+   * 确认发起一次导航（已通过去重与离线预检）：from / to 是 pathname + search。
+   * 页面过渡的方向在这里写（而不是另起一个点击监听），这样被守卫拦下的点击不会留下错向的方向。
+   */
+  onStart(nav: { from: string; to: string }): void;
   /** 点击前发现离线：已阻止本次导航 */
   onOffline(): void;
   /** 在途导航超过慢阈值 */
@@ -138,6 +143,7 @@ export function installNavGuard(
 
   const begin = (key: string, host: Element | null) => {
     if (pending) settle(); // 新导航取代旧的（Next 也只认最后一次）
+    handlers.onStart({ from: currentKey(), to: key });
     const p: Pending = {
       key,
       host,
@@ -247,11 +253,15 @@ export function installNavGuard(
     ) {
       return;
     }
-    e.preventDefault(); // 拦下 Next 的整页回退：留在原页
+    e.preventDefault(); // 拦下 Next 的整页回退：留在原页（必须同步，事件返回后就来不及了）
     const viaClick = pending !== null;
     lastFailure = null;
-    settle();
-    handlers.onFailure({ url: key, viaClick });
+    // Next 是在渲染 Router 的过程中调用 location.assign 触发的回退，本监听因此同步运行在渲染期间：
+    // 此刻更新状态 / 弹 toast 会触发 React 的「渲染中更新其它组件」报错。延后到渲染结束（微任务）再处理。
+    queueMicrotask(() => {
+      settle();
+      handlers.onFailure({ url: key, viaClick });
+    });
   };
   nav?.addEventListener("navigate", onNavigate);
   document.addEventListener("click", onClick, true);

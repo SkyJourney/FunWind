@@ -3,6 +3,8 @@ node_modules/
 .next/
 .next-e2e/
 .next-e2e-prod/
+# Playwright MCP 浏览器自动化的临时产物（快照 / 控制台日志 / 截图）
+.playwright-mcp/
 out/
 dist/
 coverage/

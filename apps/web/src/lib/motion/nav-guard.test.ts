@@ -19,6 +19,7 @@ let onOffline: Mock<() => void>;
 let onSlow: Mock<() => void>;
 let onSettled: Mock<() => void>;
 let onFailure: Mock<(failure: NavFailure) => void>;
+let onStart: Mock<(nav: { from: string; to: string }) => void>;
 
 const lastStatus = () => statuses.at(-1)!;
 
@@ -28,8 +29,10 @@ function setup(config = NAV_GUARD_DEFAULTS) {
   onSlow = vi.fn<() => void>();
   onSettled = vi.fn<() => void>();
   onFailure = vi.fn<(failure: NavFailure) => void>();
+  onStart = vi.fn<(nav: { from: string; to: string }) => void>();
   const handlers: NavGuardHandlers = {
     onStatus: (s) => statuses.push(s),
+    onStart: (n) => onStart(n),
     onOffline: () => onOffline(),
     onSlow: () => onSlow(),
     onSettled: () => onSettled(),
@@ -183,6 +186,33 @@ describe("点击即反馈", () => {
   });
 });
 
+describe("发起导航时回调 onStart（页面过渡方向在这里写）", () => {
+  it("确认发起时带上 from / to（pathname + search）", () => {
+    window.history.replaceState(null, "", "/f/3?page=2");
+    setup();
+    click(addLink("/t/9?x=1").a);
+    expect(onStart).toHaveBeenCalledWith({ from: "/f/3?page=2", to: "/t/9?x=1" });
+  });
+
+  it("被去重 / 离线拦下 / 不处理的点击，不会回调（否则会留下错向的方向）", () => {
+    setup();
+    const first = addLink("/t/9");
+    click(first.a);
+    expect(onStart).toHaveBeenCalledTimes(1);
+    click(first.a); // 重复点击被去重
+    click(addLink("/files/x").a); // 非页面链接
+    Object.defineProperty(window.navigator, "onLine", { value: false, configurable: true });
+    click(addLink("/f/3").a); // 离线
+    expect(onStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("begin(url)（重试）同样回调", () => {
+    setup();
+    guard!.begin("/t/9");
+    expect(onStart).toHaveBeenCalledWith({ from: "/", to: "/t/9" });
+  });
+});
+
 describe("离线预检", () => {
   it("点击时已离线：阻止导航并提示，不进入在途状态", () => {
     setup();
@@ -259,6 +289,9 @@ describe("导航型 RSC 请求", () => {
 });
 
 describe("失败检测与整页回退拦截", () => {
+  /** 失败处理延后到渲染结束（微任务）：断言回调前先让微任务跑完 */
+  const flush = () => Promise.resolve();
+
   /** 让一次导航型 RSC 请求失败，并等微任务落定 */
   async function failRsc(url = "/t/9?_rsc=abc") {
     fetchStub.mockRejectedValueOnce(new TypeError("Failed to fetch"));
@@ -270,7 +303,11 @@ describe("失败检测与整页回退拦截", () => {
     click(addLink("/t/9").a);
     await failRsc();
     const e = navigate("/t/9");
-    expect(e.defaultPrevented).toBe(true);
+    expect(e.defaultPrevented).toBe(true); // 拦截本身同步生效
+    // 状态更新与回调延后到渲染结束：Next 是在渲染 Router 的过程中触发整页回退的，此刻更新状态会引发 React 报错
+    expect(onFailure).not.toHaveBeenCalled();
+    expect(lastStatus().pending).toBe(true);
+    await flush();
     expect(onFailure).toHaveBeenCalledWith({ url: "/t/9", viaClick: true });
     expect(lastStatus().pending).toBe(false); // 进度条与 busy 一并收回
   });
@@ -279,6 +316,7 @@ describe("失败检测与整页回退拦截", () => {
     setup();
     await failRsc("/f/3?_rsc=z");
     navigate("/f/3");
+    await flush();
     expect(onFailure).toHaveBeenCalledWith({ url: "/f/3", viaClick: false });
   });
 
@@ -339,6 +377,7 @@ describe("失败检测与整页回退拦截", () => {
     await failRsc();
     expect(navigate("/t/9").defaultPrevented).toBe(true);
     expect(navigate("/t/9").defaultPrevented).toBe(false);
+    await flush();
     expect(onFailure).toHaveBeenCalledTimes(1);
   });
 

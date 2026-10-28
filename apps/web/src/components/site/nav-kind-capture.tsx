@@ -5,8 +5,10 @@ import { usePathname } from "next/navigation";
 import { kindBetween, setNavKind } from "@/lib/motion/nav-kind";
 
 /**
- * 全局导航方向捕获（S5-C）：capture 阶段监听内部链接点击，按层级表写入 push/pop；
- * 浏览器历史导航按当前位置与目标的层级判定。渲染 null，纯副作用层。
+ * 浏览器前进 / 后退（popstate）的方向捕获（M10.7 Step 4b）：popstate 不带过渡类型，
+ * 这里按当前位置与目标的层级判定，写到 <html data-nav>。
+ * 点击发起的导航不在这里处理——由导航守卫（navigation-guard.tsx）在确认发起导航时写方向，
+ * 避免「守卫拦下了重复点击而方向已经写了」的错向残留。渲染 null，纯副作用层。
  */
 export function NavKindCapture() {
   const pathname = usePathname();
@@ -15,34 +17,9 @@ export function NavKindCapture() {
     currentPath.current = pathname;
   }, [pathname]);
   useEffect(() => {
-    const onClick = (e: MouseEvent) => {
-      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)
-        return;
-      const a = (e.target as HTMLElement | null)?.closest("a");
-      if (!a) return;
-      const href = a.getAttribute("href");
-      if (
-        !href ||
-        !href.startsWith("/") ||
-        href.startsWith("//") ||
-        (a.target && a.target !== "_self") ||
-        a.hasAttribute("download")
-      )
-        return;
-      if (a.pathname === window.location.pathname) return;
-      setNavKind(kindBetween(window.location.pathname, a.pathname), a.pathname);
-    };
-    const onPop = () =>
-      setNavKind(
-        kindBetween(currentPath.current, window.location.pathname),
-        window.location.pathname,
-      );
-    document.addEventListener("click", onClick, true);
+    const onPop = () => setNavKind(kindBetween(currentPath.current, window.location.pathname));
     window.addEventListener("popstate", onPop);
-    return () => {
-      document.removeEventListener("click", onClick, true);
-      window.removeEventListener("popstate", onPop);
-    };
+    return () => window.removeEventListener("popstate", onPop);
   }, []);
   return null;
 }

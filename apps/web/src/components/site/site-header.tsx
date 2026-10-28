@@ -107,7 +107,11 @@ export function SiteHeader({
   ];
 
   return (
-    <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
+    // viewTransitionName：页面过渡期间顶栏固定不动、层级高于页面内容组（globals.css 的 fw-site-header）
+    <header
+      className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur"
+      style={{ viewTransitionName: "fw-site-header" }}
+    >
       <div className="mx-auto flex h-16 max-w-6xl items-center gap-2 px-4 sm:gap-3 sm:px-6 md:h-14">
         <Link
           href="/"

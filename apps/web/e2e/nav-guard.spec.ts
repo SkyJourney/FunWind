@@ -83,6 +83,13 @@ test.describe("失败兜底：提示并留在原页", () => {
   test("RSC 请求失败：不跳到浏览器错误页，页面与地址都留在列表，toast 提示失败", async ({
     page,
   }) => {
+    const reactErrors: string[] = [];
+    page.on("console", (m) => {
+      // Next 在渲染 Router 的过程中触发整页回退，守卫的拦截不能在渲染期更新状态（M10.7 4b 实测抓到的缺陷）
+      if (/Cannot update a component|while rendering a different component/.test(m.text())) {
+        reactErrors.push(m.text().slice(0, 160));
+      }
+    });
     await openListAndMark(page);
     await page.route(TOPIC_RSC, (route) => {
       const h = route.request().headers();
@@ -97,6 +104,7 @@ test.describe("失败兜底：提示并留在原页", () => {
     await expect(progress(page)).toHaveCount(0);
     await expect(link).not.toHaveAttribute("data-nav-busy", "");
     await expect(page.getByRole("heading", { level: 1 })).toContainText("E2E 水区");
+    expect(reactErrors).toEqual([]);
   });
 
   test("点「重试」：网络恢复后同一导航成功", async ({ page }) => {

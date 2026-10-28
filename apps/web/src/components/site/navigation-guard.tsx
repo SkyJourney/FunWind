@@ -3,7 +3,7 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { clearNavKind } from "@/lib/motion/nav-kind";
+import { clearNavKind, kindBetween, releaseNavKind, setNavKind } from "@/lib/motion/nav-kind";
 import { installNavGuard, NAV_IDLE, type NavGuard, type NavStatus } from "@/lib/motion/nav-guard";
 
 /** 模块级的小 store：核心守卫（不依赖 React）把状态推到这里，进度条用 useSyncExternalStore 读取 */
@@ -38,6 +38,8 @@ export function NavigationGuard() {
   useEffect(() => {
     const guard = installNavGuard({
       onStatus: setStatus,
+      // 页面过渡方向：确认发起导航时写到 <html data-nav>（popstate 的方向由 NavKindCapture 写）
+      onStart: ({ from, to }) => setNavKind(kindBetween(from.split("?")[0]!, to.split("?")[0]!)),
       onOffline: () =>
         toast.error("网络已断开，请检查连接后重试", { id: FAILED_TOAST, duration: 6000 }),
       onSlow: () => toast.message("网络较慢，仍在加载…", { id: SLOW_TOAST, duration: Infinity }),
@@ -69,9 +71,10 @@ export function NavigationGuard() {
     };
   }, [router]);
 
-  // 地址变化 = 页面已提交 = 导航成功
+  // 地址变化 = 页面已提交 = 导航成功：结束在途状态，并在当次页面过渡结束后释放方向属性
   useEffect(() => {
     guardRef.current?.complete();
+    releaseNavKind();
   }, [pathname, search]);
 
   const current = useSyncExternalStore(

@@ -12,6 +12,16 @@ const toast = vi.hoisted(() => ({
 let pathname = "/";
 let search = "";
 
+const navKind = vi.hoisted(() => ({
+  setNavKind: vi.fn(),
+  clearNavKind: vi.fn(),
+  releaseNavKind: vi.fn(),
+}));
+vi.mock("@/lib/motion/nav-kind", async (orig) => {
+  const actual = await orig<typeof import("@/lib/motion/nav-kind")>();
+  return { ...actual, ...navKind };
+});
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
   usePathname: () => pathname,
@@ -76,6 +86,22 @@ describe("NavigationGuard", () => {
     expect(toast.dismiss).toHaveBeenCalledWith("nav-slow");
   });
 
+  it("确认发起导航时按层级表写页面过渡方向（查询串不参与判定）", () => {
+    render(<NavigationGuard />);
+    act(() => h().onStart({ from: "/f/3?page=2", to: "/t/9" }));
+    expect(navKind.setNavKind).toHaveBeenLastCalledWith("push");
+    act(() => h().onStart({ from: "/t/9", to: "/f/3?page=2" }));
+    expect(navKind.setNavKind).toHaveBeenLastCalledWith("pop");
+    act(() => h().onStart({ from: "/boards", to: "/search?q=x" }));
+    expect(navKind.setNavKind).toHaveBeenLastCalledWith("fade");
+  });
+
+  it("导航失败：清掉已写的方向，避免残留到下一次导航", () => {
+    render(<NavigationGuard />);
+    act(() => h().onFailure({ url: "/t/9", viaClick: true }));
+    expect(navKind.clearNavKind).toHaveBeenCalledTimes(1);
+  });
+
   it("离线提示", () => {
     render(<NavigationGuard />);
     act(() => h().onOffline());
@@ -110,9 +136,11 @@ describe("NavigationGuard", () => {
   it("地址变化 = 页面已提交：通知守卫结束在途导航；查询参数变化同样算", () => {
     const { rerender } = render(<NavigationGuard />);
     guard.complete.mockClear();
+    navKind.releaseNavKind.mockClear();
     pathname = "/t/9";
     rerender(<NavigationGuard />);
     expect(guard.complete).toHaveBeenCalledTimes(1);
+    expect(navKind.releaseNavKind).toHaveBeenCalledTimes(1); // 当次过渡结束后释放方向属性
     search = "page=2";
     rerender(<NavigationGuard />);
     expect(guard.complete).toHaveBeenCalledTimes(2);
