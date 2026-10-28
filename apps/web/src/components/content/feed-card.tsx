@@ -20,6 +20,7 @@ export function FeedCard({
   const author = item.authorDeleted || !item.authorName ? "已注销" : item.authorName;
   return (
     <article
+      data-vt-expand
       className={`flex gap-4 rounded-xl border bg-card p-4 shadow-1 transition-shadow duration-fast hover:shadow-2${className ? ` ${className}` : ""}`}
     >
       <div className="min-w-0 flex-1">

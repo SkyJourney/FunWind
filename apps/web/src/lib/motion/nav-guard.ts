@@ -43,6 +43,13 @@ export interface NavStatus {
   slow: boolean;
 }
 
+export interface NavStart {
+  from: string;
+  to: string;
+  anchor: Element | null;
+  point: { x: number; y: number } | null;
+}
+
 export interface NavFailure {
   /** 失败的目标（站内相对地址：pathname + search） */
   url: string;
@@ -54,10 +61,11 @@ export interface NavGuardHandlers {
   /** 导航状态变化（进度条 / 慢提示的数据源） */
   onStatus(status: NavStatus): void;
   /**
-   * 确认发起一次导航（已通过去重与离线预检）：from / to 是 pathname + search。
+   * 确认发起一次导航（已通过去重与离线预检）：from / to 是 pathname + search；
+   * anchor 是被点击的链接、point 是点击点（视口坐标），程序化发起（重试）时都为 null。
    * 页面过渡的方向在这里写（而不是另起一个点击监听），这样被守卫拦下的点击不会留下错向的方向。
    */
-  onStart(nav: { from: string; to: string }): void;
+  onStart(nav: NavStart): void;
   /** 点击前发现离线：已阻止本次导航 */
   onOffline(): void;
   /** 在途导航超过慢阈值 */
@@ -141,9 +149,18 @@ export function installNavGuard(
     handlers.onSettled();
   };
 
-  const begin = (key: string, host: Element | null) => {
+  const begin = (
+    key: string,
+    host: Element | null,
+    click?: { anchor: Element; point: { x: number; y: number } },
+  ) => {
     if (pending) settle(); // 新导航取代旧的（Next 也只认最后一次）
-    handlers.onStart({ from: currentKey(), to: key });
+    handlers.onStart({
+      from: currentKey(),
+      to: key,
+      anchor: click?.anchor ?? null,
+      point: click?.point ?? null,
+    });
     const p: Pending = {
       key,
       host,
@@ -201,8 +218,14 @@ export function installNavGuard(
       e.preventDefault(); // 同一目标还在加载：忽略重复点击，避免重复请求
       return;
     }
+    // 键盘激活（回车）的 click 没有真实坐标（clientX/Y 为 0）：取链接中心作为触点
+    const rect = a.getBoundingClientRect();
+    const keyboard = e.detail === 0 && e.clientX === 0 && e.clientY === 0;
+    const point = keyboard
+      ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+      : { x: e.clientX, y: e.clientY };
     // busy 标记落在「卡片」上（整张卡变暗比一行链接文字更有「被点中」的反馈）
-    begin(key, a.closest("[data-nav-card], article, li, tr") ?? a);
+    begin(key, a.closest("[data-nav-card], article, li, tr") ?? a, { anchor: a, point });
   };
 
   // 保存原始引用，卸载时原样还原（还原 bind 之后的新函数会改变 window.fetch 的身份）

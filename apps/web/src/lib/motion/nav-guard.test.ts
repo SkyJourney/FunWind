@@ -5,6 +5,7 @@ import {
   NAV_GUARD_DEFAULTS,
   type NavGuard,
   type NavFailure,
+  type NavStart,
   type NavGuardHandlers,
   type NavStatus,
 } from "./nav-guard";
@@ -19,7 +20,7 @@ let onOffline: Mock<() => void>;
 let onSlow: Mock<() => void>;
 let onSettled: Mock<() => void>;
 let onFailure: Mock<(failure: NavFailure) => void>;
-let onStart: Mock<(nav: { from: string; to: string }) => void>;
+let onStart: Mock<(nav: NavStart) => void>;
 
 const lastStatus = () => statuses.at(-1)!;
 
@@ -29,7 +30,7 @@ function setup(config = NAV_GUARD_DEFAULTS) {
   onSlow = vi.fn<() => void>();
   onSettled = vi.fn<() => void>();
   onFailure = vi.fn<(failure: NavFailure) => void>();
-  onStart = vi.fn<(nav: { from: string; to: string }) => void>();
+  onStart = vi.fn<(nav: NavStart) => void>();
   const handlers: NavGuardHandlers = {
     onStatus: (s) => statuses.push(s),
     onStart: (n) => onStart(n),
@@ -187,11 +188,30 @@ describe("点击即反馈", () => {
 });
 
 describe("发起导航时回调 onStart（页面过渡方向在这里写）", () => {
-  it("确认发起时带上 from / to（pathname + search）", () => {
+  it("确认发起时带上 from / to（pathname + search）、被点链接与点击点", () => {
     window.history.replaceState(null, "", "/f/3?page=2");
     setup();
-    click(addLink("/t/9?x=1").a);
-    expect(onStart).toHaveBeenCalledWith({ from: "/f/3?page=2", to: "/t/9?x=1" });
+    const { a } = addLink("/t/9?x=1");
+    click(a, { clientX: 120, clientY: 340, detail: 1 });
+    expect(onStart).toHaveBeenCalledWith({
+      from: "/f/3?page=2",
+      to: "/t/9?x=1",
+      anchor: a,
+      point: { x: 120, y: 340 },
+    });
+  });
+
+  it("键盘激活（回车触发的 click 坐标为 0）：触点取链接中心", () => {
+    setup();
+    const { a } = addLink("/t/9");
+    vi.spyOn(a, "getBoundingClientRect").mockReturnValue({
+      left: 100,
+      top: 200,
+      width: 60,
+      height: 20,
+    } as DOMRect);
+    click(a, { clientX: 0, clientY: 0, detail: 0 });
+    expect(onStart.mock.calls[0]![0].point).toEqual({ x: 130, y: 210 });
   });
 
   it("被去重 / 离线拦下 / 不处理的点击，不会回调（否则会留下错向的方向）", () => {
@@ -209,7 +229,7 @@ describe("发起导航时回调 onStart（页面过渡方向在这里写）", ()
   it("begin(url)（重试）同样回调", () => {
     setup();
     guard!.begin("/t/9");
-    expect(onStart).toHaveBeenCalledWith({ from: "/", to: "/t/9" });
+    expect(onStart).toHaveBeenCalledWith({ from: "/", to: "/t/9", anchor: null, point: null });
   });
 });
 

@@ -181,25 +181,73 @@
 }
 
 /* 缺省 / fade：旧页快速淡出，新页淡入 */
-::view-transition-old(.fw-page) {
+::view-transition-old(.fw-page-out) {
   animation: var(--fw-dur-fast) var(--fw-ease-exit) both vt-page-fade-out;
 }
-::view-transition-new(.fw-page) {
+::view-transition-new(.fw-page-in) {
   animation: var(--fw-dur-base) var(--fw-ease-out) both vt-page-fade-in;
 }
 /* push 前进：旧页向左退出，新页自右切入（透明度 0.6 → 1） */
-:root[data-nav="push"]::view-transition-old(.fw-page) {
+:root[data-nav="push"]::view-transition-old(.fw-page-out) {
   animation: var(--fw-dur-fast) var(--fw-ease-exit) both vt-page-out-left;
 }
-:root[data-nav="push"]::view-transition-new(.fw-page) {
+:root[data-nav="push"]::view-transition-new(.fw-page-in) {
   animation: var(--fw-dur-slow) var(--fw-ease-out) both vt-page-in-right;
 }
 /* pop 返回：旧页向右退出，新页自左切入 */
-:root[data-nav="pop"]::view-transition-old(.fw-page) {
+:root[data-nav="pop"]::view-transition-old(.fw-page-out) {
   animation: var(--fw-dur-fast) var(--fw-ease-exit) both vt-page-out-right;
 }
-:root[data-nav="pop"]::view-transition-new(.fw-page) {
+:root[data-nav="pop"]::view-transition-new(.fw-page-in) {
   animation: var(--fw-dur-slow) var(--fw-ease-out) both vt-page-in-left;
+}
+/* 页面快照只含包装 div：body 的背景属于 root，不在快照里。扩散 / 收起时新旧页叠在一起，若包装没有不透明背景，
+   圆内新页的空白区域会透出旧页（实测：列表页的「每日签到」与主题标题叠在一起），所以包装 div 必须自带背景 */
+[data-fw-page] {
+  background-color: var(--background);
+}
+
+/* expand 触点扩散：卡片 → 主题页。新页以点击点为圆心圆形展开，旧页静止垫底不动。
+   圆心 --vt-x / --vt-y 与终点半径 --vt-r 由 nav-kind.ts 写在 <html> 上（相对 [data-fw-page] 包装盒子）。
+   终点半径 = 触点到视口最远角的距离，缓动用对称的 ease-inout：之前用 150vmax 加 expo-out（前快后慢），
+   圆在 ~100ms 内就盖满视口，肉眼看不出扩散。mix-blend-mode 改 normal：默认的 plus-lighter 只适合淡入淡出的
+   交叉溶解，两层都不透明时会把颜色加亮发白 */
+:root[data-nav="expand"]::view-transition-old(.fw-page-out) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+:root[data-nav="expand"]::view-transition-new(.fw-page-in) {
+  animation: var(--fw-dur-spring) var(--fw-ease-inout) both vt-page-expand;
+  mix-blend-mode: normal;
+}
+/* collapse 收起：从扩散打开的主题页用站内链接回到原列表。详情页（旧页）以同一圆心缩回并盖在上层，列表页（新页）静止垫底。
+   旧页与新页是两个独立的过渡组，z-index 只在组内生效，所以要抬高的是退场**组**（.fw-page-out），而不是组内的旧快照 */
+:root[data-nav="collapse"]::view-transition-group(.fw-page-out) {
+  z-index: 3;
+}
+:root[data-nav="collapse"]::view-transition-old(.fw-page-out) {
+  animation: var(--fw-dur-slow) var(--fw-ease-inout) both vt-page-collapse;
+  mix-blend-mode: normal;
+}
+:root[data-nav="collapse"]::view-transition-new(.fw-page-in) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+@keyframes vt-page-expand {
+  from {
+    clip-path: circle(0px at var(--vt-x, 50%) var(--vt-y, 50%));
+  }
+  to {
+    clip-path: circle(var(--vt-r, 150vmax) at var(--vt-x, 50%) var(--vt-y, 50%));
+  }
+}
+@keyframes vt-page-collapse {
+  from {
+    clip-path: circle(var(--vt-r, 150vmax) at var(--vt-x, 50%) var(--vt-y, 50%));
+  }
+  to {
+    clip-path: circle(0px at var(--vt-x, 50%) var(--vt-y, 50%));
+  }
 }
 @keyframes vt-page-fade-out {
   to {

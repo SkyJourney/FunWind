@@ -88,12 +88,29 @@ describe("NavigationGuard", () => {
 
   it("确认发起导航时按层级表写页面过渡方向（查询串不参与判定）", () => {
     render(<NavigationGuard />);
-    act(() => h().onStart({ from: "/f/3?page=2", to: "/t/9" }));
-    expect(navKind.setNavKind).toHaveBeenLastCalledWith("push");
-    act(() => h().onStart({ from: "/t/9", to: "/f/3?page=2" }));
-    expect(navKind.setNavKind).toHaveBeenLastCalledWith("pop");
-    act(() => h().onStart({ from: "/boards", to: "/search?q=x" }));
-    expect(navKind.setNavKind).toHaveBeenLastCalledWith("fade");
+    act(() => h().onStart({ from: "/f/3?page=2", to: "/t/9", anchor: null, point: null }));
+    expect(navKind.setNavKind).toHaveBeenLastCalledWith("push", null);
+    act(() => h().onStart({ from: "/t/9", to: "/f/3?page=2", anchor: null, point: null }));
+    expect(navKind.setNavKind).toHaveBeenLastCalledWith("pop", null);
+    act(() => h().onStart({ from: "/boards", to: "/search?q=x", anchor: null, point: null }));
+    expect(navKind.setNavKind).toHaveBeenLastCalledWith("fade", null);
+  });
+
+  it("内容卡片点进主题页：写 expand 与触点圆心", () => {
+    document.body.innerHTML = '<article data-vt-expand><a href="/t/9">x</a></article>';
+    render(<NavigationGuard />);
+    act(() =>
+      h().onStart({
+        from: "/",
+        to: "/t/9",
+        anchor: document.querySelector("a"),
+        point: { x: 321, y: 123 },
+      }),
+    );
+    expect(navKind.setNavKind).toHaveBeenLastCalledWith(
+      "expand",
+      expect.objectContaining({ x: 321, y: 123 }), // jsdom 无包装盒子：pageTop = 0
+    );
   });
 
   it("导航失败：清掉已写的方向，避免残留到下一次导航", () => {

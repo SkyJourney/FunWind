@@ -9,7 +9,19 @@
  * 属性要撑到页面真正提交（慢网络下导航会挂起数秒），所以不能点击后定时清除：
  * 在「地址变化且当次过渡结束」之后才清（releaseNavKind），另有保底超时。
  */
-export type NavKind = "push" | "pop" | "fade";
+export type NavKind = "push" | "pop" | "fade" | "expand" | "collapse";
+
+/**
+ * 扩散 / 收起的圆：圆心（相对 [data-fw-page] 包装盒子，px）与终点半径（px，覆盖视口所需的最小值）。
+ * 半径必须精确：用过大的值（如 150vmax）加前快后慢的缓动，圆会在最初一百多毫秒就盖满视口，
+ * 肉眼看起来就是淡入而不是扩散。
+ */
+export interface NavOrigin {
+  x: number;
+  y: number;
+  /** 终点半径；缺省时 CSS 回退到 150vmax */
+  r?: number;
+}
 
 /**
  * 层级表（站点信息架构）：0 首页 → 1 一级栏目 → 2 板块 / 用户 / 栏目下的子页 → 3 主题与更深的详情。
@@ -44,17 +56,37 @@ export function kindBetween(from: string, to: string): NavKind {
 const SAFETY_CLEAR_MS = 15_000;
 let safetyTimer: ReturnType<typeof setTimeout> | undefined;
 
-/** 记录本次导航的方向（后一次覆盖前一次）。 */
-export function setNavKind(kind: NavKind, root: HTMLElement = document.documentElement): void {
+/**
+ * 记录本次导航的方向（后一次覆盖前一次）。expand / collapse 另带圆心：写到 <html> 的 --vt-x / --vt-y，
+ * 供 clip-path 圆形动画使用（globals.css 的 vt-page-expand / vt-page-collapse）。
+ */
+export function setNavKind(
+  kind: NavKind,
+  origin?: NavOrigin | null,
+  root: HTMLElement = document.documentElement,
+): void {
   root.dataset.nav = kind;
+  if (origin) {
+    root.style.setProperty("--vt-x", `${Math.round(origin.x)}px`);
+    root.style.setProperty("--vt-y", `${Math.round(origin.y)}px`);
+    if (origin.r !== undefined) root.style.setProperty("--vt-r", `${Math.ceil(origin.r)}px`);
+    else root.style.removeProperty("--vt-r");
+  } else {
+    root.style.removeProperty("--vt-x");
+    root.style.removeProperty("--vt-y");
+    root.style.removeProperty("--vt-r");
+  }
   clearTimeout(safetyTimer);
   safetyTimer = setTimeout(() => clearNavKind(root), SAFETY_CLEAR_MS);
 }
 
-/** 立即清除方向（导航失败 / 被拦下时用，避免残留到下一次导航）。 */
+/** 立即清除方向与圆心（导航失败 / 被拦下时用，避免残留到下一次导航）。 */
 export function clearNavKind(root: HTMLElement = document.documentElement): void {
   clearTimeout(safetyTimer);
   delete root.dataset.nav;
+  root.style.removeProperty("--vt-x");
+  root.style.removeProperty("--vt-y");
+  root.style.removeProperty("--vt-r");
 }
 
 /**
@@ -76,4 +108,124 @@ export function releaseNavKind(root: HTMLElement = document.documentElement): vo
       // 期间若已有新的导航写了别的方向，不能误清
       if (root.dataset.nav === kind) clearNavKind(root);
     });
+}
+
+/**
+ * 触点扩散 / 收起（M10.7 Step 4c，站长原话「帖子扩散打开、返回收起」）：
+ * - **扩散**：从带 `data-vt-expand` 的内容卡片（FeedCard / ThreadRow）点进**主题页**，新页以点击点为圆心展开；
+ * - **收起**：随后用站内链接回到**打开它的那个列表页**（同一 pathname + search），详情页以同一位置缩回。
+ *
+ * 收起的圆心取「点击时卡片在文档中的位置」：站内链接导航到列表页后页面停在顶部（Next 不恢复滚动），
+ * 只有当该位置落在第一屏内，圆才会缩向那张卡；落在第一屏之外（卡片在页面深处）就退化成普通 pop 滑动，
+ * 缩向一片空白比不收起更糟。记录只存内存（整页刷新即失效），一次性消费。
+ *
+ * **坐标系**：clip-path 的 `circle(... at X Y)` 相对**被命名元素自己的盒子**（template.tsx 里全宽的
+ * `[data-fw-page]` 包装 div：左边恒为 0，顶部 = 顶栏等 chrome 的高度）。所以写进 --vt-x / --vt-y 的是
+ * 「视口坐标 − 包装盒子左上角」：扩散时新页停在顶部（盒子顶 = pageTop）；收起时旧页（详情）可能滚动过（盒子顶 = pageTop − scrollY）。
+ */
+interface ExpandRecord {
+  /** 打开详情的列表页（pathname + search） */
+  fromKey: string;
+  /** 被打开的详情页 pathname */
+  toPath: string;
+  x: number;
+  /** 点击点在文档中的纵坐标（clientY + scrollY） */
+  docY: number;
+}
+let lastExpand: ExpandRecord | null = null;
+
+const pathOf = (key: string) => key.split("?")[0]!;
+
+export interface NavStartInfo {
+  /** 当前页（pathname + search） */
+  from: string;
+  /** 目标页（pathname + search） */
+  to: string;
+  /** 被点击的链接；程序化发起（重试）时为 null */
+  anchor: Element | null;
+  /** 点击点（视口坐标）；无点击时为 null */
+  point: NavOrigin | null;
+}
+
+/** 综合层级、点击来源与上一次扩散记录，决定本次导航的方向与圆心 */
+export interface NavViewport {
+  scrollY: number;
+  innerHeight: number;
+  /** 视口宽度；算终点半径用，缺省取 innerHeight 的 1.5 倍近似 */
+  innerWidth?: number;
+  /** 当前页 `[data-fw-page]` 包装盒子的**文档**顶部位置（rect.top + scrollY）；新页的 chrome 相同，取同一值 */
+  pageTop: number;
+}
+
+/** 圆心（视口坐标）到视口最远一角的距离 + 余量：圆长到这个半径就恰好盖满视口 */
+function coverRadius(x: number, viewportY: number, width: number, height: number): number {
+  const dx = Math.max(x, width - x);
+  const dy = Math.max(viewportY, height - viewportY);
+  return Math.hypot(dx, dy) + 8;
+}
+
+function currentViewport(): NavViewport {
+  if (typeof window === "undefined") return { scrollY: 0, innerHeight: 0, pageTop: 0 };
+  const wrapper = document.querySelector("[data-fw-page]");
+  return {
+    scrollY: window.scrollY,
+    innerHeight: window.innerHeight,
+    innerWidth: window.innerWidth,
+    pageTop: wrapper ? wrapper.getBoundingClientRect().top + window.scrollY : 0,
+  };
+}
+
+export function resolveNavKind(
+  info: NavStartInfo,
+  viewport: NavViewport = currentViewport(),
+): { kind: NavKind; origin: NavOrigin | null } {
+  const base = kindBetween(pathOf(info.from), pathOf(info.to));
+
+  // 只扩散到主题页：卡片里的板块名 / 作者等其它链接是普通前进，不做扩散
+  const toThread = /^\/t\/[^/]+/.test(pathOf(info.to));
+  if (base === "push" && toThread && info.point && info.anchor?.closest("[data-vt-expand]")) {
+    lastExpand = {
+      fromKey: info.from,
+      toPath: pathOf(info.to),
+      x: info.point.x,
+      docY: info.point.y + viewport.scrollY,
+    };
+    // 新页停在顶部：它的盒子顶 = pageTop，触点相对盒子 = 视口 y − pageTop
+    const width = viewport.innerWidth ?? viewport.innerHeight * 1.5;
+    return {
+      kind: "expand",
+      origin: {
+        x: info.point.x,
+        y: info.point.y - viewport.pageTop,
+        r: coverRadius(info.point.x, info.point.y, width, viewport.innerHeight),
+      },
+    };
+  }
+
+  if (base === "pop" && lastExpand) {
+    const record = lastExpand;
+    // 回到的正是打开这张详情的列表页：一次性消费记录
+    if (record.fromKey === info.to && record.toPath === pathOf(info.from)) {
+      lastExpand = null;
+      if (record.docY < viewport.innerHeight - 24) {
+        // 列表页（新页）停在顶部，卡片在视口中的 y = docY；旧页（详情）的盒子顶 = pageTop − scrollY
+        const width = viewport.innerWidth ?? viewport.innerHeight * 1.5;
+        return {
+          kind: "collapse",
+          origin: {
+            x: record.x,
+            y: record.docY - viewport.pageTop + viewport.scrollY,
+            // 列表页在顶部：卡片在视口中的 y = docY
+            r: coverRadius(record.x, record.docY, width, viewport.innerHeight),
+          },
+        };
+      }
+    }
+  }
+  return { kind: base, origin: null };
+}
+
+/** 测试用：清空扩散记录 */
+export function resetExpandRecord(): void {
+  lastExpand = null;
 }
