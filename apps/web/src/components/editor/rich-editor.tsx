@@ -19,6 +19,8 @@ export function RichEditor({
   onReady,
   onApi,
   label,
+  onUploadImage,
+  imageDisabled,
 }: {
   initialMarkdown: string;
   onChange: (markdown: string) => void;
@@ -26,6 +28,9 @@ export function RichEditor({
   /** 编辑器创建后交出插入能力；卸载时传 null */
   onApi?: (api: InsertApi | null) => void;
   label: string;
+  /** 提供时工具栏出现「上传图片」按钮（上传由外壳负责：需要版块上下文） */
+  onUploadImage?: () => void;
+  imageDisabled?: boolean;
 }) {
   const editor = useEditor({
     extensions: editorExtensions(),
@@ -52,6 +57,18 @@ export function RichEditor({
       insertImage: (url: string) => {
         editor.chain().focus().setImage({ src: url, alt: "" }).run();
       },
+      removeImage: (url: string) => {
+        // 从后往前删，位置不会因前面的删除而错位
+        const hits: { pos: number; size: number }[] = [];
+        editor.state.doc.descendants((node, pos) => {
+          if (node.type.name === "image" && node.attrs.src === url)
+            hits.push({ pos, size: node.nodeSize });
+        });
+        if (hits.length === 0) return;
+        const tr = editor.state.tr;
+        for (const h of hits.reverse()) tr.delete(h.pos, h.pos + h.size);
+        editor.view.dispatch(tr);
+      },
       isComposing: () => editor.view.composing,
     });
     return () => onApi?.(null);
@@ -71,7 +88,11 @@ export function RichEditor({
     // 外框：边框 + 聚焦环；工具栏吸附在站点顶栏下方（长文时不用滚回顶部），移动端顶栏 h-16、桌面 h-14
     <div className="fw-editor rounded-lg border border-input bg-card shadow-1 focus-within:ring-2 focus-within:ring-ring/50">
       <div className="sticky top-16 z-10 rounded-t-lg border-b bg-card/95 backdrop-blur md:top-14">
-        <EditorToolbar editor={editor} />
+        <EditorToolbar
+          editor={editor}
+          onUploadImage={onUploadImage}
+          imageDisabled={imageDisabled}
+        />
         <TableToolbar editor={editor} />
       </div>
       <EditorContent editor={editor} />

@@ -5,6 +5,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { EditorState } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { useEffect, useRef } from "react";
+import { findImageRanges } from "./inline-images";
 import type { InsertApi } from "./insert-api";
 
 /**
@@ -67,6 +68,10 @@ export default function SourceEditor({
           selection: { anchor: from + text.length },
         });
         view.focus();
+      },
+      removeImage(url: string) {
+        const changes = findImageRanges(view.state.doc.toString(), url);
+        if (changes.length > 0) view.dispatch({ changes });
       },
       isComposing: () => view.composing,
     });

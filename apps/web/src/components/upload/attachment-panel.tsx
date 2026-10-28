@@ -22,6 +22,15 @@ export interface AttachmentItem {
   name: string;
   sizeBytes: number;
   gateKey: string | null;
+  /** 存储键与类型：有它才能「插入正文」（新上传的附件与编辑页现有附件都带；旧草稿里的可能没有） */
+  storageKey?: string;
+  mime?: string;
+}
+
+/** 正文里的一张内嵌图片（从正文派生，见 editor/inline-images.ts） */
+export interface InlineImageItem {
+  key: string;
+  url: string;
 }
 
 const MAX_ATTACHMENTS = 20;
@@ -41,6 +50,8 @@ function parseItems(raw: string): AttachmentItem[] | null {
               name: o.name,
               sizeBytes: Number(o.sizeBytes) || 0,
               gateKey: typeof o.gateKey === "string" ? o.gateKey : null,
+              ...(typeof o.storageKey === "string" ? { storageKey: o.storageKey } : {}),
+              ...(typeof o.mime === "string" ? { mime: o.mime } : {}),
             },
           ]
         : [];
@@ -64,6 +75,9 @@ export function AttachmentPanel({
   restoreDraft,
   recoverStaged = false,
   onPendingChange,
+  inlineImages = [],
+  onRemoveInline,
+  onInsertImage,
 }: {
   forumId: number;
   /** 正文里显式写出 key 的门控（归属下拉只列这些） */
@@ -76,6 +90,11 @@ export function AttachmentPanel({
   /** 编辑冲突跳回：暂存的是作者提交失败时的列表，与服务端不同则提示恢复或丢弃（不自动覆盖最新版本） */
   recoverStaged?: boolean;
   onPendingChange?: (delta: number) => void;
+  /** 正文里的内嵌图片（派生）：显示为「正文图片」组，移除 = 删正文引用 */
+  inlineImages?: readonly InlineImageItem[];
+  onRemoveInline?: (url: string) => void;
+  /** 把一个已上传的图片附件插入正文（插入后它转入「正文图片」组，不再出现在下载附件里） */
+  onInsertImage?: (url: string) => void;
 }) {
   const stagedKeyValue = draftKey !== null ? stagedKey(attachmentsKey(draftKey)) : null;
   // 恢复值只在客户端读取（服务端快照为空）；恢复后以新的 key 重新挂载内部编辑器
@@ -134,6 +153,7 @@ export function AttachmentPanel({
           </Button>
         </p>
       )}
+      <InlineImageList images={inlineImages} onRemove={onRemoveInline} />
       <AttachmentEditor
         key={useStaged === null ? "server" : "restored"}
         forumId={forumId}
@@ -141,6 +161,8 @@ export function AttachmentPanel({
         seed={seed}
         draftKey={draftKey}
         onPendingChange={onPendingChange}
+        inlineKeys={new Set(inlineImages.map((i) => i.key))}
+        onInsertImage={onInsertImage}
       />
     </>
   );
@@ -153,18 +175,65 @@ function sameItems(a: readonly AttachmentItem[], b: readonly AttachmentItem[]): 
   return key(a) === key(b);
 }
 
+/**
+ * 「正文图片」组（M10.8 Step 4）：正文引用的站内图片，带缩略图。它是正文的**派生视图**：
+ * 点移除 = 删掉正文里的图片引用（文件本身由孤儿巡检回收）；在编辑区里删图，条目随之消失。
+ */
+function InlineImageList({
+  images,
+  onRemove,
+}: {
+  images: readonly InlineImageItem[];
+  onRemove?: (url: string) => void;
+}) {
+  if (images.length === 0) return null;
+  return (
+    <section aria-label="正文图片" className="space-y-2 rounded-lg border p-3">
+      <h3 className="text-sm font-medium">正文图片（{images.length}）</h3>
+      <ul className="space-y-2">
+        {images.map((img, i) => (
+          <li
+            key={img.key}
+            data-testid="inline-image-row"
+            className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element -- 与正文图同口径（/files 路径），不走 next/image */}
+            <img src={img.url} alt="" className="size-12 shrink-0 rounded border object-cover" />
+            <span className="min-w-0 flex-1 truncate">图片 {i + 1}</span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-label={`移除正文图片：图片 ${i + 1}`}
+              onClick={() => onRemove?.(img.url)}
+              className="min-h-11 sm:min-h-9"
+            >
+              移除
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function AttachmentEditor({
   forumId,
   gateKeys,
   seed,
   draftKey,
   onPendingChange,
+  inlineKeys,
+  onInsertImage,
 }: {
   forumId: number;
   gateKeys: readonly string[];
   seed: AttachmentItem[];
   draftKey: string | null;
   onPendingChange?: (delta: number) => void;
+  /** 已被正文引用的存储键：这些附件转入「正文图片」组，下载列表里不再显示（与服务端登记口径一致） */
+  inlineKeys: ReadonlySet<string>;
+  onInsertImage?: (url: string) => void;
 }) {
   const [items, setItems] = useState<AttachmentItem[]>(seed);
   const itemsRef = useRef(items);
@@ -208,7 +277,14 @@ function AttachmentEditor({
       const r = await uploadFile({ file, purpose: "attachment", forumId });
       commit([
         ...itemsRef.current,
-        { fileId: r.fileId, name: file.name, sizeBytes: r.sizeBytes, gateKey: null },
+        {
+          fileId: r.fileId,
+          name: file.name,
+          sizeBytes: r.sizeBytes,
+          gateKey: null,
+          storageKey: r.storageKey,
+          mime: r.mime,
+        },
       ]);
     } catch (e) {
       setError(e instanceof UploadError ? e.message : "上传失败，请稍后重试。");
@@ -218,6 +294,8 @@ function AttachmentEditor({
     }
   };
 
+  // 被正文引用的附件不在下载列表里重复显示；提交时仍带上（服务端同样按「被正文引用即不再作下载附件」去重）
+  const visible = items.filter((it) => !(it.storageKey && inlineKeys.has(it.storageKey)));
   const serialized = items.map((it) => ({
     fileId: it.fileId,
     gateKey: effectiveGate(it),
@@ -227,7 +305,7 @@ function AttachmentEditor({
   return (
     <section aria-label="附件" className="space-y-2 rounded-lg border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-medium">附件（{items.length}）</h3>
+        <h3 className="text-sm font-medium">附件（{visible.length}）</h3>
         <Button
           type="button"
           variant="outline"
@@ -252,9 +330,9 @@ function AttachmentEditor({
         />
       </div>
 
-      {items.length > 0 && (
+      {visible.length > 0 && (
         <ul className="space-y-2">
-          {items.map((it) => {
+          {visible.map((it) => {
             const gate = effectiveGate(it);
             return (
               <li
@@ -285,6 +363,18 @@ function AttachmentEditor({
                 </select>
                 {it.gateKey !== null && gate === null && (
                   <span className="text-xs text-warning">门控已不存在，将保存为公开</span>
+                )}
+                {onInsertImage && it.storageKey && it.mime?.startsWith("image/") && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    aria-label={`插入正文：${it.name}`}
+                    onClick={() => onInsertImage(`/files/${it.storageKey}`)}
+                    className="min-h-11 sm:min-h-9"
+                  >
+                    插入正文
+                  </Button>
                 )}
                 <Button
                   type="button"

@@ -533,6 +533,8 @@ export interface EditableAttachment {
   fileId: number;
   name: string;
   mime: string;
+  /** 存储键：编辑页据此提供「插入正文」（作者 / 版主视角，调用方已确认编辑权限） */
+  storageKey: string;
   sizeBytes: number;
   gateKey: string | null;
 }
@@ -544,6 +546,7 @@ export async function listEditableAttachments(postId: number): Promise<EditableA
       fileId: attachments.fileId,
       name: attachments.originalName,
       mime: files.mime,
+      storageKey: files.storageKey,
       sizeBytes: files.sizeBytes,
       gateKey: postGates.gateKey,
     })
@@ -559,6 +562,7 @@ export async function listEditableAttachments(postId: number): Promise<EditableA
     fileId: r.fileId,
     name: r.name,
     mime: r.mime,
+    storageKey: r.storageKey,
     sizeBytes: r.sizeBytes,
     gateKey: r.gateKey,
   }));

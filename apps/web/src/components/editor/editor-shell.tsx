@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { readDraft, removeDraft, stageDraft, stagedKey, writeDraft } from "./draft";
 import { explicitGateKeys } from "./gate-keys";
+import { extractInlineImages } from "./inline-images";
 import type { InsertApi } from "./insert-api";
 import { RichEditor } from "./rich-editor";
 import { AttachmentPanel, type AttachmentItem } from "@/components/upload/attachment-panel";
@@ -142,6 +143,9 @@ export function EditorShell({
   const [changedFromOriginal, setChangedFromOriginal] = useState(false);
   // 插入图片与附件（M6.4d2）
   const [gateKeys, setGateKeys] = useState<string[]>(() => explicitGateKeys(initialSource));
+  // 正文里的内嵌图片：从正文派生（附件面板的「正文图片」组），同一键集合不触发重渲染
+  const [inlineImages, setInlineImages] = useState(() => extractInlineImages(initialSource));
+  const pickerOpen = useRef<(() => void) | null>(null);
   const [imagePending, setImagePending] = useState(0);
   const [attachPending, setAttachPending] = useState(0);
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
@@ -170,6 +174,10 @@ export function EditorShell({
     setGateIssue(validateGates(md)[0]?.message ?? null);
     setChangedFromOriginal(initialSource !== "" && md !== initialSource);
     setGateKeys(explicitGateKeys(md));
+    const imgs = extractInlineImages(md);
+    setInlineImages((prev) =>
+      prev.length === imgs.length && prev.every((p, i) => p.key === imgs[i]?.key) ? prev : imgs,
+    );
     // 草稿提示尚未处理（恢复或丢弃）时，不覆盖已有的草稿：编辑只改编辑器内容，草稿留给作者决定
     if (draftKey !== null && pendingDraft === null) {
       if (md === initialSource) removeDraft(draftKey);
@@ -254,6 +262,11 @@ export function EditorShell({
   // 编辑器实例就绪（onApi）时补插排队中的图片
   const flushInserts = () => {
     for (const url of pendingInserts.current.splice(0)) insertImage(url);
+  };
+
+  // 移除正文图片：由当前模式的编辑器删掉引用（编辑器尚未就绪时忽略）
+  const removeInline = (url: string) => {
+    (modeRef.current === "rich" ? richApi.current : sourceApi.current)?.removeImage(url);
   };
 
   // preNotice：本次上传开始时要显示的提示（例如 GIF 不裁剪的说明），缺省清空
@@ -356,6 +369,8 @@ export function EditorShell({
             richApi.current = api;
             flushInserts();
           }}
+          onUploadImage={forumId !== undefined ? () => pickerOpen.current?.() : undefined}
+          imageDisabled={imagePending > 0}
         />
       ) : (
         <SourceEditor
@@ -374,7 +389,7 @@ export function EditorShell({
 
       {forumId !== undefined && (
         <div className="space-y-3">
-          <ImagePicker disabled={imagePending > 0} onPick={onPickImage} />
+          <ImagePicker disabled={imagePending > 0} onPick={onPickImage} openRef={pickerOpen} />
           {uploadNotice && (
             <p role="alert" className="text-sm text-destructive">
               {uploadNotice}
@@ -388,6 +403,9 @@ export function EditorShell({
             restoreDraft={restoreDraft}
             recoverStaged={recoverStaged}
             onPendingChange={(d) => setAttachPending((n) => n + d)}
+            inlineImages={inlineImages}
+            onRemoveInline={removeInline}
+            onInsertImage={insertImage}
           />
         </div>
       )}

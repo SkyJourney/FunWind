@@ -5,6 +5,8 @@
 export interface InsertApi {
   /** 在光标处插入一张图片（富文本为图片节点，源码为 Markdown 图片语法） */
   insertImage(url: string): void;
+  /** 移除正文里所有指向该地址的图片（附件面板「正文图片」的移除；富文本删节点，源码删 Markdown 语法） */
+  removeImage(url: string): void;
   /** 输入法组合进行中（拼音等未确定的字符） */
   isComposing(): boolean;
 }

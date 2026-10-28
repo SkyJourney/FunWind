@@ -8,6 +8,7 @@ import {
   FileCode,
   Heading,
   IndentDecrease,
+  ImagePlus,
   IndentIncrease,
   Italic,
   Link as LinkIcon,
@@ -105,7 +106,7 @@ const HEADINGS: { level: 1 | 2 | 3; label: string; className: string }[] = [
 
 /**
  * 编辑器工具栏（M6.3 第 2 步；M10.8 重做）。每个按钮都是对编辑器命令的薄包装，按下状态与可用状态都来自编辑器当前选区。
- * 分组：文本 · 块 · 插入 · 历史。图片不在这里（上传需要版块上下文，见 editor-shell.tsx；M10.8 Step 4 接入）。
+ * 分组：文本 · 块 · 插入 · 历史。图片按钮由外壳按需注入（上传需要版块上下文，见 editor-shell.tsx）。
  *
  * 插入类命令（表格 / 分隔线 / 门控块）一律先把选区折叠到末尾再插入：ProseMirror 的插入默认会替换选区，
  * 有选中文字时点击按钮会把文字吞掉（M10.8 Step 1 实测缺陷）。
@@ -113,9 +114,14 @@ const HEADINGS: { level: 1 | 2 | 3; label: string; className: string }[] = [
 export function EditorToolbar({
   editor,
   onInsertGate,
+  onUploadImage,
+  imageDisabled = false,
 }: {
   editor: Editor;
   onInsertGate?: () => void;
+  /** 提供时显示「上传图片」按钮：选图 → 上传 → 插入由外壳完成（上传需要版块上下文） */
+  onUploadImage?: () => void;
+  imageDisabled?: boolean;
 }) {
   const state = useEditorState({
     editor,
@@ -367,6 +373,14 @@ export function EditorToolbar({
         />
 
         <Divider />
+        {onUploadImage && (
+          <ToolButton
+            icon={ImagePlus}
+            label="上传图片"
+            disabled={imageDisabled}
+            onClick={onUploadImage}
+          />
+        )}
         <ToolButton
           icon={TableIcon}
           label="插入表格"

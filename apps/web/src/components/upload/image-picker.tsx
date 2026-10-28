@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
 
 /**
@@ -10,11 +10,21 @@ import { Button } from "@/components/ui/button";
 export function ImagePicker({
   disabled,
   onPick,
+  openRef,
 }: {
   disabled?: boolean;
   onPick: (file: File, wantCrop: boolean) => void;
+  /** 交出「打开文件选择」的能力：工具栏的图片按钮与本组件共用同一个文件框（同一套裁剪选项） */
+  openRef?: RefObject<(() => void) | null>;
 }) {
   const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!openRef) return;
+    openRef.current = () => input.current?.click();
+    return () => {
+      openRef.current = null;
+    };
+  }, [openRef]);
   const [wantCrop, setWantCrop] = useState(false);
   return (
     <div className="flex flex-wrap items-center gap-3">
