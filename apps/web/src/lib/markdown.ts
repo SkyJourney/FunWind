@@ -7,12 +7,13 @@ import rehypeSanitize from "rehype-sanitize";
 import rehypeStringify from "rehype-stringify";
 import type { Root } from "hast";
 import { remarkGfmLite } from "./gfm-lite";
+import { rehypeHighlight } from "./highlight-rehype";
 import { harden, sanitizeSchema } from "./sanitize";
 
 /**
  * content_md → 净化后 HTML（服务端渲染，M3）。
  * 管线：remark 解析（+ 精简 GFM：表格 / 删除线，见 gfm-lite.ts；+ 软换行转 <br>）→ hast（保留内嵌 HTML）→ rehype-raw 展开 → rehype-sanitize 白名单
- *       → harden 细化（style 值过滤/a 协议/img 来源）→ HTML 字符串。
+ *       → harden 细化（style 值过滤/a 协议/img 来源）→ 代码块语法高亮（净化之后，不放宽白名单，见 highlight-rehype.ts）→ HTML 字符串。
  * content_raw 永远保留原文；本管线只对 content_md 负责。
  */
 
@@ -36,6 +37,7 @@ function createProcessor() {
       .use(rehypeRaw)
       .use(rehypeSanitize, sanitizeSchema())
       .use(rehypeHarden)
+      .use(rehypeHighlight)
       .use(rehypeStringify)
   );
 }

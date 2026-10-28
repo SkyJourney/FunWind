@@ -4,6 +4,7 @@ import Image from "@tiptap/extension-image";
 import { HardBreak } from "@tiptap/extension-hard-break";
 import { TableKit } from "@tiptap/extension-table";
 import StarterKit from "@tiptap/starter-kit";
+import { CodeBlock } from "./code-block";
 import { Gate } from "./gate";
 import { createEditorMarked } from "./marked";
 
@@ -26,6 +27,8 @@ export function editorExtensions() {
   return [
     StarterKit.configure({
       hardBreak: false,
+      // 代码块换成带语言下拉与高亮的版本（见 code-block.ts）
+      codeBlock: false,
       // Markdown 没有下划线语法（序列化会写出 ++x++，渲染器不认），所以不提供
       underline: false,
       // 链接只由作者显式设置：不自动识别（自动链接会把紧跟 URL 的中文吞进去，见硬约定 6）、不在粘贴时转换、点击不跳走
@@ -33,6 +36,7 @@ export function editorExtensions() {
     }),
     LineBreak,
     Markdown.configure({ marked: parser }),
+    CodeBlock,
     TableKit,
     Image,
     Gate,

@@ -33,11 +33,13 @@ const squash = (v: string) => v.replace(/[\u0000- \u007f-\u009f]/g, "");
 export function audit(html: string): string[] {
   const tree = rehype().data("settings", { fragment: true }).parse(html) as Root;
   const problems: string[] = [];
-  const walk = (node: Root | ElementContent): void => {
+  const walk = (node: Root | ElementContent, inCode = false): void => {
     if (node.type === "element") {
       const el = node as Element;
       if (!ALLOWED_TAGS.has(el.tagName)) problems.push(`标签 <${el.tagName}> 不在白名单`);
       const allowed = new Set(ALLOWED_PROPS[el.tagName] ?? []);
+      // 代码高亮（M10.8 Step 5）在净化之后生成 <span class="hljs-…">：只在 <code> 内、class 全是 hljs-* 才放行
+      if (el.tagName === "span" && inCode) allowed.add("className");
       for (const [name, raw] of Object.entries(el.properties ?? {})) {
         if (!allowed.has(name)) problems.push(`<${el.tagName}> 出现未放行属性 ${name}`);
         const value = Array.isArray(raw) ? raw.join(" ") : String(raw);
@@ -50,8 +52,15 @@ export function audit(html: string): string[] {
         if (name === "style" && sanitizeStyleValue(value) !== value.trim()) {
           problems.push(`style 含白名单外声明: ${value}`);
         }
-        if (name === "className" && !/^language-[\w-]+$/.test(value)) {
-          problems.push(`className 不是 language-xxx: ${value}`);
+        if (name === "className") {
+          const ok =
+            el.tagName === "span"
+              ? /^hljs-[\w-]+( hljs-[\w-]+)*$/.test(value)
+              : /^language-[\w-]+$/.test(value);
+          if (!ok)
+            problems.push(
+              `className 不合规（code/pre 只许 language-xxx，代码内 span 只许 hljs-*）: ${value}`,
+            );
         }
         if (/javascript:|vbscript:|data:text\/html/i.test(squash(value))) {
           problems.push(`属性 ${name} 含脚本协议: ${value}`);
@@ -65,7 +74,8 @@ export function audit(html: string): string[] {
         problems.push("<a target> 缺少 rel=noopener");
       }
     }
-    if ("children" in node) for (const c of node.children as ElementContent[]) walk(c);
+    const nextInCode = inCode || (node.type === "element" && (node as Element).tagName === "code");
+    if ("children" in node) for (const c of node.children as ElementContent[]) walk(c, nextInCode);
   };
   walk(tree);
   return problems;
@@ -78,6 +88,11 @@ describe("audit 检查器自身（必须能抓出坏输出）", () => {
     ["javascript 链接", '<a href="javascript:alert(1)">x</a>'],
     ["拆开的 javascript", '<a href="java\tscript:alert(1)">x</a>'],
     ["iframe", '<iframe src="/x"></iframe>'],
+    ["代码外的 hljs span", '<p><span class="hljs-keyword">x</span></p>'],
+    [
+      "代码内 span 带非 hljs 的 class",
+      '<pre><code><span class="fixed inset-0">x</span></code></pre>',
+    ],
     ["svg", '<svg onload="alert(1)"></svg>'],
     ["未放行属性", '<p id="x">y</p>'],
     ["style 越权声明", '<span style="position:fixed;color:red">x</span>'],
