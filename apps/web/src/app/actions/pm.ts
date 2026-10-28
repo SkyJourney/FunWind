@@ -40,7 +40,8 @@ const policyInput = z.object({
   back: z.string().max(200).default("/me"),
 });
 
-/** 本人私信权限偏好（M10.5 功能补全）：唯一写路径；判定在 pm service。 */
+/** 本人私信权限偏好（M10.5 功能补全）：唯一写路径；判定在 pm service。
+ * 成功回 /me?notice=pm-policy-saved → QueryToast 弹提示（M10.6d 站长反馈：不要整页刷新跳转）。 */
 export const updatePmPolicyAction = defineAction({
   name: "pm.policy.update",
   auth: "user",
@@ -53,6 +54,6 @@ export const updatePmPolicyAction = defineAction({
       .set({ pmPolicy: input.policy })
       .where(eq(userProfiles.userId, ctx.subject.userId!));
     revalidatePath("/me");
-    redirect(input.back);
+    redirect("/me?notice=pm-policy-saved");
   },
 });

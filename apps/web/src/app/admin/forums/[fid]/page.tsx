@@ -10,13 +10,13 @@ import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 import { addPrefixAction, removePrefixAction, updateForumAction } from "../actions";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "编辑版块" };
+export const metadata = { title: "编辑板块" };
 
 const ERR_TEXT: Record<string, string> = {
-  not_found: "目标版块或父级不存在（可能已被删除），请刷新后重试。",
-  cycle: "不能把版块移动到它自己或它的子版块之下。",
-  has_children: "该版块还有子版块，不能删除。",
-  has_threads: "该版块还有主题，不能删除——请先迁移主题或改为归档。",
+  not_found: "目标板块或父级不存在（可能已被删除），请刷新后重试。",
+  cycle: "不能把板块移动到它自己或它的子板块之下。",
+  has_children: "该板块还有子板块，不能删除。",
+  has_threads: "该板块还有主题，不能删除——请先迁移主题或改为归档。",
 };
 
 const inputCls =
@@ -28,12 +28,12 @@ const POLICY_OPTIONS = {
     ["inherit", "继承（取最近祖先，全链继承=公开）"],
     ["public", "公开（含游客可读）"],
     ["members", "会员（登录可读）"],
-    ["restricted", "受限（须版块作用域授权）"],
+    ["restricted", "受限（须板块作用域授权）"],
   ],
   writePolicy: [
     ["inherit", "继承（取最近祖先，全链继承=会员可发帖）"],
     ["members", "会员（登录并持 forum.write 即可）"],
-    ["restricted", "受限（须本版块作用域 forum.write 授权）"],
+    ["restricted", "受限（须本板块作用域 forum.write 授权）"],
   ],
   reviewPolicy: [
     ["inherit", "继承（取最近祖先，全链继承=不审核）"],
@@ -44,8 +44,8 @@ const POLICY_OPTIONS = {
 } as const;
 
 /**
- * 编辑版块（M10.6a）：元数据、三类策略、isListed/归档、父级迁移、版块前缀。
- * kind 创建后不可变（分区/版块语义转换不做）；父级迁移服务端做环检测与整棵子树 path/depth 重算。
+ * 编辑板块（M10.6a）：元数据、三类策略、isListed/归档、父级迁移、板块前缀。
+ * kind 创建后不可变（分区/板块语义转换不做）；父级迁移服务端做环检测与整棵子树 path/depth 重算。
  */
 export default async function ForumEditPage({
   params,
@@ -80,7 +80,7 @@ export default async function ForumEditPage({
         </Link>
         <h2 className="mt-1 text-lg font-bold tracking-tight">编辑：{row.name}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          #{row.id} · {row.kind === "section" ? "分区" : "版块"} · 当前有效可见性：
+          #{row.id} · {row.kind === "section" ? "分区" : "板块"} · 当前有效可见性：
           {effective.value === "public" ? "公开" : effective.value === "members" ? "会员" : "受限"}
           {effective.holderId !== null && effective.holderId !== fid && (
             <>（继承自 #{effective.holderId}）</>
@@ -144,7 +144,7 @@ export default async function ForumEditPage({
             </div>
 
             <label className="grid gap-1 text-sm">
-              描述（版块页头展示）
+              描述（板块页头展示）
               <textarea
                 name="description"
                 maxLength={2000}
@@ -205,11 +205,11 @@ export default async function ForumEditPage({
         </CardContent>
       </Card>
 
-      {/* 版块前缀 */}
+      {/* 板块前缀 */}
       <Card>
         <CardContent className="pt-5">
           <h3 className="flex items-center gap-1.5 text-sm font-semibold">
-            <Tag className="size-4" aria-hidden /> 版块主题前缀
+            <Tag className="size-4" aria-hidden /> 板块主题前缀
           </h3>
           <p className="mt-1 text-xs text-muted-foreground">
             发帖时可选的标题前缀（如「转载」「求助」）；排序小的靠前。

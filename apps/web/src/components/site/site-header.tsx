@@ -81,6 +81,7 @@ export function SiteHeader({
   user,
   chromeNav,
   siteName,
+  avatarUrl,
   notificationsOn,
   showAdmin,
   logoUrl,
@@ -90,6 +91,8 @@ export function SiteHeader({
   chromeNav: NavItem[];
   /** 站点身份（M10.6b）：chrome 可配名称，回退默认常量 */
   siteName: string;
+  /** 顶栏用户头像（服务端查头像文件；无则回退首字母） */
+  avatarUrl?: string | null;
   notificationsOn: boolean;
   showAdmin: boolean;
   /** LOGO 池当前项输出地址（/brand/logo）；null = 无池项（回退静态素材/占位） */
@@ -98,7 +101,7 @@ export function SiteHeader({
 }) {
   const navLinks: NavLink[] = [
     { label: "首页", href: "/", exact: true },
-    { label: "版块", href: "/boards" },
+    { label: "板块", href: "/boards" },
     { label: "动态", href: "/follows" },
     ...chromeNav.map((n) => ({ label: n.label, href: n.href })),
   ];
@@ -130,6 +133,7 @@ export function SiteHeader({
           {user ? (
             <UserMenu
               username={user.username}
+              avatarUrl={avatarUrl ?? null}
               profileHref={`/u/${user.id}`}
               showAdmin={showAdmin}
               logoutAction={logoutAction}

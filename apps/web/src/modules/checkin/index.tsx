@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CalendarCheck, CheckCircle2 } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getCheckinStatus, type CheckinStatus } from "@/lib/checkin/service";
 import { defineModule } from "../kernel/types";
@@ -71,31 +72,46 @@ async function renderCheckinBar() {
   // 渲染期动态 import：静态引入会构成「模块 → defineAction → "@/modules"」的求值环（见 actions/checkin.ts 说明）
   const { checkinAction } = await import("@/app/actions/checkin");
   const status = await getCheckinStatus(user.id);
+  // 同构设计（M10.6d 站长反馈）：签到按钮与已签到标识占同一位置、同一尺寸档，
+  // 移动端窄视口下不换行留白——左侧文字/日历自适应收缩，右侧动作位恒定存在。
+  const actionSlot = status.checkedInToday ? (
+    <span
+      aria-label="今日已签到"
+      className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-success/30 bg-success/10 px-4 text-sm font-medium text-success"
+    >
+      <CheckCircle2 className="size-4" aria-hidden /> 已签到
+    </span>
+  ) : (
+    <form action={checkinAction}>
+      <button
+        type="submit"
+        className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl bg-primary px-5 text-sm font-medium text-primary-foreground shadow-sm transition-transform active:scale-95"
+      >
+        <CalendarCheck className="size-4" aria-hidden /> 签到
+      </button>
+    </form>
+  );
+
   return (
-    <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border bg-card px-4 py-3 xl:hidden">
-      <div className="min-w-0">
-        <p className="text-sm font-medium">
-          {status.checkedInToday
-            ? `今日已签到 ✓ 已连签 ${status.streak} 天`
-            : `今日未签到 · 已连签 ${status.streak} 天`}
-        </p>
-        <p className="text-xs text-muted-foreground">
-          本月已签 {status.monthDates.length} 天 · 累计 {status.totalDays} 天
-        </p>
+    <div className="rounded-xl border bg-card px-4 py-3 xl:hidden">
+      {/* 第一行：文字摘要（左）+ 动作位（右，恒定存在不换行） */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium">
+            {status.checkedInToday
+              ? `今日已签到 ✓ 已连签 ${status.streak} 天`
+              : `今日未签到 · 已连签 ${status.streak} 天`}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            本月已签 {status.monthDates.length} 天 · 累计 {status.totalDays} 天
+          </p>
+        </div>
+        {actionSlot}
       </div>
-      <div className="w-44">
+      {/* 第二行：迷你日历（整行宽度，移动端不再挤在右侧） */}
+      <div className="mt-2 border-t pt-2">
         <MiniCalendar status={status} />
       </div>
-      {!status.checkedInToday && (
-        <form action={checkinAction}>
-          <button
-            type="submit"
-            className="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            签到
-          </button>
-        </form>
-      )}
     </div>
   );
 }

@@ -158,7 +158,7 @@ export default async function MePage() {
       ) : (
         <div className="divide-y rounded-xl border bg-card">
           {threads.items.slice(0, 5).map((t) => (
-            <div key={t.id} className="[&>div]:border-0 [&>div]:py-3">
+            <div key={t.id} className="[&>div]:border-0 [&>div]:px-4 [&>div]:py-3">
               <ThreadRow thread={t} showForum />
             </div>
           ))}

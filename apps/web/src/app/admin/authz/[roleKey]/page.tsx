@@ -28,7 +28,7 @@ export default async function RoleMatrixPage({
   const [grants, tree] = await Promise.all([getRoleGrants(roleKey), getForumTree()]);
   const forums = tree.all();
 
-  // 作用域：0 = 全局，>0 = 版块（编辑器一次只看一个作用域）
+  // 作用域：0 = 全局，>0 = 板块（编辑器一次只看一个作用域）
   const scopeForumId = scopeForum ? Number(scopeForum) : 0;
   const scopeIsForum = Number.isInteger(scopeForumId) && scopeForumId > 0 && tree.has(scopeForumId);
   const scopeId = scopeIsForum ? scopeForumId : 0;
@@ -42,7 +42,7 @@ export default async function RoleMatrixPage({
     byResource.set(p.resource, list);
   }
 
-  const scopeLabel = scopeIsForum ? (tree.get(scopeId)?.name ?? `版块 ${scopeId}`) : "全局";
+  const scopeLabel = scopeIsForum ? (tree.get(scopeId)?.name ?? `板块 ${scopeId}`) : "全局";
 
   return (
     <div className="space-y-6">

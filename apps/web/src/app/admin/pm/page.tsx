@@ -11,7 +11,7 @@ export const metadata = { title: "私信管理" };
 const parseUid = (raw: string | undefined): number | null =>
   raw !== undefined && /^\d+$/.test(raw) ? Number(raw) : null;
 
-/** 私信管理（M10 补做）：站点级权限（私信无版块作用域）——删除违规消息（审计）+ 按 uid 筛选。 */
+/** 私信管理（M10 补做）：站点级权限（私信无板块作用域）——删除违规消息（审计）+ 按 uid 筛选。 */
 export default async function AdminPmPage({
   searchParams,
 }: {

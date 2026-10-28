@@ -25,8 +25,8 @@ const parseId = (raw: string | undefined): number | undefined => {
 };
 
 /**
- * 首页 = 全站内容流（M10.5 S5，D1 列表流定稿）：跨版块混排、分区 chips 过滤、
- * 最新回复/最新发布排序、偏移分页；xl 出右信息栏。版块目录在 /boards（底部 Tab「版块」）。
+ * 首页 = 全站内容流（M10.5 S5，D1 列表流定稿）：跨板块混排、分区 chips 过滤、
+ * 最新回复/最新发布排序、偏移分页；xl 出右信息栏。板块目录在 /boards（底部 Tab「板块」）。
  * 权限口径：目录/流/热帖/统计全部按访客可见性过滤（queries 层统一收口）。
  */
 export default async function HomePage({ searchParams }: { searchParams: SearchParams }) {
@@ -137,11 +137,11 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
               icon={Newspaper}
               title="这里还没有主题"
               description={
-                sectionId ? "这个分区暂时没有新内容，看看其它分区吧" : "去版块里发第一帖"
+                sectionId ? "这个分区暂时没有新内容，看看其它分区吧" : "去板块里发第一帖"
               }
               action={
                 <Link href="/boards" className="text-sm text-primary hover:underline">
-                  浏览版块 →
+                  浏览板块 →
                 </Link>
               }
             />
@@ -186,7 +186,7 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
           </div>
         </div>
 
-        {/* 右栏（xl）：品牌 + 模块槽位（签到卡）+ 热帖 + 统计 + 热门版块 */}
+        {/* 右栏（xl）：品牌 + 模块槽位（签到卡）+ 热帖 + 统计 + 热门板块 */}
         <aside className="hidden space-y-4 self-start xl:sticky xl:top-24 xl:block">
           <BrandCard
             logoUrl={chrome.logoActive ? "/brand/logo" : null}
@@ -223,13 +223,13 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
               <Layers className="size-4 text-primary" aria-hidden /> 社区统计
             </h2>
             <p className="mt-2 text-[13px] leading-7 text-muted-foreground">
-              版块 {dir.forumCount} · 主题 {dir.threadCount}
+              板块 {dir.forumCount} · 主题 {dir.threadCount}
             </p>
           </section>
 
           <section className="rounded-xl border bg-card p-4">
             <h2 className="flex items-center gap-1.5 text-sm font-semibold">
-              <Home className="size-4 text-primary" aria-hidden /> 热门版块
+              <Home className="size-4 text-primary" aria-hidden /> 热门板块
             </h2>
             <div className="mt-2 flex flex-wrap gap-1.5">
               {topForums.map((f) => (

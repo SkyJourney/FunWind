@@ -64,7 +64,7 @@ describe("页面空态", () => {
   it("搜索无结果保留查询和目录链接", async () => {
     render(await SearchPage({ searchParams: Promise.resolve({ q: "不存在" }) }));
     expect(screen.getByText("没有找到与「不存在」相关的内容。")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "版块目录" })).toHaveAttribute("href", "/");
+    expect(screen.getByRole("link", { name: "板块目录" })).toHaveAttribute("href", "/");
     expect(mocks.search).toHaveBeenCalledWith({ userId: 1 }, "不存在", {
       page: 1,
       sort: "relevance",
@@ -74,13 +74,13 @@ describe("页面空态", () => {
   it("关注动态空态保留入口", async () => {
     render(await FollowsPage({ searchParams: Promise.resolve({}) }));
     expect(screen.getByText("还没有可显示的动态。")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "版块页" })).toHaveAttribute("href", "/");
+    expect(screen.getByRole("link", { name: "板块页" })).toHaveAttribute("href", "/");
     expect(mocks.feed).toHaveBeenCalledWith({ userId: 1 }, 1, "all");
   });
 
   it.each([
-    ["pending", "所辖版块没有待审核的内容。"],
-    ["removed", "所辖版块没有已删除或屏蔽的内容。"],
+    ["pending", "所辖板块没有待审核的内容。"],
+    ["removed", "所辖板块没有已删除或屏蔽的内容。"],
   ])("审核 %s 空态保留版主作用域", async (tab, text) => {
     render(await ReviewPage({ searchParams: Promise.resolve({ tab }) }));
     expect(screen.getByText(text)).toBeInTheDocument();
@@ -90,7 +90,7 @@ describe("页面空态", () => {
 
   it("投票空态保留版主作用域", async () => {
     render(await AdminPollPage({ searchParams: Promise.resolve({}) }));
-    expect(screen.getByText("没有投票（或你管辖的版块内没有）。")).toBeInTheDocument();
+    expect(screen.getByText("没有投票（或你管辖的板块内没有）。")).toBeInTheDocument();
     expect(mocks.moderator).toHaveBeenCalledOnce();
     expect(mocks.polls).toHaveBeenCalledWith({ userId: 1 });
   });

@@ -14,6 +14,7 @@ const NOTICE_TEXT: Record<string, string> = {
   "verify-email-sent": "注册成功——请查收邮箱完成验证（验证前可浏览，暂不能发帖）。",
   "password-reset": "新密码已生效，你已登录。",
   claimed: "账号认领成功，欢迎回来！",
+  "pm-policy-saved": "私信权限已更新。",
 };
 
 /** 有内联横幅的页面（auth 六页、后台）连 notice 也不 toast，防双重提示 */

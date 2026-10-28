@@ -9,6 +9,8 @@ import { AnnouncementBanner } from "@/components/site/announcement-banner";
 import { NavKindCapture } from "@/components/site/nav-kind-capture";
 import { getEnabledModuleIds } from "@/modules/kernel/state";
 import { getCurrentUser } from "@/lib/auth/session";
+import { avatarKeyOf } from "@/lib/queries/users";
+import { fileUrl } from "@/lib/files";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { checkPermission, getModeratedForumIds } from "@/lib/authz/service";
 import { unreadPmTotal } from "@/lib/pm/queries";
@@ -41,7 +43,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const enabled = user !== null ? await getEnabledModuleIds() : null;
   const notificationsOn = enabled?.has("notifications") ?? false;
   const pmOn = enabled?.has("pm") ?? false;
-  const [chrome, banner, pmUnread, showAdmin] = await Promise.all([
+  const [chrome, banner, pmUnread, showAdmin, avatarKey] = await Promise.all([
     getSiteChrome(),
     bannerAnnouncement(user !== null),
     pmOn && user ? unreadPmTotal(user.id) : Promise.resolve(0),
@@ -56,7 +58,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           return siteAdmin.allowed || moderated.length > 0;
         })()
       : Promise.resolve(false),
+    // 顶栏头像（M10.6d 站长反馈：菜单里应显示头像图，无头像才回退首字母）
+    user ? avatarKeyOf(user.id) : Promise.resolve(null),
   ]);
+  const avatarUrl = avatarKey ? fileUrl(avatarKey) : null;
 
   return (
     <html lang="zh-CN" suppressHydrationWarning>
@@ -73,6 +78,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             user={user}
             chromeNav={chrome.nav}
             siteName={chrome.identity.name}
+            avatarUrl={avatarUrl}
             notificationsOn={notificationsOn}
             showAdmin={showAdmin}
             logoUrl={chrome.logoActive ? "/brand/logo" : null}

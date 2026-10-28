@@ -10,7 +10,7 @@ import {
   Star,
   UserRound,
 } from "lucide-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,11 +28,14 @@ import { ThemeOptionsRow } from "@/components/site/theme-menu";
  */
 export function UserMenu({
   username,
+  avatarUrl,
   profileHref,
   showAdmin,
   logoutAction,
 }: {
   username: string;
+  /** 头像图（服务端查头像文件）；无头像时回退首字母（M10.6d 站长反馈：菜单里应展示头像图） */
+  avatarUrl?: string | null;
   profileHref: string;
   showAdmin: boolean;
   logoutAction: (formData: FormData) => Promise<void>;
@@ -53,6 +56,7 @@ export function UserMenu({
         className="inline-flex items-center gap-1.5 rounded-md p-1 transition-colors hover:bg-accent"
       >
         <Avatar size="sm">
+          {avatarUrl && <AvatarImage src={avatarUrl} alt="" />}
           <AvatarFallback>{username.slice(0, 1).toUpperCase()}</AvatarFallback>
         </Avatar>
         <span className="hidden max-w-28 truncate font-medium md:inline">{username}</span>

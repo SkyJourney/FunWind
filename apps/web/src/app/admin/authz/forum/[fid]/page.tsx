@@ -5,7 +5,7 @@ import { getForumModerators } from "@/lib/authz/service";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "版块权限视角" };
+export const metadata = { title: "板块权限视角" };
 
 const READ_LABEL = { public: "公开", members: "仅登录会员", restricted: "仅授权角色" } as const;
 const WRITE_LABEL = { members: "登录会员（凭全局发帖权）", restricted: "仅授权角色" } as const;
@@ -23,7 +23,7 @@ export default async function ForumAuthzPage({ params }: { params: Promise<{ fid
   if (!forum) notFound();
 
   const chain = snap.tree.chain(fid);
-  // 版块作用域授权（含祖先继承）；全局基线另表展示，不混入
+  // 板块作用域授权（含祖先继承）；全局基线另表展示，不混入
   const grants = snap.grants.filter((g) => g.scopeId > 0 && chain.includes(g.scopeId));
   const moderators = await getForumModerators(fid);
   const read = snap.tree.readPolicy(fid);
@@ -33,8 +33,8 @@ export default async function ForumAuthzPage({ params }: { params: Promise<{ fid
     holderId === null
       ? "全链未声明，取默认"
       : holderId === fid
-        ? "本版块声明"
-        : `继承自版块 ${holderId}`;
+        ? "本板块声明"
+        : `继承自板块 ${holderId}`;
 
   return (
     <div className="space-y-6">
@@ -42,13 +42,13 @@ export default async function ForumAuthzPage({ params }: { params: Promise<{ fid
         <Link href="/admin/authz" className="hover:text-primary">
           ← 角色与授权
         </Link>
-        <span> / 版块视角</span>
+        <span> / 板块视角</span>
       </nav>
 
       <header>
         <h1 className="text-xl font-bold">{forum.name} · 权限视角</h1>
         <p className="text-xs text-muted-foreground">
-          作用域链：{chain.join(" ← ")}（授权与策略沿此链向子版块继承）
+          作用域链：{chain.join(" ← ")}（授权与策略沿此链向子板块继承）
         </p>
       </header>
 
@@ -77,7 +77,7 @@ export default async function ForumAuthzPage({ params }: { params: Promise<{ fid
         <h2 className="mb-2 font-semibold">版主（持有 forum.moderate 授权的角色的持有人）</h2>
         {moderators.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            无（该版块链上没有角色被授予 forum.moderate）
+            无（该板块链上没有角色被授予 forum.moderate）
           </p>
         ) : (
           <div className="flex flex-wrap gap-2">
@@ -98,13 +98,13 @@ export default async function ForumAuthzPage({ params }: { params: Promise<{ fid
       </section>
 
       <section className="rounded-xl border bg-card p-4">
-        <h2 className="mb-2 font-semibold">版块作用域授权（含继承）</h2>
+        <h2 className="mb-2 font-semibold">板块作用域授权（含继承）</h2>
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b text-left text-xs text-muted-foreground">
               <th className="py-1.5">角色</th>
               <th className="py-1.5">权限点</th>
-              <th className="py-1.5">来源版块</th>
+              <th className="py-1.5">来源板块</th>
             </tr>
           </thead>
           <tbody>
@@ -118,7 +118,7 @@ export default async function ForumAuthzPage({ params }: { params: Promise<{ fid
                   <code className="text-xs">{g.permissionKey}</code>
                 </td>
                 <td className="py-1.5 text-xs text-muted-foreground">
-                  {g.scopeId === fid ? "本版块" : `继承自 /f/${g.scopeId}`}
+                  {g.scopeId === fid ? "本板块" : `继承自 /f/${g.scopeId}`}
                 </td>
               </tr>
             ))}

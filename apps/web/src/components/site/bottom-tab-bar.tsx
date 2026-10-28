@@ -27,8 +27,8 @@ interface Tab {
 const seg = (base: string) => (p: string) => p === base || p.startsWith(`${base}/`);
 
 /**
- * 移动端底部 Tab（<md）：首页/版块/发帖/消息/我的。
- * 低频入口聚合在用户菜单与「我的」目标页；游客降级为 首页/版块/搜索/登录。
+ * 移动端底部 Tab（<md）：首页/板块/发帖/消息/我的。
+ * 低频入口聚合在用户菜单与「我的」目标页；游客降级为 首页/板块/搜索/登录。
  */
 export function BottomTabBar({
   user,
@@ -44,7 +44,7 @@ export function BottomTabBar({
         { href: "/", label: "首页", icon: Home, isActive: (p) => p === "/" },
         {
           href: "/boards",
-          label: "版块",
+          label: "板块",
           icon: LayoutGrid,
           isActive: (p) => seg("/boards")(p) || seg("/f")(p),
         },
@@ -78,7 +78,7 @@ export function BottomTabBar({
         { href: "/", label: "首页", icon: Home, isActive: (p) => p === "/" },
         {
           href: "/boards",
-          label: "版块",
+          label: "板块",
           icon: LayoutGrid,
           isActive: (p) => seg("/boards")(p) || seg("/f")(p),
         },

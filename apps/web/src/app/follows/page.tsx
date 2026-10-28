@@ -13,8 +13,8 @@ import { getFollowFeed, type FollowFeedType } from "@/lib/queries/follows-feed";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "关注动态" };
 
-/** 关注动态（M8）：关注的版块新帖 + 关注用户的发帖。只聚合新版行为（旧动态流不迁）。
- * M10.6d：类型筛选 chips（全部/版块/人，线稿注记①）。 */
+/** 关注动态（M8）：关注的板块新帖 + 关注用户的发帖。只聚合新版行为（旧动态流不迁）。
+ * M10.6d：类型筛选 chips（全部/板块/人，线稿注记①）。 */
 export default async function FollowsPage({
   searchParams,
 }: {
@@ -37,7 +37,7 @@ export default async function FollowsPage({
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <h1 className="text-2xl font-bold tracking-tight">关注动态</h1>
         <p className="text-xs text-muted-foreground">
-          关注的版块 {feed.forumCount} 个 · 用户 {feed.userCount} 人 · 共 {feed.total} 帖
+          关注的板块 {feed.forumCount} 个 · 用户 {feed.userCount} 人 · 共 {feed.total} 帖
         </p>
       </header>
 
@@ -45,7 +45,7 @@ export default async function FollowsPage({
         {(
           [
             ["all", "全部"],
-            ["forum", `版块（${feed.forumCount}）`],
+            ["forum", `板块（${feed.forumCount}）`],
             ["user", `用户（${feed.userCount}）`],
           ] as const
         ).map(([value, label]) => (
@@ -68,10 +68,10 @@ export default async function FollowsPage({
         <EmptyState
           icon={Heart}
           title="还没有可显示的动态。"
-          description="去版块页或用户资料页关注感兴趣的内容，新帖就会出现在这里。"
+          description="去板块页或用户资料页关注感兴趣的内容，新帖就会出现在这里。"
           action={
             <Button asChild variant="outline" size="sm">
-              <Link href="/">版块页</Link>
+              <Link href="/">板块页</Link>
             </Button>
           }
         />

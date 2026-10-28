@@ -197,11 +197,20 @@ html[data-vt="expand"]::view-transition-new(root) {
   font-family: var(--fw-font-mono);
   font-size: 13px;
 }
+/* 表情图（/emoji/ 路径）保持行内小图；其余普通图片（含 /files/ 附件图）块级居中、适配内容宽
+   （M10.6d 站长反馈：帖子里的图此前被 max-height:6rem 压得太小）。纯 CSS 选择器，无 JS。 */
 .content-md img {
   display: inline-block;
   height: auto;
   max-height: 6rem;
   vertical-align: middle;
+}
+.content-md img:not([src*="/emoji/"]) {
+  display: block;
+  margin-inline: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: none;
 }
 .content-md a {
   color: var(--primary);

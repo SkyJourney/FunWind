@@ -6,7 +6,14 @@ import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react";
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui";
 
 function DropdownMenu({ ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
-  return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />;
+  return (
+    // 移动端必须非模态（M10.6d 站长实机反馈「右上角通知/主题/头像都点不了」）：
+    // modal=true 时 Radix 给 body 加 pointer-events:none，触摸的 pointerdown 又被判成
+    // "outside" → 菜单开了立刻被关，同时整页被锁死（后面两个按钮自然也点不动）。
+    // modal=false 后不再锁 body、触摸点击稳定；代价是不自动 focus 菜单项（本项目菜单项
+    // 均为链接/按钮，用户可自行 tab）。放在 Root 上（Radix 的 modal 属 Root 而非 Content）。
+    <DropdownMenuPrimitive.Root data-slot="dropdown-menu" modal={false} {...props} />
+  );
 }
 
 function DropdownMenuPortal({

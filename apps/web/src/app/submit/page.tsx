@@ -7,11 +7,11 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { loadComposeAccess } from "@/lib/posting/compose-access";
 import { getDirectory } from "@/lib/queries/forums";
 
-export const metadata: Metadata = { title: "选择版块发帖" };
+export const metadata: Metadata = { title: "选择板块发帖" };
 export const dynamic = "force-dynamic";
 
 /**
- * 全站发帖入口（M10.5 底部 Tab「发帖」的落点）：列出当前用户可发帖的版块，
+ * 全站发帖入口（M10.5 底部 Tab「发帖」的落点）：列出当前用户可发帖的板块，
  * 选中后进入 /f/[fid]/new。可发性复用 loadComposeAccess（权限/归档/分区同口径），
  * 不在此重复权限逻辑。
  */
@@ -40,7 +40,7 @@ export default async function SubmitPage() {
       const rows = (
         await Promise.all(
           forums.map(async (forum) => {
-            // 顶层版块与其子版块都是候选；分区本身不可发帖
+            // 顶层板块与其子板块都是候选；分区本身不可发帖
             const candidates = [
               { id: forum.id, name: forum.name, description: forum.description },
               ...forum.subs.map((s) => ({ id: s.id, name: s.name, description: null })),
@@ -64,17 +64,17 @@ export default async function SubmitPage() {
       <header>
         <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
           <PenLine className="size-6 text-primary" aria-hidden />
-          选择版块发帖
+          选择板块发帖
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">选一个版块，开始新的主题</p>
+        <p className="mt-1 text-sm text-muted-foreground">选一个板块，开始新的主题</p>
       </header>
 
       {postable.length === 0 ? (
         <Card>
           <CardContent className="space-y-3 pt-6 text-sm">
-            <p>你暂时没有可发帖的版块。</p>
+            <p>你暂时没有可发帖的板块。</p>
             <Link href="/boards" className="text-primary hover:underline">
-              先去逛逛版块
+              先去逛逛板块
             </Link>
           </CardContent>
         </Card>

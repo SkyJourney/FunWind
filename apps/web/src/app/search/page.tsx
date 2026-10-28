@@ -86,10 +86,10 @@ export default async function SearchPage({ searchParams }: Params) {
         <EmptyState
           icon={Search}
           title={`没有找到与「${q}」相关的内容。`}
-          description="试试更短的关键词，或者去版块目录逛逛。"
+          description="试试更短的关键词，或者去板块目录逛逛。"
           action={
             <Button asChild variant="outline" size="sm">
-              <Link href="/">版块目录</Link>
+              <Link href="/">板块目录</Link>
             </Button>
           }
         />

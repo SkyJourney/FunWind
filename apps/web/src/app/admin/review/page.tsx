@@ -19,8 +19,8 @@ type Params = {
 };
 
 /**
- * 审核队列（M9）：所辖版块的 pending 内容（主题+回帖）；「已删隐」tab = 回收站（恢复复用 restorePost）。
- * 可见性：版主（持任一版块 forum.moderate）或 admin.recycle；队列内容按版主作用域过滤（服务层）。
+ * 审核队列（M9）：所辖板块的 pending 内容（主题+回帖）；「已删隐」tab = 回收站（恢复复用 restorePost）。
+ * 可见性：版主（持任一板块 forum.moderate）或 admin.recycle；队列内容按版主作用域过滤（服务层）。
  */
 export default async function ReviewPage({ searchParams }: Params) {
   // 入口门禁双保险（admin-entry-guard 约定：页面自身第一个 await 必须是鉴权）：
@@ -72,7 +72,7 @@ export default async function ReviewPage({ searchParams }: Params) {
         <EmptyState
           icon={ClipboardCheck}
           title={
-            tab === "pending" ? "所辖版块没有待审核的内容。" : "所辖版块没有已删除或屏蔽的内容。"
+            tab === "pending" ? "所辖板块没有待审核的内容。" : "所辖板块没有已删除或屏蔽的内容。"
           }
         />
       ) : (

@@ -63,13 +63,19 @@ export default async function NewThreadPage({ params, searchParams }: Params) {
 
       {access.mode === "closed" ? (
         <Card>
-          <CardContent className="space-y-3 pt-6 text-sm">
+          <CardContent className="space-y-4 pt-6 text-sm">
             <p>{access.text}</p>
             {access.loginHref && (
-              <Link href={access.loginHref} className="text-primary hover:underline">
+              <Link
+                href={access.loginHref}
+                className="inline-flex h-11 items-center justify-center rounded-xl bg-primary px-6 font-medium text-primary-foreground shadow-sm transition-transform active:scale-95"
+              >
                 去登录
               </Link>
             )}
+            <p className="text-xs text-muted-foreground">
+              提示：会话与访问域名绑定——如果你在其他设备（如手机）访问本页，请用与登录时相同的地址重新登录。
+            </p>
           </CardContent>
         </Card>
       ) : (

@@ -34,7 +34,7 @@ export default async function MessagesPage({
         <p className="text-xs text-muted-foreground">
           在
           <Link href="/boards" className="mx-1 text-primary hover:underline">
-            版块
+            板块
           </Link>
           或他人主页点「✉ 私信」发起对话
         </p>

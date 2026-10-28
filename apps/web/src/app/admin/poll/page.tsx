@@ -22,7 +22,7 @@ type Params = {
 
 /** 投票管理（M10 补做）：全站列表（site.admin）；关闭/删除（版主作用域内亦可，服务层判定）。 */
 export default async function AdminPollPage({ searchParams }: Params) {
-  // 版主可达（所辖版块的投票）；site.admin 全站——服务层 pollAdminList/guardAndMutate 做作用域判定
+  // 版主可达（所辖板块的投票）；site.admin 全站——服务层 pollAdminList/guardAndMutate 做作用域判定
   await requireModerator();
   const sp = await searchParams;
   const items = await pollAdminList(await getCurrentSubject());
@@ -68,7 +68,7 @@ export default async function AdminPollPage({ searchParams }: Params) {
       )}
 
       {items.length === 0 ? (
-        <EmptyState icon={ChartNoAxesColumn} title="没有投票（或你管辖的版块内没有）。" />
+        <EmptyState icon={ChartNoAxesColumn} title="没有投票（或你管辖的板块内没有）。" />
       ) : (
         <ul className="space-y-2">
           {items.map((p) => (

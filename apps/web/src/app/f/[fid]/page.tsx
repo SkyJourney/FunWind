@@ -1,6 +1,7 @@
 import { ArrowLeft, Trophy } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { PencilLine } from "lucide-react";
 import { notFound } from "next/navigation";
 import { ThreadRow } from "@/components/content/thread-row";
 import { Pagination } from "@/components/content/pagination";
@@ -28,9 +29,9 @@ const parseFid = (raw: string): number | null => {
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const fid = parseFid((await params).fid);
-  // 与页面同一套权限：读不到的版块给通用标题，名称不经 <title> 泄露
+  // 与页面同一套权限：读不到的板块给通用标题，名称不经 <title> 泄露
   const forum = fid ? await getForumView(await getCurrentSubject(), fid) : null;
-  return { title: forum?.name ?? "版块" };
+  return { title: forum?.name ?? "板块" };
 }
 
 export default async function ForumPage({ params, searchParams }: Params) {
@@ -40,7 +41,7 @@ export default async function ForumPage({ params, searchParams }: Params) {
 
   const viewer = await getCurrentSubject();
   const forum = await getForumView(viewer, fid);
-  // 不存在 / 读不到 / 是分区（无主题）→ 一律 404，不暴露受限版块的存在
+  // 不存在 / 读不到 / 是分区（无主题）→ 一律 404，不暴露受限板块的存在
   if (!forum || forum.kind === "section") notFound();
 
   const prefixId = Number(typeRaw ?? "0") || 0;
@@ -87,26 +88,36 @@ export default async function ForumPage({ params, searchParams }: Params) {
       </nav>
 
       <header>
-        <h1 className="text-2xl font-bold tracking-tight">{forum.name}</h1>
-        {forum.description && (
-          <p className="mt-1 text-sm text-muted-foreground">{forum.description}</p>
-        )}
-        <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-          <span>主题 {forum.threadCount}</span>
-          {access.mode === "form" && (
-            <Link href={`/f/${fid}/new`} className="font-medium text-primary hover:underline">
-              发新主题
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold tracking-tight">{forum.name}</h1>
+            {forum.description && (
+              <p className="mt-1 text-sm text-muted-foreground">{forum.description}</p>
+            )}
+            <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+              <span>主题 {forum.threadCount}</span>
+            </div>
+          </div>
+          {/* 发帖主行动（M10.6d 站长反馈：文字链太不显眼——升级为醒目主按钮） */}
+          {access.mode === "form" && user && (
+            <Link
+              href={`/f/${fid}/new`}
+              className="inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-primary px-5 text-sm font-medium text-primary-foreground shadow-sm transition-transform hover:bg-primary/90 active:scale-95"
+            >
+              <PencilLine className="size-4" aria-hidden /> 发新主题
             </Link>
           )}
-          {user && (
+        </div>
+        {user && (
+          <div className="mt-2">
             <FollowButton
               targetType="forum"
               targetId={fid}
               following={following}
               back={`/f/${fid}`}
             />
-          )}
-        </div>
+          </div>
+        )}
       </header>
 
       {tagCloud.length > 0 && (
@@ -178,7 +189,7 @@ export default async function ForumPage({ params, searchParams }: Params) {
         ))}
         {list.items.length === 0 && list.pinned.length === 0 && (
           <p className="py-10 text-center text-sm text-muted-foreground">
-            该版块暂无主题（或筛选条件下无结果）。
+            该板块暂无主题（或筛选条件下无结果）。
           </p>
         )}
       </section>

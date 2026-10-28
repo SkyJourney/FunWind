@@ -24,7 +24,7 @@ const parsePid = (raw: string): number | null => {
 
 /**
  * 删除确认页（M6.2）。无权限 / 不存在 → 404；有权但当前不能删（有别人的回复、主题已隐藏或删除）→ 说明。
- * 删除主题后跳回版块列表；版主删别人的内容必须填理由，理由由服务端判定（空理由跳回并提示）。
+ * 删除主题后跳回板块列表；版主删别人的内容必须填理由，理由由服务端判定（空理由跳回并提示）。
  */
 export default async function DeletePostPage({ params, searchParams }: Params) {
   const pid = parsePid((await params).pid);
@@ -73,7 +73,7 @@ export default async function DeletePostPage({ params, searchParams }: Params) {
             <CardContent className="space-y-4 pt-6">
               <p className="text-sm text-muted-foreground">
                 {isThread
-                  ? "删除后，该主题会从版块列表中消失，只有版主能看到并恢复。"
+                  ? "删除后，该主题会从板块列表中消失，只有版主能看到并恢复。"
                   : "删除后，该回帖对他人不可见，版主可以恢复。"}
               </p>
               <ModerationForm

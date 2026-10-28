@@ -177,7 +177,7 @@ export default async function AdminUserDetailPage({ params, searchParams }: Para
                 <li key={`${r.roleKey}:${r.scopeId}`} className="flex items-center justify-between">
                   <span>
                     {r.roleKey}
-                    {r.scopeId > 0 ? `（版块 ${r.scopeId}）` : ""}
+                    {r.scopeId > 0 ? `（板块 ${r.scopeId}）` : ""}
                     {r.expiresAt ? ` 至 ${r.expiresAt}` : ""}
                   </span>
                   <form action={revokeRoleAction}>
@@ -219,7 +219,7 @@ export default async function AdminUserDetailPage({ params, searchParams }: Para
                 name="scopeId"
                 min={0}
                 defaultValue={0}
-                aria-label="版块作用域（0=全局）"
+                aria-label="板块作用域（0=全局）"
                 className="w-32 rounded-lg border bg-background px-2.5 py-1.5 text-sm"
               />
               <SubmitButton
