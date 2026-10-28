@@ -8,12 +8,18 @@ import { setSetting } from "@/lib/auth/settings";
 import { getLimitsConfig } from "@/lib/limits/load";
 import { limitsConfigSchema } from "@/lib/limits/config";
 import { invalidateSiteChrome } from "@/lib/site-chrome";
+import { getCurrentUser } from "@/lib/auth/session";
+import { eq } from "drizzle-orm";
+import { getWebDb, users as usersTable } from "@funwind/db";
+import { sendMail, testMail } from "@/lib/auth/mailer";
+import { getSiteIdentity } from "@/lib/site-chrome";
 
 /**
  * 站点配置动作（M10.6b，docs/milestones/M10.6-feature-completion.md 批次 b）：
  * 身份/注册模式/频控三组。写入全走 setSetting（自带前后值审计）；身份保存失效 chrome 缓存。
  * 频控编辑器只 merge 它认识的字段（member/admin 两角色 + 站点级两项），其余角色原值保留，
  * 保存前整体过 limitsConfigSchema 校验——写坏配置会整体回落默认值（load.ts 口径），必须在这里拦住。
+ * 邮件组（M10.6 收尾）：验证策略入 site_settings；SMTP 凭据按红线留在 env 不入库，后台只做状态展示与测试发信。
  */
 
 const done = (key: string): never => redirect(`/admin/settings?saved=${key}`);
@@ -112,5 +118,52 @@ export const saveLimitsAction = defineAction({
     });
     revalidatePath("/admin/settings");
     done("limits");
+  },
+});
+
+export const saveEmailVerificationAction = defineAction({
+  name: "admin.settings.email_verification",
+  auth: { admin: "site.admin" },
+  input: z.object({ mode: z.enum(["open_only", "always"]) }),
+  async run(ctx, input) {
+    await setSetting(
+      "email.verification",
+      { mode: input.mode },
+      {
+        userId: ctx.userId ?? null,
+        via: "admin",
+        ip: ctx.ip,
+      },
+    );
+    revalidatePath("/admin/settings");
+    done("email_verification");
+  },
+});
+
+export const sendTestMailAction = defineAction({
+  name: "admin.settings.test_mail",
+  auth: { admin: "site.admin" },
+  input: z.object({}),
+  async run(ctx) {
+    const user = await getCurrentUser();
+    if (!user) redirect("/login");
+    const [row] = await getWebDb()
+      .select({ email: usersTable.email })
+      .from(usersTable)
+      .where(eq(usersTable.id, ctx.userId!))
+      .limit(1);
+    if (!row?.email) {
+      redirect("/admin/settings?mail_error=no_email");
+    }
+    const siteName = await getSiteIdentity()
+      .then((i) => i.name)
+      .catch(() => undefined);
+    try {
+      await sendMail(row.email, testMail(siteName));
+    } catch {
+      redirect("/admin/settings?mail_error=send");
+    }
+    revalidatePath("/admin/settings");
+    done("mail_sent");
   },
 });

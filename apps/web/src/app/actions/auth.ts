@@ -27,7 +27,7 @@ import {
 import { rateLimit } from "@/lib/auth/ratelimit";
 import { issueEmailToken } from "@/lib/auth/tokens";
 import { sendMail, verifyEmailMail } from "@/lib/auth/mailer";
-import { getRegisterMode } from "@/lib/auth/settings";
+import { getRegisterMode, getEmailVerificationMode } from "@/lib/auth/settings";
 
 /**
  * 认证 Server Actions（M4）。
@@ -177,8 +177,10 @@ export const registerAction = defineAction({
     }
     inviteAttempt?.refund();
 
-    if (mode === "open") {
-      // 开放注册：邮箱验证令牌（验证前可登录、可浏览，写类权限由评估器拦截）
+    // 邮箱验证邮件（M10.6 收尾）：开放注册必发；邀请注册按后台「邮箱验证策略」决定（always=也发）
+    const verificationMode = await getEmailVerificationMode();
+    const shouldVerify = mode === "open" || verificationMode === "always";
+    if (shouldVerify) {
       const token = await issueEmailToken(newId, "verify");
       const { APP_URL: appUrl } = await import("@/lib/site");
       const { getSiteIdentity } = await import("@/lib/site-chrome");
@@ -193,7 +195,7 @@ export const registerAction = defineAction({
       userAgent: (await headers()).get("user-agent") ?? "",
     });
     await safeEmit("user.registered", { userId: newId });
-    redirect(mode === "invite" ? "/" : "/?notice=verify-email-sent");
+    redirect(shouldVerify ? "/?notice=verify-email-sent" : "/");
   },
 });
 

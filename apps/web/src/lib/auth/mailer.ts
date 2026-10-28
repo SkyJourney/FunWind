@@ -83,6 +83,19 @@ export function verifyEmailMail(link: string, siteName: string = SITE_NAME): Mai
   };
 }
 
+/** 后台「发送测试邮件」（M10.6 收尾）：验证 SMTP 发信链路；收件人 = 当前管理员。 */
+export function testMail(siteName: string = SITE_NAME): MailMessage {
+  return {
+    subject: `测试邮件 · ${siteName}`,
+    html: layout(
+      "测试邮件",
+      "<p>这是一封从站点后台发出的测试邮件——收到即代表 SMTP 发信链路正常。</p>",
+      undefined,
+      siteName,
+    ),
+  };
+}
+
 export async function sendMail(to: string, message: MailMessage): Promise<void> {
   await getTransporter().sendMail({ from: FROM, to, subject: message.subject, html: message.html });
 }

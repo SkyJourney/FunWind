@@ -1,10 +1,19 @@
+import { eq } from "drizzle-orm";
+import { getWebDb, users } from "@funwind/db";
 import { requireAdmin } from "@/lib/authz/require-admin";
-import { getRegisterMode } from "@/lib/auth/settings";
+import { getEmailVerificationMode, getRegisterMode } from "@/lib/auth/settings";
 import { getLimitsConfig } from "@/lib/limits/load";
 import { getSiteIdentity } from "@/lib/site-chrome";
+import { APP_URL } from "@/lib/site";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { saveIdentityAction, saveLimitsAction, saveRegisterModeAction } from "./actions";
+import {
+  saveEmailVerificationAction,
+  saveIdentityAction,
+  saveLimitsAction,
+  saveRegisterModeAction,
+  sendTestMailAction,
+} from "./actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "站点配置" };
@@ -13,7 +22,24 @@ const FLASH: Record<string, string> = {
   identity: "站点身份已保存并即时生效。",
   register: "注册策略已保存。",
   limits: "频控配置已保存。",
+  email_verification: "邮箱验证策略已保存。",
+  mail_sent: "测试邮件已发出——请查收（dev 环境进 Mailpit）。",
 };
+
+const MAIL_ERROR: Record<string, string> = {
+  no_email: "当前管理员账号未绑定邮箱——先到 /settings/email 绑定。",
+  send: "测试邮件发送失败——请检查服务器 SMTP_URL 配置与网络。",
+};
+
+/** SMTP_URL 脱敏展示：只露协议+主机+端口，凭据不打出来 */
+function smtpDisplayOf(raw: string | undefined): string {
+  try {
+    const u = new URL(raw ?? "smtp://127.0.0.1:1025");
+    return `${u.protocol.replace(":", "")}://${u.hostname}${u.port ? `:${u.port}` : ""}`;
+  } catch {
+    return "（SMTP_URL 配置无效）";
+  }
+}
 
 const inputCls =
   "rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring";
@@ -35,17 +61,28 @@ const ROLE_FIELDS = [
 export default async function SiteSettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ saved?: string; err?: string }>;
+  searchParams: Promise<{ saved?: string; err?: string; mail_error?: string }>;
 }) {
   // 入口鉴权约定：第一个 await 必须是 requireAdmin（admin-entry-guard 静态守护）
-  await requireAdmin("site.admin");
-  const [identity, mode, limits, sp] = await Promise.all([
+  const admin = await requireAdmin("site.admin");
+  const [identity, mode, limits, verificationMode, adminRow, sp] = await Promise.all([
     getSiteIdentity(),
     getRegisterMode(),
     getLimitsConfig(),
+    getEmailVerificationMode(),
+    getWebDb()
+      .select({ email: users.email })
+      .from(users)
+      .where(eq(users.id, admin.userId))
+      .limit(1),
     searchParams,
   ]);
+  const adminEmail = adminRow[0]?.email ?? null;
   const flash = sp.saved ? FLASH[sp.saved] : undefined;
+  const mailError = sp.mail_error ? MAIL_ERROR[sp.mail_error] : undefined;
+  const smtpDisplay = smtpDisplayOf(process.env.SMTP_URL);
+  const mailFrom = process.env.MAIL_FROM ?? "青翼字幕组 <noreply@qingyisub.top>";
+  const appUrl = APP_URL;
 
   return (
     <div className="space-y-5">
@@ -59,6 +96,14 @@ export default async function SiteSettingsPage({
       {flash && (
         <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
           {flash}
+        </p>
+      )}
+      {mailError && (
+        <p
+          role="alert"
+          className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
+        >
+          {mailError}
         </p>
       )}
       {sp.err === "limits" && (
@@ -146,6 +191,76 @@ export default async function SiteSettingsPage({
             <div>
               <SubmitButton className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
                 保存注册策略
+              </SubmitButton>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      {/* 邮件（M10.6 收尾）：SMTP 凭据留在 env；后台做状态展示、测试发信与验证策略 */}
+      <Card>
+        <CardHeader>
+          <CardTitle>邮件</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm">
+          <dl className="grid gap-x-6 gap-y-1 text-muted-foreground sm:grid-cols-[auto_1fr]">
+            <dt className="font-medium text-foreground">SMTP 服务</dt>
+            <dd>
+              <code className="rounded bg-muted px-1 text-xs">{smtpDisplay}</code>
+              <span className="ml-1 text-xs">（由服务器环境变量 SMTP_URL 配置，凭据不入库）</span>
+            </dd>
+            <dt className="font-medium text-foreground">发件人</dt>
+            <dd>
+              <code className="rounded bg-muted px-1 text-xs">{mailFrom}</code>
+            </dd>
+            <dt className="font-medium text-foreground">站点链接</dt>
+            <dd>
+              <code className="rounded bg-muted px-1 text-xs">{appUrl}</code>
+              <span className="ml-1 text-xs">（APP_URL，邮件里的链接指向它）</span>
+            </dd>
+          </dl>
+
+          <form action={sendTestMailAction}>
+            <SubmitButton className="rounded-lg border px-3 py-1.5 hover:bg-accent disabled:opacity-60">
+              发送测试邮件（发到我的邮箱：{adminEmail ?? "未绑定"}）
+            </SubmitButton>
+          </form>
+
+          <form action={saveEmailVerificationAction} className="space-y-2 border-t pt-4">
+            <p className="font-medium">邮箱验证策略</p>
+            <label className="flex items-start gap-2">
+              <input
+                type="radio"
+                name="mode"
+                value="open_only"
+                defaultChecked={verificationMode === "open_only"}
+                className="mt-1 size-4"
+              />
+              <span>
+                <span className="font-medium">仅开放注册验证（默认）</span>
+                <span className="text-muted-foreground">
+                  ——开放注册强制验证；邀请制注册凭邀请码即算可信，不发验证邮件
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2">
+              <input
+                type="radio"
+                name="mode"
+                value="always"
+                defaultChecked={verificationMode === "always"}
+                className="mt-1 size-4"
+              />
+              <span>
+                <span className="font-medium">一律验证</span>
+                <span className="text-muted-foreground">
+                  ——邀请注册同样发验证邮件（邮箱可用的账号更可靠，召回不失效）
+                </span>
+              </span>
+            </label>
+            <div>
+              <SubmitButton className="rounded-lg bg-primary px-4 py-2 font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
+                保存验证策略
               </SubmitButton>
             </div>
           </form>

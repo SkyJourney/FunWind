@@ -7,6 +7,20 @@ import { CLI_ACTOR, writeAudit, type ConfigActor } from "@/lib/audit";
 
 export type RegisterMode = "invite" | "open";
 
+/** 邮箱验证策略（site_settings("email.verification")）：open_only=仅开放注册强制验证（现状默认）；always=邀请注册也发验证邮件 */
+export type EmailVerificationMode = "open_only" | "always";
+
+export const getEmailVerificationMode = cache(async (): Promise<EmailVerificationMode> => {
+  const db = getWebDb();
+  const rows = await db
+    .select({ value: siteSettings.value })
+    .from(siteSettings)
+    .where(eq(siteSettings.key, "email.verification"))
+    .limit(1);
+  const mode = (rows[0]?.value as { mode?: string } | undefined)?.mode;
+  return mode === "always" ? "always" : "open_only";
+});
+
 export const getRegisterMode = cache(async (): Promise<RegisterMode> => {
   const db = getWebDb();
   const rows = await db
