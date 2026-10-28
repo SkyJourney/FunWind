@@ -15,7 +15,7 @@
     "db:build": "pnpm --filter @funwind/db build && pnpm --filter @funwind/content build",
     "test": "pnpm -r --workspace-concurrency=1 --if-present test",
     "test:e2e": "docker compose -f docker/dev/compose.yaml up -d mailpit && pnpm test:e2e:run",
-    "test:e2e:run": "export STORAGE_DIR=\"$PWD/storage-e2e\" && node -e \"require('node:fs').rmSync(process.env.STORAGE_DIR,{recursive:true,force:true})\" && pnpm db:build && NEW_DB_NAME=qysub_next_e2e pnpm --filter @funwind/db exec tsx scripts/e2e-reset.ts && NEW_DB_NAME=qysub_next_e2e pnpm db:bootstrap && NEW_DB_NAME=qysub_next_e2e pnpm db:seed && NEW_DB_NAME=qysub_next_e2e pnpm db:e2e-fixtures && NEW_DB_NAME=qysub_next_e2e pnpm --filter @funwind/web test:e2e && NEW_DB_NAME=qysub_next_e2e pnpm --filter @funwind/web test:e2e:prod",
+    "test:e2e:run": "export STORAGE_DIR=\"$PWD/storage-e2e\" SMTP_URL=\"smtp://127.0.0.1:1025\" MAIL_FROM=\"青翼字幕组 <noreply@qingyisub.top>\" && node -e \"require('node:fs').rmSync(process.env.STORAGE_DIR,{recursive:true,force:true})\" && pnpm db:build && NEW_DB_NAME=qysub_next_e2e pnpm --filter @funwind/db exec tsx scripts/e2e-reset.ts && NEW_DB_NAME=qysub_next_e2e pnpm db:bootstrap && NEW_DB_NAME=qysub_next_e2e pnpm db:seed && NEW_DB_NAME=qysub_next_e2e pnpm db:e2e-fixtures && NEW_DB_NAME=qysub_next_e2e pnpm --filter @funwind/web test:e2e && NEW_DB_NAME=qysub_next_e2e pnpm --filter @funwind/web test:e2e:prod",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "husky",

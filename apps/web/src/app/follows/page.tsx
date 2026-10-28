@@ -3,18 +3,22 @@ import { Heart } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
 import { redirect } from "next/navigation";
-import { ThreadRow } from "@/components/content/thread-row";
+import { FeedCard } from "@/components/content/feed-card";
 import { Pagination } from "@/components/content/pagination";
+import { FollowButton } from "@/components/interact/follow-button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { getForumTree } from "@/lib/authz/snapshot";
-import { getFollowFeed, type FollowFeedType } from "@/lib/queries/follows-feed";
+import { getFollowFeed, followedThreadIds, type FollowFeedType } from "@/lib/queries/follows-feed";
+import { followedLists } from "@/lib/queries/followed-lists";
+import { fileUrl } from "@/lib/files";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "关注动态" };
 
 /** 关注动态（M8）：关注的板块新帖 + 关注用户的发帖。只聚合新版行为（旧动态流不迁）。
- * M10.6d：类型筛选 chips（全部/板块/人，线稿注记①）。 */
+ * M10.6d：类型筛选 chips；卡片化与首页 FeedCard 同构 + 关注列表管理区（站长反馈：先看到关注了什么）。 */
 export default async function FollowsPage({
   searchParams,
 }: {
@@ -25,21 +29,89 @@ export default async function FollowsPage({
   const sp = await searchParams;
   const rawPage = Math.max(1, Number(sp.page ?? "1") || 1);
   const type: FollowFeedType = sp.type === "forum" || sp.type === "user" ? sp.type : "all";
-  const [feed, tree] = await Promise.all([
-    getFollowFeed(await getCurrentSubject(), rawPage, type),
+  const subject = await getCurrentSubject();
+  const [feed, tree, followed] = await Promise.all([
+    getFollowFeed(subject, rawPage, type),
     getForumTree(),
+    (async () => {
+      const { forumIds, userIds } = await followedThreadIds(user.id);
+      return followedLists(user.id, forumIds, userIds);
+    })(),
   ]);
 
   const chipHref = (t: FollowFeedType) => (t === "all" ? "/follows" : `/follows?type=${t}`);
 
   return (
-    <main className="mx-auto max-w-4xl space-y-4 px-4 py-8 sm:px-6 lg:px-8">
+    <main className="mx-auto max-w-4xl space-y-4 px-4 py-8 sm:px-6">
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <h1 className="text-2xl font-bold tracking-tight">关注动态</h1>
         <p className="text-xs text-muted-foreground">
           关注的板块 {feed.forumCount} 个 · 用户 {feed.userCount} 人 · 共 {feed.total} 帖
         </p>
       </header>
+
+      {/* 关注列表管理区（先看到关注了什么，就地取关） */}
+      {(followed.forums.length > 0 || followed.users.length > 0) && (
+        <section className="space-y-3 rounded-xl border bg-card p-4">
+          {followed.forums.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-muted-foreground">关注的板块</p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {followed.forums.map((f) => (
+                  <span
+                    key={f.id}
+                    className="inline-flex items-center gap-1 rounded-full border py-0.5 pr-1 pl-2.5 text-xs"
+                  >
+                    <Link href={`/f/${f.id}`} className="hover:text-primary">
+                      {f.name}
+                    </Link>
+                    <FollowButton
+                      targetType="forum"
+                      targetId={f.id}
+                      following
+                      back="/follows"
+                      compact
+                    />
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {followed.users.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-muted-foreground">关注的用户</p>
+              <div className="mt-1.5 flex flex-wrap gap-2">
+                {followed.users.map((u) => (
+                  <span
+                    key={u.id}
+                    className="inline-flex items-center gap-1.5 rounded-full border py-0.5 pr-1 pl-1 text-xs"
+                  >
+                    <Link
+                      href={`/u/${u.id}`}
+                      className="flex items-center gap-1.5 hover:text-primary"
+                    >
+                      <Avatar className="size-5">
+                        {u.avatarKey && <AvatarImage src={fileUrl(u.avatarKey)} alt="" />}
+                        <AvatarFallback className="bg-primary/15 text-[10px]">
+                          {u.username.slice(0, 1).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      {u.username}
+                    </Link>
+                    <FollowButton
+                      targetType="user"
+                      targetId={u.id}
+                      following
+                      back="/follows"
+                      compact
+                    />
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
 
       <nav aria-label="动态类型筛选" className="flex flex-wrap gap-1.5 text-sm">
         {(
@@ -71,14 +143,14 @@ export default async function FollowsPage({
           description="去板块页或用户资料页关注感兴趣的内容，新帖就会出现在这里。"
           action={
             <Button asChild variant="outline" size="sm">
-              <Link href="/">板块页</Link>
+              <Link href="/boards">去板块</Link>
             </Button>
           }
         />
       ) : (
-        <div className="space-y-2">
-          {feed.items.map((t) => (
-            <ThreadRow key={t.id} thread={t} showForum forumName={tree.get(t.forumId)?.name} />
+        <div className="space-y-3">
+          {feed.items.map((item) => (
+            <FeedCard key={item.id} item={item} forumName={tree.get(item.forumId)?.name} />
           ))}
         </div>
       )}

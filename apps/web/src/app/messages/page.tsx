@@ -92,7 +92,14 @@ export default async function MessagesPage({
           icon={MessageSquareOff}
           title="还没有私信"
           description="在帖子作者或他人主页找到 TA，点「✉ 私信」就能开始对话"
-          action="/boards"
+          action={
+            <Link
+              href="/boards"
+              className="inline-flex h-9 items-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              去板块逛逛
+            </Link>
+          }
         />
       ) : (
         <ul className="divide-y rounded-xl border bg-card">

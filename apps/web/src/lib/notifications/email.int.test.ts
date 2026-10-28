@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getWebDb } from "@funwind/db";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import {
+  getDigestHour,
   pmEmailAllowed,
   securityEmailEnabled,
   userActiveRecently,
@@ -33,6 +34,16 @@ describe.skipIf(skipDb)("通知邮件渠道（M10.6 收尾切片）", () => {
       .values({ key: "email.security", value: { enabled: false }, updatedAt: sqlNow() })
       .onDuplicateKeyUpdate({ set: { value: { enabled: false } } });
     expect(await securityEmailEnabled()).toBe(false);
+  });
+
+  it("getDigestHour：无配置默认 20；落库后读回", async () => {
+    expect(await getDigestHour()).toBe(20);
+    const db = getWebDb();
+    await db
+      .insert(siteSettings)
+      .values({ key: "email.digest", value: { hour: 8 }, updatedAt: sql`NOW()` })
+      .onDuplicateKeyUpdate({ set: { value: { hour: 8 } } });
+    expect(await getDigestHour()).toBe(8);
   });
 
   it("userEmailEnabled：无记录 = 关；开/关行如实", async () => {

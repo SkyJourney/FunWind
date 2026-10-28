@@ -126,6 +126,22 @@ async function renderCheckinRail() {
   if (!user) return null;
   const { checkinAction } = await import("@/app/actions/checkin");
   const status = await getCheckinStatus(user.id);
+  // 与移动签到条同构（M10.6d 站长要求 PC/移动相同样式）：状态行 + 日历 + 底部动作位
+  // （签到按钮 / 已签到标识同位同尺寸，签到后不留空）。
+  const actionSlot = status.checkedInToday ? (
+    <span className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-xl border border-success/30 bg-success/10 text-sm font-medium text-success">
+      <CheckCircle2 className="size-4" aria-hidden /> 今日已签到
+    </span>
+  ) : (
+    <form action={checkinAction}>
+      <button
+        type="submit"
+        className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-xl bg-primary text-sm font-medium text-primary-foreground shadow-sm transition-transform hover:bg-primary/90 active:scale-95"
+      >
+        <CalendarCheck className="size-4" aria-hidden /> 签到
+      </button>
+    </form>
+  );
   return (
     <section className="rounded-xl border bg-card p-4">
       <h2 className="text-sm font-semibold">每日签到</h2>
@@ -140,16 +156,7 @@ async function renderCheckinRail() {
       <div className="mt-2">
         <MiniCalendar status={status} />
       </div>
-      {!status.checkedInToday && (
-        <form action={checkinAction} className="mt-3">
-          <button
-            type="submit"
-            className="w-full rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            签到
-          </button>
-        </form>
-      )}
+      <div className="mt-3">{actionSlot}</div>
     </section>
   );
 }

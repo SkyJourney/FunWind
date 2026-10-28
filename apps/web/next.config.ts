@@ -7,8 +7,9 @@ import { buildSecurityHeaders } from "./src/lib/security-headers";
 loadEnv({ path: path.resolve(process.cwd(), "../../.env"), override: false });
 
 const nextConfig: NextConfig = {
-  // Next 16 安全默认会拦截"跨域"开发资源（HMR/运行时块）；本机以 127.0.0.1 访问，需显式放行
-  allowedDevOrigins: ["127.0.0.1"],
+  // Next 16 安全默认会拦截"跨域"开发资源（HMR/运行时块）；显式放行本机与局域网访问主机
+  // （站长实机经 192.168.50.253:3100 访问——不放行则客户端 JS 全被拦，页面可看不可点，M10.6d 实测教训）
+  allowedDevOrigins: ["127.0.0.1", "localhost", "192.168.50.253"],
   // 不暴露框架标识
   poweredByHeader: false,
   // 全站安全响应头（含 CSP Report-Only），见 src/lib/security-headers.ts

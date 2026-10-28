@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import {
   Bell,
   Coins,
@@ -11,7 +12,6 @@ import {
   UserRound,
 } from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
-import { updatePmPolicyAction } from "@/app/actions/pm";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { checkPermission, getModeratedForumIds } from "@/lib/authz/service";
@@ -22,7 +22,6 @@ import { unreadSummary } from "@/lib/notifications/queries";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { LogoutForm } from "@/components/auth/logout-form";
 import { ThreadRow } from "@/components/content/thread-row";
-import { ThemeSwitcher } from "@/components/theme-switcher";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "我的" };
@@ -32,6 +31,7 @@ const PM_POLICY_LABEL: Record<"all" | "following" | "off", string> = {
   following: "仅我关注的人",
   off: "关闭私信",
 };
+const THEME_SHORT: Record<string, string> = { light: "浅色", dark: "暗色", system: "跟随系统" };
 
 /**
  * 「我的」聚合页（M10.5 S5-B2，me.html 定稿，⟦D4⟧）：内容为主的中枢——
@@ -56,6 +56,8 @@ export default async function MePage() {
     })(),
   ]);
   const pmPolicy: "all" | "following" | "off" = profile?.pmPolicy ?? "all";
+  const themeCookie = (await cookies()).get("theme")?.value ?? "";
+  const themeKey = ["light", "dark", "system"].includes(themeCookie) ? themeCookie : "system";
 
   const entryRow = (
     icon: React.ReactNode,
@@ -158,7 +160,7 @@ export default async function MePage() {
       ) : (
         <div className="divide-y rounded-xl border bg-card">
           {threads.items.slice(0, 5).map((t) => (
-            <div key={t.id} className="[&>div]:border-0 [&>div]:px-4 [&>div]:py-3">
+            <div key={t.id} className="[&>div]:border-0">
               <ThreadRow thread={t} showForum />
             </div>
           ))}
@@ -209,38 +211,36 @@ export default async function MePage() {
           </Link>
         </li>
         <li className="border-b px-4 py-3 text-sm">
-          <div className="flex items-center gap-3">
+          <Link
+            href="/settings/pm"
+            className="flex items-center gap-3 transition-colors hover:text-primary"
+          >
             <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
               <MessageSquare className="size-4" aria-hidden />
             </span>
             <span className="flex-1">私信权限</span>
             <span className="text-xs text-muted-foreground">{PM_POLICY_LABEL[pmPolicy]}</span>
-          </div>
-          <div className="mt-2 flex gap-1.5 pl-11">
-            {(["all", "following", "off"] as const).map((p) => (
-              <form key={p} action={updatePmPolicyAction}>
-                <input type="hidden" name="policy" value={p} />
-                <button
-                  type="submit"
-                  aria-pressed={pmPolicy === p}
-                  className={`rounded-full border px-3 py-1 text-xs transition-colors ${
-                    pmPolicy === p
-                      ? "border-primary bg-primary font-medium text-primary-foreground"
-                      : "text-muted-foreground hover:bg-accent"
-                  }`}
-                >
-                  {PM_POLICY_LABEL[p]}
-                </button>
-              </form>
-            ))}
-          </div>
+            <span aria-hidden className="text-muted-foreground">
+              ›
+            </span>
+          </Link>
         </li>
-        <li className="flex items-center gap-3 border-b px-4 py-3 text-sm">
-          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
-            <Palette className="size-4" aria-hidden />
-          </span>
-          <span className="flex-1">外观</span>
-          <ThemeSwitcher />
+        <li className="border-b px-4 py-3 text-sm">
+          <Link
+            href="/settings/appearance"
+            className="flex items-center gap-3 transition-colors hover:text-primary"
+          >
+            <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
+              <Palette className="size-4" aria-hidden />
+            </span>
+            <span className="flex-1">外观</span>
+            <span className="text-xs text-muted-foreground">
+              {THEME_SHORT[themeKey] ?? "跟随系统"}
+            </span>
+            <span aria-hidden className="text-muted-foreground">
+              ›
+            </span>
+          </Link>
         </li>
         {showAdmin &&
           entryRow(

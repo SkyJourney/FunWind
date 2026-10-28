@@ -24,7 +24,10 @@ vi.mock("@/lib/queries/search", () => ({
   cleanQuery: (s: string) => s,
   searchThreads: mocks.search,
 }));
-vi.mock("@/lib/queries/follows-feed", () => ({ getFollowFeed: mocks.feed }));
+vi.mock("@/lib/queries/follows-feed", () => ({
+  getFollowFeed: mocks.feed,
+  followedThreadIds: vi.fn(async () => ({ forumIds: [], userIds: [] })),
+}));
 vi.mock("@/lib/authz/require-admin", () => ({ requireModerator: mocks.moderator }));
 vi.mock("@/lib/authz/service", () => ({ getModeratedForumIds: mocks.moderated }));
 vi.mock("@/lib/moderation/review", () => ({
@@ -74,7 +77,7 @@ describe("页面空态", () => {
   it("关注动态空态保留入口", async () => {
     render(await FollowsPage({ searchParams: Promise.resolve({}) }));
     expect(screen.getByText("还没有可显示的动态。")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "板块页" })).toHaveAttribute("href", "/");
+    expect(screen.getByRole("link", { name: "去板块" })).toHaveAttribute("href", "/boards");
     expect(mocks.feed).toHaveBeenCalledWith({ userId: 1 }, 1, "all");
   });
 

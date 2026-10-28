@@ -9,8 +9,9 @@ const NAV = [
   { href: "/settings/email", label: "邮箱" },
   { href: "/settings/profile", label: "个人资料" },
   { href: "/settings/notifications", label: "通知偏好" },
+  { href: "/settings/pm", label: "私信偏好" },
+  { href: "/settings/appearance", label: "外观" },
   { href: "/settings/avatar", label: "头像" },
-  { href: "/me", label: "私信偏好 / 外观" },
 ];
 
 /** 设置中心壳（M10.6c）：登录可见；子页各自做业务校验。 */

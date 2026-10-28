@@ -1,7 +1,8 @@
 import { and, count, desc, eq, inArray, or } from "drizzle-orm";
-import { follows, getWebDb, threads } from "@funwind/db";
+import { follows, getWebDb, posts, threads } from "@funwind/db";
 import type { Subject } from "@/lib/authz/types";
-import { THREADS_PER_PAGE, selectList, threadCols, toItem, type ThreadListItem } from "./threads";
+import { THREADS_PER_PAGE, selectList, threadCols, toItem, type HomeFeedItem } from "./threads";
+import { extractFeedMedia } from "./feed-media";
 import { clampPage } from "./paging";
 import { buildViewerScope, visiblePredicate } from "./visibility";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
@@ -25,7 +26,7 @@ export async function followedThreadIds(
 }
 
 export interface FollowFeedPage {
-  items: ThreadListItem[];
+  items: HomeFeedItem[];
   total: number;
   page: number;
   totalPages: number;
@@ -49,7 +50,7 @@ export async function getFollowFeed(
   const listed = scope.readable.filter((id) => tree.get(id)?.isListed);
 
   const empty = {
-    items: [] as ThreadListItem[],
+    items: [] as HomeFeedItem[],
     total: 0,
     page: 1,
     totalPages: 1,
@@ -83,8 +84,33 @@ export async function getFollowFeed(
           .limit(THREADS_PER_PAGE)
           .offset((page - 1) * THREADS_PER_PAGE);
 
+  const items = rows.map((r) => toItem(r));
+
+  // 卡片化（M10.6d 站长反馈：与首页 FeedCard 同构）：补封面/摘要
+  const media = new Map<number, { coverUrl: string | null; excerpt: string | null }>();
+  if (items.length > 0) {
+    // 与首页同码：from(threads) innerJoin(posts.floor=1)，可见性谓词才同时引用得到两表
+    const bodies = await getWebDb()
+      .select({ tid: threads.id, bodyMd: posts.bodyMd })
+      .from(threads)
+      .innerJoin(posts, and(eq(posts.threadId, threads.id), eq(posts.floor, 1)))
+      .where(
+        and(
+          inArray(
+            threads.id,
+            items.map((i) => i.id),
+          ),
+          visiblePredicate(
+            { forumId: threads.forumId, state: posts.state, authorId: posts.authorId },
+            scope,
+          ),
+        ),
+      );
+    for (const b of bodies) media.set(b.tid, extractFeedMedia(b.bodyMd));
+  }
+
   return {
-    items: rows.map((r) => toItem(r)),
+    items: items.map((i) => ({ ...i, ...(media.get(i.id) ?? { coverUrl: null, excerpt: null }) })),
     total,
     page,
     totalPages,
