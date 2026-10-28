@@ -1,4 +1,4 @@
-# 邮件场景规划（M11 前切片，2026-10-28 起草待站长圈阅）
+# 邮件场景规划（M11 前切片；2026-10-28 站长圈阅：三期都做、S4–S8 个性化开关、S1–S3 后台统控——**已全部实施**）
 
 > 背景：站长指示邮件通知管线排在 M11 之前，先规划场景。已有底座：mailer（SMTP + 模板 + 站名/站点地址注入）、
 > emailTokens 三用途令牌、notification_preferences 的 channel 列（email 已备无实现）、notify() 站内写入点。
@@ -72,8 +72,16 @@
 每期验收：单测（模板向量+判定逻辑）+ int（偏好过滤/频控）+ E2E（mailpit 断言：安全类强制送达、偏好关闭不达、
 digest 跳过活跃用户）；`pnpm verify:all` + 全量 E2E 全绿。
 
-## 五、待站长圈阅
+## 五、圈阅结果与实施状态（2026-10-28）
 
-1. 场景取舍（尤其 S4 私信是否实时 vs 并入 digest；S8 召回是否本期）；
-2. 分期顺序 P1→P2→P3 是否认可；
-3. mandatory 三场景（S1–S3）不可关偏好是否符合预期。
+站长裁决：三期都做；S4–S8 做每人个性化开关；S1–S3 由后台统一控制。**三期已全部实施**：
+
+- 管线基建 `lib/notifications/email.ts`（安全开关/用户偏好/尽力而为发送/S4 双闸/活跃判定）；
+- P1 三场景挂载（改密 S1、换绑 S2 双邮、限制事件 S3，后台「站点配置→邮件」有统一开关，默认开）；
+- P2 三场景挂载（私信 S4 双闸频控、售出 S5、审核通过 S6）+ /settings/notifications 双渠道开关
+  （站内默认开、邮件默认关，逐场景独立）；
+- P3 digest（迁移 0011 `users.last_email_digest_at` + cron 脚本 `apps/web/scripts/digest-cron.mts`
+  每小时运行比对后台配置时刻 [email.digest.hour，默认 20 点] + /settings/notifications 汇总开关行）；
+- 测试：mailer 模板 12 项单测、email 渠道 int 4 项、digest 管线 int 4 项、
+  E2E 覆盖安全开关两态与 always 验证邮件（197+10 全绿）。
+- **部署注意**：生产启用 S7 需在服务器 crontab 加每小时整点任务运行 digest-cron 脚本（时刻后台可改）。
