@@ -23,14 +23,11 @@ export default async function BoardsPage() {
           <Layers className="size-6 text-primary" aria-hidden />
           板块目录
         </h1>
-        {/* 数据出现时淡入（骨架里是同位置的占位条），不再「突然冒出」；减少动态效果下无动画 */}
-        <p className="fw-fade-in mt-1 text-sm text-muted-foreground">
+        <p className="mt-1 text-sm text-muted-foreground">
           {dir.forumCount} 个板块 · {dir.threadCount} 个主题
         </p>
       </header>
-      <div className="fw-fade-in">
-        <ForumDirectory dir={dir} />
-      </div>
+      <ForumDirectory dir={dir} />
     </main>
   );
 }

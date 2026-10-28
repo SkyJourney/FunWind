@@ -4,7 +4,7 @@ import { installTransitionProbe, readTransitions, resetTransitions } from "../e2
 /**
  * 生产构建下的动效与导航兜底复验（M10.7 Step 4d）。
  * 开发服务器上的 E2E 证明不了这些：生产构建会预取视口内的链接、路由缓存行为不同、打包方式不同，
- * 导航常常瞬时完成——页面过渡、导航守卫、骨架屏在生产下是否依然成立，必须在真实 next build + next start 上实测。
+ * 导航常常瞬时完成——页面过渡、导航守卫在生产下是否依然成立，必须在真实 next build + next start 上实测。
  */
 
 const navAttr = (page: Page) => page.evaluate(() => document.documentElement.dataset.nav ?? null);
@@ -197,22 +197,45 @@ test.describe("生产构建 · 导航守卫（慢网络与失败兜底）", () =
   });
 });
 
-test.describe("生产构建 · 板块目录骨架", () => {
-  test("loading 边界下 .sk 占位条有底色与动画；真实内容出现后骨架消失", async ({ page }) => {
-    // 骨架在生产下依然带样式（.sk 曾从未被定义，占位条是透明的）：直接核对样式表里该类的计算结果
-    await page.goto("/boards");
-    await expect(page.getByRole("heading", { level: 1, name: "板块目录" })).toBeVisible();
-    const sk = await page.evaluate(() => {
-      const el = document.createElement("div");
-      el.className = "sk";
-      document.body.append(el);
-      const cs = getComputedStyle(el);
-      const out = { bg: cs.backgroundColor, anim: cs.animationName };
-      el.remove();
-      return out;
-    });
-    expect(sk.bg).not.toMatch(/rgba\(0, 0, 0, 0\)|transparent/);
-    expect(sk.anim).toBe("fw-sk-pulse");
-    await expect(page.locator(".sk")).toHaveCount(0); // 数据已到：骨架不残留
+test.describe("生产构建 · 无路由级骨架（fix/10-7）", () => {
+  // 回归：/boards 曾有 loading.tsx。骨架先提交并启动页面过渡，数据到达后的第二次提交被排到过渡结束之后，
+  // 实测数据 ~10ms 就绪却要到 ~515ms 才显示（关闭过渡则是 ~45ms）。删掉 loading.tsx 后导航只提交一次真内容。
+  test("Tab 切到板块目录：真内容随页面一起提交，不经过骨架，不被过渡拖到动画结束之后", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.waitForTimeout(1500); // 让视口内链接预取完成，排除冷请求的噪声
+    const r = await page.evaluate(
+      () =>
+        new Promise<{ sawSkeleton: boolean; dataAt: number | null }>((resolve) => {
+          const t0 = performance.now();
+          let sawSkeleton = false;
+          let dataAt: number | null = null;
+          const done = () => {
+            obs.disconnect();
+            resolve({ sawSkeleton, dataAt });
+          };
+          const check = () => {
+            const wrap = document.querySelector("[data-fw-page]");
+            if (wrap?.querySelector(".sk")) sawSkeleton = true;
+            if (
+              dataAt === null &&
+              location.pathname === "/boards" &&
+              /个板块/.test(wrap?.textContent ?? "")
+            ) {
+              dataAt = performance.now() - t0;
+              setTimeout(done, 700); // 再观察一个完整过渡，确认骨架不会晚到
+            }
+          };
+          const obs = new MutationObserver(check);
+          obs.observe(document.body, { childList: true, subtree: true, characterData: true });
+          document.querySelector<HTMLAnchorElement>("a[href='/boards']")!.click();
+          setTimeout(done, 6000);
+        }),
+    );
+    expect(r.sawSkeleton).toBe(false);
+    // 页面过渡约 500ms：真内容必须远早于它出现（修复前 ~515ms，修复后 ~50ms）
+    expect(r.dataAt).not.toBeNull();
+    expect(r.dataAt!).toBeLessThan(250);
   });
 });

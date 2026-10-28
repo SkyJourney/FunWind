@@ -185,19 +185,6 @@
   animation: fw-float-up calc(var(--fw-dur-slow) * 1.75) var(--fw-ease-out) both;
 }
 
-/* 骨架占位条（components/page-skeletons.tsx 用 `sk` 类）：语义色底 + 呼吸动画。
-   此前这个类从未被定义过，所有骨架屏的占位条都是透明的，用户只看到卡片边框（M10.7 站长反馈板块目录占位时发现） */
-.sk {
-  /* 中性半透明灰：--accent 在浅色主题下是很浅的青色，占位条几乎看不见；前景色混合在亮 / 暗主题下都有足够对比 */
-  background-color: color-mix(in srgb, var(--foreground) 9%, transparent);
-  animation: fw-sk-pulse 1.6s var(--fw-ease-inout) infinite;
-}
-@keyframes fw-sk-pulse {
-  50% {
-    opacity: 0.5;
-  }
-}
-
 /* 导航进度条（M10.7 Step 4a）：点击后 80ms 出现，只动 transform；组件只在在途时渲染，每次导航动画从头开始 */
 .fw-nav-progress {
   position: fixed;
@@ -231,9 +218,6 @@
   .fw-nav-progress::before {
     animation: none;
     transform: scaleX(0.5);
-  }
-  .sk {
-    animation: none;
   }
   [data-slot="switch"],
   [data-slot="switch-thumb"],
