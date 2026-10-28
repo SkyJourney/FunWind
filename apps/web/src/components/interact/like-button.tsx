@@ -1,11 +1,10 @@
-import { ThumbsUp } from "lucide-react";
-import { likeAction } from "@/app/actions/interact";
 import { reactorsOf, type ReactorView } from "@/lib/interact/reactions";
 import { UserBadge } from "@/components/content/user-badge";
-import { SubmitButton } from "@/components/ui/submit-button";
+import { LikeToggle } from "@/components/interact/like-toggle";
 
 /**
- * 点赞按钮 + 点赞者弹层（M8，纯服务端组件：<details> 折叠，无客户端 JS）。
+ * 点赞按钮 + 点赞者弹层（M8）：点赞者弹层仍是服务端组件（<details> 折叠，无客户端 JS）；
+ * 按钮本身是客户端组件 LikeToggle（M10.7 Step 5a：乐观更新 + 微交互，无 JS 时回退为表单）。
  * 游客按钮禁用（title 提示登录）；toggle 由 Server Action 完成后 revalidate 帖子页。
  */
 export async function LikeButton({
@@ -25,25 +24,13 @@ export async function LikeButton({
   const reactors: ReactorView[] = likeCount > 0 ? await reactorsOf(postId) : [];
   return (
     <span className="flex items-center gap-2">
-      <form action={likeAction} data-testid={`like-${postId}`}>
-        <input type="hidden" name="postId" value={postId} />
-        <input type="hidden" name="back" value={back} />
-        <SubmitButton
-          disabled={!canLike}
-          className={`inline-flex items-center gap-1 text-xs ${
-            liked ? "font-medium text-primary" : "text-muted-foreground hover:text-primary"
-          } disabled:cursor-not-allowed disabled:opacity-60`}
-          pendingText="…"
-        >
-          <span
-            title={canLike ? (liked ? "取消点赞" : "点赞") : "登录后可点赞"}
-            className="inline-flex items-center gap-1"
-          >
-            <ThumbsUp className="size-3.5" />
-            {likeCount > 0 ? likeCount : "赞"}
-          </span>
-        </SubmitButton>
-      </form>
+      <LikeToggle
+        postId={postId}
+        liked={liked}
+        likeCount={likeCount}
+        back={back}
+        canLike={canLike}
+      />
       {likeCount > 0 && (
         <details className="relative">
           <summary className="cursor-pointer list-none text-xs text-muted-foreground hover:text-primary">

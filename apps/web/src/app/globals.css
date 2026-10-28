@@ -110,6 +110,81 @@
 .fw-fade-in {
   animation: fw-fade-in var(--fw-dur-base) var(--fw-ease-out) both;
 }
+/* ===== L1 微交互（M10.7 Step 5，docs/M10.5-S4-VISUAL-MOTION.md §3.1）：只动 transform / opacity，全部用令牌 ===== */
+
+/* 「弹一下」：从略小处用 spring 过冲回弹到原尺寸（点赞图标、关注按钮切换） */
+@keyframes fw-pop {
+  from {
+    transform: scale(0.6);
+  }
+}
+.fw-pop {
+  animation: fw-pop var(--fw-dur-spring) var(--fw-ease-spring) both;
+}
+
+/* 数字滚动：新值从下（或上）滚入、旧值同时滚出；两层叠在同一个网格单元里，容器裁掉溢出 */
+.fw-roll {
+  display: inline-grid;
+  overflow: hidden;
+}
+.fw-roll > * {
+  grid-area: 1 / 1;
+}
+@keyframes fw-roll-in-up {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
+@keyframes fw-roll-out-up {
+  to {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+}
+@keyframes fw-roll-in-down {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+}
+@keyframes fw-roll-out-down {
+  to {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
+.fw-roll-in-up {
+  animation: fw-roll-in-up var(--fw-dur-base) var(--fw-ease-out) both;
+}
+.fw-roll-out-up {
+  animation: fw-roll-out-up var(--fw-dur-base) var(--fw-ease-out) both;
+}
+.fw-roll-in-down {
+  animation: fw-roll-in-down var(--fw-dur-base) var(--fw-ease-out) both;
+}
+.fw-roll-out-down {
+  animation: fw-roll-out-down var(--fw-dur-base) var(--fw-ease-out) both;
+}
+
+/* 点赞「飞出」：+1 自图标上方向上飘出并淡出 */
+@keyframes fw-float-up {
+  from {
+    transform: translateY(2px) scale(0.8);
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  to {
+    transform: translateY(-20px) scale(1);
+    opacity: 0;
+  }
+}
+.fw-float-up {
+  animation: fw-float-up calc(var(--fw-dur-slow) * 1.75) var(--fw-ease-out) both;
+}
+
 /* 骨架占位条（components/page-skeletons.tsx 用 `sk` 类）：语义色底 + 呼吸动画。
    此前这个类从未被定义过，所有骨架屏的占位条都是透明的，用户只看到卡片边框（M10.7 站长反馈板块目录占位时发现） */
 .sk {
@@ -159,6 +234,19 @@
   }
   .sk {
     animation: none;
+  }
+  /* L1 微交互：减少动态效果下全部取消（状态变化仍然立即呈现，只是没有动画） */
+  .fw-pop,
+  .fw-roll-in-up,
+  .fw-roll-out-up,
+  .fw-roll-in-down,
+  .fw-roll-out-down {
+    animation: none;
+  }
+  .fw-roll-out-up,
+  .fw-roll-out-down,
+  .fw-float-up {
+    display: none;
   }
   .fw-enter,
   .fw-fade-in {
