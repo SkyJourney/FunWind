@@ -443,8 +443,12 @@ export async function registerPostFiles(
   // 5) download 行：按提交的列表对账（同一文件只留第一条；保留已有行的 downloads 计数）
   if (input.attachments === undefined) return { ok: true, uploaded: [] };
   const desired = new Map<number, { gateId: number | null; name: string }>();
+  // 已被正文引用（本帖 inline 行）的文件不再作为下载附件展示（M10.6d 站长反馈：
+  // 插入到内容的图片不应重复出现在帖末附件下载区）。gateRef 内联图同样排除。
+  const inlineFileIds = new Set([...inlineRows.values()].map((r) => r.fileId));
   for (const a of submitted) {
     if (desired.has(a.fileId)) continue;
+    if (inlineFileIds.has(a.fileId)) continue;
     desired.set(a.fileId, {
       gateId: a.gateKey === null ? null : gateIdByKey.get(a.gateKey)!,
       name: sanitizeOriginalName(a.name),

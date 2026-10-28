@@ -1,16 +1,21 @@
 import Link from "next/link";
 import { MessageSquareOff } from "lucide-react";
+import { HoverCard as HoverCardPrimitive } from "radix-ui";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { FollowButton } from "@/components/interact/follow-button";
 import { isFollowing } from "@/lib/interact/follows";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getProfile } from "@/lib/queries/users";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
+import { getWebDb, roles, userRoles } from "@funwind/db";
 import { fileUrl } from "@/lib/files";
 
 /**
- * 悬浮名片（M10.6d，S2 profile 线稿定稿项）：桌面 hover 用户名/头像 → 快速身份卡，
- * 私信发起的关键路径（与公开页按钮同一套 pm_policy 三态前置，判定最终在服务端）。
- * 服务端预取数据（hover-card 内容无第二跳）；注销/无名/无 uid 不启用。
+ * 悬浮名片（S2 profile 线稿定稿项；M10.6d 改用 Radix HoverCard）：
+ * hover 用户名/头像 → 快速身份卡（私信发起的关键路径）。
+ * 此前自写 CSS group-hover 版在鼠标移向卡片的间隙就消失、卡内交互点不到——Radix 的
+ * pointerEnter/Leave 带延迟宽限且卡片与触发器同属悬浮上下文，移动端点按也可开。
+ * 数据在页面渲染期预取（无第二跳）；pm_policy 三态前置与公开页同口径，判定最终在服务端。
  */
 export async function UserHoverCard({
   uid,
@@ -27,7 +32,24 @@ export async function UserHoverCard({
   if (gone || uid === undefined) {
     return <span className="contents">{children}</span>;
   }
-  const [profile, viewer] = await Promise.all([getProfile(uid), getCurrentUser()]);
+  const [profile, viewer, customRoles] = await Promise.all([
+    getProfile(uid),
+    getCurrentUser(),
+    // 特殊组展示（M10.6d 站长反馈：字幕组等团队身份应在名片可见）：
+    // 只取 custom 角色（team-*），builtin（admin/member/guest）不上名片
+    getWebDb()
+      .select({ name: roles.name })
+      .from(userRoles)
+      .innerJoin(roles, eq(roles.key, userRoles.roleKey))
+      .where(
+        and(
+          eq(userRoles.userId, uid),
+          eq(roles.kind, "custom"),
+          or(isNull(userRoles.expiresAt), sql`${userRoles.expiresAt} > NOW()`),
+        ),
+      )
+      .limit(3),
+  ]);
   if (!profile) return <span className="contents">{children}</span>;
   const isSelf = viewer?.id === uid;
   const following = viewer && !isSelf ? await isFollowing(viewer.id, "user", uid) : false;
@@ -52,6 +74,18 @@ export async function UserHoverCard({
           <p className="text-xs text-muted-foreground">注册于 {profile.createdAt.slice(0, 10)}</p>
         </div>
       </div>
+      {customRoles.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {customRoles.map((r) => (
+            <span
+              key={r.name}
+              className="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary"
+            >
+              {r.name}
+            </span>
+          ))}
+        </div>
+      )}
       <p className="text-xs text-muted-foreground">
         主题 {profile.threadCount} · 回复 {profile.postCount} · 粉丝 {profile.followerCount} ·{" "}
         {profile.pointsName} {profile.points}
@@ -83,16 +117,21 @@ export async function UserHoverCard({
     </div>
   );
 
-  // HoverCard 内容在悬停时才挂载 —— 服务端预取由本组件在页面渲染期完成，卡片本体纯静态
   return (
-    <span className="group/hc relative inline-flex" tabIndex={0}>
-      {children}
-      <span
-        role="tooltip"
-        className="pointer-events-none absolute top-full left-0 z-50 mt-2 hidden rounded-xl border bg-card shadow-md transition-opacity group-focus-within/hc:inline-flex group-hover/hc:inline-flex"
+    <HoverCardPrimitive.Root openDelay={150} closeDelay={120}>
+      <HoverCardPrimitive.Trigger asChild>
+        <span className="inline-flex cursor-pointer" tabIndex={0}>
+          {children}
+        </span>
+      </HoverCardPrimitive.Trigger>
+      <HoverCardPrimitive.Content
+        side="bottom"
+        align="start"
+        sideOffset={6}
+        className="z-50 w-64 rounded-xl border bg-card p-0 shadow-md"
       >
-        <span className="pointer-events-auto inline-flex">{card}</span>
-      </span>
-    </span>
+        {card}
+      </HoverCardPrimitive.Content>
+    </HoverCardPrimitive.Root>
   );
 }
