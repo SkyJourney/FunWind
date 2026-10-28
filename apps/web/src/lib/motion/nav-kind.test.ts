@@ -11,12 +11,53 @@ import {
 
 const root = () => document.documentElement;
 
+describe("kindBetween：Tab 切换（站长反馈：同级切换原先判成 fade，几乎看不到动效）", () => {
+  it("起点与终点都是 Tab 根页面且不同：往右 tab-next，往左 tab-prev，顺序 = 首页 板块 动态 搜索 发帖 消息 通知 我的 登录", () => {
+    const order = [
+      "/",
+      "/boards",
+      "/follows",
+      "/search",
+      "/submit",
+      "/messages",
+      "/notifications",
+      "/me",
+      "/login",
+    ];
+    for (let i = 0; i < order.length; i++) {
+      for (let j = 0; j < order.length; j++) {
+        if (i === j) continue;
+        expect(kindBetween(order[i]!, order[j]!)).toBe(j > i ? "tab-next" : "tab-prev");
+      }
+    }
+  });
+
+  it("底部 Tab 的两种实际排列都与全局顺序一致（登录用户：首页 板块 发帖 消息 我的；访客：首页 板块 搜索 登录）", () => {
+    expect(kindBetween("/boards", "/submit")).toBe("tab-next");
+    expect(kindBetween("/messages", "/me")).toBe("tab-next");
+    expect(kindBetween("/boards", "/search")).toBe("tab-next");
+    expect(kindBetween("/login", "/search")).toBe("tab-prev");
+  });
+
+  it("同一个 Tab 不算切换（回到自身 / 仅查询串变化）→ 走层级判定（同层 fade）", () => {
+    expect(kindBetween("/boards", "/boards")).toBe("fade");
+  });
+
+  it("只认 Tab 根页面本身：板块页、主题页、个人页、会话页不是 Tab 切换，仍按层级前进 / 返回", () => {
+    expect(kindBetween("/boards", "/f/3")).toBe("push");
+    expect(kindBetween("/f/3", "/boards")).toBe("pop");
+    expect(kindBetween("/", "/t/9")).toBe("push");
+    expect(kindBetween("/me", "/messages/9")).toBe("push");
+    expect(kindBetween("/messages/9", "/me")).toBe("pop");
+  });
+});
+
 describe("kindBetween（层级表 → 方向）", () => {
   it("目标更深 → push；更浅 → pop；同层或未知 → fade", () => {
     expect(kindBetween("/", "/t/123")).toBe("push");
     expect(kindBetween("/t/123", "/")).toBe("pop");
-    expect(kindBetween("/", "/boards")).toBe("push");
-    expect(kindBetween("/boards", "/search")).toBe("fade");
+    expect(kindBetween("/", "/boards")).toBe("tab-next"); // 首页与 Tab 根页面之间是 Tab 切换
+    expect(kindBetween("/f/3", "/u/9")).toBe("fade"); // 同层且都不是 Tab 根页面
     expect(kindBetween("/u/2", "/u/3")).toBe("fade");
     expect(kindBetween("/t/1", "/t/1")).toBe("fade");
   });
@@ -32,7 +73,7 @@ describe("kindBetween（层级表 → 方向）", () => {
     expect(kindBetween("/f/2/new", "/f/2")).toBe("pop");
     expect(kindBetween("/messages", "/messages/9")).toBe("push");
     expect(kindBetween("/messages/9", "/messages")).toBe("pop");
-    expect(kindBetween("/me", "/messages")).toBe("fade");
+    expect(kindBetween("/me", "/messages")).toBe("tab-prev");
   });
 
   it("未列出的路径取 fade，不抛错", () => {

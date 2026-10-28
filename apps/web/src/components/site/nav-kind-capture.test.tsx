@@ -35,7 +35,7 @@ describe("NavKindCapture（浏览器前进 / 后退的方向）", () => {
     act(() => {
       window.dispatchEvent(new PopStateEvent("popstate"));
     });
-    expect(setNavKind).toHaveBeenCalledWith("push"); // 首页(0) → 板块目录(1)
+    expect(setNavKind).toHaveBeenCalledWith("tab-next"); // 首页 → 板块目录：Tab 切换
   });
 
   it("卸载后不再监听", () => {

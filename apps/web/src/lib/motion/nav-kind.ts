@@ -9,7 +9,7 @@
  * 属性要撑到页面真正提交（慢网络下导航会挂起数秒），所以不能点击后定时清除：
  * 在「地址变化且当次过渡结束」之后才清（releaseNavKind），另有保底超时。
  */
-export type NavKind = "push" | "pop" | "fade" | "expand" | "collapse";
+export type NavKind = "push" | "pop" | "fade" | "expand" | "collapse" | "tab-next" | "tab-prev";
 
 /**
  * 扩散 / 收起的圆：圆心（相对 [data-fw-page] 包装盒子，px）与终点半径（px，覆盖视口所需的最小值）。
@@ -44,8 +44,37 @@ function rank(pathname: string): number | null {
   return null;
 }
 
-/** 方向判定：目标层级更深 → push；更浅 → pop；同层或未知 → fade。参数是 pathname（不含查询串）。 */
+/**
+ * Tab 根页面的左右顺序（底部 Tab 与桌面顶栏的排列：首页 → 板块 → 动态 → 搜索 → 发帖 → 消息 → 通知 → 我的 → 登录）。
+ * 一个访客 / 登录用户实际看到的 Tab 是其中的子集，但相对顺序一致，所以按这张表比较左右即可。
+ * 只认**根页面本身**（精确匹配）：板块页 /f/3、主题页、个人页等不属于 Tab 切换。
+ */
+const TAB_ORDER = [
+  "/",
+  "/boards",
+  "/follows",
+  "/search",
+  "/submit",
+  "/messages",
+  "/notifications",
+  "/me",
+  "/login",
+] as const;
+
+function tabIndex(pathname: string): number {
+  return TAB_ORDER.indexOf(pathname as (typeof TAB_ORDER)[number]);
+}
+
+/**
+ * 方向判定。起点与终点**都是 Tab 根页面**且不同 → 按 Tab 左右顺序：往右切 tab-next（新页自右滑入）、
+ * 往左切 tab-prev（新页自左滑入），幅度比层级前进更大（站长反馈：同级切换原先判成 fade，几乎看不到动效）；
+ * 否则按层级：目标更深 → push；更浅 → pop；同层或未知 → fade。参数是 pathname（不含查询串）。
+ */
 export function kindBetween(from: string, to: string): NavKind {
+  const fromTab = tabIndex(from);
+  const toTab = tabIndex(to);
+  if (fromTab >= 0 && toTab >= 0 && fromTab !== toTab)
+    return toTab > fromTab ? "tab-next" : "tab-prev";
   const a = rank(from);
   const b = rank(to);
   if (a === null || b === null || a === b) return "fade";

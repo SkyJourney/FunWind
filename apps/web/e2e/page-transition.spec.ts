@@ -33,7 +33,7 @@ async function openWater(page: Page) {
 }
 
 test.describe("页面过渡：方向与动画", () => {
-  test("前进（首页 → 板块目录，顶栏链接）：旧页向左退出、新页自右进入，方向属性在过渡结束后清除", async ({
+  test("Tab 切换往右（首页 → 板块目录）：旧页向左滑出、新页自右滑入，方向属性在过渡结束后清除", async ({
     page,
   }) => {
     await installTransitionProbe(page);
@@ -47,11 +47,11 @@ test.describe("页面过渡：方向与动画", () => {
       .poll(async () => (await readTransitions(page)).animations, { timeout: 5000 })
       .toEqual(
         expect.arrayContaining([
-          "::view-transition-old(page)|vt-page-out-left",
-          "::view-transition-new(page)|vt-page-in-right",
+          "::view-transition-old(page)|vt-tab-out-left",
+          "::view-transition-new(page)|vt-tab-in-right",
         ]),
       );
-    expect((await readTransitions(page)).starts).toEqual(["push"]);
+    expect((await readTransitions(page)).starts).toEqual(["tab-next"]);
     await expect.poll(() => navAttr(page), { timeout: 3000 }).toBeNull();
   });
 
@@ -74,11 +74,14 @@ test.describe("页面过渡：方向与动画", () => {
     expect((await readTransitions(page)).starts).toEqual(["pop"]);
   });
 
-  test("同级切换（板块目录 → 搜索）：淡出淡入，没有位移", async ({ page }) => {
+  test("Tab 之间来回切换：往右 tab-next、往左 tab-prev，方向镜像（站长反馈：同级切换原先几乎看不到动效）", async ({
+    page,
+  }) => {
     await installTransitionProbe(page);
     await page.goto("/boards");
     await page.request.get("/search");
     await page.waitForTimeout(500);
+
     await resetTransitions(page);
     await page.locator("header a[href='/search']").first().click();
     await expect(page).toHaveURL(/\/search/);
@@ -86,15 +89,68 @@ test.describe("页面过渡：方向与动画", () => {
       .poll(async () => (await readTransitions(page)).animations, { timeout: 5000 })
       .toEqual(
         expect.arrayContaining([
-          "::view-transition-old(page)|vt-page-fade-out",
-          "::view-transition-new(page)|vt-page-fade-in",
+          "::view-transition-old(page)|vt-tab-out-left",
+          "::view-transition-new(page)|vt-tab-in-right",
         ]),
       );
-    const reading = await readTransitions(page);
-    expect(reading.starts).toEqual(["fade"]);
-    expect(reading.animations.some((a) => /out-left|out-right|in-left|in-right/.test(a))).toBe(
-      false,
+    expect((await readTransitions(page)).starts).toEqual(["tab-next"]);
+    await expect.poll(() => navAttr(page), { timeout: 3000 }).toBeNull();
+
+    await resetTransitions(page);
+    await page.locator("header a[href='/boards']").first().click();
+    await expect(page).toHaveURL(/\/boards/);
+    await expect
+      .poll(async () => (await readTransitions(page)).animations, { timeout: 5000 })
+      .toEqual(
+        expect.arrayContaining([
+          "::view-transition-old(page)|vt-tab-out-right",
+          "::view-transition-new(page)|vt-tab-in-left",
+        ]),
+      );
+    expect((await readTransitions(page)).starts).toEqual(["tab-prev"]);
+  });
+
+  test("Tab 切换的时长看得清：旧页退场 ≥ 250ms、新页进场 ≥ 400ms 且错开一小段（此前同级切换仅 150ms 淡出 + 250ms 淡入）", async ({
+    page,
+  }) => {
+    await installTransitionProbe(page);
+    await page.goto("/boards");
+    await page.request.get("/search");
+    await page.waitForTimeout(500);
+    await page.evaluate(() => {
+      const w = window as unknown as {
+        __tabTiming?: Record<string, { duration: number; delay: number }>;
+      };
+      w.__tabTiming = {};
+      const tick = () => {
+        for (const a of document.getAnimations()) {
+          const name = (a as CSSAnimation).animationName;
+          if (name?.startsWith("vt-tab-")) {
+            const t = a.effect!.getComputedTiming();
+            w.__tabTiming![name] = { duration: Number(t.duration), delay: Number(t.delay) };
+          }
+        }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    await page.locator("header a[href='/search']").first().click();
+    await expect(page).toHaveURL(/\/search/);
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => Object.keys((window as unknown as { __tabTiming: object }).__tabTiming).length,
+        ),
+      )
+      .toBe(2);
+    const timing = await page.evaluate(
+      () =>
+        (window as unknown as { __tabTiming: Record<string, { duration: number; delay: number }> })
+          .__tabTiming,
     );
+    expect(timing["vt-tab-out-left"]!.duration).toBeGreaterThanOrEqual(250);
+    expect(timing["vt-tab-in-right"]!.duration).toBeGreaterThanOrEqual(400);
+    expect(timing["vt-tab-in-right"]!.delay).toBeGreaterThan(0); // 新页错开进场，「滑出再滑入」才看得清
   });
 
   test("仅查询串变化（板块页的前缀筛选）不触发页面过渡", async ({ page }) => {

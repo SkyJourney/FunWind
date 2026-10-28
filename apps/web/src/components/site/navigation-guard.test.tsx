@@ -4,6 +4,7 @@ import type { NavGuardHandlers } from "@/lib/motion/nav-guard";
 import { NavigationGuard } from "./navigation-guard";
 
 const push = vi.fn();
+const replace = vi.fn();
 const toast = vi.hoisted(() => ({
   error: vi.fn(),
   message: vi.fn(),
@@ -23,7 +24,7 @@ vi.mock("@/lib/motion/nav-kind", async (orig) => {
 });
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push }),
+  useRouter: () => ({ push, replace }),
   usePathname: () => pathname,
   useSearchParams: () => new URLSearchParams(search),
 }));
@@ -92,8 +93,10 @@ describe("NavigationGuard", () => {
     expect(navKind.setNavKind).toHaveBeenLastCalledWith("push", null);
     act(() => h().onStart({ from: "/t/9", to: "/f/3?page=2", anchor: null, point: null }));
     expect(navKind.setNavKind).toHaveBeenLastCalledWith("pop", null);
-    act(() => h().onStart({ from: "/boards", to: "/search?q=x", anchor: null, point: null }));
+    act(() => h().onStart({ from: "/f/3", to: "/u/9?x=1", anchor: null, point: null }));
     expect(navKind.setNavKind).toHaveBeenLastCalledWith("fade", null);
+    act(() => h().onStart({ from: "/boards", to: "/search?q=x", anchor: null, point: null }));
+    expect(navKind.setNavKind).toHaveBeenLastCalledWith("tab-next", null); // Tab 根页面之间
   });
 
   it("内容卡片点进主题页：写 expand 与触点圆心", () => {
@@ -111,6 +114,25 @@ describe("NavigationGuard", () => {
       "expand",
       expect.objectContaining({ x: 321, y: 123 }), // jsdom 无包装盒子：pageTop = 0
     );
+  });
+
+  it("失败之后、下一次导航之前把路由器重置一次（replace 到当前显示的页面）；一次失败只重置一次；没有失败不重置", () => {
+    window.history.replaceState(null, "", "/f/3?page=2");
+    render(<NavigationGuard />);
+    const nav = { from: "/f/3?page=2", to: "/t/9", anchor: null, point: null };
+    act(() => h().onStart(nav));
+    expect(replace).not.toHaveBeenCalled(); // 没有失败：不重置
+
+    act(() => h().onFailure({ url: "/t/9", viaClick: true }));
+    expect(replace).not.toHaveBeenCalled(); // 失败当下不重置（断网时会形成「失败→重置→失败」循环）
+
+    act(() => h().onStart(nav)); // 用户再点一次 / 点重试 = 下一次导航
+    // 对着当前显示的页面重置，而不是刷新失败的目标：路由器的规范地址此时已是失败目标，refresh 会再请求那个失败的 URL
+    expect(replace).toHaveBeenCalledTimes(1);
+    expect(replace).toHaveBeenCalledWith("/f/3?page=2", { scroll: false });
+    act(() => h().onStart(nav));
+    expect(replace).toHaveBeenCalledTimes(1); // 只重置一次
+    window.history.replaceState(null, "", "/");
   });
 
   it("导航失败：清掉已写的方向，避免残留到下一次导航", () => {

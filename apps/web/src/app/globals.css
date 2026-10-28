@@ -175,13 +175,16 @@
    template.tsx 用 React <ViewTransition> 给页面内容打 `.fw-page` 类；浏览器同时持有新旧两张快照，进退场都能动。
    方向由 <html data-nav> 决定（lib/motion/nav-kind.ts）：push 前进 / pop 返回 / 其余（fade 或缺省）淡入淡出。 */
 
-/* 位移令牌：移动端 28px，桌面减半（S4 §3.2「桌面克制」） */
+/* 位移令牌：移动端 28px，桌面减半（S4 §3.2「桌面克制」）。
+   Tab 切换（底部导航 / 顶栏同级）要让人看得清「滑出再滑入」，幅度更大：移动端 min(24vw, 96px)，桌面 56px */
 :root {
   --fw-page-shift: 28px;
+  --fw-tab-shift: min(24vw, 96px);
 }
 @media (min-width: 768px) {
   :root {
     --fw-page-shift: 14px;
+    --fw-tab-shift: 56px;
   }
 }
 
@@ -221,6 +224,45 @@
    圆内新页的空白区域会透出旧页（实测：列表页的「每日签到」与主题标题叠在一起），所以包装 div 必须自带背景 */
 [data-fw-page] {
   background-color: var(--background);
+}
+
+/* tab-next / tab-prev Tab 切换（同级，按左右顺序）：旧页向反方向滑出（250ms），新页错开一小段再滑入（400ms，从全透明），
+   总时长约 450ms，「滑出再滑入」才看得清；此前同级切换是 150ms 淡出 + 250ms 淡入，没有位移，肉眼几乎看不见 */
+:root[data-nav="tab-next"]::view-transition-old(.fw-page-out) {
+  animation: var(--fw-dur-base) var(--fw-ease-exit) both vt-tab-out-left;
+}
+:root[data-nav="tab-next"]::view-transition-new(.fw-page-in) {
+  animation: var(--fw-dur-slow) var(--fw-ease-out) calc(var(--fw-dur-fast) / 2) both vt-tab-in-right;
+}
+:root[data-nav="tab-prev"]::view-transition-old(.fw-page-out) {
+  animation: var(--fw-dur-base) var(--fw-ease-exit) both vt-tab-out-right;
+}
+:root[data-nav="tab-prev"]::view-transition-new(.fw-page-in) {
+  animation: var(--fw-dur-slow) var(--fw-ease-out) calc(var(--fw-dur-fast) / 2) both vt-tab-in-left;
+}
+@keyframes vt-tab-out-left {
+  to {
+    translate: calc(var(--fw-tab-shift) * -1) 0;
+    opacity: 0;
+  }
+}
+@keyframes vt-tab-out-right {
+  to {
+    translate: var(--fw-tab-shift) 0;
+    opacity: 0;
+  }
+}
+@keyframes vt-tab-in-right {
+  from {
+    translate: var(--fw-tab-shift) 0;
+    opacity: 0;
+  }
+}
+@keyframes vt-tab-in-left {
+  from {
+    translate: calc(var(--fw-tab-shift) * -1) 0;
+    opacity: 0;
+  }
 }
 
 /* expand 触点扩散：卡片 → 主题页。新页以点击点为圆心圆形展开，旧页静止垫底不动。
