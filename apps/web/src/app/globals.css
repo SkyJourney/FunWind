@@ -171,6 +171,8 @@ html[data-vt="expand"]::view-transition-new(root) {
 .content-md {
   text-indent: 0;
   max-width: 68ch;
+  /* 旧帖转义残留（裸反斜杠等）与长英文串不得撑破楼层（M10.6d 站长实机反馈） */
+  overflow-wrap: anywhere;
 }
 .content-md img {
   border-radius: var(--fw-radius-md);
