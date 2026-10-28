@@ -33,6 +33,11 @@ const DETECTORS: Record<
     why: "列表后紧跟的文字被吞进最后一个列表项（转换器缺空行）",
     hit: (md) => /^- [^\n]*\n(?!- |\s*$|\s{2,})/m.test(withoutFences(md)),
   },
+  headingAppeared: {
+    allowed: 0,
+    why: "迁移来的旧帖渲染后不应出现标题标签（h1–h6）：转换器已把行首的 # 转义；出现说明有漏转义的 # 或原始 HTML 标题。M10.8 起净化白名单放行标题（此前被剥成纯文本），本探测器守住「旧帖形状不变」",
+    hit: (_md, html) => /<h[1-6]\b/i.test(html),
+  },
   softBreakCollapsed: {
     allowed: 0,
     why: "段落里的单个换行没有变成 <br>，浏览器里塌成空格（渲染器缺 remark-breaks）。正文含原生 HTML 块（<div> / <p> / <table>）的帖子排除：HTML 里的换行本来就按空白折叠，与旧站显示一致（迁移库 7 篇，post:42268–42275）",

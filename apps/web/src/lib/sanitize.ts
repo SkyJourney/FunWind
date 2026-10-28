@@ -55,6 +55,15 @@ export function sanitizeSchema(): Schema {
     tagNames: [
       "p",
       "br",
+      // 标题：编辑器的「标题」工具与 Markdown 的 # 语法都会产出 h1–h6；此前不在白名单里，发布后被剥成纯文本
+      // （增删改查审计里「查」发布后渲染时发现）。不放行任何属性：没有 id / class / style，不能做锚点劫持或样式注入。
+      // 旧帖不受影响：转换器已把行首的 # 转义（syntax-contract「行首的 # - > 1. + 不得变成标题」）
+      "h1",
+      "h2",
+      "h3",
+      "h4",
+      "h5",
+      "h6",
       "hr",
       "strong",
       "em",

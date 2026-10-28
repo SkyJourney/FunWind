@@ -2,6 +2,7 @@ import type { marked as DefaultMarked } from "marked";
 import { Markdown } from "@tiptap/markdown";
 import Image from "@tiptap/extension-image";
 import { HardBreak } from "@tiptap/extension-hard-break";
+import Paragraph from "@tiptap/extension-paragraph";
 import { TableKit } from "@tiptap/extension-table";
 import StarterKit from "@tiptap/starter-kit";
 import { CodeBlock } from "./code-block";
@@ -17,6 +18,24 @@ const LineBreak = HardBreak.extend({
 });
 
 /**
+ * 段落：官方的 Markdown 解析会把「只含一张图片的段落」拆成顶层的图片节点（为块级图片设计）。
+ * 我们的图片是**行内**节点（表情图要和文字同一行），顶层只能放块，拆出来的文档不合法——
+ * 编辑页里点任何地方都会抛 `contentMatchAt on a node with invalid content`，编辑器不再响应
+ * （增删改查审计发现：独占一行的图片在旧帖和新帖里都极其常见）。所以这里不拆，图片留在自己的段落里；
+ * 其余情形（空段落标记等）沿用官方实现。序列化不变：只含一张图的段落仍写成 `![](url)`。
+ */
+const SafeParagraph = Paragraph.extend({
+  parseMarkdown(token, helpers) {
+    const tokens = token.tokens ?? [];
+    if (tokens.length === 1 && tokens[0]?.type === "image") {
+      return helpers.createNode("paragraph", undefined, helpers.parseInline(tokens));
+    }
+    // 其余情形沿用官方实现（this.parent 就是被覆盖的那个 parseMarkdown）
+    return this.parent!(token, helpers);
+  },
+});
+
+/**
  * 编辑器的扩展集合（M6.3）。每次调用返回新实例，避免多个编辑器共享可变状态。
  * 图片只做展示与往返（插入与上传在 M6.4）；表格用官方 TableKit。
  */
@@ -27,6 +46,8 @@ export function editorExtensions(options: { conditions?: readonly GateConditionO
   return [
     StarterKit.configure({
       hardBreak: false,
+      // 段落换成不拆「只含图片的段落」的版本（见 SafeParagraph）
+      paragraph: false,
       // 代码块换成带语言下拉与高亮的版本（见 code-block.ts）
       codeBlock: false,
       // Markdown 没有下划线语法（序列化会写出 ++x++，渲染器不认），所以不提供
@@ -34,6 +55,7 @@ export function editorExtensions(options: { conditions?: readonly GateConditionO
       // 链接只由作者显式设置：不自动识别（自动链接会把紧跟 URL 的中文吞进去，见硬约定 6）、不在粘贴时转换、点击不跳走
       link: { openOnClick: false, autolink: false, linkOnPaste: false, defaultProtocol: "https" },
     }),
+    SafeParagraph,
     LineBreak,
     Markdown.configure({ marked: parser }),
     CodeBlock,

@@ -187,3 +187,22 @@ describe("harden（HTML 级净化）", () => {
     expect(out).toContain("正文");
   });
 });
+
+describe("标题标签（增删改查审计发现：发布后被剥成纯文本）", () => {
+  it("h1–h6 放行，且不带任何属性", () => {
+    for (const n of [1, 2, 3, 4, 5, 6]) {
+      expect(renderHtml(`<h${n}>标题</h${n}>`)).toBe(`<h${n}>标题</h${n}>`);
+    }
+    // id / class / style / 事件属性一律剥掉（不能做锚点劫持、样式注入）
+    const out = renderHtml(
+      '<h2 id="x" class="fixed inset-0" style="color:red" onclick="alert(1)">标题</h2>',
+    );
+    expect(out).toBe("<h2>标题</h2>");
+  });
+
+  it("Markdown 的 # 语法渲染成标题；行首被转义的 \\# 仍是普通文字（旧帖不受影响）", () => {
+    expect(renderMarkdown("## 章节标题\n\n正文")).toBe("<h2>章节标题</h2>\n<p>正文</p>");
+    expect(renderMarkdown("\\# 转义的")).toBe("<p># 转义的</p>");
+    expect(renderMarkdown("#标签 不是标题")).toBe("<p>#标签 不是标题</p>");
+  });
+});
