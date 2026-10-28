@@ -5,7 +5,7 @@ import { USERS, loginAs } from "./support/session";
 import { bodyEditor } from "./support/editor";
 
 /**
- * 移动端回复固定条（M10.8 Step 8，375px，只在 mobile 项目运行）：
+ * 移动端回复悬浮按钮（M10.8 Step 8，375px，只在 mobile 项目运行）：
  * 悬在底部 Tab 栏上方；点击滚到回复区并聚焦编辑器；与回复区互斥（进入即收起、上滑再出现）；
  * 减少动态效果下无过渡；访客与锁帖不出现。主题与帖子用 SQL 直接造（id 段 960811 起，与其它用例不重叠）。
  */
@@ -20,8 +20,8 @@ test.beforeAll(async () => {
     await q.exec("DELETE FROM threads WHERE id IN (?, ?)", [T, T_LOCKED]);
     await q.exec(
       `INSERT INTO threads (id, forum_id, author_id, title, first_post_id, state, is_locked, created_at, last_posted_at)
-       VALUES (?, ?, ?, '[E2E] 回复固定条的主题', ?, 'visible', 0, '2026-10-21 10:00:00', '2026-10-21 10:00:00'),
-              (?, ?, ?, '[E2E] 回复固定条的锁帖', ?, 'visible', 1, '2026-10-21 10:00:00', '2026-10-21 10:00:00')`,
+       VALUES (?, ?, ?, '[E2E] 回复悬浮按钮的主题', ?, 'visible', 0, '2026-10-21 10:00:00', '2026-10-21 10:00:00'),
+              (?, ?, ?, '[E2E] 回复悬浮按钮的锁帖', ?, 'visible', 1, '2026-10-21 10:00:00', '2026-10-21 10:00:00')`,
       [
         T,
         FIX.compose.id,
@@ -56,9 +56,9 @@ test.afterAll(async () => {
   });
 });
 
-const bar = (page: import("@playwright/test").Page) => page.getByTestId("reply-bar");
+const bar = (page: import("@playwright/test").Page) => page.getByTestId("reply-fab");
 
-test("会员：固定条悬在底部 Tab 上方；点击滚到回复区并聚焦编辑器；与回复区互斥，上滑再出现", async ({
+test("会员：按钮悬在底部 Tab 上方；点击滚到回复区并聚焦编辑器；与回复区互斥，上滑再出现", async ({
   page,
   context,
 }) => {
@@ -67,28 +67,36 @@ test("会员：固定条悬在底部 Tab 上方；点击滚到回复区并聚焦
   await bodyEditor(page).waitFor(); // 编辑器已就绪
   await expect(bar(page)).not.toHaveAttribute("inert", "");
 
-  // 位置：在底部 Tab 栏之上，不重叠
+  // 位置与尺寸：圆形，在右下角、底部 Tab 栏之上不重叠，触控目标不小于 44px，离右缘有间距
   const tab = await page.getByRole("navigation", { name: "移动端主导航" }).boundingBox();
   const b = await bar(page).boundingBox();
+  expect(b!.width).toBeGreaterThanOrEqual(44);
+  expect(Math.abs(b!.width - b!.height)).toBeLessThanOrEqual(1);
   expect(b!.y + b!.height).toBeLessThanOrEqual(tab!.y + 1);
-  expect(b!.x).toBeGreaterThanOrEqual(0);
-  expect(b!.x + b!.width).toBeLessThanOrEqual(375);
-  // 触控目标不小于 44px
-  const btn = await page.getByRole("button", { name: "写回复" }).boundingBox();
-  expect(btn!.height).toBeGreaterThanOrEqual(44);
+  expect(b!.x + b!.width).toBeLessThanOrEqual(375 - 8);
+  expect(b!.x).toBeGreaterThan(375 / 2); // 靠右
 
-  // 点击：滚到回复区、聚焦编辑器、固定条收起
-  await page.getByRole("button", { name: "写回复" }).click();
+  // 回归（站长实测）：没有整行背景层遮挡浏览——按钮左侧的区域不被任何固定元素盖住
+  const covered = await page.evaluate(() => {
+    const y = window.innerHeight - 56 - 16 - 24; // 按钮同一水平线
+    const el = document.elementFromPoint(40, y);
+    return !!el?.closest('[data-testid="reply-fab"], nav[aria-label="移动端主导航"]');
+  });
+  expect(covered, "按钮左侧不应被固定元素遮挡").toBe(false);
+
+  // 点击：滚到回复区、聚焦编辑器、按钮收起
+  // 点击：立即跳到回复区并聚焦编辑器（站长拍板：立即聚焦；平滑滚动与聚焦不可兼得，见 reply-fab.tsx）
+  await page.getByRole("button", { name: "回复本帖" }).click();
   await expect(page.locator("#reply")).toBeInViewport();
   await expect(bodyEditor(page)).toBeFocused();
   await expect(bar(page)).toHaveAttribute("inert", "");
 
-  // 上滑离开回复区：固定条回来
+  // 上滑离开回复区：按钮回来
   await page.evaluate(() => window.scrollTo(0, 0));
   await expect(bar(page)).not.toHaveAttribute("inert", "");
 });
 
-test("减少动态效果：固定条显隐没有过渡", async ({ page, context }) => {
+test("减少动态效果：按钮显隐没有过渡", async ({ page, context }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await loginAs(context, USERS.member);
   await page.goto(`/t/${T}`);
@@ -103,13 +111,13 @@ test("减少动态效果：固定条显隐没有过渡", async ({ page, context 
   expect(normal).toContain("opacity");
 });
 
-test("访客与锁帖：不出现固定条", async ({ page, context, browser }) => {
+test("访客与锁帖：不出现按钮", async ({ page, context, browser }) => {
   // 访客
   await page.goto(`/t/${T}`);
-  await expect(page.getByTestId("reply-bar")).toHaveCount(0);
+  await expect(page.getByTestId("reply-fab")).toHaveCount(0);
   // 锁帖（会员）
   await loginAs(context, USERS.member);
   await page.goto(`/t/${T_LOCKED}`);
-  await expect(page.getByTestId("reply-bar")).toHaveCount(0);
+  await expect(page.getByTestId("reply-fab")).toHaveCount(0);
   void browser;
 });

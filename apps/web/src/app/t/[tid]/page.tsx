@@ -15,7 +15,7 @@ import { tagsOfThreads } from "@/lib/interact/tags";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { ReplyComposer } from "@/components/posting/reply-composer";
-import { ReplyBar } from "@/components/posting/reply-bar";
+import { ReplyFab } from "@/components/posting/reply-fab";
 import { PostActionLink } from "@/components/posting/post-action-link";
 import { deletePostAction, restorePostAction } from "@/app/actions/posts";
 import { reportPostAction } from "@/app/actions/reports";
@@ -412,8 +412,8 @@ export default async function ThreadPage({ params, searchParams }: Params) {
           </Card>
         ) : (
           <>
-            {/* 移动端固定条：只在可以回复时出现，与本区互斥（进入本区即收起）；放在 Card 外，避免祖先样式影响 fixed */}
-            <ReplyBar />
+            {/* 移动端回复悬浮按钮：只在可以回复时出现，与本区互斥（进入本区即隐藏）；放在 Card 外，避免祖先样式影响 fixed */}
+            <ReplyFab />
             <Card>
               <CardContent className="space-y-3 pt-6">
                 {replyEntry.reviewHint && (
