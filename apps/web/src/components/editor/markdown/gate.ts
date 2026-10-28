@@ -1,5 +1,8 @@
 import { Node, mergeAttributes, type JSONContent } from "@tiptap/core";
 import { listConditionUi } from "@funwind/content";
+import { Plugin, PluginKey } from "@tiptap/pm/state";
+import type { Node as PMNode } from "@tiptap/pm/model";
+import { toast } from "sonner";
 
 /**
  * 门控节点（M6.3）：编辑器里的 `:::gate{key="…" unlock="…" price="…"}` 容器块。
@@ -39,6 +42,18 @@ export function defaultGateAttrs(
 
 const RESERVED = new Set(["key", "unlock", "match"]);
 
+/** 位置不合法的锁定内容数量：语法要求它只能在最外层（不能嵌套、不能放进引用 / 列表等块里） */
+export function misplacedGates(doc: PMNode): number {
+  let n = 0;
+  doc.descendants((node, _pos, parent) => {
+    if (node.type.name === "gate" && parent !== doc) n++;
+  });
+  return n;
+}
+
+const MISPLACED_MESSAGE = "锁定内容只能放在最外层，不能放进引用、列表或另一个锁定内容里";
+const gatePlacementKey = new PluginKey("gatePlacement");
+
 const ATTR_RE = /([A-Za-z_][\w-]*)="([^"]*)"/g;
 const GATE_BLOCK_RE = /^(:{3,})gate\{([^}\n]*)\}[ \t]*\n([\s\S]*?)\n\1[ \t]*(?:\n|$)/;
 
@@ -63,6 +78,50 @@ export const Gate = Node.create<{ conditions: readonly GateConditionOption[] }>(
   content: "block+",
   defining: true,
   isolating: true,
+
+  /**
+   * 空的锁定内容里按 Backspace / Delete：删除整块（没有这条路径时，空块删不掉：isolating 阻止退格合并出去，
+   * 头部又是不可编辑区）。有内容的块用头部的「删除」按钮。
+   */
+  addKeyboardShortcuts() {
+    const removeIfEmpty = () => {
+      const { selection } = this.editor.state;
+      if (!selection.empty) return false;
+      const $from = selection.$from;
+      for (let d = $from.depth; d > 0; d--) {
+        const node = $from.node(d);
+        if (node.type.name !== "gate") continue;
+        const only = node.childCount === 1 ? node.firstChild : null;
+        if (!only || only.type.name !== "paragraph" || only.content.size !== 0) return false;
+        return this.editor
+          .chain()
+          .deleteRange({ from: $from.before(d), to: $from.after(d) })
+          .run();
+      }
+      return false;
+    };
+    return { Backspace: removeIfEmpty, Delete: removeIfEmpty };
+  },
+
+  /**
+   * 位置约束：拒绝任何会让锁定内容出现在非最外层的编辑（粘贴进别的块、套引用 / 列表、在块内再插一个）。
+   * 只拦「新增」违规——文档里原本已有的违规（旧数据）不阻塞其它编辑；保存时服务端仍会按语法拒绝。
+   */
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: gatePlacementKey,
+        filterTransaction(tr, state) {
+          if (!tr.docChanged) return true;
+          if (misplacedGates(tr.doc) > misplacedGates(state.doc)) {
+            toast.error(MISPLACED_MESSAGE);
+            return false;
+          }
+          return true;
+        },
+      }),
+    ];
+  },
 
   addAttributes() {
     return {
@@ -174,7 +233,21 @@ export const Gate = Node.create<{ conditions: readonly GateConditionOption[] }>(
       const content = document.createElement("div");
       content.className = "fw-gate-content";
 
-      head.append(lock, select, fields);
+      // 删除整块（可用撤销找回）：头部不可编辑，没有这个入口时有内容的块无法单独删除
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "fw-gate-remove";
+      remove.textContent = "删除";
+      remove.setAttribute("aria-label", "删除锁定内容");
+      remove.addEventListener("mousedown", (e) => e.preventDefault());
+      remove.addEventListener("click", () => {
+        const pos = getPos();
+        if (typeof pos !== "number") return;
+        editor.view.dispatch(editor.view.state.tr.delete(pos, pos + node.nodeSize));
+        editor.view.focus();
+      });
+
+      head.append(lock, select, fields, remove);
       dom.append(head, content);
 
       const patch = (attrs: Partial<GateAttrs>) => {

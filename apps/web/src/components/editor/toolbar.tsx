@@ -153,7 +153,16 @@ export function EditorToolbar({
       heading: HEADINGS.find((h) => e.isActive("heading", { level: h.level }))?.level ?? 0,
       inList: e.isActive("listItem"),
       // 代码块内不能加粗 / 斜体 / 链接等：置灰而不是点了没反应
-      canMark: e.can().toggleBold(),
+      // 每个按钮用自己的可用性判断：代码标记里不允许再加粗等（Code 标记排斥其它标记），
+      // 若共用一个判断，光标在行内代码里时连「行内代码」按钮自己也被置灰，就取消不了了（增删改查审计发现）。
+      // 「已激活」时一律可点：点它就是取消
+      canBold: e.isActive("bold") || e.can().toggleBold(),
+      canItalic: e.isActive("italic") || e.can().toggleItalic(),
+      canStrike: e.isActive("strike") || e.can().toggleStrike(),
+      canCode: e.isActive("code") || e.can().toggleCode(),
+      // 标题是块级设置，不受标记限制：只有在能转换时才可用（代码块里也可以改回标题 / 正文）
+      canHeading:
+        e.isActive("heading") || e.can().setHeading({ level: 1 }) || e.can().setParagraph(),
       canLink: e.can().setLink({ href: "https://example.com" }) || e.isActive("link"),
       canSink: e.can().sinkListItem("listItem"),
       canLift: e.can().liftListItem("listItem"),
@@ -165,6 +174,34 @@ export function EditorToolbar({
   const chain = () => editor.chain().focus();
   /** 插入前把选区折叠到末尾，避免替换选中的文字 */
   const afterSelection = () => chain().setTextSelection(editor.state.selection.to);
+  /**
+   * 插入锁定内容：语法要求它只能在最外层，所以总是插在光标所在**最外层块**之后（光标在引用 / 列表 / 另一个锁定内容里也一样），
+   * 不在当前位置硬塞——否则会生成语法不允许的嵌套；当前最外层块是空段落时直接替换它（避免留一个多余的空行）。
+   * 插入后光标落进新块的正文里，可以直接输入。
+   */
+  const insertGate = () => {
+    const { $to } = editor.state.selection;
+    let from = $to.pos;
+    let to = $to.pos;
+    if ($to.depth > 0) {
+      const top = $to.node(1);
+      const start = $to.before(1);
+      const end = $to.after(1);
+      const emptyParagraph = top.type.name === "paragraph" && top.content.size === 0;
+      from = emptyParagraph ? start : end;
+      to = end;
+    }
+    const key = nextGateKey(editor.getJSON());
+    chain()
+      .insertContentAt(
+        { from, to },
+        { type: "gate", attrs: defaultGateAttrs(key), content: [{ type: "paragraph" }] },
+      )
+      .setTextSelection(from + 2)
+      .run();
+    onInsertGate?.();
+  };
+
   const mod = modLabel();
 
   // 链接弹层：⌘/Ctrl+K 或点按钮打开；打开时带出当前链接地址
@@ -231,7 +268,7 @@ export function EditorToolbar({
                   variant={state.heading ? "secondary" : "ghost"}
                   aria-label="标题"
                   aria-pressed={state.heading > 0}
-                  disabled={!state.canMark}
+                  disabled={!state.canHeading}
                   onMouseDown={(e) => e.preventDefault()}
                   className="min-h-11 min-w-11 shrink-0 gap-0.5 px-2 sm:min-h-9 sm:min-w-9"
                 >
@@ -259,7 +296,7 @@ export function EditorToolbar({
           label="加粗"
           shortcut={`${mod}B`}
           active={state.bold}
-          disabled={!state.canMark}
+          disabled={!state.canBold}
           onClick={() => chain().toggleBold().run()}
         />
         <ToolButton
@@ -267,7 +304,7 @@ export function EditorToolbar({
           label="斜体"
           shortcut={`${mod}I`}
           active={state.italic}
-          disabled={!state.canMark}
+          disabled={!state.canItalic}
           onClick={() => chain().toggleItalic().run()}
         />
         <ToolButton
@@ -275,7 +312,7 @@ export function EditorToolbar({
           label="删除线"
           shortcut={`${mod}⇧S`}
           active={state.strike}
-          disabled={!state.canMark}
+          disabled={!state.canStrike}
           onClick={() => chain().toggleStrike().run()}
         />
         <ToolButton
@@ -283,7 +320,7 @@ export function EditorToolbar({
           label="行内代码"
           shortcut={`${mod}E`}
           active={state.code}
-          disabled={!state.canMark}
+          disabled={!state.canCode}
           onClick={() => chain().toggleCode().run()}
         />
         <Popover open={linkOpen} onOpenChange={onLinkOpenChange}>
@@ -439,21 +476,7 @@ export function EditorToolbar({
           label="分隔线"
           onClick={() => afterSelection().setHorizontalRule().run()}
         />
-        <ToolButton
-          icon={Lock}
-          label="插入锁定内容"
-          onClick={() => {
-            const key = nextGateKey(editor.getJSON());
-            afterSelection()
-              .insertContent({
-                type: "gate",
-                attrs: defaultGateAttrs(key),
-                content: [{ type: "paragraph" }],
-              })
-              .run();
-            onInsertGate?.();
-          }}
-        />
+        <ToolButton icon={Lock} label="插入锁定内容" onClick={insertGate} />
 
         <Divider />
         <ToolButton

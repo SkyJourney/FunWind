@@ -230,3 +230,36 @@ describe("工具栏：链接弹层的其余分支", () => {
     );
   });
 });
+
+describe("工具栏：行内代码可以取消（增删改查审计发现的缺陷）", () => {
+  it("应用行内代码后，该按钮仍可点（按下状态），再点一次取消；此时加粗等其它标记不可用", async () => {
+    const { container } = await mount("文字");
+    await selectAll();
+    await press("行内代码");
+    await waitFor(() => expect(hidden(container).value).toBe("`文字`"));
+    const code = screen.getByRole("button", { name: "行内代码" });
+    expect(code).toHaveAttribute("aria-pressed", "true");
+    expect(code).toBeEnabled(); // 回归：曾与加粗共用禁用判断，在行内代码里连自己也被置灰
+    expect(screen.getByRole("button", { name: "加粗" })).toBeDisabled(); // 代码标记排斥其它标记
+    await press("行内代码");
+    await waitFor(() => expect(hidden(container).value).toBe("文字"));
+    expect(screen.getByRole("button", { name: "加粗" })).toBeEnabled();
+  });
+
+  it("加粗 / 斜体 / 删除线也一样：已激活时按钮可点，点一下取消", async () => {
+    for (const [name, wrapped] of [
+      ["加粗", "**文字**"],
+      ["斜体", "*文字*"],
+      ["删除线", "~~文字~~"],
+    ] as const) {
+      const { container, unmount } = await mount("文字");
+      await selectAll();
+      await press(name);
+      await waitFor(() => expect(hidden(container).value).toBe(wrapped));
+      expect(screen.getByRole("button", { name })).toBeEnabled();
+      await press(name);
+      await waitFor(() => expect(hidden(container).value).toBe("文字"));
+      unmount();
+    }
+  });
+});

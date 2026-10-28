@@ -557,7 +557,10 @@ html[data-vt="expand"]::view-transition-new(root) {
 /* 标题 / 分隔线 / 行内代码：此前正文里这三样都被 preflight 重置成了普通文字（M10.8 Step 1 实测），编辑区与帖子正文共用 */
 .content-md h1,
 .content-md h2,
-.content-md h3 {
+.content-md h3,
+.content-md h4,
+.content-md h5,
+.content-md h6 {
   margin: 1rem 0 0.5rem;
   font-weight: 700;
   line-height: 1.35;
@@ -570,6 +573,11 @@ html[data-vt="expand"]::view-transition-new(root) {
 }
 .content-md h3 {
   font-size: 1.125rem;
+}
+.content-md h4,
+.content-md h5,
+.content-md h6 {
+  font-size: 1rem;
 }
 .content-md hr {
   margin: 1rem 0;
@@ -766,6 +774,17 @@ html[data-vt="expand"]::view-transition-new(root) {
 }
 .fw-gate-head input {
   width: 5.5rem;
+}
+.fw-gate-remove {
+  margin-left: auto;
+  height: 2rem;
+  border-radius: 0.375rem;
+  padding: 0 0.625rem;
+  font-size: 0.8125rem;
+  color: var(--destructive);
+}
+.fw-gate-remove:hover {
+  background: color-mix(in srgb, var(--destructive) 10%, transparent);
 }
 .fw-gate-content {
   padding: 0.25rem 0.75rem;
