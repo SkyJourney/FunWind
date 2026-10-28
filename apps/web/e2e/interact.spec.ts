@@ -41,8 +41,11 @@ test("点赞 → 作者收到 post.liked 通知；再点取消", async ({ page, 
     await loginAs(teamCtx, USERS.team);
     await teamPage.goto("/t/900001");
     await teamPage.locator('form[data-testid="like-900101"] button').click();
-    // 计数出现（toggle 后页面 revalidate；900101=首帖）
-    await expect(teamPage.locator('form[data-testid="like-900101"] button')).toHaveText(/\s*1\s*/);
+    // 计数出现（900101=首帖）。M10.7 起点赞是乐观更新：数字**立即**出现，不再代表服务端已处理完；
+    // 必须等 Server Action 真正完成（按钮 aria-busy 回到 false）再往下，否则下面关闭上下文会把在途请求中止、点赞没落库
+    const btn = teamPage.locator('form[data-testid="like-900101"] button');
+    await expect(btn).toHaveText(/\s*1\s*/);
+    await expect(btn).toHaveAttribute("aria-busy", "false", { timeout: 8000 });
     await teamCtx.close();
 
     // alice 的通知页出现「赞了你的帖子」

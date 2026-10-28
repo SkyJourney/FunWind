@@ -235,6 +235,11 @@
   .sk {
     animation: none;
   }
+  [data-slot="switch"],
+  [data-slot="switch-thumb"],
+  [data-testid="segmented-indicator"] {
+    transition: none;
+  }
   /* L1 微交互：减少动态效果下全部取消（状态变化仍然立即呈现，只是没有动画） */
   .fw-pop,
   .fw-roll-in-up,

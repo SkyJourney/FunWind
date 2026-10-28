@@ -27,11 +27,17 @@ test("设置中心：hub / 资料 / 通知偏好 / 邮箱校验", async ({ page 
   await resp;
   await expect(page.getByText("资料已保存")).toBeVisible();
 
-  // 通知偏好：翻转首行按钮文案（已开启 → 已关闭）
+  // 通知偏好：翻转首个开关（M10.7 起是真正的 Switch：role=switch + aria-checked；站内通知默认开启）
   await page.goto("/settings/notifications");
-  const firstToggle = page.getByRole("button", { name: /已开启/ }).first();
+  const firstToggle = page.getByRole("switch", { name: /站内通知/ }).first();
+  // 不假定初始状态（库里可能留着上一轮的结果）：读初始值，断言点击后翻转，再复位
+  const initial = await firstToggle.getAttribute("aria-checked");
   await firstToggle.click();
-  await expect(page.getByRole("button", { name: /已关闭/ }).first()).toBeVisible();
+  await expect(firstToggle).toHaveAttribute("aria-checked", initial === "true" ? "false" : "true");
+  await expect(firstToggle).toBeEnabled({ timeout: 6000 });
+  await firstToggle.click();
+  await expect(firstToggle).toHaveAttribute("aria-checked", initial!);
+  await expect(firstToggle).toBeEnabled({ timeout: 6000 });
 
   // 邮箱：当前密码错误 → 服务端错误回显（不做真实换绑，避免污染夹具邮箱断言）
   await page.goto("/settings/email");

@@ -220,3 +220,171 @@ test.describe("关注", () => {
     await expect(followBtn(page)).toContainText("加入关注");
   });
 });
+
+/* ---------------- 5c Tab 滑动指示器 ---------------- */
+
+test.describe("分段控件的滑动指示器（个人主页「主题 / 回复」）", () => {
+  const PROFILE = `/u/${USERS.alice}`;
+  const indicator = (page: Page) => page.getByTestId("segmented-indicator");
+  /** 指示器当前的横向位移（px，取自 computed transform 矩阵） */
+  const indicatorX = (page: Page) =>
+    indicator(page).evaluate((el) => new DOMMatrix(getComputedStyle(el).transform).m41);
+
+  test("点击「回复」：指示器立即开始滑动（服务端还在 1.5s 延迟里），并走 spring 过渡；提交后停在第二格", async ({
+    page,
+  }) => {
+    await page.goto(PROFILE);
+    await expect(indicator(page)).toBeVisible();
+    expect(await indicatorX(page)).toBe(0);
+    await page.request.get(`${PROFILE}?tab=replies`); // 热身
+    await page.route(/\/u\/\d+/, async (route) => {
+      const h = route.request().headers();
+      if (h["rsc"] && !h["next-router-prefetch"]) await new Promise((r) => setTimeout(r, 1500));
+      await route.continue().catch(() => {});
+    });
+
+    await page.getByRole("link", { name: /^回复/ }).click();
+    await page.waitForTimeout(350);
+    // 乐观：URL 还没变，指示器已经离开第一格
+    expect(page.url()).not.toContain("tab=replies");
+    expect(await indicatorX(page)).toBeGreaterThan(0);
+    const transitions = await page.evaluate(() =>
+      document
+        .getAnimations()
+        .filter((a) => a instanceof CSSTransition)
+        .map((a) => ({
+          prop: (a as CSSTransition).transitionProperty,
+          fn: getComputedStyle(document.querySelector('[data-testid="segmented-indicator"]')!)
+            .transitionTimingFunction,
+        })),
+    );
+    expect(transitions.some((t) => t.prop === "transform")).toBe(true);
+    expect(transitions[0]!.fn).toContain("cubic-bezier(0.34, 1.56"); // spring 过冲曲线
+
+    await expect(page).toHaveURL(/tab=replies/, { timeout: 8000 });
+    await expect(page.getByRole("link", { name: /^回复/ })).toHaveAttribute("aria-current", "page");
+    await expect.poll(() => indicatorX(page)).toBeGreaterThan(100); // 停在第二格（容器约半宽）
+  });
+
+  test("切回「主题」后指示器回到第一格（不被陈旧的点击记录劫持）", async ({ page }) => {
+    await page.goto(`${PROFILE}?tab=replies`);
+    await page.getByRole("link", { name: /^主题/ }).click();
+    await expect(page).not.toHaveURL(/tab=replies/);
+    await expect.poll(() => indicatorX(page)).toBe(0);
+  });
+
+  test("减少动态效果：指示器位置照常切换，但没有过渡动画", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto(PROFILE);
+    await page.getByRole("link", { name: /^回复/ }).click();
+    await expect(page).toHaveURL(/tab=replies/);
+    // 只数指示器自己的过渡（页面上别的元素如链接颜色本来就有 150ms 的过渡，与本功能无关）
+    const own = await indicator(page).evaluate(
+      (el) => el.getAnimations().filter((a) => a instanceof CSSTransition).length,
+    );
+    expect(own).toBe(0);
+    expect(await indicatorX(page)).toBeGreaterThan(100);
+  });
+});
+
+/* ---------------- 5d 开关 ---------------- */
+
+test.describe("通知偏好的开关（Switch）", () => {
+  test("点击立即切换（服务端 PATCH 延迟 1.2s），滑块用 spring 曲线滑动；再点恢复原状", async ({
+    page,
+    context,
+  }) => {
+    await loginAs(context, USERS.member);
+    await page.goto("/settings/notifications");
+    const sw = page.getByRole("switch", { name: /站内通知/ }).first();
+    await expect(sw).toBeVisible();
+    const initial = await sw.getAttribute("aria-checked");
+    await page.route("**/api/settings/preferences", async (route) => {
+      await new Promise((r) => setTimeout(r, 1200));
+      await route.continue().catch(() => {});
+    });
+
+    await sw.click();
+    await expect(sw).toHaveAttribute("aria-checked", initial === "true" ? "false" : "true", {
+      timeout: 600,
+    });
+    const thumb = sw.locator('[data-slot="switch-thumb"]');
+    const style = await thumb.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return {
+        fn: cs.transitionTimingFunction,
+        dur: cs.transitionDuration,
+        prop: cs.transitionProperty,
+      };
+    });
+    expect(style.prop).toContain("transform");
+    expect(style.fn).toContain("cubic-bezier(0.34, 1.56"); // 过冲回弹
+    expect(style.dur).toBe("0.5s");
+    await expect(page.locator("[data-sonner-toast]").first()).toBeVisible({ timeout: 6000 });
+
+    await page.unroute("**/api/settings/preferences");
+    await sw.click(); // 复位
+    await expect(sw).toHaveAttribute("aria-checked", initial!);
+    await expect(sw).toBeEnabled({ timeout: 6000 });
+  });
+
+  test("保存失败：回滚并 toast", async ({ page, context }) => {
+    await loginAs(context, USERS.member);
+    await page.goto("/settings/notifications");
+    const sw = page.getByRole("switch", { name: /站内通知/ }).first();
+    const initial = await sw.getAttribute("aria-checked");
+    await page.route("**/api/settings/preferences", (route) => route.abort("failed"));
+    await sw.click();
+    await expect(page.locator("[data-sonner-toast]", { hasText: "保存失败，请重试" })).toBeVisible({
+      timeout: 6000,
+    });
+    await expect(sw).toHaveAttribute("aria-checked", initial!);
+  });
+});
+
+/* ---------------- 5e 卡片 hover 抬升 ---------------- */
+
+test.describe("卡片 hover 抬升与按压", () => {
+  test("首页内容卡片：悬停时上浮 1px、边框加深、阴影加重；移开复位", async ({ page }) => {
+    await page.goto("/");
+    const card = page.locator("main article").first();
+    await expect(card).toBeVisible();
+    const read = () =>
+      card.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return {
+          // Tailwind v4 的 -translate-y-px 用的是独立的 `translate` 属性（不是 transform）："0px -1px"
+          ty: parseFloat(cs.translate.split(" ")[1] ?? "0") || 0,
+          shadow: cs.boxShadow,
+          border: cs.borderTopColor,
+        };
+      });
+    await page.mouse.move(5, 5);
+    await page.waitForTimeout(300);
+    const rest = await read();
+    await card.hover({ position: { x: 20, y: 20 } });
+    await page.waitForTimeout(400); // 过渡 150ms，留足余量
+    const hover = await read();
+    expect(hover.ty).toBeCloseTo(-1, 0);
+    expect(hover.shadow).not.toBe(rest.shadow);
+    expect(hover.border).not.toBe(rest.border);
+    await page.mouse.move(5, 5);
+    await page.waitForTimeout(400);
+    expect((await read()).ty).toBeCloseTo(0, 0);
+  });
+
+  test("板块页主题行：悬停时背景高亮（行不位移，避免分隔线错位）", async ({ page }) => {
+    await page.goto(`/f/${FIX.water.id}`);
+    const row = page.locator("main section:not([aria-label]) [data-vt-expand]").first();
+    await expect(row).toBeVisible();
+    const bg = () => row.evaluate((el) => getComputedStyle(el).backgroundColor);
+    await page.mouse.move(5, 5);
+    await page.waitForTimeout(300);
+    const rest = await bg();
+    await row.hover({ position: { x: 30, y: 10 } });
+    await page.waitForTimeout(400);
+    expect(await bg()).not.toBe(rest);
+    // 行不位移（位移会让相邻行的分隔线错位）：translate 保持 none
+    expect(await row.evaluate((el) => getComputedStyle(el).translate)).toBe("none");
+  });
+});

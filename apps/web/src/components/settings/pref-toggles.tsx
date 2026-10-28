@@ -2,11 +2,12 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { SubmitButton } from "@/components/ui/submit-button";
+import { Switch } from "@/components/ui/switch";
 
 /**
- * 通知偏好开关（M10.6d 站长反馈）：一格一个按钮——点击在开/关间切换，本地乐观更新 + toast，
- * PATCH API 落库；失败回滚并报错。不再用「已开启/已关闭」两个可独立点的表单按钮。
+ * 通知偏好开关（M10.6d 站长反馈 → M10.7 Step 5d 改为真正的 Switch）：一格一个控件——点击在开/关间切换，
+ * 本地乐观更新 + toast，PATCH API 落库；失败回滚并报错。轨道 + 滑块，滑块带 spring 弹跳（ui/switch）。
+ * 无障碍：role="switch" + aria-checked，名称取自 `label`（场景 + 渠道，如「新回复 · 站内」）。
  */
 export function PrefToggleButton({
   type,
@@ -14,12 +15,15 @@ export function PrefToggleButton({
   initialEnabled,
   onLabel,
   offLabel,
+  label,
 }: {
   type: string;
   channel: "in_app" | "email";
   initialEnabled: boolean;
   onLabel: string;
   offLabel: string;
+  /** 开关的可访问名称 */
+  label: string;
 }) {
   const [enabled, setEnabled] = useState(initialEnabled);
   const [pending, startTransition] = useTransition();
@@ -44,19 +48,9 @@ export function PrefToggleButton({
   };
 
   return (
-    <SubmitButton
-      onClick={toggle}
-      disabled={pending}
-      aria-pressed={enabled}
-      className={`w-28 rounded-lg border px-3 py-1.5 text-xs transition-colors disabled:opacity-60 ${
-        enabled
-          ? "border-success/40 bg-success/10 text-success"
-          : "text-muted-foreground hover:bg-accent"
-      }`}
-      pendingText="…"
-    >
-      {enabled ? `已开启 · 点击关闭` : `已关闭 · 点击开启`}
-    </SubmitButton>
+    <div className="flex justify-center">
+      <Switch checked={enabled} onCheckedChange={toggle} disabled={pending} aria-label={label} />
+    </div>
   );
 }
 

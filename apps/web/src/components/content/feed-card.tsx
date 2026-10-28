@@ -21,7 +21,7 @@ export function FeedCard({
   return (
     <article
       data-vt-expand
-      className={`flex gap-4 rounded-xl border bg-card p-4 shadow-1 transition-shadow duration-fast hover:shadow-2${className ? ` ${className}` : ""}`}
+      className={`flex gap-4 rounded-xl border bg-card p-4 shadow-1 transition-[transform,box-shadow,border-color] duration-fast ease-out-soft hover:-translate-y-px hover:border-foreground/20 hover:shadow-2 active:scale-[0.995]${className ? ` ${className}` : ""}`}
     >
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">

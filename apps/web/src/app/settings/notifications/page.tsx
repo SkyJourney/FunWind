@@ -50,6 +50,7 @@ export default async function NotificationSettingsPage() {
               initialEnabled={inApp(t.type)}
               onLabel="站内通知已开启"
               offLabel="站内通知已关闭"
+              label={`${t.label} · 站内通知`}
             />
           </div>
           <div className="w-28">
@@ -59,6 +60,7 @@ export default async function NotificationSettingsPage() {
               initialEnabled={email(t.type)}
               onLabel="邮件通知已开启"
               offLabel="邮件通知已关闭"
+              label={`${t.label} · 邮件通知`}
             />
           </div>
         </div>
@@ -79,6 +81,7 @@ export default async function NotificationSettingsPage() {
             initialEnabled={email("email.digest")}
             onLabel="每日汇总已开启"
             offLabel="每日汇总已关闭"
+            label="每日动态汇总邮件"
           />
         </div>
       </div>

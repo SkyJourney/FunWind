@@ -91,7 +91,7 @@ export function ThreadRow({
     // 水平 padding 内建（M10.6d 站长反馈：卡片内文字不得贴边框——PC/移动同构，使用方无需各自覆写）
     <div
       data-vt-expand
-      className={`flex items-center gap-3 border-b px-4 py-3 last:border-b-0${className ? ` ${className}` : ""}`}
+      className={`flex items-center gap-3 border-b px-4 py-3 transition-colors duration-fast last:border-b-0 hover:bg-accent/40 active:bg-accent/60${className ? ` ${className}` : ""}`}
       style={style}
     >
       <div className="min-w-0 flex-1">

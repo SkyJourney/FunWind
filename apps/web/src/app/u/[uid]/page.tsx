@@ -5,6 +5,7 @@ import { FileText, MessageSquare, MessageSquareOff } from "lucide-react";
 import { getWebDb, userProfiles } from "@funwind/db";
 import { RichContent } from "@/components/content/rich-content";
 import { ThreadRow } from "@/components/content/thread-row";
+import { SegmentedNav } from "@/components/ui/segmented-nav";
 import { ThreadStream } from "@/components/content/thread-stream";
 import { UserReplyRow } from "@/components/content/user-reply-row";
 import { UserReplyStream } from "@/components/content/user-reply-stream";
@@ -173,26 +174,22 @@ export default async function ProfilePage({
       )}
 
       {/* 内容聚合 Tabs */}
-      <nav className="flex gap-0.5 rounded-lg bg-muted p-0.5 text-sm" aria-label="用户内容">
-        <Link
-          href={pageHref({ tab: "threads", page: 1 })}
-          aria-current={tab === "threads" ? "page" : undefined}
-          className={`flex-1 rounded-md px-3 py-1.5 text-center transition-colors ${
-            tab === "threads" ? "bg-card font-semibold shadow-1" : "text-muted-foreground"
-          }`}
-        >
-          主题 {profile.threadCount}
-        </Link>
-        <Link
-          href={pageHref({ tab: "replies", page: 1 })}
-          aria-current={tab === "replies" ? "page" : undefined}
-          className={`flex-1 rounded-md px-3 py-1.5 text-center transition-colors ${
-            tab === "replies" ? "bg-card font-semibold shadow-1" : "text-muted-foreground"
-          }`}
-        >
-          回复 {profile.postCount}
-        </Link>
-      </nav>
+      <SegmentedNav
+        ariaLabel="用户内容"
+        activeKey={tab}
+        items={[
+          {
+            key: "threads",
+            href: pageHref({ tab: "threads", page: 1 }),
+            label: `主题 ${profile.threadCount}`,
+          },
+          {
+            key: "replies",
+            href: pageHref({ tab: "replies", page: 1 }),
+            label: `回复 ${profile.postCount}`,
+          },
+        ]}
+      />
 
       {tab === "threads" && threads ? (
         threads.items.length === 0 ? (
