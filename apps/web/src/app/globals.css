@@ -101,8 +101,18 @@
 .fw-enter {
   animation: fw-enter var(--fw-dur-base) var(--fw-ease-out) both;
 }
+/* 流式追加项（M10.7）：无延迟、无位移的淡入；与 .fw-enter 的首屏错落区分开 */
+@keyframes fw-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+.fw-fade-in {
+  animation: fw-fade-in var(--fw-dur-base) var(--fw-ease-out) both;
+}
 @media (prefers-reduced-motion: reduce) {
-  .fw-enter {
+  .fw-enter,
+  .fw-fade-in {
     animation: none;
   }
   /* template.tsx 的方向性进场在 reduce 下关闭 */
