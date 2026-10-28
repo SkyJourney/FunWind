@@ -30,7 +30,8 @@ const toggle = () => screen.getByRole("button", { name: /^附件（\d+）$/ });
 /** 渲染并展开列表（大多数用例关心的是列表里的行） */
 function mount(props: Partial<Parameters<typeof AttachmentPanel>[0]> = {}) {
   const r = mountCollapsed(props);
-  fireEvent.click(toggle());
+  // 从暂存恢复时列表已自动展开：只在折叠时才点
+  if (toggle().getAttribute("aria-expanded") === "false") fireEvent.click(toggle());
   return r;
 }
 
@@ -63,6 +64,15 @@ describe("AttachmentPanel：折叠（M10.8 Step 9）", () => {
     expect(screen.getAllByTestId("attachment-row")).toHaveLength(2);
     fireEvent.click(toggle());
     expect(screen.queryByTestId("attachment-row")).toBeNull();
+  });
+});
+
+describe("AttachmentPanel：恢复后展开（M10.8 Step 9）", () => {
+  it("从提交前的暂存恢复列表后，列表自动展开（作者看到恢复的结果）", () => {
+    window.localStorage.setItem(`${KEY}:attachments:sent`, JSON.stringify([item(7, "恢复的.zip")]));
+    mountCollapsed({ draftKey: KEY, restoreDraft: true });
+    expect(toggle()).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("恢复的.zip")).toBeInTheDocument();
   });
 });
 

@@ -15,7 +15,11 @@ afterEach(() => {
 });
 
 /** 附件列表默认折叠（M10.8 Step 9）：需要看行时先展开 */
-const expand = () => fireEvent.click(screen.getByRole("button", { name: /^附件（\d+）$/ }));
+const expand = () => {
+  const t = screen.getByRole("button", { name: /^附件（\d+）$/ });
+  // 从暂存恢复时已自动展开：只在折叠时才点
+  if (t.getAttribute("aria-expanded") === "false") fireEvent.click(t);
+};
 
 describe("AttachmentPanel 补充", () => {
   it("大小按单位显示：KB 与 MB", () => {

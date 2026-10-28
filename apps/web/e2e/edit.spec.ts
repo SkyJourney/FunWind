@@ -170,6 +170,8 @@ test.describe("编辑帖子", () => {
     await a.goto(`/p/${REPLY}/edit`);
     await b.goto(`/p/${REPLY}/edit`);
     await expect(b.getByRole("region", { name: "附件" })).toBeVisible();
+    // 附件列表默认折叠（M10.8 Step 9）：先展开
+    await b.getByRole("button", { name: /^附件（\d+）$/ }).click();
     await expect(b.getByLabel("移除附件：E2E 冲突附件.txt")).toBeVisible();
 
     // 窗口 A 先保存（只改正文）→ 胜出
@@ -189,6 +191,11 @@ test.describe("编辑帖子", () => {
     // 恢复提交失败的那一版（草稿 + 附件列表）
     await b.getByRole("button", { name: "恢复草稿" }).click();
     await b.getByRole("button", { name: "恢复附件" }).click();
+    // 恢复后列表自动展开：标题计数为 0，且没有那一行（不是「折叠所以看不到」）
+    await expect(b.getByRole("button", { name: "附件（0）" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
     await expect(b.getByLabel("移除附件：E2E 冲突附件.txt")).toHaveCount(0);
 
     // 保存成功：正文为 B 的版本，附件列表与提交版本一致（B 已移除 → 帖子上无附件）

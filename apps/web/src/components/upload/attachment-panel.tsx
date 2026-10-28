@@ -164,6 +164,8 @@ export function AttachmentPanel({
         onPendingChange={onPendingChange}
         inlineKeys={new Set(inlineImages.map((i) => i.key))}
         onInsertImage={onInsertImage}
+        // 从暂存恢复后列表会重新挂载：展开它，让作者看到恢复的结果
+        defaultOpen={useStaged !== null}
       />
     </>
   );
@@ -226,6 +228,7 @@ function AttachmentEditor({
   onPendingChange,
   inlineKeys,
   onInsertImage,
+  defaultOpen = false,
 }: {
   forumId: number;
   gateKeys: readonly string[];
@@ -235,13 +238,14 @@ function AttachmentEditor({
   /** 已被正文引用的存储键：这些附件转入「正文图片」组，下载列表里不再显示（与服务端登记口径一致） */
   inlineKeys: ReadonlySet<string>;
   onInsertImage?: (url: string) => void;
+  defaultOpen?: boolean;
 }) {
   const [items, setItems] = useState<AttachmentItem[]>(seed);
   const itemsRef = useRef(items);
   const [busy, setBusy] = useState(0);
   const [error, setError] = useState<string | null>(null);
   // 默认折叠成「附件（N）」一行，减少首屏被附件占去的高度；上传成功后自动展开（让作者看到刚传的文件并选择归属）
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const input = useRef<HTMLInputElement>(null);
   const hidden = useRef<HTMLInputElement>(null);
 
