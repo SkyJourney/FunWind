@@ -6,6 +6,8 @@ const config = [
   {
     ignores: [
       ".next/**",
+      ".next-e2e/**",
+      ".next-e2e-prod/**",
       "coverage/**",
       "node_modules/**",
       "next-env.d.ts",

@@ -7,6 +7,9 @@ import { buildSecurityHeaders } from "./src/lib/security-headers";
 loadEnv({ path: path.resolve(process.cwd(), "../../.env"), override: false });
 
 const nextConfig: NextConfig = {
+  // 构建/开发产物目录可由环境变量隔离：E2E 用独立的 distDir，才能与 dev 服务（3100）同时运行——
+  // Next 16 在同一 distDir 下只允许一个 next dev（目录锁），build 与 dev 共用 .next 也会互相踩踏
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   // Next 16 安全默认会拦截"跨域"开发资源（HMR/运行时块）；显式放行本机与局域网访问主机
   // （站长实机经 192.168.50.253:3100 访问——不放行则客户端 JS 全被拦，页面可看不可点，M10.6d 实测教训）
   allowedDevOrigins: ["127.0.0.1", "localhost", "192.168.50.253"],

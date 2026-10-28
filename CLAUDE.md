@@ -114,7 +114,7 @@ pnpm --filter @funwind/web perf:posting                   # 发帖性能基准�
 
 - Next 16 开发服务器需 `allowedDevOrigins: ["127.0.0.1"]`，否则页面可渲染但整页无交互（水合静默失败）。
 - Next 16.4.2 的 `title.template` 对子页字符串标题疑似未生效（M1 遗留，升级后复验）。
-- E2E 必须用独立库与 3200 端口，别和 dev 服务抢端口。
+- E2E 必须用独立库与 3200 端口；产物目录也独立（`NEXT_DIST_DIR`：dev 用 `.next-e2e`、生产冒烟用 `.next-e2e-prod`），所以跑 `pnpm test:e2e` **不需要停 dev 服务**（Next 16 的 `next dev` 对同一 distDir 有目录锁，之前共用 `.next` 时二者会冲突）。新增 distDir 时 Next 会自动往 `tsconfig.json` 的 `include` 补 types 路径，条目已入库，不要删。
 - zsh 下 `grep --include=*.ts` 要加引号，否则报 `no matches found`。
 - 频控与权限快照都是进程内存实现（单实例语义），多实例前须换 Redis / 共享失效通道（M13）。浏览量计数（`lib/views`，每 10 秒批量刷入）同样是进程内，数字只是估计值。
 - `perf:posting` 拒绝任何非 `qysub_next_e2e` 的库名：根 `.env` 里的 `NEW_DB_NAME` 指向开发库，必须在命令行显式指定。

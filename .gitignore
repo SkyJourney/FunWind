@@ -1,6 +1,8 @@
 # 依赖与构建产物
 node_modules/
 .next/
+.next-e2e/
+.next-e2e-prod/
 out/
 dist/
 coverage/

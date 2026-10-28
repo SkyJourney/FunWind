@@ -5,7 +5,7 @@ process.env.NEW_DB_NAME = "qysub_next_e2e";
 
 /**
  * E2E 独占 3200 端口 + 隔离库（qysub_next_e2e）：
- * - 与用户 dev 服务（3100）完全隔离，杜绝 env 错配（基线审查教训）
+ * - 与用户 dev 服务（3100）完全隔离，杜绝 env 错配（基线审查教训）；产物目录也独立（.next-e2e），两者可同时运行
  * - webServer env 由配置固定注入，不依赖 shell 环境
  * - 库内容由根 test:e2e 编排先行重置（重置→迁移导入→种子）
  */
@@ -46,6 +46,8 @@ export default defineConfig({
     env: {
       NEW_DB_NAME: "qysub_next_e2e",
       FUNWIND_DEBUG_DB: "1",
+      // 独立产物目录：不与 dev（.next）抢 Next 16 的目录锁，E2E 与用户 dev 服务可同时运行
+      NEXT_DIST_DIR: ".next-e2e",
     },
   },
 });
