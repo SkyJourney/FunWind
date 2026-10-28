@@ -17,6 +17,7 @@ export function extractFeedMedia(bodyMd: string | null): FeedMedia {
     .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/[#>*`~_[\]-]/g, " ")
+    .replace(/\\+/g, " ") // 裸反斜杠归一（旧帖转义残留会形成不可断行长序列撑破卡片）
     .replace(/\s+/g, " ")
     .trim();
   return { coverUrl, excerpt: text ? text.slice(0, 120) : null };

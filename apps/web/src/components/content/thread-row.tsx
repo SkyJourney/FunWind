@@ -92,7 +92,7 @@ export function ThreadRow({
           )}
           <Link
             href={`/t/${thread.id}`}
-            className="truncate font-medium hover:text-primary hover:underline"
+            className="truncate font-medium [overflow-wrap:anywhere] hover:text-primary hover:underline"
           >
             {thread.title}
           </Link>

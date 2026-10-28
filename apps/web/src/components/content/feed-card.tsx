@@ -24,13 +24,15 @@ export function FeedCard({ item, forumName }: { item: HomeFeedItem; forumName?: 
           {item.prefixName && <span className="text-primary">[{item.prefixName}]</span>}
           <ThreadBadges thread={item} />
         </div>
-        <h3 className="mt-1.5 text-[15.5px] leading-snug font-semibold">
+        <h3 className="mt-1.5 text-[15.5px] leading-snug font-semibold [overflow-wrap:anywhere]">
           <Link href={`/t/${item.id}`} className="hover:text-primary hover:underline">
             {item.title}
           </Link>
         </h3>
         {item.excerpt && (
-          <p className="mt-1 line-clamp-2 text-[13px] text-muted-foreground">{item.excerpt}</p>
+          <p className="mt-1 line-clamp-2 text-[13px] [overflow-wrap:anywhere] text-muted-foreground">
+            {item.excerpt}
+          </p>
         )}
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <span>{author}</span>
