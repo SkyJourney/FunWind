@@ -83,6 +83,11 @@ describe("表情面板", () => {
     await openPanel();
     await user.click(screen.getByRole("gridcell", { name: "大笑" }));
     await waitFor(() => expect(screen.queryByLabelText("搜索表情")).toBeNull());
+    // Radix 的 FocusScope 在关闭时用 setTimeout(0) 延后执行「关闭后聚焦」（这里是聚焦编辑器）；
+    // 测试里紧接着重开会让这次延后的聚焦落在新弹层上、被当成「焦点在外面」而关掉——真人操作不会在 0ms 内重开
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
     await openPanel();
     expect(screen.getByRole("tab", { name: "最近使用" })).toHaveAttribute("aria-selected", "true");
     const grid = screen.getByRole("grid", { name: "最近使用" });

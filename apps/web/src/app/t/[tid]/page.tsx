@@ -15,6 +15,7 @@ import { tagsOfThreads } from "@/lib/interact/tags";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { ReplyComposer } from "@/components/posting/reply-composer";
+import { ReplyBar } from "@/components/posting/reply-bar";
 import { PostActionLink } from "@/components/posting/post-action-link";
 import { deletePostAction, restorePostAction } from "@/app/actions/posts";
 import { reportPostAction } from "@/app/actions/reports";
@@ -410,24 +411,28 @@ export default async function ThreadPage({ params, searchParams }: Params) {
             </CardContent>
           </Card>
         ) : (
-          <Card>
-            <CardContent className="space-y-3 pt-6">
-              {replyEntry.reviewHint && (
-                <p className="rounded-lg border border-info/30 bg-info/10 px-3 py-2 text-sm text-info">
-                  {REPLY_REVIEW_HINT}
-                </p>
-              )}
-              <ReplyComposer
-                action={createReplyAction}
-                threadId={tid}
-                forumId={thread.forumId}
-                page={replies.page}
-                draftKey={draftKey(viewer.userId, "reply", tid)}
-                restore={replyCode !== undefined}
-                bodyMax={limits.bodyMax}
-              />
-            </CardContent>
-          </Card>
+          <>
+            {/* 移动端固定条：只在可以回复时出现，与本区互斥（进入本区即收起）；放在 Card 外，避免祖先样式影响 fixed */}
+            <ReplyBar />
+            <Card>
+              <CardContent className="space-y-3 pt-6">
+                {replyEntry.reviewHint && (
+                  <p className="rounded-lg border border-info/30 bg-info/10 px-3 py-2 text-sm text-info">
+                    {REPLY_REVIEW_HINT}
+                  </p>
+                )}
+                <ReplyComposer
+                  action={createReplyAction}
+                  threadId={tid}
+                  forumId={thread.forumId}
+                  page={replies.page}
+                  draftKey={draftKey(viewer.userId, "reply", tid)}
+                  restore={replyCode !== undefined}
+                  bodyMax={limits.bodyMax}
+                />
+              </CardContent>
+            </Card>
+          </>
         )}
       </section>
       <ImageLightbox />

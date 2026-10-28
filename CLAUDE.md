@@ -119,6 +119,7 @@ pnpm --filter @funwind/web perf:posting                   # 发帖性能基准�
 - 频控与权限快照都是进程内存实现（单实例语义），多实例前须换 Redis / 共享失效通道（M13）。浏览量计数（`lib/views`，每 10 秒批量刷入）同样是进程内，数字只是估计值。
 - `perf:posting` 拒绝任何非 `qysub_next_e2e` 的库名：根 `.env` 里的 `NEW_DB_NAME` 指向开发库，必须在命令行显式指定。
 - `TRUSTED_PROXY_HOPS`：生产环境必须显式设置（直连填 0，nginx 之后填层数），漏配会在首次取 IP 时报错；取不到可信 IP 时跳过 IP 级限额，只留账号/邮箱级。
+- **跑 E2E 会重建包的 `dist`，与正在运行的 3100 开发服务器冲突**：`test:e2e:run` 开头会执行 `db:build`（重新 `tsc` 编译 `packages/db`、`packages/content` 的 `dist/`）。此时若 3100 正在编译，会读到写了一半或旧的 `dist`，报 `Export xxx doesn't exist in target module`（例如给 `@funwind/content` 新增导出后），页面一直 500 / 「阻断性错误」遮罩，**这是缓存了过期状态而不是代码有问题**。处理：E2E 跑完后重启 3100（`pnpm dev` 会先重建 `dist` 再启动）。改了 `packages/*` 的导出后同理——先重建再重启，别指望热更新。
 - `next dev` 每次启动会生成 `apps/web/AGENTS.md`（已 `.gitignore`）；`.next/` 里过期的生成类型会让 `tsc` 报已删除路由，用 `pnpm --filter @funwind/web exec next typegen` 刷新。
 - **安全响应头**（`lib/security-headers.ts`）：CSP 目前只是 **Report-Only**，违规会 POST 到 `/api/csp-report` 并记成一行 `[csp-report]` 日志；`script-src` 仍含 `'unsafe-inline'`（Next 的 RSC 载荷是内联脚本，nonce 需要中间件）。`/files/**` 被全站头排除（自带 `default-src 'none'; sandbox`）。HSTS 只在生产且 `APP_URL` 是 https 时下发。新增页面类型后，`e2e/security-headers.spec.ts` 的「零违规」页面清单要同步。
 - 迁移与对账的临时库演练：`NEW_DB_NAME=… pnpm --filter @funwind/db exec tsx scripts/e2e-reset.ts` 建空库再 `pnpm migrate`；`STORAGE_DIR` 可指向临时目录避免污染 `storage/`。
