@@ -24,7 +24,13 @@ export function editorExtensions() {
   // 这里收窄一次并在往返测试里验证运行结果，而不是在调用处散落类型断言。
   const parser = createEditorMarked() as unknown as typeof DefaultMarked;
   return [
-    StarterKit.configure({ hardBreak: false }),
+    StarterKit.configure({
+      hardBreak: false,
+      // Markdown 没有下划线语法（序列化会写出 ++x++，渲染器不认），所以不提供
+      underline: false,
+      // 链接只由作者显式设置：不自动识别（自动链接会把紧跟 URL 的中文吞进去，见硬约定 6）、不在粘贴时转换、点击不跳走
+      link: { openOnClick: false, autolink: false, linkOnPaste: false, defaultProtocol: "https" },
+    }),
     LineBreak,
     Markdown.configure({ marked: parser }),
     TableKit,

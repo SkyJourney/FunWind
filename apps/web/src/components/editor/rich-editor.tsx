@@ -36,7 +36,9 @@ export function RichEditor({
         "aria-label": label,
         role: "textbox",
         "aria-multiline": "true",
-        class: "fw-rich-editor min-h-48 px-3 py-2 text-sm leading-relaxed focus:outline-none",
+        // content-md：与帖子正文同一套排版（标题 / 列表 / 引用 / 代码 / 表格），所见即所得才名副其实
+        class:
+          "fw-rich-editor content-md min-h-48 px-3 py-2 text-sm leading-relaxed focus:outline-none",
       },
     },
     onUpdate: ({ editor: e }) => onChange(e.getMarkdown()),
@@ -63,10 +65,13 @@ export function RichEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor]);
 
-  if (!editor) return <div className="min-h-48" aria-busy="true" />;
+  if (!editor) return <div className="min-h-48 rounded-lg border border-input" aria-busy="true" />;
   return (
-    <div className="space-y-2">
-      <EditorToolbar editor={editor} />
+    // 外框：边框 + 聚焦环；工具栏吸附在站点顶栏下方（长文时不用滚回顶部），移动端顶栏 h-16、桌面 h-14
+    <div className="fw-editor rounded-lg border border-input bg-card shadow-1 focus-within:ring-2 focus-within:ring-ring/50">
+      <div className="sticky top-16 z-10 rounded-t-lg border-b bg-card/95 backdrop-blur md:top-14">
+        <EditorToolbar editor={editor} />
+      </div>
       <EditorContent editor={editor} />
     </div>
   );

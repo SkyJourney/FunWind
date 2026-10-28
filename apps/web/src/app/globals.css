@@ -570,6 +570,105 @@ html[data-vt="expand"]::view-transition-new(root) {
   border: 1px solid var(--border);
   padding: 0.25rem 0.5rem;
 }
+/* 标题 / 分隔线 / 行内代码：此前正文里这三样都被 preflight 重置成了普通文字（M10.8 Step 1 实测），编辑区与帖子正文共用 */
+.content-md h1,
+.content-md h2,
+.content-md h3 {
+  margin: 1rem 0 0.5rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.content-md h1 {
+  font-size: 1.5rem;
+}
+.content-md h2 {
+  font-size: 1.25rem;
+}
+.content-md h3 {
+  font-size: 1.125rem;
+}
+.content-md hr {
+  margin: 1rem 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+.content-md :not(pre) > code {
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.25rem;
+  background: var(--muted);
+}
+
+/* 所见即所得编辑区（M10.8）：与正文同一套排版，另补编辑态专属样式 */
+.fw-rich-editor.content-md {
+  max-width: none;
+}
+.fw-rich-editor .tableWrapper {
+  margin: 0.75rem 0;
+  overflow-x: auto;
+}
+.fw-rich-editor table {
+  width: 100%;
+  margin: 0;
+  table-layout: fixed;
+}
+.fw-rich-editor th,
+.fw-rich-editor td {
+  position: relative;
+  min-width: 3rem;
+  vertical-align: top;
+}
+.fw-rich-editor th {
+  background: var(--muted);
+  font-weight: 600;
+  text-align: left;
+}
+.fw-rich-editor .selectedCell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--primary) 18%, transparent);
+  pointer-events: none;
+}
+.fw-rich-editor .ProseMirror-selectednode {
+  outline: 2px solid var(--ring);
+}
+.fw-rich-editor > :first-child {
+  margin-top: 0;
+}
+
+/* 门控块（编辑区节点视图）：虚线框 + 浅底色，一眼可辨；头部是类型下拉与价格输入 */
+.fw-gate {
+  margin: 0.75rem 0;
+  border: 1px dashed color-mix(in srgb, var(--primary) 55%, transparent);
+  border-radius: var(--fw-radius-md);
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.fw-gate-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.75rem;
+  border-bottom: 1px dashed color-mix(in srgb, var(--primary) 35%, transparent);
+  font-size: 0.8125rem;
+}
+.fw-gate-lock {
+  font-weight: 600;
+}
+.fw-gate-head select,
+.fw-gate-head input {
+  height: 2rem;
+  border: 1px solid var(--input);
+  border-radius: 0.375rem;
+  background: var(--background);
+  padding: 0 0.5rem;
+}
+.fw-gate-head input {
+  width: 5.5rem;
+}
+.fw-gate-content {
+  padding: 0.25rem 0.75rem;
+}
 .content-md ul {
   margin: 0.5rem 0;
   list-style: disc;

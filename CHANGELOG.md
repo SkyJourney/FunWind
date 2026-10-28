@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+### Added（M10.8：编辑器与回复体验——进行中）
+
+设计与进度见 [docs/milestones/M10.8-editor-reply.md](docs/milestones/M10.8-editor-reply.md)。
+
+- **Step 2 编辑器外观与工具栏**：编辑区外框与聚焦环；工具栏图标化 + 即时 Tooltip + 快捷键，新增标题 / 行内代码 / 链接（⌘K）/ 清除格式 / 缩进，
+  去掉无效的「换行」；编辑区与正文共用排版。**Fixed**：帖子正文的标题 / 分隔线 / 行内代码无样式；门控块在编辑区无样式；
+  表格 / 分隔线 / 门控块插入时会吞掉选中的文字；编辑器误开下划线（Markdown 无对应语法）。
+
 ### Added（M10.7：流式加载与动效兑现）
 
 完整记录见 [docs/milestones/M10.7-streaming-motion.md](docs/milestones/M10.7-streaming-motion.md)。
