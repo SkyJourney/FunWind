@@ -87,7 +87,7 @@ const selectAll = async () => {
 };
 
 describe("工具栏：插入类命令不吞选中的文字（M10.8 Step 1 实测缺陷）", () => {
-  it.each(["插入表格", "分隔线", "插入门控块"])("全选后点「%s」，原文字仍在", async (name) => {
+  it.each(["插入表格", "分隔线", "插入锁定内容"])("全选后点「%s」，原文字仍在", async (name) => {
     const { container } = await mount("测试文字");
     await selectAll();
     await press(name);
@@ -96,7 +96,7 @@ describe("工具栏：插入类命令不吞选中的文字（M10.8 Step 1 实测
     const md = hidden(container).value;
     if (name === "插入表格") expect(md).toMatch(/\|\s*-{3,}\s*\|/);
     if (name === "分隔线") expect(md).toContain("---");
-    if (name === "插入门控块") expect(md).toContain(":::gate{");
+    if (name === "插入锁定内容") expect(md).toContain(":::gate{");
   });
 });
 

@@ -357,12 +357,12 @@ function AttachmentEditor({
                   <option value="">公开</option>
                   {gateKeys.map((k) => (
                     <option key={k} value={k}>
-                      门控 {k}
+                      锁定内容 {k}
                     </option>
                   ))}
                 </select>
                 {it.gateKey !== null && gate === null && (
-                  <span className="text-xs text-warning">门控已不存在，将保存为公开</span>
+                  <span className="text-xs text-warning">锁定内容已不存在，将保存为公开</span>
                 )}
                 {onInsertImage && it.storageKey && it.mime?.startsWith("image/") && (
                   <Button

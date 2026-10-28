@@ -26,7 +26,7 @@ async function threadTitle(threadId: number): Promise<string | null> {
 export const notificationsModule = defineModule({
   id: "notifications",
   description:
-    "通知中心：类型目录全量注册 + 互动事件消费（回复/提及/点赞/关注/门控收益/积分调整/徽章）→ notify() 管线。",
+    "通知中心：类型目录全量注册 + 互动事件消费（回复/提及/点赞/关注/锁定内容收益/积分调整/徽章）→ notify() 管线。",
   notificationTypes: NOTIFICATION_TYPE_SPECS.map((s) => ({
     key: s.key,
     category: s.category,

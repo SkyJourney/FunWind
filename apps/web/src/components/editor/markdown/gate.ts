@@ -1,4 +1,5 @@
 import { Node, mergeAttributes, type JSONContent } from "@tiptap/core";
+import { listConditionUi } from "@funwind/content";
 
 /**
  * 门控节点（M6.3）：编辑器里的 `:::gate{key="…" unlock="…" price="…"}` 容器块。
@@ -10,13 +11,33 @@ import { Node, mergeAttributes, type JSONContent } from "@tiptap/core";
  * 因此分词器要求闭合围栏与开头的围栏长度完全相同，渲染时若正文里出现 `:::` 行则自动把外层加长一个冒号。
  */
 
-/** 门控的属性（与 packages/content 的 GateDraft 对齐，编辑器内只用字符串） */
+/** 编辑器里一种可选的解锁方式（来自 packages/content 的条件目录） */
+export type GateConditionOption = ReturnType<typeof listConditionUi>[number];
+
+/**
+ * 锁定内容块的属性（与 packages/content 的 GateDraft 对齐，编辑器内只用字符串）。
+ * `params` 是解锁条件的参数字典（积分解锁的 price 等）：具体有哪些参数由条件目录描述，
+ * 所以新增一种条件不需要改这个节点。
+ */
 export interface GateAttrs {
   key: string;
   unlock: string;
-  price: string;
   match: string;
+  params: Record<string, string>;
 }
+
+/** 新建锁定内容块的默认属性：取目录里的第一种解锁方式及其参数默认值 */
+export function defaultGateAttrs(
+  key: string,
+  conditions: readonly GateConditionOption[] = listConditionUi(),
+): GateAttrs {
+  const first = conditions[0];
+  const params: Record<string, string> = {};
+  for (const f of first?.fields ?? []) params[f.name] = f.defaultValue;
+  return { key, unlock: first?.type ?? "points", match: "", params };
+}
+
+const RESERVED = new Set(["key", "unlock", "match"]);
 
 const ATTR_RE = /([A-Za-z_][\w-]*)="([^"]*)"/g;
 const GATE_BLOCK_RE = /^(:{3,})gate\{([^}\n]*)\}[ \t]*\n([\s\S]*?)\n\1[ \t]*(?:\n|$)/;
@@ -31,8 +52,13 @@ function parseAttrs(text: string): Record<string, string> {
   return out;
 }
 
-export const Gate = Node.create({
+export const Gate = Node.create<{ conditions: readonly GateConditionOption[] }>({
   name: "gate",
+
+  addOptions() {
+    // 解锁方式目录：默认取 packages/content 的内置规格；测试 / 将来的新条件可经 configure 注入
+    return { conditions: listConditionUi() };
+  },
   group: "block",
   content: "block+",
   defining: true,
@@ -42,8 +68,8 @@ export const Gate = Node.create({
     return {
       key: { default: "" },
       unlock: { default: "points" },
-      price: { default: "" },
       match: { default: "" },
+      params: { default: {} },
     };
   },
 
@@ -74,24 +100,36 @@ export const Gate = Node.create({
   parseMarkdown: (token, helpers) => {
     const a = (token as unknown as { gateAttrs?: Record<string, string> }).gateAttrs ?? {};
     const children = (token as unknown as { tokens?: never[] }).tokens ?? [];
+    const params: Record<string, string> = {};
+    for (const [k, v] of Object.entries(a)) if (!RESERVED.has(k)) params[k] = v;
     const attrs: GateAttrs = {
       key: a.key ?? "",
       unlock: a.unlock ?? "points",
-      price: a.price ?? "",
       match: a.match ?? "",
+      params,
     };
     return { type: "gate", attrs, content: helpers.parseChildren(children) };
   },
 
-  renderMarkdown: (node: JSONContent, helpers) => {
+  renderMarkdown(node: JSONContent, helpers) {
     const attrs = (node.attrs ?? {}) as Partial<GateAttrs>;
     const unlock = attrs.unlock || "points";
+    const params = attrs.params ?? {};
     const parts: string[] = [];
     if (attrs.key) parts.push(`key="${attrs.key}"`);
     parts.push(`unlock="${unlock}"`);
-    // 付费门控必须写价格；空价格按 0 写出（服务端校验会给出可读的错误）
-    if (unlock === "points")
-      parts.push(`price="${attrs.price === "" || attrs.price === undefined ? "0" : attrs.price}"`);
+    const known = this.options.conditions.find((c) => c.type === unlock);
+    if (known) {
+      // 目录里认识的解锁方式：只写它声明的参数（切换解锁方式后残留的别家参数不写出）；留空按字段约定写出（如价格空按 0）
+      for (const f of known.fields) {
+        const v = params[f.name];
+        if (v !== undefined && v !== "") parts.push(`${f.name}="${v}"`);
+        else if (f.emptyValue !== undefined) parts.push(`${f.name}="${f.emptyValue}"`);
+      }
+    } else {
+      // 目录里没有的解锁方式（旧数据 / 将来的条件）：原样保留全部参数，编辑器不替它丢信息
+      for (const [k, v] of Object.entries(params)) parts.push(`${k}="${v}"`);
+    }
     if (attrs.match) parts.push(`match="${attrs.match}"`);
     const body = helpers.renderChildren(node.content ?? [], "\n\n");
     const fence = /^:{3,}/m.test(body) ? "::::" : ":::";
@@ -104,6 +142,7 @@ export const Gate = Node.create({
    * 改动通过 setNodeMarkup 写回节点属性，保存时仍以服务端 splitSource 为准。
    */
   addNodeView() {
+    const conditions = this.options.conditions;
     return ({ node: initialNode, getPos, editor }) => {
       let node = initialNode;
 
@@ -117,42 +156,75 @@ export const Gate = Node.create({
 
       const lock = document.createElement("span");
       lock.className = "fw-gate-lock";
-      lock.textContent = "🔒 门控";
+      lock.textContent = "🔒 锁定内容";
 
+      // 解锁方式：按条件目录生成选项
       const select = document.createElement("select");
-      select.setAttribute("aria-label", "门控类型");
-      select.add(new Option("付费可见", "points"));
-      select.add(new Option("回复可见", "reply"));
+      select.setAttribute("aria-label", "解锁方式");
+      for (const c of conditions) {
+        const opt = new Option(c.label, c.type);
+        opt.title = c.hint;
+        select.add(opt);
+      }
 
-      const price = document.createElement("input");
-      price.type = "number";
-      price.min = "0";
-      price.step = "1";
-      price.inputMode = "numeric";
-      price.placeholder = "价格";
-      price.setAttribute("aria-label", "价格（积分）");
+      // 该解锁方式的参数输入：由目录的字段描述生成，解锁方式变化时重建
+      const fields = document.createElement("span");
+      fields.className = "fw-gate-fields";
 
       const content = document.createElement("div");
       content.className = "fw-gate-content";
 
-      head.append(lock, select, price);
+      head.append(lock, select, fields);
       dom.append(head, content);
 
-      const patch = (attrs: Record<string, string>) => {
+      const patch = (attrs: Partial<GateAttrs>) => {
         const pos = getPos();
         if (typeof pos !== "number") return;
         editor.view.dispatch(
           editor.view.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, ...attrs }),
         );
       };
-      select.addEventListener("change", () => patch({ unlock: select.value }));
-      price.addEventListener("change", () => patch({ price: price.value }));
+      select.addEventListener("change", () => {
+        // 换解锁方式：参数回到新方式的默认值（旧方式的参数不带过去）
+        const next = conditions.find((c) => c.type === select.value);
+        const params: Record<string, string> = {};
+        for (const f of next?.fields ?? []) params[f.name] = f.defaultValue;
+        patch({ unlock: select.value, params });
+      });
+
+      let renderedFor: string | null = null;
+      const buildFields = (unlock: string) => {
+        fields.replaceChildren();
+        const cond = conditions.find((c) => c.type === unlock);
+        for (const f of cond?.fields ?? []) {
+          const input = document.createElement("input");
+          input.type = "number";
+          input.min = String(f.min);
+          input.max = String(f.max);
+          input.step = "1";
+          input.inputMode = "numeric";
+          input.placeholder = f.label;
+          input.name = f.name;
+          input.setAttribute("aria-label", f.label);
+          input.addEventListener("change", () => {
+            const current = (node.attrs.params ?? {}) as Record<string, string>;
+            patch({ params: { ...current, [f.name]: input.value } });
+          });
+          fields.append(input);
+        }
+        renderedFor = unlock;
+      };
 
       const sync = (n: typeof node) => {
-        select.value = String(n.attrs.unlock ?? "points");
-        price.value = String(n.attrs.price ?? "");
-        // 回复可见的门控没有价格
-        price.style.display = select.value === "points" ? "" : "none";
+        const unlock = String(n.attrs.unlock || "points");
+        // 目录里没有的解锁方式（旧数据 / 将来的条件）：临时补一个同名选项，显示的就是文档里的值
+        if (![...select.options].some((o) => o.value === unlock))
+          select.add(new Option(unlock, unlock));
+        select.value = unlock;
+        if (renderedFor !== unlock) buildFields(unlock);
+        const params = (n.attrs.params ?? {}) as Record<string, string>;
+        for (const input of fields.querySelectorAll<HTMLInputElement>("input"))
+          input.value = params[input.name] ?? "";
       };
       sync(node);
 

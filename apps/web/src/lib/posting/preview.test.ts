@@ -12,7 +12,7 @@ describe("previewHtml：编辑器预览", () => {
     );
     expect(html).toContain("公开前言");
     expect(html).not.toContain("SECRET-PREVIEW");
-    expect(html).toContain("门控内容");
+    expect(html).toContain("锁定内容");
   });
 
   it("语法有误的门控不让预览中断，公开部分照常渲染", () => {
@@ -21,7 +21,7 @@ describe("previewHtml：编辑器预览", () => {
   });
 
   it("占位说明常量与输出一致", () => {
-    expect(previewHtml(`:::gate{key="g1" unlock="reply"}\n隐藏\n:::`)).toContain("门控内容");
-    expect(GATE_PREVIEW_NOTE).toContain("门控内容");
+    expect(previewHtml(`:::gate{key="g1" unlock="reply"}\n隐藏\n:::`)).toContain("锁定内容");
+    expect(GATE_PREVIEW_NOTE).toContain("锁定内容");
   });
 });

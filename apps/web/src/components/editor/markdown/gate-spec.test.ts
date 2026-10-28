@@ -76,17 +76,17 @@ describe("门控节点视图：更新", () => {
   it("同类型节点：原地更新，返回真，并同步控件的值", () => {
     const spec = gateSpec();
     const next = editor.state.doc.firstChild!.type.create(
-      { key: "g1", unlock: "reply", price: null },
+      { key: "g1", unlock: "reply", params: {} },
       editor.state.doc.firstChild!.content,
     );
     expect(spec.update(next)).toBe(true);
     expect(host.querySelector<HTMLSelectElement>("select")!.value).toBe("reply");
   });
 
-  it("缺省属性时回落为付费可见，价格为空", () => {
+  it("缺省属性时回落为积分解锁，价格为空", () => {
     const spec = gateSpec();
     const next = editor.state.doc.firstChild!.type.create(
-      { key: "g1", unlock: null, price: null },
+      { key: "g1", unlock: null, params: null },
       editor.state.doc.firstChild!.content,
     );
     expect(spec.update(next)).toBe(true);

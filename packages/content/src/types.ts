@@ -18,6 +18,30 @@ export interface GateDraft {
   hiddenMd: string;
 }
 
+/** 解锁条件的一个参数输入（编辑器据此渲染输入框；目前只有整数一种） */
+export interface ConditionField {
+  /** 属性名（`:::gate{…}` 里的 key，如 price） */
+  name: string;
+  /** 输入框的无障碍名称 / 占位 */
+  label: string;
+  kind: "integer";
+  min: number;
+  max: number;
+  /** 新建时的初始值 */
+  defaultValue: string;
+  /** 留空时写出的值（保存前服务端会校验；缺省则留空即不写出该属性） */
+  emptyValue?: string;
+}
+
+/** 解锁条件面向作者的描述：编辑器的「锁定内容」块按它渲染解锁方式下拉与参数输入，不写死具体条件 */
+export interface ConditionUi {
+  /** 显示名，如「积分解锁」 */
+  label: string;
+  /** 一句话说明（提示用） */
+  hint: string;
+  fields: ConditionField[];
+}
+
 /** 解锁条件的内容层规格：只负责参数的解析与校验；运行时判定在 apps/web 的 lib/gates/evaluate.ts（条件固定为内置 points / reply） */
 export interface ConditionSpec {
   type: string;
@@ -25,6 +49,8 @@ export interface ConditionSpec {
   parse(attrs: Record<string, string>): { params: Record<string, unknown> } | { error: string };
   /** 把参数还原成属性字典（assemble 用） */
   toAttrs(condition: GateCondition): Record<string, string>;
+  /** 面向作者的描述（编辑器用）；缺省的规格不出现在编辑器的解锁方式列表里 */
+  ui?: ConditionUi;
 }
 
 export type GateErrorCode =

@@ -19,7 +19,7 @@ test("作者编辑门控帖：已有人解锁的门控显示改价提示（改�
   await loginAs(context, USERS.alice);
   await page.goto(`/p/${DEMO_GATE_POST}/edit`);
   await expect(page.getByRole("note")).toContainText(
-    /门控 a1 已有 \d+ 人解锁：改价只影响之后的购买/,
+    /锁定内容 a1 已有 \d+ 人解锁：改价只影响之后的购买/,
   );
 });
 

@@ -36,6 +36,7 @@ import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { nextGateKey } from "./gate-keys";
+import { defaultGateAttrs } from "./markdown/gate";
 
 /** 快捷键里的修饰键：Mac 显示 ⌘，其余显示 Ctrl（编辑器只在浏览器里创建，这里可以直接读 navigator） */
 const modLabel = () =>
@@ -395,13 +396,13 @@ export function EditorToolbar({
         />
         <ToolButton
           icon={Lock}
-          label="插入门控块"
+          label="插入锁定内容"
           onClick={() => {
             const key = nextGateKey(editor.getJSON());
             afterSelection()
               .insertContent({
                 type: "gate",
-                attrs: { key, unlock: "points", price: "10" },
+                attrs: defaultGateAttrs(key),
                 content: [{ type: "paragraph" }],
               })
               .run();

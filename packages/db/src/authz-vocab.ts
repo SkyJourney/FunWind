@@ -43,8 +43,8 @@ export const PERMISSION_DEFINITIONS: PermissionDef[] = [
   def("forum.report", "forum", "举报内容"),
   def("thread.replyLocked", "thread", "回复锁定帖"),
   // ---- 门控（docs/GATES.md）----
-  def("gate.points", "gate", "创建积分购买型门控"),
-  def("gate.reply", "gate", "创建回复可见型门控"),
+  def("gate.points", "gate", "创建积分购买型锁定内容"),
+  def("gate.reply", "gate", "创建回复可见型锁定内容"),
   // ---- 附件 ----
   def("attachment.upload", "attachment", "上传附件"),
   def("attachment.download", "attachment", "下载附件"),

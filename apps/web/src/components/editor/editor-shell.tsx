@@ -330,7 +330,7 @@ export function EditorShell({
           role="alert"
           className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
         >
-          门控语法：{gateIssue}
+          锁定内容语法：{gateIssue}
         </p>
       )}
 
@@ -424,7 +424,7 @@ export function EditorShell({
       {previewHtml !== null && (
         <section aria-label="预览" className="space-y-2 rounded-lg border bg-muted/30 p-3">
           <p className="text-xs text-muted-foreground">
-            近似预览：门控内容以占位显示，以发布后为准。
+            近似预览：锁定内容以占位显示，以发布后为准。
           </p>
           {/* 输出来自净化管线（lib/markdown + lib/sanitize），与正文渲染同一路径 */}
           <div className="content-md" dangerouslySetInnerHTML={{ __html: previewHtml }} />

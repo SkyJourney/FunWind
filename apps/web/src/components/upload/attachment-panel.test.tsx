@@ -59,7 +59,7 @@ describe("AttachmentPanel", () => {
 
   it("门控已不存在：提示，并以公开保存（不改写界面状态）", () => {
     const { container } = mount({ gateKeys: ["g2"] });
-    expect(screen.getByText("门控已不存在，将保存为公开")).toBeInTheDocument();
+    expect(screen.getByText("锁定内容已不存在，将保存为公开")).toBeInTheDocument();
     expect(parsed(container)[1]).toMatchObject({ fileId: 2, gateKey: null });
   });
 

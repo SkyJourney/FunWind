@@ -7,7 +7,7 @@ import { renderMarkdown } from "@/lib/markdown";
  * 但预览也不替代发布后的真实样子，所以门控正文与锁定的读者一样不出现在预览里。
  * 纯函数，无 I/O。
  */
-export const GATE_PREVIEW_NOTE = "> 🔒 门控内容（发布后，未解锁的读者看不到这一段）";
+export const GATE_PREVIEW_NOTE = "> 🔒 锁定内容（发布后，未解锁的读者看不到这一段）";
 
 export function previewHtml(source: string): string {
   // splitSource 即使有错误也会尽力返回公开部分；预览不因语法错误中断，错误由保存时给出

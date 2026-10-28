@@ -124,8 +124,8 @@ export function EditComposer({
           >
             {gateUnlocks.map((g) => (
               <p key={g.gateKey}>
-                门控 {g.gateKey} 已有 {g.count}{" "}
-                人解锁：改价只影响之后的购买，已购买者不退差价；不能改变解锁方式或删除该门控。
+                锁定内容 {g.gateKey} 已有 {g.count}{" "}
+                人解锁：改价只影响之后的购买，已购买者不退差价；不能改变解锁方式或删除该锁定内容。
               </p>
             ))}
           </div>

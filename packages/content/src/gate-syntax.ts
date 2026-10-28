@@ -13,6 +13,7 @@ import remarkDirective from "remark-directive";
 import { unified } from "unified";
 import type {
   ConditionSpec,
+  ConditionUi,
   GateCondition,
   GateDraft,
   GateError,
@@ -40,6 +41,21 @@ const RESERVED_ATTRS = new Set(["key", "unlock", "match"]);
 /** 积分购买：price 为非负整数（0 = 登录后免费解锁） */
 export const pointsSpec: ConditionSpec = {
   type: "points",
+  ui: {
+    label: "积分解锁",
+    hint: "读者支付积分后解锁",
+    fields: [
+      {
+        name: "price",
+        label: "价格（积分）",
+        kind: "integer",
+        min: 0,
+        max: 9_999_999,
+        defaultValue: "10",
+        emptyValue: "0",
+      },
+    ],
+  },
   parse(attrs) {
     const raw = attrs.price;
     if (raw === undefined || !/^\d{1,7}$/.test(raw)) {
@@ -53,6 +69,7 @@ export const pointsSpec: ConditionSpec = {
 /** 回复可见：无参数 */
 export const replySpec: ConditionSpec = {
   type: "reply",
+  ui: { label: "回复解锁", hint: "读者在本帖回复后解锁", fields: [] },
   parse: () => ({ params: {} }),
   toAttrs: () => ({}),
 };
@@ -61,6 +78,18 @@ export const DEFAULT_CONDITION_SPECS: ReadonlyMap<string, ConditionSpec> = new M
   [pointsSpec.type, pointsSpec],
   [replySpec.type, replySpec],
 ]);
+
+/**
+ * 编辑器可选的解锁方式目录（按规格表顺序）：`type` + 面向作者的描述。
+ * 新增一种条件时只需注册规格（含 ui），编辑器的块视图与工具栏无需再改。
+ */
+export function listConditionUi(
+  specs: ReadonlyMap<string, ConditionSpec> = DEFAULT_CONDITION_SPECS,
+): ({ type: string } & ConditionUi)[] {
+  const out: ({ type: string } & ConditionUi)[] = [];
+  for (const spec of specs.values()) if (spec.ui) out.push({ type: spec.type, ...spec.ui });
+  return out;
+}
 
 // ---------- 解析 ----------
 
@@ -106,7 +135,7 @@ function scan(source: string): { tree: Root; gates: ParsedGate[]; errors: GateEr
   for (const n of nested) {
     errors.push({
       code: "gate-not-top-level",
-      message: "门控必须是顶层块，不能放在引用、列表或其它块内部",
+      message: "锁定内容必须是顶层块，不能放在引用、列表或其它块内部",
       line: lineOf(n),
     });
   }
@@ -126,7 +155,7 @@ function scan(source: string): { tree: Root; gates: ParsedGate[]; errors: GateEr
     if (!closed) {
       errors.push({
         code: "gate-unclosed",
-        message: "门控缺少结束的 ::: 行",
+        message: "锁定内容缺少结束的 ::: 行",
         line: child.position.start.line,
       });
       continue;
@@ -142,7 +171,7 @@ function innerGateErrors(g: ParsedGate): GateError[] {
   findNestedGates(g.node.children as RootContent[], 1, found);
   return found.map((n) => ({
     code: "gate-nested" as const,
-    message: "门控不能嵌套",
+    message: "锁定内容不能嵌套",
     line: lineOf(n),
   }));
 }
@@ -170,7 +199,7 @@ function parseConditionFromAttrs(
   const known = new Set(Object.keys(spec.toAttrs({ type: spec.type, ...parsed.params })));
   for (const k of Object.keys(params)) {
     if (!known.has(k)) {
-      return { code: "gate-unknown-attribute", message: `门控含未知属性: ${k}`, line };
+      return { code: "gate-unknown-attribute", message: `锁定内容含未知属性: ${k}`, line };
     }
   }
   const matchRaw = clean.match;
@@ -232,7 +261,7 @@ export function splitSource(source: string, options: SplitOptions = {}): SplitRe
     if (usedKeys.has(k)) {
       errors.push({
         code: "gate-duplicate-key",
-        message: `同一帖子内门控 key 重复: ${k}`,
+        message: `同一帖子内锁定内容 key 重复: ${k}`,
         line: g.line,
       });
     }
@@ -245,7 +274,7 @@ export function splitSource(source: string, options: SplitOptions = {}): SplitRe
     if (seq > MAX_GATES_PER_POST) {
       errors.push({
         code: "gate-too-many",
-        message: `一个帖子最多 ${MAX_GATES_PER_POST} 个门控`,
+        message: `一个帖子最多 ${MAX_GATES_PER_POST} 个锁定内容`,
         line: g.line,
       });
       continue;
@@ -294,7 +323,7 @@ export function serializeGate(
   specs = DEFAULT_CONDITION_SPECS,
 ): string {
   const cond = g.conditions[0];
-  if (!cond) throw new Error("门控至少需要一个解锁条件");
+  if (!cond) throw new Error("锁定内容至少需要一个解锁条件");
   const spec = specs.get(cond.type);
   if (!spec) throw new Error(`未知的解锁条件: ${cond.type}`);
   const attrs: Record<string, string> = {
@@ -342,7 +371,7 @@ export function assembleSource(
     if (keyRaw === undefined || !gate) {
       errors.push({
         code: "gate-unknown-placeholder",
-        message: `正文占位引用了不存在的门控: ${keyRaw ?? "(无 key)"}`,
+        message: `正文占位引用了不存在的锁定内容: ${keyRaw ?? "(无 key)"}`,
         line: g.line,
       });
       continue;
@@ -357,7 +386,7 @@ export function assembleSource(
     if (!used.has(gate.key)) {
       errors.push({
         code: "gate-unknown-placeholder",
-        message: `门控 ${gate.key} 没有对应的正文占位（继续还原会丢失隐藏内容）`,
+        message: `锁定内容 ${gate.key} 没有对应的正文占位（继续还原会丢失隐藏内容）`,
       });
     }
   }

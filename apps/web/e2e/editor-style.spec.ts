@@ -83,3 +83,30 @@ test("表格：插入后出现表格工具条；Tab 走格并在表尾自动加�
   await expect(page.getByRole("toolbar", { name: "表格工具" })).toHaveCount(0);
   await ctx.close();
 });
+
+test("锁定内容块：标题与解锁方式由条件目录渲染；换成回复解锁后不再有价格输入；保存语法不变", async ({
+  browser,
+}) => {
+  const ctx = await browser.newContext();
+  await loginAs(ctx, USERS.member);
+  const page = await ctx.newPage();
+  await page.goto(`/f/${FIX.compose.id}`);
+  await page.getByRole("link", { name: "发新主题" }).click();
+  await page.locator(".fw-rich-editor").waitFor();
+  const discard = page.getByRole("button", { name: "丢弃" });
+  if (await discard.isVisible()) await discard.click();
+
+  await page.getByRole("button", { name: "插入锁定内容" }).click();
+  const head = page.locator(".fw-gate-head");
+  await expect(head).toContainText("🔒 锁定内容");
+  const how = head.getByLabel("解锁方式");
+  await expect(how.locator("option")).toHaveText(["积分解锁", "回复解锁"]);
+  await expect(head.getByLabel("价格（积分）")).toHaveValue("10");
+
+  await how.selectOption("reply");
+  await expect(head.getByLabel("价格（积分）")).toHaveCount(0);
+  // 存储语法不变：仍是 :::gate{… unlock="reply"}
+  await page.getByRole("button", { name: "切换到源码" }).click();
+  await expect(page.locator(".cm-content")).toContainText(':::gate{key="g1" unlock="reply"}');
+  await ctx.close();
+});

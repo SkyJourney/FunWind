@@ -116,7 +116,7 @@ export function GateBlock({
     return (
       <div className={`${lockedCard} text-muted-foreground`}>
         <Lock className="mr-1 inline size-4" />
-        门控数据异常，内容暂不可显示
+        锁定内容数据异常，内容暂不可显示
       </div>
     );
   }

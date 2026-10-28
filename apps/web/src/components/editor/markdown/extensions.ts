@@ -5,7 +5,7 @@ import { HardBreak } from "@tiptap/extension-hard-break";
 import { TableKit } from "@tiptap/extension-table";
 import StarterKit from "@tiptap/starter-kit";
 import { CodeBlock } from "./code-block";
-import { Gate } from "./gate";
+import { Gate, type GateConditionOption } from "./gate";
 import { createEditorMarked } from "./marked";
 
 /**
@@ -20,7 +20,7 @@ const LineBreak = HardBreak.extend({
  * 编辑器的扩展集合（M6.3）。每次调用返回新实例，避免多个编辑器共享可变状态。
  * 图片只做展示与往返（插入与上传在 M6.4）；表格用官方 TableKit。
  */
-export function editorExtensions() {
+export function editorExtensions(options: { conditions?: readonly GateConditionOption[] } = {}) {
   // Tiptap 把选项类型声明为默认导出 marked 的类型；new Marked() 的解析 API 完全相同，只是少了默认导出上的静态成员。
   // 这里收窄一次并在往返测试里验证运行结果，而不是在调用处散落类型断言。
   const parser = createEditorMarked() as unknown as typeof DefaultMarked;
@@ -39,6 +39,6 @@ export function editorExtensions() {
     CodeBlock,
     TableKit,
     Image,
-    Gate,
+    options.conditions ? Gate.configure({ conditions: options.conditions }) : Gate,
   ];
 }

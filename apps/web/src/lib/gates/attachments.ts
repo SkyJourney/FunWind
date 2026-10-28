@@ -403,7 +403,7 @@ export async function registerPostFiles(
       return {
         ok: false,
         code: "attachment_gate_invalid",
-        message: "附件归属的门控不存在，请重新选择",
+        message: "附件归属的锁定内容不存在，请重新选择",
       };
     }
   }

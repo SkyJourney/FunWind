@@ -110,14 +110,14 @@ export function planGateChanges(
       return fail(
         "gate_has_unlocks",
         g.gateKey,
-        "该门控已有人解锁，不能删除（可以修改内容或价格）",
+        "该锁定内容已有人解锁，不能删除（可以修改内容或价格）",
       );
     }
     if (g.hasAttachments) {
       return fail(
         "gate_has_attachments",
         g.gateKey,
-        "该门控名下还有附件，请先重新指派附件再删除门控",
+        "该锁定内容名下还有附件，请先重新指派附件再删除锁定内容",
       );
     }
     plan.deletes.push({ id: g.id, gateKey: g.gateKey });
@@ -127,7 +127,7 @@ export function planGateChanges(
     const prev = byKey.get(d.key);
     if (!prev) {
       if (!permitted(d.conditions, perms)) {
-        return fail("gate_permission", d.key, "你没有创建这类门控的权限");
+        return fail("gate_permission", d.key, "你没有创建这类锁定内容的权限");
       }
       plan.inserts.push(d);
       continue;
@@ -139,11 +139,11 @@ export function planGateChanges(
         return fail(
           "gate_conditions_locked",
           d.key,
-          "该门控已有人解锁，只能修改价格，不能更换解锁方式",
+          "该锁定内容已有人解锁，只能修改价格，不能更换解锁方式",
         );
       }
       if (!permitted(d.conditions, perms)) {
-        return fail("gate_permission", d.key, "你没有创建这类门控的权限");
+        return fail("gate_permission", d.key, "你没有创建这类锁定内容的权限");
       }
     }
     plan.updates.push({ id: prev.id, draft: d });

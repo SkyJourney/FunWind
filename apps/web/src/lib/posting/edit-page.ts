@@ -62,11 +62,11 @@ export async function loadEditPage(viewer: Subject, postId: number): Promise<Edi
   if (view.hasGate) {
     const gates = await loadEditableGates(viewer, postId);
     if (!gates) {
-      return { kind: "broken", text: "无法读取完整正文（部分门控内容不可见），请联系版主。" };
+      return { kind: "broken", text: "无法读取完整正文（部分锁定内容不可见），请联系版主。" };
     }
     const assembled = assembleSource(view.bodyMd, gates);
     if (assembled.errors.length > 0) {
-      return { kind: "broken", text: "门控数据与正文不一致，无法编辑，请联系版主。" };
+      return { kind: "broken", text: "锁定内容数据与正文不一致，无法编辑，请联系版主。" };
     }
     source = assembled.source;
   }

@@ -190,7 +190,7 @@ describe("EditorShell：模式", () => {
 });
 
 describe("EditorShell：工具栏命令与边界", () => {
-  it("插入门控块：隐藏字段出现带唯一 key 的门控语法", async () => {
+  it("插入锁定内容：隐藏字段出现带唯一 key 的门控语法", async () => {
     const { container } = render(
       <EditorShell
         name="source"
@@ -202,7 +202,7 @@ describe("EditorShell：工具栏命令与边界", () => {
     );
     await screen.findByRole("toolbar", { name: "编辑工具栏" });
     await act(async () => {
-      screen.getByRole("button", { name: "插入门控块" }).click();
+      screen.getByRole("button", { name: "插入锁定内容" }).click();
     });
     await waitFor(() =>
       expect(hidden(container).value).toContain(':::gate{key="g1" unlock="points" price="10"}'),
