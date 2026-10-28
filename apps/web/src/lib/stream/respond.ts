@@ -38,3 +38,8 @@ export function streamJson<T>(body: StreamPage<T>): Response {
 export function streamNotFound(): Response {
   return NextResponse.json({ error: "not_found" }, { status: 404, headers: NO_STORE });
 }
+
+/** 需要登录的端点（如关注动态）对游客返回 401 */
+export function streamUnauthorized(): Response {
+  return NextResponse.json({ error: "unauthorized" }, { status: 401, headers: NO_STORE });
+}

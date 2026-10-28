@@ -17,12 +17,15 @@ export function HomeFeedStream(props: {
   startPage: number;
   hasMore: boolean;
   seedIds: readonly number[];
+  /** 列表容器 className，缺省为首页的 grid；关注动态页用 space-y-3 */
+  listClassName?: string;
   children: ReactNode;
 }) {
+  const { listClassName = "grid gap-2.5", ...rest } = props;
   return (
     <StreamList<HomeStreamItem>
-      {...props}
-      listClassName="grid gap-2.5"
+      {...rest}
+      listClassName={listClassName}
       renderItem={(item, enter) => (
         <FeedCard item={item} forumName={item.forumName ?? undefined} className={enter} />
       )}

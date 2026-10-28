@@ -4,6 +4,7 @@ import { EmptyState } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
 import { redirect } from "next/navigation";
 import { FeedCard } from "@/components/content/feed-card";
+import { HomeFeedStream } from "@/components/content/home-feed-stream";
 import { Pagination } from "@/components/content/pagination";
 import { FollowButton } from "@/components/interact/follow-button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -148,14 +149,33 @@ export default async function FollowsPage({
           }
         />
       ) : (
-        <div className="space-y-3">
-          {feed.items.map((item) => (
-            <FeedCard key={item.id} item={item} forumName={tree.get(item.forumId)?.name} />
+        // M10.7 Step 3b：首屏服务端渲染（第 1 页前 10 张卡片错落进场），后续页触底追加；无 JS 由下方 noscript 翻页兜底
+        <HomeFeedStream
+          endpoint={`/api/stream/follows${type === "all" ? "" : `?type=${type}`}`}
+          fallbackHref={chipHref(type)}
+          startPage={feed.page}
+          hasMore={feed.page < feed.totalPages}
+          seedIds={feed.items.map((i) => i.id)}
+          listClassName="space-y-3"
+        >
+          {feed.items.map((item, index) => (
+            <div
+              key={item.id}
+              className={feed.page === 1 && index < 10 ? "fw-enter" : undefined}
+              style={
+                feed.page === 1 && index < 10 ? { animationDelay: `${index * 50}ms` } : undefined
+              }
+            >
+              <FeedCard item={item} forumName={tree.get(item.forumId)?.name} />
+            </div>
           ))}
-        </div>
+        </HomeFeedStream>
       )}
 
-      <Pagination basePath="/follows" page={feed.page} totalPages={feed.totalPages} />
+      {/* 有 JS 时由触底追加接管；无 JS 时保留翻页。basePath 带上类型筛选（原先固定 /follows 会丢 ?type=） */}
+      <noscript>
+        <Pagination basePath={chipHref(type)} page={feed.page} totalPages={feed.totalPages} />
+      </noscript>
     </main>
   );
 }

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { PencilLine } from "lucide-react";
 import { notFound } from "next/navigation";
 import { ThreadRow } from "@/components/content/thread-row";
-import { ForumThreadStream } from "@/components/content/forum-thread-stream";
+import { ThreadStream } from "@/components/content/thread-stream";
 import { Pagination } from "@/components/content/pagination";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { getForumTree } from "@/lib/authz/snapshot";
@@ -188,7 +188,7 @@ export default async function ForumPage({ params, searchParams }: Params) {
         {list.items.length > 0 && (
           // M10.7 BUG12：首屏服务端渲染（第 1 页前 10 行错落进场），后续页触底自动追加；
           // 底部「加载更多」是指向下一页的真链接，无 JS 时由下方 noscript 里的数字分页兜底
-          <ForumThreadStream
+          <ThreadStream
             endpoint={`/api/stream/forum/${fid}${query ? `?${query}` : ""}`}
             fallbackHref={basePath}
             startPage={list.page}
@@ -205,7 +205,7 @@ export default async function ForumPage({ params, searchParams }: Params) {
                 }
               />
             ))}
-          </ForumThreadStream>
+          </ThreadStream>
         )}
         {list.items.length === 0 && list.pinned.length === 0 && (
           <p className="py-10 text-center text-sm text-muted-foreground">

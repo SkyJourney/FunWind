@@ -5,6 +5,9 @@ import { FileText, MessageSquare, MessageSquareOff } from "lucide-react";
 import { getWebDb, userProfiles } from "@funwind/db";
 import { RichContent } from "@/components/content/rich-content";
 import { ThreadRow } from "@/components/content/thread-row";
+import { ThreadStream } from "@/components/content/thread-stream";
+import { UserReplyRow } from "@/components/content/user-reply-row";
+import { UserReplyStream } from "@/components/content/user-reply-stream";
 import { ImageLightbox } from "@/components/content/image-lightbox";
 import { EmptyState } from "@/components/empty-state";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -81,6 +84,9 @@ export default async function ProfilePage({
     const qs = q.toString();
     return qs ? `/u/${uid}?${qs}` : `/u/${uid}`;
   };
+
+  /** 流式追加的取数地址：与当前 tab 同口径（page 由组件追加） */
+  const streamEndpoint = `/api/stream/user/${uid}?tab=${tab}`;
 
   return (
     <main className="mx-auto max-w-3xl space-y-4 px-4 py-8 sm:px-6">
@@ -196,11 +202,29 @@ export default async function ProfilePage({
             description="发布的主题会出现在这里"
           />
         ) : (
-          <div className="divide-y rounded-xl border bg-card">
-            {threads.items.map((t) => (
-              <ThreadRow key={t.id} thread={t} showForum />
+          // M10.7 Step 3b：首屏服务端渲染（第 1 页前 10 行错落进场），后续页触底追加；无 JS 由下方 noscript 翻页兜底
+          <ThreadStream
+            endpoint={streamEndpoint}
+            fallbackHref={pageHref({ page: 1 })}
+            startPage={threads.page}
+            hasMore={threads.page < threads.totalPages}
+            seedIds={threads.items.map((t) => t.id)}
+            listClassName="divide-y rounded-xl border bg-card"
+          >
+            {threads.items.map((t, index) => (
+              <ThreadRow
+                key={t.id}
+                thread={t}
+                showForum
+                className={threads.page === 1 && index < 10 ? "fw-enter" : undefined}
+                style={
+                  threads.page === 1 && index < 10
+                    ? { animationDelay: `${index * 50}ms` }
+                    : undefined
+                }
+              />
             ))}
-          </div>
+          </ThreadStream>
         )
       ) : null}
 
@@ -212,46 +236,55 @@ export default async function ProfilePage({
             description="回复会连同所属主题一起出现在这里"
           />
         ) : (
-          <div className="divide-y rounded-xl border bg-card">
-            {replies.items.map((r) => (
-              <div key={r.postId} className="px-4 py-3">
-                <p className="text-[13px] text-muted-foreground">
-                  回复了
-                  <Link href={`/p/${r.postId}`} className="mx-1 text-foreground hover:text-primary">
-                    『{r.threadTitle}』
-                  </Link>
-                  <span className="ml-1">#{r.floor}</span>
-                </p>
-                {r.excerpt && <p className="mt-1 line-clamp-2 text-sm">{r.excerpt}</p>}
-                <p className="mt-1 text-xs text-muted-foreground">{r.createdAt}</p>
-              </div>
+          <UserReplyStream
+            endpoint={streamEndpoint}
+            fallbackHref={pageHref({ page: 1 })}
+            startPage={replies.page}
+            hasMore={replies.page < replies.totalPages}
+            seedIds={replies.items.map((r) => r.postId)}
+            listClassName="divide-y rounded-xl border bg-card"
+          >
+            {replies.items.map((r, index) => (
+              <UserReplyRow
+                key={r.postId}
+                reply={r}
+                className={replies.page === 1 && index < 10 ? "fw-enter" : undefined}
+                style={
+                  replies.page === 1 && index < 10
+                    ? { animationDelay: `${index * 50}ms` }
+                    : undefined
+                }
+              />
             ))}
-          </div>
+          </UserReplyStream>
         )
       ) : null}
 
+      {/* 有 JS 时由触底追加接管；无 JS 时保留翻页（URL 冻结约定，直链可分享） */}
       {content && content.totalPages > 1 && (
-        <div className="flex items-center justify-center gap-4 text-sm">
-          {content.page > 1 && (
-            <Link
-              href={pageHref({ page: content.page - 1 })}
-              className="text-muted-foreground hover:text-primary"
-            >
-              ← 上一页
-            </Link>
-          )}
-          <span className="text-muted-foreground">
-            第 {content.page} / {content.totalPages} 页
-          </span>
-          {content.page < content.totalPages && (
-            <Link
-              href={pageHref({ page: content.page + 1 })}
-              className="text-muted-foreground hover:text-primary"
-            >
-              下一页 →
-            </Link>
-          )}
-        </div>
+        <noscript>
+          <div className="flex items-center justify-center gap-4 text-sm">
+            {content.page > 1 && (
+              <Link
+                href={pageHref({ page: content.page - 1 })}
+                className="text-muted-foreground hover:text-primary"
+              >
+                ← 上一页
+              </Link>
+            )}
+            <span className="text-muted-foreground">
+              第 {content.page} / {content.totalPages} 页
+            </span>
+            {content.page < content.totalPages && (
+              <Link
+                href={pageHref({ page: content.page + 1 })}
+                className="text-muted-foreground hover:text-primary"
+              >
+                下一页 →
+              </Link>
+            )}
+          </div>
+        </noscript>
       )}
 
       <div className="text-center text-sm">
