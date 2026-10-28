@@ -11,11 +11,19 @@ export function ImagePicker({
   disabled,
   onPick,
   openRef,
+  wantCrop: controlledCrop,
+  onWantCropChange,
+  hideControls = false,
 }: {
   disabled?: boolean;
   onPick: (file: File, wantCrop: boolean) => void;
   /** 交出「打开文件选择」的能力：工具栏的图片按钮与本组件共用同一个文件框（同一套裁剪选项） */
   openRef?: RefObject<(() => void) | null>;
+  /** 「裁剪后插入」由外部持有（工具栏上的开关与本组件共用同一状态）；缺省时自己管理 */
+  wantCrop?: boolean;
+  onWantCropChange?: (v: boolean) => void;
+  /** 只保留文件框、不显示按钮与勾选框（所见即所得模式下由工具栏接管入口） */
+  hideControls?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -25,7 +33,29 @@ export function ImagePicker({
       openRef.current = null;
     };
   }, [openRef]);
-  const [wantCrop, setWantCrop] = useState(false);
+  const [ownCrop, setOwnCrop] = useState(false);
+  const wantCrop = controlledCrop ?? ownCrop;
+  const setWantCrop = (v: boolean) => {
+    setOwnCrop(v);
+    onWantCropChange?.(v);
+  };
+  const fileInput = (
+    <input
+      ref={input}
+      type="file"
+      accept="image/*"
+      aria-label="选择图片"
+      tabIndex={-1}
+      className="sr-only"
+      onChange={(e) => {
+        const file = e.target.files?.[0];
+        // 清空选择，同一文件可以再次选择
+        e.target.value = "";
+        if (file) onPick(file, wantCrop);
+      }}
+    />
+  );
+  if (hideControls) return fileInput;
   return (
     <div className="flex flex-wrap items-center gap-3">
       <Button
@@ -47,20 +77,7 @@ export function ImagePicker({
         />
         裁剪后插入
       </label>
-      <input
-        ref={input}
-        type="file"
-        accept="image/*"
-        aria-label="选择图片"
-        tabIndex={-1}
-        className="sr-only"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          // 清空选择，同一文件可以再次选择
-          e.target.value = "";
-          if (file) onPick(file, wantCrop);
-        }}
-      />
+      {fileInput}
     </div>
   );
 }

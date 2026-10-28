@@ -71,7 +71,7 @@ export function TableToolbar({ editor }: { editor: Editor }) {
     <div
       role="toolbar"
       aria-label="表格工具"
-      className="flex [scrollbar-width:none] flex-nowrap items-center gap-1 overflow-x-auto border-t bg-muted/40 px-2 py-1 [&::-webkit-scrollbar]:hidden"
+      className="fw-scroll-x flex [scrollbar-width:none] flex-nowrap items-center gap-1 overflow-x-auto border-t bg-muted/40 px-2 py-1 [&::-webkit-scrollbar]:hidden"
     >
       <span className="shrink-0 pr-1 text-xs text-muted-foreground">表格</span>
       {items.map((it) => (

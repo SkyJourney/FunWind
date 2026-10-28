@@ -8,6 +8,7 @@ import {
   FileCode,
   Heading,
   IndentDecrease,
+  Crop,
   ImagePlus,
   IndentIncrease,
   Italic,
@@ -68,7 +69,7 @@ type ToolButtonProps = Omit<
  * 触控目标移动端不小于 44px，桌面端保持紧凑。onMouseDown 阻止默认行为：点按钮不让编辑区失焦、选区不丢。
  * 其余属性与 ref 透传给按钮：作为 `PopoverTrigger asChild` 的子元素时，开关与 aria-expanded 由 Radix 注入。
  */
-function ToolButton({
+export function ToolButton({
   icon: Icon,
   label,
   shortcut,
@@ -125,12 +126,17 @@ export function EditorToolbar({
   onInsertGate,
   onUploadImage,
   imageDisabled = false,
+  cropOn = false,
+  onToggleCrop,
 }: {
   editor: Editor;
   onInsertGate?: () => void;
   /** 提供时显示「上传图片」按钮：选图 → 上传 → 插入由外壳完成（上传需要版块上下文） */
   onUploadImage?: () => void;
   imageDisabled?: boolean;
+  /** 「裁剪后插入」开关（与源码模式下的勾选框同一状态） */
+  cropOn?: boolean;
+  onToggleCrop?: () => void;
 }) {
   const state = useEditorState({
     editor,
@@ -212,7 +218,8 @@ export function EditorToolbar({
       <div
         role="toolbar"
         aria-label="编辑工具栏"
-        className="flex [scrollbar-width:none] flex-nowrap items-center gap-0.5 overflow-x-auto px-1.5 py-1 [&::-webkit-scrollbar]:hidden"
+        // 移动端单行横滚（两端有渐隐提示）；桌面宽度放得下就换行显示全部按钮，不再藏在滚动条后面
+        className="fw-scroll-x flex [scrollbar-width:none] flex-nowrap items-center gap-0.5 overflow-x-auto px-1.5 py-1 md:flex-wrap md:overflow-visible md:[background:none] [&::-webkit-scrollbar]:hidden"
       >
         <DropdownMenu>
           <Tooltip>
@@ -396,6 +403,9 @@ export function EditorToolbar({
             disabled={imageDisabled}
             onClick={onUploadImage}
           />
+        )}
+        {onUploadImage && onToggleCrop && (
+          <ToolButton icon={Crop} label="裁剪后插入" active={cropOn} onClick={onToggleCrop} />
         )}
         <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
           <PopoverTrigger asChild>

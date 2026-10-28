@@ -84,7 +84,7 @@ describe("EditorShell：裁剪与 GIF", () => {
     const user = userEvent.setup();
     const { container } = mount();
     await screen.findByRole("toolbar", { name: "编辑工具栏" });
-    await user.click(screen.getByRole("checkbox", { name: "裁剪后插入" }));
+    await user.click(screen.getByRole("button", { name: "裁剪后插入" }));
     await user.upload(imageInput(), png);
     await user.click(await screen.findByRole("button", { name: "确认裁剪" }));
     await waitFor(() => expect(hidden(container).value).toContain("/files/ab/cd/z.png"));
@@ -98,7 +98,7 @@ describe("EditorShell：裁剪与 GIF", () => {
     const user = userEvent.setup();
     const { container } = mount();
     await screen.findByRole("toolbar", { name: "编辑工具栏" });
-    await user.click(screen.getByRole("checkbox", { name: "裁剪后插入" }));
+    await user.click(screen.getByRole("button", { name: "裁剪后插入" }));
     await user.upload(imageInput(), png);
     await user.click(await screen.findByRole("button", { name: "取消裁剪" }));
     expect(fetchMock).not.toHaveBeenCalled();
@@ -111,7 +111,7 @@ describe("EditorShell：裁剪与 GIF", () => {
     const user = userEvent.setup();
     mount();
     await screen.findByRole("toolbar", { name: "编辑工具栏" });
-    await user.click(screen.getByRole("checkbox", { name: "裁剪后插入" }));
+    await user.click(screen.getByRole("button", { name: "裁剪后插入" }));
     await user.upload(imageInput(), gif);
     expect(await screen.findByText("GIF 不支持裁剪，已直接插入。")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -169,5 +169,49 @@ describe("EditorShell：粘贴与提交状态", () => {
       fireEvent.compositionEnd(editable);
     });
     await waitFor(() => expect(hidden(container).value).toContain("/files/ab/cd/z.png"));
+  });
+});
+
+describe("EditorShell：图片入口按模式分工（M10.8 Step 9）", () => {
+  it("所见即所得：入口在工具栏（上传图片 + 裁剪开关），编辑区下方没有重复的按钮与勾选框", async () => {
+    render(
+      <EditorShell
+        name="source"
+        initialSource=""
+        draftKey={null}
+        restoreDraft={false}
+        label="正文"
+        forumId={901}
+      />,
+    );
+    await screen.findByRole("toolbar", { name: "编辑工具栏" });
+    expect(screen.getByRole("button", { name: "上传图片" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "裁剪后插入" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.queryByRole("button", { name: "插入图片" })).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "裁剪后插入" })).toBeNull();
+    // 文件框仍在（工具栏按钮经它打开选择器）
+    expect(document.querySelector('input[type="file"][aria-label="选择图片"]')).not.toBeNull();
+  });
+
+  it("源码模式：没有工具栏，保留编辑区下方的「插入图片」与「裁剪后插入」勾选框；两种模式共用同一个裁剪状态", async () => {
+    const user = userEvent.setup();
+    render(
+      <EditorShell
+        name="source"
+        initialSource=""
+        draftKey={null}
+        restoreDraft={false}
+        label="正文"
+        forumId={901}
+      />,
+    );
+    await screen.findByRole("toolbar", { name: "编辑工具栏" });
+    await user.click(screen.getByRole("button", { name: "裁剪后插入" })); // 在工具栏打开
+    await user.click(screen.getByRole("button", { name: "切换到源码" }));
+    expect(await screen.findByRole("button", { name: "插入图片" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "裁剪后插入" })).toBeChecked();
   });
 });

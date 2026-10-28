@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -239,6 +240,8 @@ function AttachmentEditor({
   const itemsRef = useRef(items);
   const [busy, setBusy] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  // 默认折叠成「附件（N）」一行，减少首屏被附件占去的高度；上传成功后自动展开（让作者看到刚传的文件并选择归属）
+  const [open, setOpen] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const hidden = useRef<HTMLInputElement>(null);
 
@@ -275,6 +278,7 @@ function AttachmentEditor({
     onPendingChange?.(1);
     try {
       const r = await uploadFile({ file, purpose: "attachment", forumId });
+      setOpen(true);
       commit([
         ...itemsRef.current,
         {
@@ -305,7 +309,21 @@ function AttachmentEditor({
   return (
     <section aria-label="附件" className="space-y-2 rounded-lg border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-medium">附件（{visible.length}）</h3>
+        <h3 className="text-sm font-medium">
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-controls="fw-attachment-list"
+            onClick={() => setOpen((o) => !o)}
+            className="flex min-h-11 items-center gap-1 rounded-md pr-2 hover:text-primary sm:min-h-9"
+          >
+            <ChevronRight
+              className={`size-4 transition-transform duration-fast ${open ? "rotate-90" : ""}`}
+              aria-hidden
+            />
+            附件（{visible.length}）
+          </button>
+        </h3>
         <Button
           type="button"
           variant="outline"
@@ -330,8 +348,8 @@ function AttachmentEditor({
         />
       </div>
 
-      {visible.length > 0 && (
-        <ul className="space-y-2">
+      {open && visible.length > 0 && (
+        <ul id="fw-attachment-list" className="space-y-2">
           {visible.map((it) => {
             const gate = effectiveGate(it);
             return (

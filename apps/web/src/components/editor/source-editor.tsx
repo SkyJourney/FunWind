@@ -83,10 +83,5 @@ export default function SourceEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return (
-    <div
-      ref={host}
-      className="fw-source-editor min-h-48 rounded-md border border-input bg-transparent text-sm focus-within:ring-2 focus-within:ring-ring"
-    />
-  );
+  return <div ref={host} className="fw-source-editor min-h-48 bg-transparent text-sm" />;
 }

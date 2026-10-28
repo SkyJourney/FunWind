@@ -147,6 +147,8 @@ describe("已上传的图片附件：插入正文", () => {
     const user = userEvent.setup();
     const { container } = mount("", [item]);
     await screen.findByRole("toolbar", { name: "编辑工具栏" });
+    // 附件列表默认折叠：先展开
+    await user.click(screen.getByRole("button", { name: /^附件（\d+）$/ }));
     expect(attachRows()).toHaveLength(1);
     await user.click(screen.getByRole("button", { name: "插入正文：封面.png" }));
     await waitFor(() => expect(hidden(container).value).toContain(URL_));

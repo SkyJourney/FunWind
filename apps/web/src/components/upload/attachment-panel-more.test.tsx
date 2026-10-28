@@ -14,6 +14,9 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
+/** 附件列表默认折叠（M10.8 Step 9）：需要看行时先展开 */
+const expand = () => fireEvent.click(screen.getByRole("button", { name: /^附件（\d+）$/ }));
+
 describe("AttachmentPanel 补充", () => {
   it("大小按单位显示：KB 与 MB", () => {
     render(
@@ -28,6 +31,7 @@ describe("AttachmentPanel 补充", () => {
         restoreDraft={false}
       />,
     );
+    expand();
     expect(screen.getByText("900 B")).toBeInTheDocument();
     expect(screen.getByText("3.0 MB")).toBeInTheDocument();
   });
@@ -43,6 +47,7 @@ describe("AttachmentPanel 补充", () => {
         restoreDraft
       />,
     );
+    expand();
     expect(screen.getByText("服务端.zip")).toBeInTheDocument();
   });
 
@@ -83,6 +88,7 @@ describe("AttachmentPanel 补充", () => {
       </form>,
     );
     // 先让草稿键里有内容（列表变化才会写入），再提交
+    expand();
     await user.click(screen.getByRole("button", { name: "移除附件：提交.zip" }));
     vi.stubGlobal(
       "fetch",

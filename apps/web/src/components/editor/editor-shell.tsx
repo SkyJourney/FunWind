@@ -16,6 +16,8 @@ import { readDraft, removeDraft, stageDraft, stagedKey, writeDraft } from "./dra
 import { explicitGateKeys } from "./gate-keys";
 import { extractInlineImages } from "./inline-images";
 import type { InsertApi } from "./insert-api";
+import { EditorActions } from "./editor-actions";
+import { EditorFrame } from "./editor-frame";
 import { RichEditor } from "./rich-editor";
 import { AttachmentPanel, type AttachmentItem } from "@/components/upload/attachment-panel";
 import { CropDialog } from "@/components/upload/crop-dialog";
@@ -146,6 +148,8 @@ export function EditorShell({
   // 正文里的内嵌图片：从正文派生（附件面板的「正文图片」组），同一键集合不触发重渲染
   const [inlineImages, setInlineImages] = useState(() => extractInlineImages(initialSource));
   const pickerOpen = useRef<(() => void) | null>(null);
+  // 「裁剪后插入」：工具栏开关与源码模式下的勾选框共用同一状态
+  const [wantCrop, setWantCrop] = useState(false);
   const [imagePending, setImagePending] = useState(0);
   const [attachPending, setAttachPending] = useState(0);
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
@@ -302,6 +306,16 @@ export function EditorShell({
     void uploadImage(file);
   };
 
+  const actions = (
+    <EditorActions
+      mode={mode}
+      modeLocked={forceSource !== null && forceSource !== undefined && mode === "source"}
+      onToggleMode={() => switchTo(mode === "rich" ? "source" : "rich")}
+      previewBusy={previewBusy}
+      onPreview={preview}
+    />
+  );
+
   return (
     <div className="space-y-3" onPasteCapture={onPasteCapture}>
       {pendingDraft !== null && (
@@ -343,21 +357,6 @@ export function EditorShell({
         </p>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={forceSource !== null && forceSource !== undefined && mode === "source"}
-          onClick={() => switchTo(mode === "rich" ? "source" : "rich")}
-        >
-          {mode === "rich" ? "切换到源码" : "切换到所见即所得"}
-        </Button>
-        <Button type="button" variant="outline" size="sm" disabled={previewBusy} onClick={preview}>
-          {previewBusy ? "预览中…" : "预览（近似，以发布后为准）"}
-        </Button>
-      </div>
-
       {mode === "rich" ? (
         <RichEditor
           key={`rich-${editorKey}`}
@@ -371,25 +370,44 @@ export function EditorShell({
           }}
           onUploadImage={forumId !== undefined ? () => pickerOpen.current?.() : undefined}
           imageDisabled={imagePending > 0}
+          cropOn={wantCrop}
+          onToggleCrop={() => setWantCrop((v) => !v)}
+          actions={actions}
         />
       ) : (
-        <SourceEditor
-          key={`source-${editorKey}`}
-          initialMarkdown={start}
-          label={label}
-          onChange={sync}
-          onApi={(api) => {
-            sourceApi.current = api;
-            flushInserts();
-          }}
-        />
+        <EditorFrame
+          bar={
+            <p className="px-3 py-2.5 text-xs text-muted-foreground">
+              源码模式（Markdown）：直接编辑原文
+            </p>
+          }
+          actions={actions}
+        >
+          <SourceEditor
+            key={`source-${editorKey}`}
+            initialMarkdown={start}
+            label={label}
+            onChange={sync}
+            onApi={(api) => {
+              sourceApi.current = api;
+              flushInserts();
+            }}
+          />
+        </EditorFrame>
       )}
 
       <HiddenSource name={name} initial={initialSource} inputRef={hiddenRef} />
 
       {forumId !== undefined && (
         <div className="space-y-3">
-          <ImagePicker disabled={imagePending > 0} onPick={onPickImage} openRef={pickerOpen} />
+          <ImagePicker
+            disabled={imagePending > 0}
+            onPick={onPickImage}
+            openRef={pickerOpen}
+            wantCrop={wantCrop}
+            onWantCropChange={setWantCrop}
+            hideControls={mode === "rich"}
+          />
           {uploadNotice && (
             <p role="alert" className="text-sm text-destructive">
               {uploadNotice}

@@ -30,7 +30,6 @@ test("会员：正文插入图片，发布后主题页的正文图片指向 /fil
   await page.locator("#thread-title").fill(`E2E 插图 ${Date.now()}`);
   // 富文本模式（fillSource 会切到源码，图片就只是 Markdown 文本）
   await fillBody(page, "正文前言");
-  await page.getByRole("button", { name: "插入图片" }).click();
   await page.locator('input[type="file"][aria-label="选择图片"]').setInputFiles({
     name: "图.png",
     mimeType: "image/png",
@@ -122,6 +121,7 @@ test("裁剪后插入：勾选裁剪，确认裁剪框后图片插入正文", as
   await page.goto(`/f/${FIX.compose.id}/new`);
   await page.locator("#thread-title").fill(`E2E 裁剪 ${Date.now()}`);
   await fillSource(page, "裁剪前言");
+  // 本用例经 fillSource 停留在源码模式：此处的入口是编辑区下方的勾选框（所见即所得模式下是工具栏开关，见单测）
   await page.getByRole("checkbox", { name: "裁剪后插入" }).check();
   // 裁剪的最小边长是 32 像素：用 96×96 的图（1×1 的图无法框出合法的裁剪区域）
   await page.locator('input[type="file"][aria-label="选择图片"]').setInputFiles({

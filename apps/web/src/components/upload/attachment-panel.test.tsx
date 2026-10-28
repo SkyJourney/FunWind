@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AttachmentPanel, type AttachmentItem } from "./attachment-panel";
@@ -24,7 +24,17 @@ afterEach(() => {
   window.localStorage.clear();
 });
 
+/** 附件列表默认折叠（M10.8 Step 9）：点击「附件（N）」展开 */
+const toggle = () => screen.getByRole("button", { name: /^附件（\d+）$/ });
+
+/** 渲染并展开列表（大多数用例关心的是列表里的行） */
 function mount(props: Partial<Parameters<typeof AttachmentPanel>[0]> = {}) {
+  const r = mountCollapsed(props);
+  fireEvent.click(toggle());
+  return r;
+}
+
+function mountCollapsed(props: Partial<Parameters<typeof AttachmentPanel>[0]> = {}) {
   return render(
     <AttachmentPanel
       forumId={901}
@@ -36,6 +46,25 @@ function mount(props: Partial<Parameters<typeof AttachmentPanel>[0]> = {}) {
     />,
   );
 }
+
+describe("AttachmentPanel：折叠（M10.8 Step 9）", () => {
+  it("默认折叠成「附件（N）」一行：列表不显示，但提交用的隐藏字段仍带着全部附件", () => {
+    const { container } = mountCollapsed();
+    expect(toggle()).toHaveAttribute("aria-expanded", "false");
+    expect(toggle()).toHaveTextContent("附件（2）");
+    expect(screen.queryByTestId("attachment-row")).toBeNull();
+    expect(parsed(container)).toHaveLength(2);
+  });
+
+  it("点击展开 / 再点收起", () => {
+    mountCollapsed();
+    fireEvent.click(toggle());
+    expect(toggle()).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getAllByTestId("attachment-row")).toHaveLength(2);
+    fireEvent.click(toggle());
+    expect(screen.queryByTestId("attachment-row")).toBeNull();
+  });
+});
 
 describe("AttachmentPanel", () => {
   it("展示现有附件与归属，隐藏字段为 JSON", () => {

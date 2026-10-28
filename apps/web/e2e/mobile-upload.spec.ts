@@ -9,10 +9,14 @@ import { USERS, loginAs } from "./support/session";
 test("会员：发主题页的上传控件在 375px 下可见、可点、无横向滚动", async ({ page, context }) => {
   await loginAs(context, USERS.member);
   await page.goto(`/f/${FIX.compose.id}/new`);
-  const insert = page.getByRole("button", { name: "插入图片" });
+  // 所见即所得模式下，图片入口在工具栏（窄屏横向滚动，需要先滚进视野）
+  const insert = page.getByRole("button", { name: "上传图片" });
   await expect(insert).toBeVisible();
+  await insert.scrollIntoViewIfNeeded();
   const box = await insert.boundingBox();
   expect(box!.height).toBeGreaterThanOrEqual(44);
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(375);
   await expect(page.getByRole("button", { name: "添加附件" })).toBeVisible();
 
   const overflow = await page.evaluate(

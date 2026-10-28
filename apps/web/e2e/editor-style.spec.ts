@@ -153,3 +153,47 @@ test("表情面板：搜索并插入；再点按钮可关闭；图片表情与�
   expect(box!.height).toBeLessThan(90);
   await ctx.close();
 });
+
+test("编辑器头部（M10.8 Step 9）：桌面按钮全部可见；右侧「源码 / 预览」固定；附件默认折叠、上传后自动展开", async ({
+  browser,
+}) => {
+  const ctx = await browser.newContext({ viewport: { width: 1100, height: 800 } });
+  await loginAs(ctx, USERS.member);
+  const page = await ctx.newPage();
+  await page.goto(`/f/${FIX.compose.id}/new`);
+  await page.locator(".fw-rich-editor").waitFor();
+  const discard = page.getByRole("button", { name: "丢弃" });
+  if (await discard.isVisible()) await discard.click();
+
+  // 桌面宽度：工具栏换行，所有按钮都在编辑器外框之内、无需横向滚动（回归：曾被做成单行横滚，表情 / 表格 / 撤销重做被挤出视野）
+  const frame = await page.locator(".fw-editor").first().boundingBox();
+  for (const name of ["标题", "加粗", "表情", "插入表格", "插入锁定内容", "撤销", "重做"]) {
+    const b = await page.getByRole("button", { name, exact: true }).boundingBox();
+    expect(b, name).not.toBeNull();
+    expect(b!.x, name).toBeGreaterThanOrEqual(frame!.x);
+    expect(b!.x + b!.width, name).toBeLessThanOrEqual(frame!.x + frame!.width);
+  }
+  // 右侧操作固定在头部：切换模式 + 预览
+  await expect(page.getByRole("button", { name: "切换到源码" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "预览（近似，以发布后为准）" })).toBeVisible();
+  // 编辑器下方不再有重复的「插入图片」按钮与勾选框（入口在工具栏）
+  await expect(page.getByRole("button", { name: "插入图片" })).toHaveCount(0);
+  await expect(page.getByRole("checkbox", { name: "裁剪后插入" })).toHaveCount(0);
+
+  // 附件默认折叠；上传后自动展开并出现这一行
+  const toggle = page.getByRole("button", { name: /^附件（\d+）$/ });
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByTestId("attachment-row")).toHaveCount(0);
+  await page
+    .locator('input[type="file"][aria-label="选择附件"]')
+    .setInputFiles({ name: "折叠.txt", mimeType: "text/plain", buffer: Buffer.from("x") });
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByTestId("attachment-row")).toHaveCount(1);
+
+  // 源码模式：同样的外框与头部，保留编辑区下方的图片入口
+  await page.getByRole("button", { name: "切换到源码" }).click();
+  await expect(page.getByRole("button", { name: "切换到所见即所得" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "预览（近似，以发布后为准）" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "插入图片" })).toBeVisible();
+  await ctx.close();
+});

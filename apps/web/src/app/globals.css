@@ -620,6 +620,26 @@ html[data-vt="expand"]::view-transition-new(root) {
   margin-top: 0;
 }
 
+/* 横向滚动容器两端的渐隐 / 阴影提示（M10.8 Step 9，「滚动阴影」写法，不需要 JS）：
+   两端能继续滚动时才显示——local 背景随内容滚动盖住 scroll 背景（阴影），内容到头时阴影被盖住 */
+.fw-scroll-x {
+  background:
+    linear-gradient(to right, var(--card) 30%, transparent) left center / 28px 100% no-repeat local,
+    linear-gradient(to left, var(--card) 30%, transparent) right center / 28px 100% no-repeat local,
+    radial-gradient(
+        farthest-side at 0 50%,
+        color-mix(in srgb, var(--foreground) 22%, transparent),
+        transparent
+      )
+      left center / 12px 100% no-repeat scroll,
+    radial-gradient(
+        farthest-side at 100% 50%,
+        color-mix(in srgb, var(--foreground) 22%, transparent),
+        transparent
+      )
+      right center / 12px 100% no-repeat scroll;
+}
+
 /* 代码高亮配色（M10.8 Step 5）：渲染侧与编辑区共用 hljs-* 类；亮 / 暗两套随 data-theme 切换，只用于 <code> 内 */
 .content-md code {
   --fw-hl-comment: #6b7280;

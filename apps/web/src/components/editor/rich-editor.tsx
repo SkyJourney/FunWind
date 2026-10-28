@@ -1,9 +1,10 @@
 "use client";
 
 import { EditorContent, useEditor } from "@tiptap/react";
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { editorExtensions } from "./markdown/extensions";
 import type { InsertApi } from "./insert-api";
+import { EditorFrame } from "./editor-frame";
 import { EditorToolbar } from "./toolbar";
 import { TableToolbar } from "./table-toolbar";
 
@@ -21,6 +22,9 @@ export function RichEditor({
   label,
   onUploadImage,
   imageDisabled,
+  cropOn,
+  onToggleCrop,
+  actions,
 }: {
   initialMarkdown: string;
   onChange: (markdown: string) => void;
@@ -31,6 +35,10 @@ export function RichEditor({
   /** 提供时工具栏出现「上传图片」按钮（上传由外壳负责：需要版块上下文） */
   onUploadImage?: () => void;
   imageDisabled?: boolean;
+  cropOn?: boolean;
+  onToggleCrop?: () => void;
+  /** 头部右侧的操作（切换模式、预览），由外壳提供 */
+  actions?: ReactNode;
 }) {
   const editor = useEditor({
     extensions: editorExtensions(),
@@ -83,19 +91,27 @@ export function RichEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor]);
 
-  if (!editor) return <div className="min-h-48 rounded-lg border border-input" aria-busy="true" />;
+  if (!editor)
+    return (
+      <EditorFrame bar={<div className="h-11" />} actions={actions}>
+        <div className="min-h-48" aria-busy="true" />
+      </EditorFrame>
+    );
   return (
-    // 外框：边框 + 聚焦环；工具栏吸附在站点顶栏下方（长文时不用滚回顶部），移动端顶栏 h-16、桌面 h-14
-    <div className="fw-editor rounded-lg border border-input bg-card shadow-1 focus-within:ring-2 focus-within:ring-ring/50">
-      <div className="sticky top-16 z-10 rounded-t-lg border-b bg-card/95 backdrop-blur md:top-14">
+    <EditorFrame
+      bar={
         <EditorToolbar
           editor={editor}
           onUploadImage={onUploadImage}
           imageDisabled={imageDisabled}
+          cropOn={cropOn}
+          onToggleCrop={onToggleCrop}
         />
-        <TableToolbar editor={editor} />
-      </div>
+      }
+      subbar={<TableToolbar editor={editor} />}
+      actions={actions}
+    >
       <EditorContent editor={editor} />
-    </div>
+    </EditorFrame>
   );
 }
