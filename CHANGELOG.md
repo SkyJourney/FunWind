@@ -5,6 +5,20 @@
 
 ## [Unreleased]
 
+### Added（M10.7：流式加载与动效兑现）
+
+完整记录见 [docs/milestones/M10.7-streaming-motion.md](docs/milestones/M10.7-streaming-motion.md)。
+
+- **流式加载**：首页 / 板块页 / 个人主页（主题、回复）/ 关注动态 / 积分流水 / 通知 / 私信会话列表触底自动追加
+  （`StreamList` + `/api/stream/*`，页码与游标两种模式、去重、失败重试、限流）；聊天页默认停在最新并上滑加载更早；
+  无 JS 保留 `?page=` / `?before=` 真链接；追加项无延迟淡入。
+- **动效**：页面过渡（`template.tsx` 一处挂载 View Transition，方向由导航类型决定）、Tab 左右滑动、内容卡片 → 主题页
+  圆形扩散与站内返回收起、导航守卫（进度条 / busy / 3 秒慢提示 / 15 秒失败 toast + 重试，含生产构建下路由器重置）、
+  L1 微交互（点赞 / 关注乐观更新与弹跳、通知偏好 Switch、分段控件滑动指示器、卡片 hover 与按压、弹层时长令牌）。
+- **Fixed**：聊天页默认打开最旧一页；`/follows` 翻页丢失类型筛选；`.sk` 骨架类从未定义（占位条透明）与板块目录骨架不同构；
+  首页右栏内容高于视口时下半部分滚不出来；`/boards` 以外的失败导航后路由器卡死（仅生产构建）。
+- **已知**：浏览器返回键 / 手势在路由缓存命中时无页面过渡（React 对 popstate 同步提交，站长接受）。
+
 ### Added（M10.6：M11 前功能补全——进行中）
 
 完整记录见 [docs/milestones/M10.6-feature-completion.md](docs/milestones/M10.6-feature-completion.md)。
