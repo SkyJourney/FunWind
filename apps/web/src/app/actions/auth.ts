@@ -28,6 +28,7 @@ import { rateLimit } from "@/lib/auth/ratelimit";
 import { issueEmailToken } from "@/lib/auth/tokens";
 import { sendMail, verifyEmailMail } from "@/lib/auth/mailer";
 import { getRegisterMode, getEmailVerificationMode } from "@/lib/auth/settings";
+import { APP_URL } from "@/lib/site";
 
 /**
  * 认证 Server Actions（M4）。
@@ -182,12 +183,12 @@ export const registerAction = defineAction({
     const shouldVerify = mode === "open" || verificationMode === "always";
     if (shouldVerify) {
       const token = await issueEmailToken(newId, "verify");
-      const { APP_URL: appUrl } = await import("@/lib/site");
       const { getSiteIdentity } = await import("@/lib/site-chrome");
-      const siteName = await getSiteIdentity()
-        .then((i) => i.name)
-        .catch(() => undefined);
-      await sendMail(email, verifyEmailMail(`${appUrl}/verify/${token}`, siteName));
+      const identity = await getSiteIdentity().catch(() => undefined);
+      await sendMail(
+        email,
+        verifyEmailMail(`${identity?.url ?? APP_URL}/verify/${token}`, identity?.name),
+      );
     }
 
     await createSession(newId, {

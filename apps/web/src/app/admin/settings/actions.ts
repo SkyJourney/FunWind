@@ -30,11 +30,24 @@ export const saveIdentityAction = defineAction({
   input: z.object({
     name: z.string().trim().min(1, "站点名不能为空").max(40),
     tagline: z.string().trim().max(80).default(""),
+    /** 对外访问地址：空 = 用环境默认（APP_URL）；填了须 http(s):// 开头（邮件链接/sitemap 用） */
+    url: z
+      .string()
+      .trim()
+      .max(200)
+      .default("")
+      .refine((v) => v === "" || /^https?:\/\/.+/.test(v.replace(/\/+$/, "")), {
+        message: "访问地址需以 http(s):// 开头",
+      }),
   }),
   async run(ctx, input) {
     await setSetting(
       "site.identity",
-      { name: input.name, tagline: input.tagline },
+      {
+        name: input.name,
+        tagline: input.tagline,
+        url: input.url === "" ? "" : input.url.replace(/\/+$/, ""),
+      },
       {
         userId: ctx.userId ?? null,
         via: "admin",

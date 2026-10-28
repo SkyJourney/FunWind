@@ -1,6 +1,6 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { announcements, getWebDb, siteSettings } from "@funwind/db";
-import { SITE_NAME, SITE_TAGLINE } from "@/lib/site";
+import { SITE_NAME, SITE_TAGLINE, SITE_URL } from "@/lib/site";
 
 /**
  * 站点框架配置（M9，site_settings JSON，不建独立表）：导航/友链/页脚。
@@ -31,6 +31,8 @@ export interface SiteChrome {
 export interface SiteIdentity {
   name: string;
   tagline: string;
+  /** 对外访问地址（邮件链接/sitemap 用）；空 = 回退 env APP_URL。Cookie Secure 等部署拓扑仍由 env 决定 */
+  url: string;
 }
 
 const EMPTY: SiteChrome = {
@@ -38,7 +40,7 @@ const EMPTY: SiteChrome = {
   links: [],
   footerText: "",
   logoActive: null,
-  identity: { name: SITE_NAME, tagline: SITE_TAGLINE },
+  identity: { name: SITE_NAME, tagline: SITE_TAGLINE, url: SITE_URL },
 };
 const TTL_MS = 30_000;
 
@@ -110,13 +112,15 @@ function parseLogo(raw: unknown): string | null {
   return items.some((i) => i.file === active) ? active : null;
 }
 
-/** 站点身份（site.identity JSON）：空值回退默认常量；name 截 40、tagline 截 80（导出供单测） */
+/** 站点身份（site.identity JSON）：空值回退默认常量；name 截 40、tagline 截 80；url 须 http(s):// 且去尾斜杠（导出供单测） */
 export function parseIdentity(raw: unknown): SiteIdentity {
-  const o = raw as { name?: unknown; tagline?: unknown } | null;
+  const o = raw as { name?: unknown; tagline?: unknown; url?: unknown } | null;
   const name =
     typeof o?.name === "string" && o.name.trim() !== "" ? o.name.trim().slice(0, 40) : SITE_NAME;
   const tagline = typeof o?.tagline === "string" ? o.tagline.trim().slice(0, 80) : SITE_TAGLINE;
-  return { name, tagline };
+  const rawUrl = typeof o?.url === "string" ? o.url.trim().replace(/\/+$/, "") : "";
+  const url = /^https?:\/\/.+/.test(rawUrl) ? rawUrl.slice(0, 200) : SITE_URL;
+  return { name, tagline, url };
 }
 
 /** 站点身份便捷读取（走 chrome 的 TTL 缓存；管理保存后 invalidate 即时生效） */

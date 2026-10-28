@@ -41,10 +41,11 @@ async function defaultDeliver(
   user: { id: number; hasPassword: boolean },
   email: string,
   siteName?: string,
+  siteUrl?: string,
 ) {
   const purpose = user.hasPassword ? "reset" : "claim";
   const token = await issueEmailToken(user.id, purpose);
-  const link = `${APP_URL}/${purpose}/${token}`;
+  const link = `${siteUrl ?? APP_URL}/${purpose}/${token}`;
   // 站点身份可配（M10.6b）：未取到（调用方读取失败）回退模板默认站名
   await sendMail(
     email,
@@ -93,12 +94,17 @@ export async function requestAccountEmail(
   // 站点身份预取（M10.6c 教训）：chrome 有 30s TTL 全局缓存，放请求内是 ~0ms 命中；
   // 放 after() 里会拖慢投递（dev 观测 30s+，首查迟到的连接初始化），E2E 找回轮询一度超时。
   // 对存在/不存在的邮箱一视同仁地读，防枚举时序不受影响。
-  const siteName = await getSiteIdentity()
-    .then((i) => i.name)
-    .catch(() => undefined);
+  const [siteName, siteUrl] = await getSiteIdentity()
+    .then((i) => [i.name, i.url] as const)
+    .catch(() => [undefined, undefined] as const);
   deps.defer(async () => {
     try {
-      await deliver({ id: user.id, hasPassword: user.passwordHash !== null }, email, siteName);
+      await deliver(
+        { id: user.id, hasPassword: user.passwordHash !== null },
+        email,
+        siteName,
+        siteUrl,
+      );
     } catch (e) {
       // 响应早已发出，这里只能记日志；用户重新申请即可
       console.error("[auth] 找回邮件发送失败:", e);

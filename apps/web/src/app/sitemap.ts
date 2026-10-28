@@ -1,15 +1,16 @@
 import type { MetadataRoute } from "next";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { getWebDb, threads } from "@funwind/db";
-import { APP_URL } from "@/lib/site";
 import { listForumRows } from "@/lib/forums/admin";
 import { ForumTree } from "@/lib/forums/forum-tree";
+import { getSiteIdentity } from "@/lib/site-chrome";
 
 /**
  * sitemap（M10.6b）：首页/目录 + 公开可读且上目录的版块 + 这些版块下可见主题（前 2000 条）。
  * 受限/会员可见内容一律不进 sitemap（与游客可见口径一致，不泄露存在性）。
  */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  const siteUrl = (await getSiteIdentity()).url;
   const rows = await listForumRows();
   const tree = new ForumTree(rows);
   const publicForumIds = rows
@@ -27,7 +28,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       : [];
 
   const entry = (path: string, lastModified?: string | Date) => ({
-    url: `${APP_URL}${path}`,
+    url: `${siteUrl}${path}`,
     ...(lastModified ? { lastModified } : {}),
   });
 

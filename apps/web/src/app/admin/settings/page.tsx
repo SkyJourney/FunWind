@@ -4,7 +4,7 @@ import { requireAdmin } from "@/lib/authz/require-admin";
 import { getEmailVerificationMode, getRegisterMode } from "@/lib/auth/settings";
 import { getLimitsConfig } from "@/lib/limits/load";
 import { getSiteIdentity } from "@/lib/site-chrome";
-import { APP_URL } from "@/lib/site";
+import { SITE_URL } from "@/lib/site";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import {
@@ -82,7 +82,6 @@ export default async function SiteSettingsPage({
   const mailError = sp.mail_error ? MAIL_ERROR[sp.mail_error] : undefined;
   const smtpDisplay = smtpDisplayOf(process.env.SMTP_URL);
   const mailFrom = process.env.MAIL_FROM ?? "青翼字幕组 <noreply@qingyisub.top>";
-  const appUrl = APP_URL;
 
   return (
     <div className="space-y-5">
@@ -141,12 +140,25 @@ export default async function SiteSettingsPage({
                 className={`${inputCls} w-80`}
               />
             </label>
+            <label className="grid gap-1 text-sm">
+              站点访问地址（留空用环境默认）
+              <input
+                name="url"
+                type="url"
+                pattern="https?://.*"
+                title="须以 http:// 或 https:// 开头"
+                placeholder={SITE_URL}
+                defaultValue={identity.url === SITE_URL ? "" : identity.url}
+                className={`${inputCls} w-72`}
+              />
+            </label>
             <SubmitButton className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
               保存身份
             </SubmitButton>
           </form>
           <p className="mt-2 text-xs text-muted-foreground">
-            生效范围：顶栏与品牌卡、页面标题、邮件主题与落款；缓存最多 30 秒收敛。
+            生效范围：顶栏与品牌卡、页面标题、邮件主题与落款、邮件里的链接地址、sitemap；缓存最多 30
+            秒收敛。 访问地址只影响对外链接——Cookie 安全属性等部署拓扑始终由服务器环境变量决定。
           </p>
         </CardContent>
       </Card>
@@ -215,8 +227,11 @@ export default async function SiteSettingsPage({
             </dd>
             <dt className="font-medium text-foreground">站点链接</dt>
             <dd>
-              <code className="rounded bg-muted px-1 text-xs">{appUrl}</code>
-              <span className="ml-1 text-xs">（APP_URL，邮件里的链接指向它）</span>
+              <code className="rounded bg-muted px-1 text-xs">{identity.url}</code>
+              <span className="ml-1 text-xs">
+                （{identity.url === SITE_URL ? "环境默认 APP_URL" : "后台配置"}
+                ，邮件里的链接指向它）
+              </span>
             </dd>
           </dl>
 

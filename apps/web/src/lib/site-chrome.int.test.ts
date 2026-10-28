@@ -4,7 +4,7 @@ import { eq, sql } from "drizzle-orm";
 import { announcements, getWebDb, siteSettings } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
-import { SITE_NAME, SITE_TAGLINE } from "@/lib/site";
+import { SITE_NAME, SITE_TAGLINE, SITE_URL } from "@/lib/site";
 import { bannerAnnouncement, getSiteChrome, invalidateSiteChrome } from "./site-chrome";
 
 let tdb: TempDb;
@@ -25,7 +25,7 @@ describe.skipIf(skipDb)("站点框架配置（site-chrome）", () => {
       links: [],
       footerText: "",
       logoActive: null,
-      identity: { name: SITE_NAME, tagline: SITE_TAGLINE }, // M10.6b：身份可配，空库回默认
+      identity: { name: SITE_NAME, tagline: SITE_TAGLINE, url: SITE_URL }, // M10.6：身份可配（含访问地址），空库回默认
     });
     await db()
       .insert(siteSettings)
