@@ -78,6 +78,13 @@
       "when": 1793109319642,
       "tag": "0010_legacy_password_dual_track",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1793150697002,
+      "tag": "0011_email_digest_at",
+      "breakpoints": true
     }
   ]
 }

@@ -78,6 +78,8 @@ export const users = mysqlTable(
     state: mysqlEnum("state", ["active", "deleted"]).notNull().default("active"),
     createdAt: dt("created_at").notNull(),
     lastLoginAt: dt("last_login_at"),
+    /** S7 每日汇总邮件：上次发送时刻（NULL = 从未发过；活跃 24h 内用户被 digest 跳过） */
+    lastEmailDigestAt: dt("last_email_digest_at"),
   },
   (t) => [
     primaryKey({ columns: [t.id] }),

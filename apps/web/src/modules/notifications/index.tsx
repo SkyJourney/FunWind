@@ -1,6 +1,8 @@
 import { defineModule } from "../kernel/types";
 import { NOTIFICATION_TYPE_SPECS } from "@/lib/notifications/render";
 import { notify } from "@/lib/notifications/notify";
+import { securityEmailEnabled, sendUserEmail, userEmailEnabled } from "@/lib/notifications/email";
+import { gateSoldMail, restrictionMail, contentApprovedMail } from "@/lib/auth/mailer";
 import { getForumModerators } from "@/lib/authz/service";
 import { getWebDb, posts, threads, users } from "@funwind/db";
 import { eq } from "drizzle-orm";
@@ -128,6 +130,12 @@ export const notificationsModule = defineModule({
         groupKey: `gate:${p.gateId}:sold`,
         data: { price: p.price },
       });
+      // S5 场景邮件：内容售出（用户偏好）
+      if (await userEmailEnabled(p.authorId, "gate.sold")) {
+        await sendUserEmail(p.authorId, ({ siteName, siteUrl }) =>
+          gateSoldMail({ points: p.price, siteUrl }, siteName),
+        );
+      }
     },
     "points.changed": async (p) => {
       if (p.channel !== "adjust.admin") return; // 只有管理员调整发通知（earn/spend 不打扰）
@@ -189,7 +197,7 @@ export const notificationsModule = defineModule({
       const type = typeByAction[p.action];
       if (!type) return;
       const [post] = await getWebDb()
-        .select({ authorId: posts.authorId })
+        .select({ authorId: posts.authorId, threadId: posts.threadId })
         .from(posts)
         .where(eq(posts.id, p.postId))
         .limit(1);
@@ -203,6 +211,12 @@ export const notificationsModule = defineModule({
         dedupKey: (uid) => `mod:${p.postId}:${p.action}:${uid}`,
         data: p.reason ? { reason: p.reason } : {},
       });
+      // S6 场景邮件：审核通过（用户偏好，docs/EMAIL-SCENARIOS.md）
+      if (type === "content.approved" && (await userEmailEnabled(post.authorId, type))) {
+        await sendUserEmail(post.authorId, ({ siteName, siteUrl }) =>
+          contentApprovedMail({ threadId: post.threadId, siteUrl }, siteName),
+        );
+      }
     },
 
     "restriction.changed": async (p) => {
@@ -216,6 +230,20 @@ export const notificationsModule = defineModule({
         dedupKey: () => `restriction:${p.userId}:${p.kind}:${p.action}:${p.endsAt ?? "perm"}`,
         data: { reason: p.reason ?? "", kind: p.kind, endsAt: p.endsAt ?? null },
       });
+      // S3 安全强制类邮件（后台统一开关，docs/EMAIL-SCENARIOS.md）：处罚送达义务
+      if (await securityEmailEnabled()) {
+        await sendUserEmail(p.userId, ({ siteName }) =>
+          restrictionMail(
+            {
+              lifted: p.action !== "created",
+              kind: p.kind,
+              reason: p.reason ?? "",
+              endsAt: p.endsAt ?? null,
+            },
+            siteName,
+          ),
+        );
+      }
     },
 
     "role.changed": async (p) => {

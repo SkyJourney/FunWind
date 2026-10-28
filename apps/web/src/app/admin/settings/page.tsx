@@ -2,12 +2,15 @@ import { eq } from "drizzle-orm";
 import { getWebDb, users } from "@funwind/db";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { getEmailVerificationMode, getRegisterMode } from "@/lib/auth/settings";
+import { getDigestHour, securityEmailEnabled } from "@/lib/notifications/email";
 import { getLimitsConfig } from "@/lib/limits/load";
 import { getSiteIdentity } from "@/lib/site-chrome";
 import { SITE_URL } from "@/lib/site";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import {
+  saveDigestHourAction,
+  saveEmailSecurityAction,
   saveEmailVerificationAction,
   saveIdentityAction,
   saveLimitsAction,
@@ -65,18 +68,21 @@ export default async function SiteSettingsPage({
 }) {
   // 入口鉴权约定：第一个 await 必须是 requireAdmin（admin-entry-guard 静态守护）
   const admin = await requireAdmin("site.admin");
-  const [identity, mode, limits, verificationMode, adminRow, sp] = await Promise.all([
-    getSiteIdentity(),
-    getRegisterMode(),
-    getLimitsConfig(),
-    getEmailVerificationMode(),
-    getWebDb()
-      .select({ email: users.email })
-      .from(users)
-      .where(eq(users.id, admin.userId))
-      .limit(1),
-    searchParams,
-  ]);
+  const [identity, mode, limits, verificationMode, securityMail, digestHour, adminRow, sp] =
+    await Promise.all([
+      getSiteIdentity(),
+      getRegisterMode(),
+      getLimitsConfig(),
+      getEmailVerificationMode(),
+      securityEmailEnabled(),
+      getDigestHour(),
+      getWebDb()
+        .select({ email: users.email })
+        .from(users)
+        .where(eq(users.id, admin.userId))
+        .limit(1),
+      searchParams,
+    ]);
   const adminEmail = adminRow[0]?.email ?? null;
   const flash = sp.saved ? FLASH[sp.saved] : undefined;
   const mailError = sp.mail_error ? MAIL_ERROR[sp.mail_error] : undefined;
@@ -278,6 +284,51 @@ export default async function SiteSettingsPage({
                 保存验证策略
               </SubmitButton>
             </div>
+          </form>
+
+          <form action={saveEmailSecurityAction} className="space-y-2 border-t pt-4">
+            <p className="font-medium">安全类邮件通知（密码修改 / 邮箱换绑 / 账号限制）</p>
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                name="enabled"
+                value="on"
+                defaultChecked={securityMail}
+                className="mt-1 size-4"
+              />
+              <span className="text-muted-foreground">
+                由站点统一控制发送，用户不可逐项关闭（处罚送达与防盗号知情是平台义务）。
+              </span>
+            </label>
+            <div>
+              <SubmitButton className="rounded-lg border px-3 py-1.5 hover:bg-accent disabled:opacity-60">
+                保存安全通知开关
+              </SubmitButton>
+            </div>
+          </form>
+
+          <form action={saveDigestHourAction} className="space-y-2 border-t pt-4">
+            <p className="font-medium">每日汇总发送时刻</p>
+            <div className="flex items-end gap-3">
+              <label className="grid gap-1">
+                发送时刻（0–23 点）
+                <input
+                  name="hour"
+                  type="number"
+                  min={0}
+                  max={23}
+                  defaultValue={digestHour}
+                  className={numCls}
+                />
+              </label>
+              <SubmitButton className="rounded-lg border px-3 py-1.5 hover:bg-accent disabled:opacity-60">
+                保存时刻
+              </SubmitButton>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              系统定时任务每小时运行比对；仅发给在「通知偏好」开启邮件汇总、且 24
+              小时内未登录的用户。服务器侧需配置 crontab 每小时整点运行 digest-cron 脚本。
+            </p>
           </form>
         </CardContent>
       </Card>

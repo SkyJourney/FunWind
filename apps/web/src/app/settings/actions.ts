@@ -11,6 +11,14 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { hashPassword, verifyLegacyPassword, verifyPassword } from "@/lib/auth/password";
 import { isValidEmail } from "@/lib/auth/email";
 import { MUST_CHANGE_COOKIE, revokeOtherSessions } from "@/lib/auth/session";
+import { securityEmailEnabled, sendUserEmail } from "@/lib/notifications/email";
+import {
+  emailChangedAlertMail,
+  emailChangedConfirmMail,
+  passwordChangedMail,
+  sendMail,
+} from "@/lib/auth/mailer";
+import { getSiteIdentity } from "@/lib/site-chrome";
 
 /**
  * 账号设置动作（M10.6c）：改密码（双轨强制换密同一入口）/ 改邮箱 / 资料。
@@ -83,6 +91,10 @@ export const updatePasswordAction = defineAction({
       .where(eq(users.id, ctx.userId!));
     await revokeOtherSessions(ctx.userId!);
     (await cookies()).delete(MUST_CHANGE_COOKIE);
+    // S1 安全强制类（后台统一开关；docs/EMAIL-SCENARIOS.md）：改密即告知
+    if (await securityEmailEnabled()) {
+      await sendUserEmail(ctx.userId!, ({ siteName }) => passwordChangedMail(siteName));
+    }
     revalidatePath("/", "layout");
     redirect("/settings/password?saved=1");
   },
@@ -113,10 +125,26 @@ export const updateEmailAction = defineAction({
       .limit(1);
     if (taken) redirect(errHop("email", "该邮箱已被其他账号使用"));
 
+    // S2 安全强制类：先取旧邮箱（告警发往它——原主由此察觉被盗），更新后双端各一封
+    const [before] = await getWebDb()
+      .select({ email: users.email })
+      .from(users)
+      .where(eq(users.id, ctx.userId!))
+      .limit(1);
+    const securityOn = await securityEmailEnabled();
+
     await getWebDb()
       .update(users)
       .set({ email, emailKey: key, emailVerifiedAt: null })
       .where(eq(users.id, ctx.userId!));
+
+    if (securityOn) {
+      const identity = await getSiteIdentity().catch(() => undefined);
+      if (before?.email && before.email.toLowerCase() !== key) {
+        await sendMail(before.email, emailChangedAlertMail(identity?.name)).catch(() => {});
+      }
+      await sendMail(email, emailChangedConfirmMail(identity?.name)).catch(() => {});
+    }
     redirect("/settings/email?saved=1");
   },
 });
@@ -166,6 +194,7 @@ export const toggleNotifPrefAction = defineAction({
   auth: "user",
   input: z.object({
     type: z.string().min(1).max(48),
+    channel: z.enum(["in_app", "email"]).default("in_app"),
     enabled: z.enum(["on", "off"]),
   }),
   async run(ctx, input) {
@@ -174,7 +203,7 @@ export const toggleNotifPrefAction = defineAction({
     const enabled = input.enabled === "on";
     await getWebDb()
       .insert(notificationPreferences)
-      .values({ userId: ctx.userId!, type: input.type, channel: "in_app", enabled })
+      .values({ userId: ctx.userId!, type: input.type, channel: input.channel, enabled })
       .onDuplicateKeyUpdate({ set: { enabled } });
     revalidatePath("/settings/notifications");
     redirect("/settings/notifications");

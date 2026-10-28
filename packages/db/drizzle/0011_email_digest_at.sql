@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `last_email_digest_at` datetime;

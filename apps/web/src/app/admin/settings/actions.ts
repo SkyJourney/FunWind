@@ -153,6 +153,47 @@ export const saveEmailVerificationAction = defineAction({
   },
 });
 
+/** S1–S3 安全强制类邮件的后台统一开关（用户侧不可关；docs/EMAIL-SCENARIOS.md 站长裁决）。
+ * checkbox 未勾选时参数缺席——用字符串缺省解析，不能用 enum（safeParse 失败→404，开关永远关不掉）。 */
+export const saveEmailSecurityAction = defineAction({
+  name: "admin.settings.email_security",
+  auth: { admin: "site.admin" },
+  input: z.object({ enabled: z.string().default("") }),
+  async run(ctx, input) {
+    await setSetting(
+      "email.security",
+      { enabled: input.enabled === "on" },
+      {
+        userId: ctx.userId ?? null,
+        via: "admin",
+        ip: ctx.ip,
+      },
+    );
+    revalidatePath("/admin/settings");
+    done("email_security");
+  },
+});
+
+/** S7 每日汇总的发送时刻（0–23 点；系统 cron 每小时调 digest-cron 脚本比对空转） */
+export const saveDigestHourAction = defineAction({
+  name: "admin.settings.digest_hour",
+  auth: { admin: "site.admin" },
+  input: z.object({ hour: z.coerce.number().int().min(0).max(23) }),
+  async run(ctx, input) {
+    await setSetting(
+      "email.digest",
+      { hour: input.hour },
+      {
+        userId: ctx.userId ?? null,
+        via: "admin",
+        ip: ctx.ip,
+      },
+    );
+    revalidatePath("/admin/settings");
+    done("digest_hour");
+  },
+});
+
 export const sendTestMailAction = defineAction({
   name: "admin.settings.test_mail",
   auth: { admin: "site.admin" },
