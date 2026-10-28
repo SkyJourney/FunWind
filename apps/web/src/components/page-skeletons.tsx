@@ -1,3 +1,5 @@
+import { Layers } from "lucide-react";
+
 /** 列表页骨架（S2 states.html ①）：标题条 + 行列表，形状与真实列表页同构 */
 export function ListSkeleton({ rows = 6 }: { rows?: number }) {
   return (
@@ -17,6 +19,54 @@ export function ListSkeleton({ rows = 6 }: { rows?: number }) {
         ))}
       </div>
     </div>
+  );
+}
+
+/**
+ * 板块目录骨架（/boards，M10.7 站长反馈）：与真实页面**同构**——同样的容器宽度与间距、固定的「板块目录」标题
+ * （静态文案不该等数据）、「N 个板块 · N 个主题」一行的占位条、至少一个一级分区（分区标题条 + 两列板块卡片）。
+ * 此前用的是首页内容流骨架（筛选胶囊 + 左文右图卡片，容器还更宽），数据一到标题 / 数字 / 分区全是凭空冒出来的，布局也会跳。
+ */
+export function BoardsSkeleton({
+  sections = 1,
+  forums = 4,
+}: {
+  sections?: number;
+  forums?: number;
+}) {
+  return (
+    <main aria-busy="true" className="mx-auto max-w-5xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
+      <span role="status" className="sr-only">
+        加载中
+      </span>
+      <header>
+        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
+          <Layers className="size-6 text-primary" aria-hidden />
+          板块目录
+        </h1>
+        <p className="mt-1 flex h-5 items-center" aria-hidden>
+          <span className="sk h-3.5 w-44 rounded" />
+        </p>
+      </header>
+      <section className="space-y-6" aria-hidden>
+        {Array.from({ length: sections }, (_, s) => (
+          <div key={s}>
+            <div className="mb-2 border-b pb-1">
+              <div className="sk my-1 h-4 w-28 rounded" />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {Array.from({ length: forums }, (_, i) => (
+                <div key={i} className="rounded-xl border bg-card p-4">
+                  <div className="sk h-4 w-2/5 rounded" />
+                  <div className="sk mt-2.5 h-3 w-3/4 rounded" />
+                  <div className="sk mt-3 h-3 w-16 rounded" />
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </section>
+    </main>
   );
 }
 

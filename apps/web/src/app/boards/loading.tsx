@@ -1,4 +1,4 @@
-import { FeedSkeleton } from "@/components/page-skeletons";
+import { BoardsSkeleton } from "@/components/page-skeletons";
 
 /**
  * 板块目录加载态。安全注记：loading 边界会让响应提前以 200 开始流式输出，
@@ -7,5 +7,5 @@ import { FeedSkeleton } from "@/components/page-skeletons";
  * 见 docs/M10.5-UI-LAYOUT.md §6 与 e2e/authz、visibility 的 404 契约。
  */
 export default function Loading() {
-  return <FeedSkeleton cards={4} />;
+  return <BoardsSkeleton />;
 }
