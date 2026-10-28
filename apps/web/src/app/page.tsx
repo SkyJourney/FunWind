@@ -188,7 +188,13 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
         </div>
 
         {/* 右栏（xl）：品牌 + 模块槽位（签到卡）+ 热帖 + 统计 + 热门板块 */}
-        <aside className="hidden space-y-4 self-start xl:sticky xl:top-24 xl:block">
+        {/* 右栏独立滚动区（M10.7 站长反馈）：原先只有 sticky，内容高于视口时页面滚动它却贴在原处，
+            下面的内容永远滚不出来。限制最大高度并允许自身滚动；内边距给阴影 / hover 上浮留空间（滚动容器会裁掉溢出）；
+            overscroll-contain 避免滚到头后把滚动传给主列表 */}
+        <aside
+          aria-label="侧栏"
+          className="-m-1 hidden [scrollbar-width:thin] [scrollbar-gutter:stable] space-y-4 self-start p-1 xl:sticky xl:top-24 xl:block xl:max-h-[calc(100dvh-7rem)] xl:overflow-y-auto xl:overscroll-contain"
+        >
           <BrandCard
             logoUrl={chrome.logoActive ? "/brand/logo" : null}
             siteName={chrome.identity.name}
