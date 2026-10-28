@@ -118,7 +118,11 @@ export function NotificationBell() {
           </span>
         )}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80">
+      <DropdownMenuContent
+        align="end"
+        collisionPadding={12}
+        className="w-[min(20rem,calc(100vw-2rem))]"
+      >
         <DropdownMenuLabel className="flex items-center justify-between">
           <span>通知{total > 0 ? `（${total} 未读）` : ""}</span>
           {total > 0 && (

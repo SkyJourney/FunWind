@@ -66,7 +66,7 @@ export function ThemeMenu() {
 export function ThemeOptionsRow() {
   const { theme, setTheme } = useTheme();
   return (
-    <div className="flex items-center gap-1 px-2 py-1.5" role="group" aria-label="主题切换">
+    <div className="flex items-stretch gap-1 px-2 py-1.5" role="group" aria-label="主题切换">
       {THEME_OPTIONS.map(({ value, label, icon }) => {
         const Icon = ICONS[icon];
         const active = theme === value;
@@ -76,12 +76,14 @@ export function ThemeOptionsRow() {
             type="button"
             onClick={() => setTheme(value)}
             aria-pressed={active}
+            title={label}
             className={cn(
-              "inline-flex flex-1 items-center justify-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+              // 纵向小卡：图标上、文字下——窄菜单里「跟随系统」不再横向挤压换行（M10.6d 站长反馈）
+              "flex flex-1 flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1.5 text-[11px] leading-none whitespace-nowrap text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
               active && "bg-accent text-foreground",
             )}
           >
-            <Icon className="size-3.5" aria-hidden />
+            <Icon className="size-4" aria-hidden />
             {label}
           </button>
         );

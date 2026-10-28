@@ -1,55 +1,71 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useState } from "react";
+import Lightbox from "yet-another-react-lightbox";
+import Zoom from "yet-another-react-lightbox/plugins/zoom";
+import "yet-another-react-lightbox/styles.css";
 
 /**
- * 帖子图片点击放大（M10.6d 站长反馈）：content-md 内非表情图点击 → 全屏查看。
- * 轻量原生 <dialog>（零依赖）：居中适配视口、点任意处/Esc 关闭、移动端长按可存图；
- * 监听挂在最近的内容祖先（RichContent 的 div），capture 先于链接导航。
- * 触发目标为 .content-md img 且 src 不含 /emoji/（表情保持行内小图不放大）。
+ * 帖子图片点击放大（M10.6d 站长反馈：要缩放工具/关闭按钮/遮罩点击关闭）：
+ * yet-another-react-lightbox + Zoom 插件（工具条缩放/滚轮/双击）；自带关闭按钮、遮罩点击、Esc、滑动。
+ *
+ * 关键设计：RichContent 每楼层渲染一个 <ImageLightbox>，若各自持有 open state，
+ * 一帖 20 楼会叠 20 个全屏容器——点关闭只卸载一个，其余仍盖在屏上（站长实测的「关不掉」）。
+ * 改为模块级事件总线：图片点击派发 open 事件，全页只此一个全屏实例统一渲染/统一关闭。
+ * 表情小图不挂接（selector 排除 /emoji/）。
  */
+
+interface LightboxOpenEvent {
+  slides: { src: string }[];
+  index: number;
+}
+
+const OPEN_EVENT = "fw-image-lightbox-open";
+
+export function openImageLightbox(slides: { src: string }[], index: number): void {
+  window.dispatchEvent(
+    new CustomEvent<LightboxOpenEvent>(OPEN_EVENT, { detail: { slides, index } }),
+  );
+}
+
+/** 全页唯一实例：由 RichContent 渲染（每楼层一份也只挂一个监听器，事件只被首个实例消费前先去重）。 */
 export function ImageLightbox({ selector }: { selector: string }) {
-  const dlgRef = useRef<HTMLDialogElement>(null);
+  const [state, setState] = useState<LightboxOpenEvent | null>(null);
 
   useEffect(() => {
-    const dlg = dlgRef.current;
-    if (!dlg) return;
+    const onOpen = (e: Event) => setState((e as CustomEvent<LightboxOpenEvent>).detail);
+    window.addEventListener(OPEN_EVENT, onOpen);
 
-    // 监听挂在 dialog 的父节点（= portal 目标 body 下 RichContent 的兄弟位置不可行，
-    // 改为文档级 capture：选择器已限定 .content-md img，误伤面为零）
+    // 图片点击 → 收集本帖全部内容图作为画廊 → 派发打开事件（capture 先于链接导航）
     const onClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (target.tagName !== "IMG") return;
       if (!target.matches(selector)) return;
       e.preventDefault();
-      const img = dlg.querySelector("img");
-      if (img) {
-        img.src = target.getAttribute("src") ?? "";
-        img.alt = target.getAttribute("alt") ?? "";
-      }
-      dlg.showModal();
+      const gallery = Array.from(document.querySelectorAll<HTMLElement>(selector)).map((el) => ({
+        src: el.getAttribute("src") ?? "",
+      }));
+      const idx = gallery.findIndex((s) => s.src === target.getAttribute("src"));
+      openImageLightbox(gallery, idx >= 0 ? idx : 0);
     };
-    // capture：内容图可能在链接内，先于链接导航拦截
     document.addEventListener("click", onClick, true);
-    const onDlgClick = () => {
-      dlg.close(); // 点图片或遮罩任意处关闭
-    };
-    dlg.addEventListener("click", onDlgClick);
     return () => {
+      window.removeEventListener(OPEN_EVENT, onOpen);
       document.removeEventListener("click", onClick, true);
-      dlg.removeEventListener("click", onDlgClick);
     };
   }, [selector]);
 
-  return createPortal(
-    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- 对话框本体即点击关闭目标
-    <dialog
-      ref={dlgRef}
-      className="fixed inset-0 z-100 m-auto h-full w-full max-w-none border-0 bg-black/85 p-0 open:flex open:items-center open:justify-center"
-    >
-      <img alt="" className="max-h-[92vh] max-w-[96vw] cursor-zoom-out object-contain" />
-    </dialog>,
-    document.body,
+  if (!state) return null;
+
+  return (
+    <Lightbox
+      open
+      index={state.index}
+      slides={state.slides}
+      close={() => setState(null)}
+      plugins={[Zoom]}
+      animation={{ swipe: 300 }}
+      controller={{ closeOnBackdropClick: true }}
+    />
   );
 }
