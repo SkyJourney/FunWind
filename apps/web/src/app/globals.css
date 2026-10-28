@@ -110,7 +110,40 @@
 .fw-fade-in {
   animation: fw-fade-in var(--fw-dur-base) var(--fw-ease-out) both;
 }
+/* 导航进度条（M10.7 Step 4a）：点击后 80ms 出现，只动 transform；组件只在在途时渲染，每次导航动画从头开始 */
+.fw-nav-progress {
+  position: fixed;
+  inset-inline: 0;
+  top: 0;
+  z-index: 60;
+  height: 2px;
+  pointer-events: none;
+}
+.fw-nav-progress::before {
+  content: "";
+  display: block;
+  height: 100%;
+  background: var(--primary);
+  transform-origin: left;
+  transform: scaleX(0.08);
+  animation: fw-nav-grow 12s var(--fw-ease-out) forwards;
+}
+@keyframes fw-nav-grow {
+  to {
+    transform: scaleX(0.9);
+  }
+}
+/* 被点元素 busy 态：整张卡压暗、光标变等待，告诉用户「点中了，在加载」（同时 JS 层会忽略对同目标的重复点击） */
+[data-nav-busy] {
+  opacity: 0.6;
+  cursor: progress;
+  transition: opacity var(--fw-dur-fast) var(--fw-ease-out);
+}
 @media (prefers-reduced-motion: reduce) {
+  .fw-nav-progress::before {
+    animation: none;
+    transform: scaleX(0.5);
+  }
   .fw-enter,
   .fw-fade-in {
     animation: none;

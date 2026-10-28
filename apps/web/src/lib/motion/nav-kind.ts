@@ -23,6 +23,11 @@ export function setNavKind(kind: NavKind, target = ""): void {
   pending = { kind, target, time: Date.now() };
 }
 
+/** 导航失败（被守卫拦下）后丢弃已记录的方向，避免残留到下一次导航 */
+export function clearNavKind(): void {
+  pending = null;
+}
+
 export function consumeNavKind(pathname = ""): NavKind {
   const value = pending;
   pending = null;

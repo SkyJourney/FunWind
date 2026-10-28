@@ -7,6 +7,7 @@ import { BottomTabBar } from "@/components/site/bottom-tab-bar";
 import { SiteHeader } from "@/components/site/site-header";
 import { AnnouncementBanner } from "@/components/site/announcement-banner";
 import { NavKindCapture } from "@/components/site/nav-kind-capture";
+import { NavigationGuard } from "@/components/site/navigation-guard";
 import { getEnabledModuleIds } from "@/modules/kernel/state";
 import { getCurrentUser } from "@/lib/auth/session";
 import { avatarKeyOf } from "@/lib/queries/users";
@@ -114,6 +115,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <BottomTabBar user={user ? { id: user.id } : null} pmOn={pmOn} pmUnread={pmUnread} />
           <Suspense fallback={null}>
             <QueryToast />
+            <NavigationGuard />
           </Suspense>
           <Toaster position="top-center" />
         </ThemeProvider>
