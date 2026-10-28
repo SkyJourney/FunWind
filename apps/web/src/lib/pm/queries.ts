@@ -193,3 +193,60 @@ export async function sentTodayCount(userId: number): Promise<number> {
     .where(and(eq(messages.senderId, userId), sql`DATE(${messages.createdAt}) = CURDATE()`));
   return Number(row.n);
 }
+
+/** 聊天页单批消息条数（首屏最新一批与上滑加载的每批都用它） */
+export const CHAT_BATCH = 30;
+
+export interface ChatMessage {
+  id: number;
+  senderId: number;
+  body: string;
+  createdAt: string;
+}
+
+/** 是否为会话成员（只读校验：不像 openConversation 那样推进已读指针） */
+export async function isConversationMember(
+  userId: number,
+  conversationId: number,
+): Promise<boolean> {
+  const [row] = await getWebDb()
+    .select({ userId: conversationMembers.userId })
+    .from(conversationMembers)
+    .where(
+      and(
+        eq(conversationMembers.conversationId, conversationId),
+        eq(conversationMembers.userId, userId),
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+}
+
+/**
+ * 聊天消息的游标分页（M10.7 Step 3c）：取 id 小于 `beforeId` 的最新一批（缺省 = 会话里最新的一批），
+ * 返回按 id **升序**（旧→新，直接是聊天的阅读顺序）。多取 1 条判断是否还有更早的消息。
+ * 用 id 作游标而不是页码偏移：消息只增不改，新消息到达不会让「更早」的边界错位。
+ */
+export async function messagesBefore(
+  conversationId: number,
+  beforeId: number | null,
+  limit = CHAT_BATCH,
+): Promise<{ items: ChatMessage[]; hasMore: boolean }> {
+  const rows = await getWebDb()
+    .select({
+      id: messages.id,
+      senderId: messages.senderId,
+      body: messages.body,
+      createdAt: messages.createdAt,
+    })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        beforeId === null ? undefined : sql`${messages.id} < ${beforeId}`,
+      ),
+    )
+    .orderBy(desc(messages.id))
+    .limit(limit + 1);
+  return { items: rows.slice(0, limit).reverse(), hasMore: rows.length > limit };
+}

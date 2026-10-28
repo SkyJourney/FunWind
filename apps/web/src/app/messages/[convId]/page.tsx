@@ -1,14 +1,16 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
-import { conversationMessages, openConversation } from "@/lib/pm/service";
-import { otherMemberOf, sentTodayCount } from "@/lib/pm/queries";
+import { openConversation } from "@/lib/pm/service";
+import { messagesBefore, otherMemberOf, sentTodayCount } from "@/lib/pm/queries";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { limitsFor } from "@/lib/limits/load";
 import { sendMessageAction } from "@/app/actions/pm";
 import { Card, CardContent } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { ChatHistory } from "@/components/messages/chat-history";
+import { MessageBubble } from "@/components/messages/message-bubble";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "对话" };
@@ -30,7 +32,7 @@ export default async function ConversationPage({
   searchParams,
 }: {
   params: Promise<{ convId: string }>;
-  searchParams: Promise<{ pm?: string; page?: string }>;
+  searchParams: Promise<{ pm?: string; before?: string }>;
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
@@ -40,16 +42,18 @@ export default async function ConversationPage({
   const ok = await openConversation(user.id, convId);
   if (!ok) notFound();
 
-  const page = Math.max(1, Number((await searchParams).page ?? "1") || 1);
+  // 聊天默认展示**最新**一批消息（最新在底部）；`?before=<消息 id>` 查看更早的历史窗口（无 JS 的回退入口）
+  const sp = await searchParams;
+  const beforeRaw = Number(sp.before);
+  const before = Number.isInteger(beforeRaw) && beforeRaw > 0 ? beforeRaw : null;
   const subject = await getCurrentSubject();
-  const [paged, otherId, sentToday, limits] = await Promise.all([
-    conversationMessages(convId, page),
+  const [batch, otherId, sentToday, limits] = await Promise.all([
+    messagesBefore(convId, before),
     otherMemberOf(convId, user.id),
     sentTodayCount(user.id),
     limitsFor(subject),
   ]);
-  const messages = paged.items;
-  const sp = await searchParams;
+  const messages = batch.items;
   const perDay = limits.pmPerDay ?? 0;
   const remaining = perDay > 0 ? Math.max(0, perDay - sentToday) : null;
 
@@ -89,27 +93,11 @@ export default async function ConversationPage({
         </p>
       )}
 
-      {paged.totalPages > 1 && (
-        <p className="flex items-center justify-between py-2 text-xs text-muted-foreground">
-          {paged.page > 1 && (
-            <Link
-              href={`/messages/${convId}?page=${paged.page - 1}`}
-              className="text-primary hover:underline"
-            >
-              ← 更早的消息
-            </Link>
-          )}
-          <span>
-            第 {paged.page}/{paged.totalPages} 页 · 共 {paged.total} 条
-          </span>
-          {paged.page < paged.totalPages && (
-            <Link
-              href={`/messages/${convId}?page=${paged.page + 1}`}
-              className="text-primary hover:underline"
-            >
-              更新的消息 →
-            </Link>
-          )}
+      {before !== null && (
+        <p className="pt-2 text-center text-xs">
+          <Link href={`/messages/${convId}`} className="text-primary hover:underline">
+            回到最新消息 →
+          </Link>
         </p>
       )}
 
@@ -119,29 +107,19 @@ export default async function ConversationPage({
             {messages.length === 0 ? (
               <p className="py-4 text-center text-sm text-muted-foreground">还没有消息。</p>
             ) : (
-              <ul className="space-y-2.5">
-                {messages.map((m) => {
-                  const mine = m.senderId === user.id;
-                  return (
-                    <li key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                      <div
-                        className={`max-w-[78%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed ${
-                          mine
-                            ? "rounded-br-sm bg-primary text-primary-foreground"
-                            : "rounded-bl-sm border bg-card"
-                        }`}
-                      >
-                        <p className="break-words whitespace-pre-wrap">{m.body}</p>
-                        <p
-                          className={`mt-0.5 text-[10px] ${mine ? "opacity-70" : "text-muted-foreground"}`}
-                        >
-                          {m.createdAt}
-                        </p>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
+              // M10.7 Step 3c：服务端渲染最新一批；上滑加载更早（无 JS 时顶部是「查看更早的消息」真链接）
+              <ChatHistory
+                convId={convId}
+                viewerId={user.id}
+                oldestId={messages[0]?.id ?? null}
+                hasOlder={batch.hasMore}
+                scrollToBottom={before === null}
+                seedIds={messages.map((m) => m.id)}
+              >
+                {messages.map((m) => (
+                  <MessageBubble key={m.id} message={m} mine={m.senderId === user.id} />
+                ))}
+              </ChatHistory>
             )}
           </CardContent>
         </Card>
