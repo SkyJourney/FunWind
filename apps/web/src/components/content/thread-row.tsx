@@ -76,14 +76,23 @@ export function ThreadRow({
   thread,
   showForum = false,
   forumName,
+  className,
+  style,
 }: {
   thread: ThreadListItem;
   showForum?: boolean;
   forumName?: string;
+  /** 附加到根元素的类（首屏错落进场 / 流式追加项的淡入类由此传入） */
+  className?: string;
+  /** 附加到根元素的样式（首屏错落进场的 animationDelay） */
+  style?: React.CSSProperties;
 }) {
   return (
     // 水平 padding 内建（M10.6d 站长反馈：卡片内文字不得贴边框——PC/移动同构，使用方无需各自覆写）
-    <div className="flex items-center gap-3 border-b px-4 py-3 last:border-b-0">
+    <div
+      className={`flex items-center gap-3 border-b px-4 py-3 last:border-b-0${className ? ` ${className}` : ""}`}
+      style={style}
+    >
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-1.5">
           <ThreadBadges thread={thread} />

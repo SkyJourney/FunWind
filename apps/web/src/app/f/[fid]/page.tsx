@@ -4,6 +4,7 @@ import Link from "next/link";
 import { PencilLine } from "lucide-react";
 import { notFound } from "next/navigation";
 import { ThreadRow } from "@/components/content/thread-row";
+import { ForumThreadStream } from "@/components/content/forum-thread-stream";
 import { Pagination } from "@/components/content/pagination";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { getForumTree } from "@/lib/authz/snapshot";
@@ -184,9 +185,28 @@ export default async function ForumPage({ params, searchParams }: Params) {
         <div className="border-b pb-2 text-xs text-muted-foreground">
           共 {list.total} 个主题 · 第 {list.page}/{list.totalPages} 页
         </div>
-        {list.items.map((t) => (
-          <ThreadRow key={t.id} thread={t} />
-        ))}
+        {list.items.length > 0 && (
+          // M10.7 BUG12：首屏服务端渲染（第 1 页前 10 行错落进场），后续页触底自动追加；
+          // 底部「加载更多」是指向下一页的真链接，无 JS 时由下方 noscript 里的数字分页兜底
+          <ForumThreadStream
+            endpoint={`/api/stream/forum/${fid}${query ? `?${query}` : ""}`}
+            fallbackHref={basePath}
+            startPage={list.page}
+            hasMore={list.page < list.totalPages}
+            seedIds={list.items.map((t) => t.id)}
+          >
+            {list.items.map((t, index) => (
+              <ThreadRow
+                key={t.id}
+                thread={t}
+                className={list.page === 1 && index < 10 ? "fw-enter" : undefined}
+                style={
+                  list.page === 1 && index < 10 ? { animationDelay: `${index * 50}ms` } : undefined
+                }
+              />
+            ))}
+          </ForumThreadStream>
+        )}
         {list.items.length === 0 && list.pinned.length === 0 && (
           <p className="py-10 text-center text-sm text-muted-foreground">
             该板块暂无主题（或筛选条件下无结果）。
@@ -194,7 +214,10 @@ export default async function ForumPage({ params, searchParams }: Params) {
         )}
       </section>
 
-      <Pagination basePath={basePath} page={list.page} totalPages={list.totalPages} />
+      {/* 有 JS 时由触底追加接管，数字分页不常驻；无 JS 时保留，直链可分享（URL 冻结约定） */}
+      <noscript>
+        <Pagination basePath={basePath} page={list.page} totalPages={list.totalPages} />
+      </noscript>
 
       <aside className="border-t pt-4">
         <h2 className="mb-2 text-sm font-semibold text-muted-foreground">全站最新</h2>
