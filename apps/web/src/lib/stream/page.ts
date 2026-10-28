@@ -3,11 +3,15 @@
  * 取数端点（app/api/stream/**）与客户端追加组件（components/stream）都依赖本文件，保持纯函数、零依赖。
  */
 
-/** 取数端点的统一响应：本页条目 + 是否还有下一页 + 本页页码 */
+/**
+ * 取数端点的统一响应：本页条目 + 是否还有下一页 + 本页页码。
+ * 游标分页的端点（通知）另带 `nextCursor`：下一次请求要带的游标，此时 `page` 无意义（固定 0）。
+ */
 export interface StreamPage<T> {
   items: T[];
   hasMore: boolean;
   page: number;
+  nextCursor?: string | null;
 }
 
 /**
@@ -29,7 +33,12 @@ export function parsePositiveInt(raw: string | null | undefined): number | undef
   return Number.isInteger(n) && n > 0 ? n : undefined;
 }
 
-/** 在基础路径（可能已带查询串）后追加 `page=N`，供取数地址与兜底链接共用 */
+/** 在基础路径（可能已带查询串）后追加 `name=value`，供取数地址与兜底链接共用（值会做 URL 编码） */
+export function withParam(base: string, name: string, value: string | number): string {
+  return `${base}${base.includes("?") ? "&" : "?"}${name}=${encodeURIComponent(String(value))}`;
+}
+
+/** 追加 `page=N`：页码分页的 withParam 简写 */
 export function withPageParam(base: string, page: number): string {
-  return `${base}${base.includes("?") ? "&" : "?"}page=${page}`;
+  return withParam(base, "page", page);
 }

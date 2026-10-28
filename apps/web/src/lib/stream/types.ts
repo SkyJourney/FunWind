@@ -1,4 +1,5 @@
 import type { HomeFeedItem } from "@/lib/queries/threads";
+import type { ConversationItem } from "@/lib/pm/queries";
 import type { UserReplyItem } from "@/lib/queries/users";
 
 /**
@@ -9,3 +10,6 @@ export type HomeStreamItem = HomeFeedItem & { forumName: string | null };
 
 /** 用户回复流的追加条目：以 postId 作为流的去重主键 id（StreamList 约定条目有数字 id） */
 export type UserReplyStreamItem = UserReplyItem & { id: number };
+
+/** 私信会话流的追加条目：以会话 id 作为流的去重主键 id */
+export type ConversationStreamItem = ConversationItem & { id: number };

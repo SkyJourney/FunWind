@@ -2,11 +2,12 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { MessageSquareOff } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/session";
-import { conversationList } from "@/lib/pm/queries";
+import { conversationPage } from "@/lib/pm/queries";
 import { sendMessageAction } from "@/app/actions/pm";
 import { Card, CardContent } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { ConversationRow } from "@/components/messages/conversation-row";
+import { ConversationStream } from "@/components/messages/conversation-stream";
 import { EmptyState } from "@/components/empty-state";
 
 export const dynamic = "force-dynamic";
@@ -19,12 +20,13 @@ export const metadata = { title: "私信" };
 export default async function MessagesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ to?: string; pm?: string }>;
+  searchParams: Promise<{ to?: string; pm?: string; page?: string }>;
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  const list = await conversationList(user.id);
   const sp = await searchParams;
+  const page = Math.max(1, Math.trunc(Number(sp.page)) || 1);
+  const { items: list, hasMore } = await conversationPage(user.id, page);
   const to = sp.to !== undefined && /^\d+$/.test(sp.to) ? Number(sp.to) : null;
 
   return (
@@ -102,40 +104,34 @@ export default async function MessagesPage({
           }
         />
       ) : (
-        <ul className="divide-y rounded-xl border bg-card">
-          {list.map((c) => (
-            <li key={c.conversationId}>
-              <Link
-                href={`/messages/${c.conversationId}`}
-                className="flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-accent/40"
-              >
-                <Avatar size="default">
-                  <AvatarFallback>{(c.otherName ?? "?").slice(0, 1).toUpperCase()}</AvatarFallback>
-                </Avatar>
-                <div className="min-w-0 flex-1">
-                  <p className="flex items-baseline justify-between gap-2">
-                    <span className="truncate text-sm font-semibold">
-                      {c.otherDeleted ? "已注销用户" : (c.otherName ?? "未知用户")}
-                    </span>
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {c.lastMessageAt ?? ""}
-                    </span>
-                  </p>
-                  <p className="truncate text-[13px] text-muted-foreground">
-                    {c.preview
-                      ? `${c.preview.senderIsSelf ? "我：" : ""}${c.preview.body}`
-                      : "还没有消息"}
-                  </p>
-                </div>
-                {c.unread > 0 && (
-                  <span className="shrink-0 rounded-full bg-primary px-2 py-0.5 text-xs text-primary-foreground">
-                    {c.unread}
-                  </span>
-                )}
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <>
+          {/* 直达 ?page=N 时从第 N 页起流式追加；往前翻仍走真链接 */}
+          {page > 1 && (
+            <Link
+              href={page === 2 ? "/messages" : `/messages?page=${page - 1}`}
+              className="block text-center text-sm text-muted-foreground hover:text-primary"
+            >
+              ← 上一页
+            </Link>
+          )}
+          {/* M10.7 Step 3b：首屏服务端渲染（第 1 页前 10 行错落进场），后续页触底追加；无 JS 时底部是指向下一页的真链接 */}
+          <ConversationStream
+            endpoint="/api/stream/conversations"
+            fallbackHref="/messages"
+            startPage={page}
+            hasMore={hasMore}
+            seedIds={list.map((c) => c.conversationId)}
+          >
+            {list.map((c, index) => (
+              <ConversationRow
+                key={c.conversationId}
+                conversation={c}
+                className={page === 1 && index < 10 ? "fw-enter" : undefined}
+                style={page === 1 && index < 10 ? { animationDelay: `${index * 50}ms` } : undefined}
+              />
+            ))}
+          </ConversationStream>
+        </>
       )}
     </main>
   );

@@ -1,19 +1,54 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { conversations, conversationMembers, getWebDb, messages, users } from "@funwind/db";
 
+export interface ConversationItem {
+  conversationId: number;
+  otherId: number;
+  otherName: string | null;
+  otherDeleted: boolean;
+  lastMessageAt: string | null;
+  unread: number;
+  /** 会话内最新一条的发送者与正文（列表预览；senderIsSelf 用于「我：」前缀） */
+  preview: { senderIsSelf: boolean; body: string } | null;
+}
+
+/** 会话列表单次加载的上限（未分页的旧入口用；分页入口见 conversationPage） */
+const CONVERSATION_LIST_LIMIT = 50;
+
 /** 会话列表（最近消息倒序）+ 未读数（id 大于自己指针的对方消息数）+ 最后一条预览。 */
-export async function conversationList(userId: number): Promise<
-  {
-    conversationId: number;
-    otherId: number;
-    otherName: string | null;
-    otherDeleted: boolean;
-    lastMessageAt: string | null;
-    unread: number;
-    /** 会话内最新一条的发送者与正文（列表预览；senderIsSelf 用于「我：」前缀） */
-    preview: { senderIsSelf: boolean; body: string } | null;
-  }[]
-> {
+export async function conversationList(userId: number): Promise<ConversationItem[]> {
+  return loadConversations(userId, CONVERSATION_LIST_LIMIT, 0);
+}
+
+/** 流式列表每页条数（/messages 与 /api/stream/conversations 共用） */
+export const CONVERSATIONS_PER_PAGE = 20;
+
+/**
+ * 会话列表分页（M10.7）：取 perPage+1 条判断是否还有下一页，消除 conversationList 对 50 个会话的静默截断。
+ * 未读数与预览是请求时刻的快照；追加页不做实时刷新。
+ */
+export async function conversationPage(
+  userId: number,
+  rawPage: number,
+): Promise<{ items: ConversationItem[]; hasMore: boolean; page: number }> {
+  const page = Math.max(1, Math.trunc(rawPage) || 1);
+  const rows = await loadConversations(
+    userId,
+    CONVERSATIONS_PER_PAGE + 1,
+    (page - 1) * CONVERSATIONS_PER_PAGE,
+  );
+  return {
+    items: rows.slice(0, CONVERSATIONS_PER_PAGE),
+    hasMore: rows.length > CONVERSATIONS_PER_PAGE,
+    page,
+  };
+}
+
+async function loadConversations(
+  userId: number,
+  limit: number,
+  offset: number,
+): Promise<ConversationItem[]> {
   const rows = await getWebDb()
     .select({
       conversationId: conversations.id,
@@ -23,8 +58,10 @@ export async function conversationList(userId: number): Promise<
     .from(conversationMembers)
     .innerJoin(conversations, eq(conversations.id, conversationMembers.conversationId))
     .where(eq(conversationMembers.userId, userId))
-    .orderBy(desc(conversations.lastMessageAt))
-    .limit(50);
+    // id 作为第二排序键：lastMessageAt 相同（同一秒内的会话）时翻页顺序也必须稳定
+    .orderBy(desc(conversations.lastMessageAt), desc(conversations.id))
+    .limit(limit)
+    .offset(offset);
 
   if (rows.length === 0) return [];
 

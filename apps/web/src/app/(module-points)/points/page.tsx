@@ -4,8 +4,9 @@ import { Pagination } from "@/components/content/pagination";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getPointsName } from "@/lib/auth/settings";
 import { getCurrentUser } from "@/lib/auth/session";
-import { channelLabel } from "@/lib/points/labels";
 import { getLedgerPage } from "@/lib/points/ledger";
+import { LedgerRow } from "./ledger-row";
+import { LedgerStream } from "./ledger-stream";
 import { getPointRewardConfig, getPunchRewardConfig } from "@/lib/points/reward-load";
 
 export const dynamic = "force-dynamic";
@@ -79,34 +80,35 @@ export default async function PointsPage({
               还没有{pointsName}记录。发帖、回帖、签到都能获得{pointsName}。
             </p>
           ) : (
-            <ul className="divide-y">
-              {ledger.items.map((it) => (
-                <li key={it.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
-                  <div className="min-w-0">
-                    <p className="font-medium">{channelLabel(it.channel)}</p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {it.createdAt}
-                      {it.note ? ` · ${it.note}` : ""}
-                    </p>
-                  </div>
-                  <div className="text-right tabular-nums">
-                    <p
-                      className={
-                        it.delta > 0 ? "font-medium text-success" : "font-medium text-destructive"
-                      }
-                    >
-                      {it.delta > 0 ? `+${it.delta}` : it.delta}
-                    </p>
-                    <p className="text-xs text-muted-foreground">余额 {it.balanceAfter}</p>
-                  </div>
-                </li>
+            // M10.7 Step 3b：首屏服务端渲染（第 1 页前 10 行错落进场），后续页触底追加；无 JS 由下方 noscript 翻页兜底
+            <LedgerStream
+              endpoint="/api/stream/points"
+              fallbackHref="/points"
+              startPage={ledger.page}
+              hasMore={ledger.page < ledger.totalPages}
+              seedIds={ledger.items.map((it) => it.id)}
+            >
+              {ledger.items.map((it, index) => (
+                <LedgerRow
+                  key={it.id}
+                  item={it}
+                  className={ledger.page === 1 && index < 10 ? "fw-enter" : undefined}
+                  style={
+                    ledger.page === 1 && index < 10
+                      ? { animationDelay: `${index * 50}ms` }
+                      : undefined
+                  }
+                />
               ))}
-            </ul>
+            </LedgerStream>
           )}
         </CardContent>
       </Card>
 
-      <Pagination basePath="/points" page={ledger.page} totalPages={ledger.totalPages} />
+      {/* 有 JS 时由触底追加接管；无 JS 时保留数字分页 */}
+      <noscript>
+        <Pagination basePath="/points" page={ledger.page} totalPages={ledger.totalPages} />
+      </noscript>
 
       <div className="text-center text-sm">
         <Link href={`/u/${user.id}`} className="text-muted-foreground hover:text-primary">

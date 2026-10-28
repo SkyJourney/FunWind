@@ -155,3 +155,88 @@ describe("StreamList", () => {
     await waitFor(() => expect(screen.getByText("手动二")).toBeInTheDocument());
   });
 });
+
+describe("StreamList · 游标模式与列表容器", () => {
+  type Row = { key: string; text: string };
+
+  function setupCursor(over: Partial<React.ComponentProps<typeof StreamList<Row>>> = {}) {
+    return render(
+      <StreamList<Row>
+        endpoint="/api/stream/notifications?cat=interaction"
+        fallbackHref="/notifications?cat=interaction"
+        cursorParam="before"
+        startCursor="2026-10-28 10:00:00"
+        hasMore
+        seedIds={["notification:1"]}
+        getKey={(r) => r.key}
+        as="ul"
+        listClassName="space-y-2"
+        renderItem={(r, enter) => (
+          <li key={r.key} data-testid="row" className={enter}>
+            {r.text}
+          </li>
+        )}
+        {...over}
+      >
+        <li>首屏</li>
+      </StreamList>,
+    );
+  }
+
+  const cursorPage = (items: Row[], nextCursor: string | null) =>
+    new Response(JSON.stringify({ items, hasMore: nextCursor !== null, page: 0, nextCursor }), {
+      status: 200,
+    });
+
+  it("兜底链接带游标（URL 编码）；容器是 ul，li 条目合法", () => {
+    const { container } = setupCursor();
+    expect(screen.getByRole("link", { name: "加载更多" })).toHaveAttribute(
+      "href",
+      "/notifications?cat=interaction&before=2026-10-28%2010%3A00%3A00",
+    );
+    expect(container.querySelector("ul.space-y-2 > li")).not.toBeNull();
+  });
+
+  it("触底请求带游标；以响应里的 nextCursor 作为下一次请求，直到 null", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(cursorPage([{ key: "notification:2", text: "二" }], "C2"))
+      .mockResolvedValueOnce(cursorPage([{ key: "notification:3", text: "三" }], null));
+    vi.stubGlobal("fetch", fetchMock);
+    setupCursor();
+
+    await scrollToBottom();
+    await screen.findByText("二");
+    expect(fetchMock.mock.calls[0]![0]).toBe(
+      "/api/stream/notifications?cat=interaction&before=2026-10-28%2010%3A00%3A00",
+    );
+
+    await scrollToBottom();
+    await screen.findByText("三");
+    expect(fetchMock.mock.calls[1]![0]).toBe("/api/stream/notifications?cat=interaction&before=C2");
+    expect(await screen.findByText("没有更多了")).toBeInTheDocument();
+  });
+
+  it("复合键去重：同 id 不同 kind 的两条不会互相吞掉，同键重复才被丢弃", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      cursorPage(
+        [
+          { key: "notification:1", text: "重复的通知" },
+          { key: "announcement:1", text: "同 id 的公告" },
+        ],
+        null,
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    setupCursor();
+    await scrollToBottom();
+    const rows = await screen.findAllByTestId("row");
+    expect(rows.map((r) => r.textContent)).toEqual(["同 id 的公告"]);
+  });
+
+  it("首屏没有更多（startCursor 为 null）：不创建观察器，直接显示到底提示", () => {
+    setupCursor({ hasMore: false, startCursor: null });
+    expect(screen.getByText("没有更多了")).toBeInTheDocument();
+    expect(observers).toHaveLength(0);
+  });
+});

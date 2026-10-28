@@ -3,8 +3,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
 import { listFeed, unreadSummary, type FeedCategory } from "@/lib/notifications/queries";
-import { renderNotification } from "@/lib/notifications/render";
-import { markAllReadAction, markOneReadAction } from "@/app/actions/notifications";
+import { toNotificationRow } from "@/lib/notifications/row";
+import { NotificationRow } from "@/components/notifications/notification-row";
+import { NotificationStream } from "@/components/notifications/notification-stream";
+import { markAllReadAction } from "@/app/actions/notifications";
 import { EmptyState } from "@/components/empty-state";
 import { BellOff } from "lucide-react";
 
@@ -39,7 +41,10 @@ export default async function NotificationsPage({
     unreadSummary(user.id),
     listFeed(user.id, { category: cat, before }),
   ]);
-  const unreadIds = new Set(feed.items.filter((i) => !i.read).map((i) => `${i.kind}:${i.id}`));
+  const rows = feed.items.map(toNotificationRow);
+  const backHref = cat ? `/notifications?cat=${cat}` : "/notifications";
+  /** 流式追加的取数地址：带分类（游标由组件追加） */
+  const streamEndpoint = `/api/stream/notifications${cat ? `?cat=${cat}` : ""}`;
 
   return (
     <main className="mx-auto max-w-3xl space-y-4 px-4 py-8 sm:px-6 lg:px-8">
@@ -49,11 +54,7 @@ export default async function NotificationsPage({
           <span className="text-xs text-muted-foreground">未读 {summary.total}</span>
           {summary.total > 0 && (
             <form action={markAllReadAction}>
-              <input
-                type="hidden"
-                name="back"
-                value={cat ? `/notifications?cat=${cat}` : "/notifications"}
-              />
+              <input type="hidden" name="back" value={backHref} />
               <button type="submit" className="text-primary hover:underline">
                 全部已读
               </button>
@@ -89,77 +90,28 @@ export default async function NotificationsPage({
           description={before ? undefined : "互动、系统消息与公告都会出现在这里"}
         />
       ) : (
-        <ul className="space-y-2">
-          {feed.items.map((item) => {
-            const rendered =
-              item.kind === "announcement"
-                ? { label: `公告：${item.title ?? ""}`, categoryLabel: "公告" }
-                : renderNotification(item.type, item.data, item.actorName);
-            const unread = unreadIds.has(`${item.kind}:${item.id}`);
-            return (
-              <li
-                key={`${item.kind}:${item.id}`}
-                className={`flex items-start gap-2.5 rounded-xl border bg-card px-4 py-3 ${unread ? "" : "opacity-70"}`}
-              >
-                <span
-                  aria-hidden
-                  className={`mt-2.5 size-2 shrink-0 rounded-full ${unread ? "bg-primary" : "bg-transparent"}`}
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs text-muted-foreground">
-                    {rendered?.categoryLabel ?? item.category} · {item.createdAt}
-                  </p>
-                  <p className={`mt-0.5 text-sm ${unread ? "font-medium" : ""}`}>
-                    {item.targetType === "conversation" ? (
-                      <Link href={`/messages/${item.targetId}`} className="hover:text-primary">
-                        {rendered?.label ?? item.type}
-                      </Link>
-                    ) : (
-                      (rendered?.label ?? item.type)
-                    )}
-                    {item.kind === "notification" &&
-                      item.groupKey !== null &&
-                      ((item.data as { count?: number } | null)?.count ?? 0) > 1 && (
-                        <span className="ml-1 text-xs text-primary">
-                          （{(item.data as { count: number }).count} 条）
-                        </span>
-                      )}
-                  </p>
-                  {item.kind === "announcement" && item.bodyMd && (
-                    <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.bodyMd}</p>
-                  )}
-                </div>
-                {unread && (
-                  <form action={markOneReadAction} className="shrink-0">
-                    <input type="hidden" name="kind" value={item.kind} />
-                    <input type="hidden" name="id" value={item.id} />
-                    <input
-                      type="hidden"
-                      name="back"
-                      value={cat ? `/notifications?cat=${cat}` : "/notifications"}
-                    />
-                    <button type="submit" className="text-xs text-primary hover:underline">
-                      {item.kind === "announcement" ? "标记所有公告已读" : "已读"}
-                    </button>
-                  </form>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+        // M10.7 Step 3b：首屏服务端渲染（无游标时前 10 条错落进场），更早的通知触底追加；
+        // 无 JS 时底部「加载更多」是指向下一段（?before=）的真链接
+        <NotificationStream
+          endpoint={streamEndpoint}
+          fallbackHref={backHref}
+          startCursor={feed.nextCursor}
+          seedKeys={rows.map((r) => r.key)}
+          backHref={backHref}
+        >
+          {rows.map((row, index) => (
+            <NotificationRow
+              key={row.key}
+              row={row}
+              backHref={backHref}
+              className={!before && index < 10 ? "fw-enter" : undefined}
+              style={!before && index < 10 ? { animationDelay: `${index * 50}ms` } : undefined}
+            />
+          ))}
+        </NotificationStream>
       )}
 
-      <div className="flex items-center justify-between text-sm">
-        {feed.nextCursor ? (
-          <Link
-            href={`/notifications?${cat ? `cat=${cat}&` : ""}before=${encodeURIComponent(feed.nextCursor)}`}
-            className="text-primary hover:underline"
-          >
-            更早的通知 →
-          </Link>
-        ) : (
-          <span />
-        )}
+      <div className="flex items-center justify-end text-sm">
         <Link href="/" className="text-muted-foreground hover:text-primary">
           ← 返回首页
         </Link>
