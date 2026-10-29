@@ -16,6 +16,7 @@
 - **附件正文引用收敛（站长抓到的存量缺口）**：迁移直映射的 403 行附件全部是 download、无一转 inline——旧帖图片既在正文渲染又重复出现在帖末下载列表（新帖保存链路 M10.6d 有互斥、迁移器没跟上）。files 步骤附件写入后加收敛：download 行的 storage_key 被公开正文引用 → 转 inline（gate_id=NULL）；仅被门控隐藏正文引用 → 转 inline 保留门控归属（**绝不删行**——删行使图片因「无任何引用」变成全网 public）；verify 加两条对账。临时库演练：334 公开 + 13 门控转 inline、57 纯下载保留，对账 118 项全绿；开发库已收敛。
 - **性能与修复**：投票列表 N+1（≈101 SQL）修复；看板全表 COUNT 60s 缓存 + 峰值/日均标注 + 半月对比 + sr-only 逐日表； forums 双全表查询合一；迁移编排修 `counters` 联动坑（content 重跑重置 threads 缓存计数必须重算，run.ts 内置联动）；存量潜伏错误修复——drizzle 单表 SELECT 字段里模板插值列渲染成裸列名导致子查询解析到内层同名列（`searchUsers` 计数长期错误）。
 - 门禁实测（2026-10-29）：`pnpm verify:all` 全绿（exit 0；单测 202 文件 1812+ 项、全局分支覆盖 85.46% 过 85% 阈值、生产构建通过）；临时库全量演练 15 步 + 对账 116 项全绿；三断点（375/768/1024）22 页程序化溢出扫描清零。E2E 与真机清单见里程碑文档。
+- **CI E2E 模式升级（2026-10-29）**：Playwright 功能全量改在 `next build` + `next start` 生产产物运行（desktop/mobile/production-only），dev 仅保留 `/api/dev/*`、`/design` 8 项冒烟，减少按需编译的冷启动波动；本地与 GitHub Actions 均通过（生产 341 项 + dev 8 项）。run `40965566557`（commit `9d33422`）的 `verify` / `e2e` 双作业成功。
 
 ### Added（M10.9：表情体系）
 

@@ -36,7 +36,7 @@ docker/          qysub-next（MySQL 8.4 @33621）、dev（web 容器 + MailPit�
 ```bash
 pnpm dev                      # http://127.0.0.1:3100
 pnpm verify:all               # lint + format:check + typecheck + test(覆盖率) + build
-pnpm test:e2e                 # 重置并重建 qysub_next_e2e（bootstrap + 种子 + E2E 夹具，无迁移）→ dev 服务器 3200 的 E2E（150 项，含移动项目）→ 生产构建冒烟 3201（10 项）；需要 MailPit(8025)；约 40s
+pnpm test:e2e                 # 重置并重建 qysub_next_e2e → 生产构建 3201 跑功能全量（desktop/mobile/安全用例）→ 重置并重建测试库 → dev 3200 仅跑 /api/dev/*、/design 冒烟；本地实测 341 + 8 全绿；需要 MailPit(8025)
 pnpm db:bootstrap | db:seed | db:e2e-fixtures | db:verify   # 零数据路径：建表+系统种子 / 演示夹具 / E2E 专用夹具 / schema 对账（19 项：结构 + 孤儿引用 + 楼层唯一 + 首帖指针 + 主题与首帖状态 + 缓存计数）
 pnpm db:recount                # 全量重算缓存计数（幂等，默认直接修正；--check 只读，有漂移非零退出）
 pnpm db:gc-files --dry-run     # 孤儿文件巡检（只报告、不删除：库内无引用的文件 + 磁盘有、库里无的孤儿；超过 24 小时）
@@ -46,7 +46,7 @@ pnpm --filter @funwind/content test         # 门控语法 + 正文切段 + 转�
 pnpm migrate | verify:migration             # 青翼导入 v2（幂等）/ 对账 v2（110 项）+ 本地硬门禁 verify:render（渲染形状）与 verify:fidelity（旧库原文字符守恒，需旧库）；报告写入 docs/reports/（入库）
                                             # 先用临时库演练：NEW_DB_NAME=… 并用 packages/db/scripts/e2e-reset.ts 建空库
 pnpm test:e2e:run              # 同上但不启动 MailPit 容器（CI 用：MailPit 由 GitHub Actions 服务容器提供）
-pnpm --filter @funwind/web test:e2e:prod                  # 仅生产构建冒烟（真实 next build + next start）
+pnpm --filter @funwind/web test:e2e:prod                  # 仅运行生产构建下的功能全量 E2E（真实 next build + next start）
 pnpm --filter @funwind/web modules:toggle <id> <on|off>   # 模块启停（写 audit_log）
 pnpm --filter @funwind/web perf:lcp                       # 生产构建 LCP 门禁
 pnpm --filter @funwind/web perf:posting                   # 发帖性能基准（服务层 createReply×200，p95 < 300ms）；须显式 NEW_DB_NAME=qysub_next_e2e
@@ -114,7 +114,7 @@ pnpm --filter @funwind/web perf:posting                   # 发帖性能基准�
 
 - Next 16 开发服务器需 `allowedDevOrigins: ["127.0.0.1"]`，否则页面可渲染但整页无交互（水合静默失败）。
 - Next 16.4.2 的 `title.template` 对子页字符串标题疑似未生效（M1 遗留，升级后复验）。
-- E2E 必须用独立库与 3200 端口；产物目录也独立（`NEXT_DIST_DIR`：dev 用 `.next-e2e`、生产冒烟用 `.next-e2e-prod`），所以跑 `pnpm test:e2e` **不需要停 dev 服务**（Next 16 的 `next dev` 对同一 distDir 有目录锁，之前共用 `.next` 时二者会冲突）。新增 distDir 时 Next 会自动往 `tsconfig.json` 的 `include` 补 types 路径，条目已入库，不要删。
+- E2E 必须用独立库；生产全量运行在 3201（`NEXT_DIST_DIR=.next-e2e-prod`），dev-only `/api/dev/*`、`/design` 冒烟运行在 3200（`NEXT_DIST_DIR=.next-e2e`）。两阶段之间重置并重建测试库以隔离状态，因此 `pnpm test:e2e` 不会与 3100 开发服务争用端口或 Next distDir。新增 distDir 时 Next 会自动往 `tsconfig.json` 的 `include` 补 types 路径，条目已入库，不要删。
 - zsh 下 `grep --include=*.ts` 要加引号，否则报 `no matches found`。
 - 频控与权限快照都是进程内存实现（单实例语义），多实例前须换 Redis / 共享失效通道（M13）。浏览量计数（`lib/views`，每 10 秒批量刷入）同样是进程内，数字只是估计值。
 - `perf:posting` 拒绝任何非 `qysub_next_e2e` 的库名：根 `.env` 里的 `NEW_DB_NAME` 指向开发库，必须在命令行显式指定。
@@ -151,4 +151,4 @@ pnpm --filter @funwind/web perf:posting                   # 发帖性能基准�
 2. 门禁以真实命令输出为准，不凭文档勾选；测试规则见 `docs/ROADMAP.md`「全局测试基线」。
 3. 代码注释一律简体中文（类/方法/复杂逻辑），标识符保持英文。
 4. 本地开发凭据只放根 `.env`（已 gitignore；模板见 `.env.example`），README 里只有变量名；**不要把口令写进文档或提交**，`pnpm check:secrets`（pre-push / CI 自动跑）会拦截。
-5. **CI（GitHub Actions，`.github/workflows/ci.yml`）**：push main / PR / 手动触发。两个作业——`verify`（秘密扫描 / 脚本 / lint / 格式 / 类型 / 单测含真实 MySQL 集成与覆盖率门槛 / 构建）与 `e2e`（MySQL + MailPit 服务容器、Playwright 全量 `test:e2e:run`、失败自动传现场 artifact）。main 分支保护：required checks = verify + e2e（PR 合并强制过 CI）；`enforce_admins` 关闭（保留直接 push 的工作流，push 后 CI 独立跑一轮留档）。**迁移对账（verify:migration）只在本地跑**——需要只读旧库，CI 无法覆盖。
+5. **CI（GitHub Actions，`.github/workflows/ci.yml`）**：push main / PR / 手动触发。两个作业——`verify`（秘密扫描 / 脚本 / lint / 格式 / 类型 / 单测含真实 MySQL 集成与覆盖率门槛 / 构建）与 `e2e`（MySQL + MailPit 服务容器：生产构建跑 Playwright 功能全量，随后重置测试库，再由 dev 服务器仅跑 `/api/dev/*`、`/design` 冒烟；失败自动传现场 artifact）。main 分支保护：required checks = verify + e2e（PR 合并强制过 CI）；`enforce_admins` 关闭（保留直接 push 的工作流，push 后 CI 独立跑一轮留档）。**迁移对账（verify:migration）只在本地跑**——需要只读旧库，CI 无法覆盖。
