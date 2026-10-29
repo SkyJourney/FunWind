@@ -60,9 +60,11 @@ export default function SourceEditor({
     // 创建后立即报告一次，外壳据此同步隐藏字段（草稿恢复时文本可能与服务端给出的不同）
     onChangeRef.current(view.state.doc.toString());
     onApiRef.current?.({
-      insertImage(url: string) {
+      insertImage(url: string, alt?: string) {
         const { from, to } = view.state.selection.main;
-        const text = `![](${url})`;
+        // alt 里的 Markdown 结构字符要转义（表达式 alt 不允许未转义的 ] 与 [）
+        const safeAlt = (alt ?? "").replace(/([\\\[\]])/g, "\\$1");
+        const text = `![${safeAlt}](${url})`;
         view.dispatch({
           changes: { from, to, insert: text },
           selection: { anchor: from + text.length },

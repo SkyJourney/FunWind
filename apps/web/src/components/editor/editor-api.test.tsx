@@ -27,6 +27,16 @@ describe("RichEditor 插入能力", () => {
     unmount();
     expect(onApi).toHaveBeenLastCalledWith(null);
   });
+
+  it("insertImage 带 alt（M10.9 表情面板）：富文本节点携带 alt 并序列化为 ![alt](url)", async () => {
+    const onApi = vi.fn<(api: InsertApi | null) => void>();
+    const onChange = vi.fn();
+    render(<RichEditor initialMarkdown="" onChange={onChange} onApi={onApi} label="正文" />);
+    await vi.waitFor(() => expect(onApi).toHaveBeenCalledWith(expect.anything()));
+    const api = onApi.mock.calls.find((c) => c[0] !== null)![0]!;
+    await act(async () => api.insertImage("/emoji/171.png", "茉莉笑"));
+    expect(onChange).toHaveBeenLastCalledWith(expect.stringContaining("![茉莉笑](/emoji/171.png)"));
+  });
 });
 
 describe("SourceEditor 插入能力", () => {
@@ -41,6 +51,16 @@ describe("SourceEditor 插入能力", () => {
     act(() => api.insertImage("/files/ab/cd/y.png"));
     // 光标默认在文档开头：图片插入在光标处，原文保留
     expect(onChange).toHaveBeenLastCalledWith("![](/files/ab/cd/y.png)甲乙");
+    // alt 参数：Markdown 语法带展示名；结构字符被转义（表达式 alt 不允许未转义的 ]）。
+    // 每次插入后光标停在插入文本之后，后续插入依次追加在前面插入的内容之后。
+    act(() => api.insertImage("/emoji/171.png", "茉莉笑"));
+    expect(onChange).toHaveBeenLastCalledWith(
+      "![](/files/ab/cd/y.png)![茉莉笑](/emoji/171.png)甲乙",
+    );
+    act(() => api.insertImage("/emoji/172.png", "a]b"));
+    expect(onChange).toHaveBeenLastCalledWith(
+      "![](/files/ab/cd/y.png)![茉莉笑](/emoji/171.png)![a\\]b](/emoji/172.png)甲乙",
+    );
     unmount();
     expect(onApi).toHaveBeenLastCalledWith(null);
   });

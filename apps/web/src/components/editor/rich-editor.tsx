@@ -62,8 +62,12 @@ export function RichEditor({
   useEffect(() => {
     if (!editor) return;
     onApi?.({
-      insertImage: (url: string) => {
-        editor.chain().focus().setImage({ src: url, alt: "" }).run();
+      insertImage: (url: string, alt?: string) => {
+        editor
+          .chain()
+          .focus()
+          .setImage({ src: url, alt: alt ?? "" })
+          .run();
       },
       removeImage: (url: string) => {
         // 从后往前删，位置不会因前面的删除而错位

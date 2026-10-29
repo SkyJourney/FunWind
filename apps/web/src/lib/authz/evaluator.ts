@@ -40,6 +40,7 @@ export const NON_WRITE_CLASS_KEYS: ReadonlySet<string> = new Set([
   "admin.recycle",
   "admin.points",
   "admin.badges",
+  "emoji.manage",
   "forum.read",
   "forum.moderate",
   "forum.report",

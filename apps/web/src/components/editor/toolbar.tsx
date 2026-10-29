@@ -247,6 +247,13 @@ export function EditorToolbar({
     c.insertContent(emoji).run();
     if (!keepOpen) setEmojiOpen(false);
   };
+  // 社区表情（M10.9）：插入行内图片节点，alt 用展示名（渲染不变，无障碍语义）
+  const insertEmojiImage = (url: string, alt: string, keepOpen: boolean) => {
+    const c = editor.chain();
+    if (!keepOpen) c.focus();
+    c.setImage({ src: url, alt }).run();
+    if (!keepOpen) setEmojiOpen(false);
+  };
 
   const headingLabel = state.heading ? `标题 ${state.heading}` : "标题";
 
@@ -461,7 +468,7 @@ export function EditorToolbar({
               if (!editor.isDestroyed) editor.commands.focus();
             }}
           >
-            <EmojiPanel onPick={insertEmoji} />
+            <EmojiPanel onPick={insertEmoji} onPickImage={insertEmojiImage} />
           </PopoverContent>
         </Popover>
         <ToolButton
