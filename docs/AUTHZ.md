@@ -35,7 +35,8 @@
 - **分级域**：`forum.read`（只读）→ `forum.write`（可编辑：发帖/回帖/编辑）→ `forum.manage`（可管理：置顶/加精/删除/审核）；
   级别隐含：持有 `manage` 即满足 `write`/`read`。
 - **动作型**（无级别）：`attachment.upload` / `vote.create` / `pm.send` / `tag.add` / `site.admin`（后台总门）/
-  `admin.*`（后台细分动作）… 词汇表单一事实源在 `packages/db/src/authz-vocab.ts`（v2.1 起共 27 点，
+  `admin.*`（后台细分动作）/ `emoji.manage`（M10.9 社区表情管理，admin 基线默认持有）… 词汇表单一事实源在
+  `packages/db/src/authz-vocab.ts`（v2.2 起共 28 点，
   已取消功能（`thread.sell` / `forum.manage` 等）的键不再出现）。
 - **数值型旧键**（`threads_perday` / `post_pertime` / `post_url_num` / `message_max_send` 等 18 个）
   → 转 **ABAC 条件参数**（`condition_params`），不是权限点；M6 实装计数。
@@ -96,6 +97,7 @@ checkPermission(subject, "resource.action", { forumId? }) → { allowed, reason 
 | 角色矩阵管理 | `admin.roles`（新权限点，旧系统无对应键） |
 | 积分规则与手工调整 | `admin.points`（M7） |
 | 荣誉徽章授予 | `admin.badges`（M7） |
+| 社区表情管理（分组 / 上传 / 停用） | `emoji.manage`（M10.9，admin 基线默认持有；可授予非 admin 的可信用户） |
 
 `/admin` 最小实现（M9 完善为完整后台）：① 角色列表 + 自定义角色增删；② 单角色授权矩阵
 （分级域三态 + 动作勾选 + 全局/版块作用域切换）；③ 版块视角（级联授权 + 派生版主列表）。

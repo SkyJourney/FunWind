@@ -71,7 +71,7 @@ pnpm --filter @funwind/web perf:posting                   # 发帖性能基准�
 5. **DB 连接**：web 运行时只用 `getWebDb()` 单例；`withDb` 仅限一次性脚本。
 6. **渲染**：用户内容必须经 `lib/markdown.ts` + `lib/sanitize.ts` 管线，禁止 `dangerouslySetInnerHTML` 直出原文。管线启用的是**精简 GFM（只有表格与删除线，`singleTilde:false`，见 `lib/gfm-lite.ts`）**：不要换成完整 `remark-gfm`——它的自动链接会把紧跟 URL 的中文吞进链接，单波浪线删除线会误伤 1328 篇「语气词~」。
 7. **权限**：一律走 `lib/authz` 的 `checkPermission`；越权对外表现为 **404**（不暴露存在性）；不允许硬编码身份判断。
-8. **URL 已冻结**：`/f/{fid}`、`/t/{tid}`、`?page=`、`#p{pid}`（M13 的 301 依赖）。文件统一走 `/files/<storage_key>`（已取代 `/attachment/**`，S4-4 落地）；表情为 `/emoji/{id}.gif`。
+8. **URL 已冻结**：`/f/{fid}`、`/t/{tid}`、`?page=`、`#p{pid}`（M13 的 301 依赖）。文件统一走 `/files/<storage_key>`（已取代 `/attachment/**`，S4-4 落地）；表情为 `/emoji/{id}.{ext}`（旧 50 枚是 public 静态 `{id}.gif`，新表情内容寻址由 `/emoji/[file]` 路由提供，id 冻结、已发布正文引用不能碎）。
 9. **模块**：扩事件/槽位 = 改 `modules/kernel/types.ts` + 同步 `docs/MODULES.md`；使用内核的 route handler 必须自行 `import "@/modules"`，Server Action 一律用 `defineAction`（`lib/actions/define-action.ts` 顶部已导入，经它的入口天然满足；`use-server-exports-guard.test.ts` 保证 `"use server"` 文件只导出 `defineAction(...)`）——凡（传递）引用会触及内核的代码（派发事件 / 读写注册表）都算，`modules-import-guard.test.ts` 静态分析并守护（入口或其传递依赖里有 `import "@/modules"` 即合规，注释里写的不算），新增入口漏写会直接变红。`/admin/**` 的 Action 必须声明 `auth: { admin: "…" }`（`admin-entry-guard.test.ts`）。
 10. **schema 变更**：改 `packages/db/src/schema.ts` → `drizzle-kit generate` → 提交迁移 SQL → `db:verify` 通过；迁移程序与应用共用同一管线。
 11. **数据层双模式**：零数据部署是默认路径，青翼导入只是可选路径，应用代码不得依赖旧库。

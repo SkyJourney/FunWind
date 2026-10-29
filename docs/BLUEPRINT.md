@@ -26,7 +26,7 @@
 12. **未被新模型使用的旧表一律丢弃，不建归档库**（含全部 `pw_*` 311 张表、任务/银行/抽奖/草稿/日志/通知/动态流等）；旧库保持原样只读，直至 M13 签字，即事实上的归档。
 13. **版块层级**：邻接表 `parent_id` + 物化路径 `path` + 启动加载的内存树 `ForumTree`；`read_policy`（inherit/public/members/restricted）作为一等属性。
 14. **统一 post 模型**：首帖即 `floor 1`；`posts_reply` 丢弃；业务表去掉 `raw`/`content_raw`，正文只留 `body_md`。
-15. **表情**：迁移期展开为静态图片资源，运行时无表情表，新编辑器不带表情面板。
+15. **表情**：~~迁移期展开为静态图片资源，运行时无表情表，新编辑器不带表情面板。~~ **M10.9 已推翻**（站长 2026-10-28 拍板）：运行时有表情元数据表（schema v2.2 `emoji_groups` / `emojis`，旧 50 枚以原 id 120–169 入表、内容仍是 public 静态图），URL 冻结为 `/emoji/{id}.{ext}`；后台 `/admin/emojis` 管理分组 / 上传 / 停用，编辑器面板接社区表情页签。详见 [M10.9](milestones/M10.9-emoji.md)。
 16. **门控抽象**：内容容器 + 解锁条件（内置 `points` / `reply`，固定两种；原 `gateConditions` 模块边界已在 M6.1 删除），隐藏内容保存时拆出存独立表；首批条件 `points`（购买）、`reply`（回复可见）；价格 0 = 登录后免费解锁；旧价 ≥ 9999 一律改免费；作者获得收益，手续费默认 0。详见 [GATES.md](GATES.md)。
 17. **积分抽象**：单一「用户积分」（显示名可配，默认青翼币），只做台账，获取仅发帖/回帖/签到；渠道注册 `pointChannels` 预留消费与获取的扩展；不迁旧流水，每人一条期初余额。详见 [POINTS.md](POINTS.md)。
 18. **取消**：用户等级/成长、任务引擎、勋章自动颁发、银行、抽奖、多币种。
@@ -89,7 +89,7 @@
 
 - **首帖正文在 `nw_bbs_threads_content`（按 tid 主键），不在 `nw_bbs_posts`**。回帖含楼层语义：`rpid`=回复目标 pid，`nw_bbs_posts_reply` 维护嵌套关系。
 - **正文换行是真实 `0x0A`**（HEX 验证），GBK 字节经 utf8mb4 连接自动无损转换，日文（「みんな～～～～～」「刀剣乱舞」）验证通过。
-- **UBB/BBCODE**：`[s:146]` 表情码直接对应 `nw_common_emotion.emotion_id`（120–169，50 枚，分 7 类，映射 folder/icon gif）；另有 `[url=][img][quote][size][color]` 等。
+- **UBB/BBCODE**：`[s:146]` 表情码直接对应 `nw_common_emotion.emotion_id`（120–169，50 枚；**在用分类实际 2 个**——117「茉莉 01」、118「茉莉 02」各 25 枚，本文档此前按 folder 数误记为「分 7 类」，M10.9 Step 1 对旧库核实更正）；另有 `[url=][img][quote][size][color]` 等。
 - **附件路径两代并存**：`Mon_1004/55_7_hash.jpg`（phpwind 月份目录）与数字目录 `1302/…`（2013+）。路径为**相对路径**，磁盘实测可对上（527MB，`/Volumes/Docker/data/qingyisub/wwwroot/www.qingyisub.top/attachment/`）。⚠️ 简报中 `/Volumes/Docker/data/qinub.top/attachment/` 为笔误，实际不存在。
 - **头像**：`attachment/avatar/{3位}/{2位}/` 分片（windid 算法），迁移期不解析文件，保留 `attachment/` 整目录原样由新系统静态服务。
 - **积分**：`nw_user_data.credit1..8` 八列 + `nw_credit_log`（ctype/affect/descrip）；等级由 `nw_user_groups.points` 阈值驱动（LV1.魔狱原住民 150 → LV12.圣魔王 18000）。
@@ -186,7 +186,7 @@ schema 演进：P0 期的 `migration/schema/schema.sql` 为基线底稿；**M1 �
 |--------|------|------------------------|
 | `/f/{fid}` | 版块（`?page=N`、`?type={type_id}`） | `thread.php?fid=N`、`simple/?f=N` |
 | `/t/{tid}` | 帖子（`?page=N`、锚点 `#p{pid}`） | `read.php?tid=N`、`simple/?t=N` |
-| `/attachment/**`、`/emotion/**` | **已退役**（S4-4）：附件/头像/正文图片走 `/files/<storage_key>`（迁移已改写正文链接），表情走 `/emoji/{id}.gif` | 旧路径返回 404；旧外链的 301 表归 M13 评估 |
+| `/attachment/**`、`/emotion/**` | **已退役**（S4-4）：附件/头像/正文图片走 `/files/<storage_key>`（迁移已改写正文链接），表情走 `/emoji/{id}.{ext}`（M10.9 起 id 120–169 冻结不变） | 旧路径返回 404；旧外链的 301 表归 M13 评估 |
 
 旧站未启用伪静态（nginx conf 实证），301 源即原生 query string。**新格式自 M3 起冻结**：改动必须先迁移 301 表。
 
