@@ -8,7 +8,10 @@ import { getSiteIdentity } from "@/lib/site-chrome";
 /**
  * sitemap（M10.6b）：首页/目录 + 公开可读且上目录的版块 + 这些版块下可见主题（前 2000 条）。
  * 受限/会员可见内容一律不进 sitemap（与游客可见口径一致，不泄露存在性）。
+ * force-dynamic：内容随库实时变化，不能在构建期固化——构建环境（CI verify 作业）没有数据库。
  */
+export const dynamic = "force-dynamic";
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const siteUrl = (await getSiteIdentity()).url;
   const rows = await listForumRows();

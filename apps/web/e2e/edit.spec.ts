@@ -164,6 +164,7 @@ test.describe("编辑帖子", () => {
   test("附件冲突恢复（M7-4）：两窗口编辑，后提交者恢复附件修改后保存成功，列表与提交版本一致", async ({
     context,
   }) => {
+    test.slow(); // CI 2 核 runner：dev server + 双窗口并发，超时裕度×3（CI 上曾超时）
     await loginAs(context, USERS.alice);
     const a = await context.newPage();
     const b = await context.newPage();

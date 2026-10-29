@@ -186,6 +186,7 @@ test.describe("修改隐藏正文后：新内容不经任何出口泄露", () =>
   test("作者保存修改：五种视角的主题页 HTML、RSC、编辑页只有读者视角命中新标记", async ({
     browser,
   }) => {
+    test.slow(); // CI 2 核 runner：五视角逐页请求 + 保存，超时裕度×3（CI 上曾超时）
     const author = await viewContext(browser, USERS.alice);
     const page = await author.newPage();
     await page.goto(`/p/${firstA}/edit`);
