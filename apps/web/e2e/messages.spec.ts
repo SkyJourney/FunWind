@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { withE2eDb } from "./support/db";
 import { USERS, loginAs } from "./support/session";
 
@@ -10,6 +10,15 @@ import { USERS, loginAs } from "./support/session";
 test.describe.configure({ mode: "serial" });
 
 const convoUrl = "/messages";
+
+async function messageUnreadCount(page: Page) {
+  return page.evaluate(async () => {
+    const response = await fetch("/api/notifications/bell", { cache: "no-store" });
+    if (!response.ok) throw new Error(`铃铛接口返回 ${response.status}`);
+    const body = (await response.json()) as { unread: { message: number } };
+    return body.unread.message;
+  });
+}
 
 test.beforeAll(async () => {
   await withE2eDb(async (q) => {
@@ -25,7 +34,7 @@ test("游客访问 /messages → 登录跳转", async ({ page }) => {
   await expect(page).toHaveURL(/\/login/);
 });
 
-test("A 发私信 → B 未读（铃铛徽标 + 会话列表未读数）→ B 打开会话 → 已读联动", async ({
+test("A 发私信 → B 的消息分类未读 → B 打开会话后消息分类清零", async ({
   page,
   context,
   browser,
@@ -39,23 +48,23 @@ test("A 发私信 → B 未读（铃铛徽标 + 会话列表未读数）→ B �
   await page.getByRole("button", { name: "发送" }).click();
   await expect(page).toHaveURL(new RegExp("/messages/\\d+"));
 
-  // B = team：铃铛出现未读、会话列表有未读数
+  // B = team：确认消息分类未读，并打开会话
   const bCtx = await browser.newContext();
   const bPage = await bCtx.newPage();
   await loginAs(bCtx, USERS.team);
   await bPage.goto("/");
+  await expect.poll(() => messageUnreadCount(bPage)).toBeGreaterThan(0);
   await expect(bPage.getByTestId("bell-unread")).toBeVisible();
   await bPage.goto(convoUrl);
   await expect(bPage.getByText(/demo_alice/)).toBeVisible();
 
-  // B 打开会话：内容可见；未读清零（铃铛徽标消失）
   await bPage
     .getByRole("link", { name: /demo_alice/ })
     .first()
     .click();
   await expect(bPage.getByText("E2E 私信内容")).toBeVisible();
   await bPage.goto("/");
-  await expect(bPage.getByTestId("bell-unread")).toHaveCount(0);
+  await expect.poll(() => messageUnreadCount(bPage)).toBe(0);
   await bCtx.close();
 });
 
