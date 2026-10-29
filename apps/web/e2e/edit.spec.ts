@@ -170,10 +170,11 @@ test.describe("编辑帖子", () => {
     const b = await context.newPage();
     await a.goto(`/p/${REPLY}/edit`);
     await b.goto(`/p/${REPLY}/edit`);
-    await expect(b.getByRole("region", { name: "附件" })).toBeVisible();
+    // CI 冷编译：第二窗口的编辑页首访也要现编译，放宽（15s）
+    await expect(b.getByRole("region", { name: "附件" })).toBeVisible({ timeout: 15_000 });
     // 附件列表默认折叠（M10.8 Step 9）：先展开
     await b.getByRole("button", { name: /^附件（\d+）$/ }).click();
-    await expect(b.getByLabel("移除附件：E2E 冲突附件.txt")).toBeVisible();
+    await expect(b.getByLabel("移除附件：E2E 冲突附件.txt")).toBeVisible({ timeout: 15_000 });
 
     // 窗口 A 先保存（只改正文）→ 胜出
     const winner = `窗口 A 先保存 ${Date.now()}`;

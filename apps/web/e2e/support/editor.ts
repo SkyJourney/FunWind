@@ -21,7 +21,8 @@ export async function fillSource(page: Page, text: string): Promise<void> {
   const toSource = page.getByRole("button", { name: "切换到源码" });
   if (await toSource.isVisible()) await toSource.click();
   const cm = page.locator(".cm-content");
-  await expect(cm).toBeVisible();
+  // CI dev server 对编辑页首次访问要现编译（2 核 runner 上远超 5s），放宽单断言超时
+  await expect(cm).toBeVisible({ timeout: 15_000 });
   await cm.click();
   await cm.fill(text);
 }
