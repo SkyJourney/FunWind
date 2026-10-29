@@ -6,8 +6,8 @@ import { requireAdmin } from "@/lib/authz/require-admin";
 export const dynamic = "force-dynamic";
 
 /**
- * 后台首页（M8 遗留的占位跳转）：按权限派生落点——
- * 版主（无任何 admin.* 站点权限）→ 内容审核队列；否则 → 审计中心（S8 交付前暂为角色页）。
+ * 后台首页跳转（M9.5 站长反馈：入口默认进看板）：按权限派生落点——
+ * 站点权限（admin.logs 是看板菜单的门槛）→ 看板；纯版主 → 内容审核队列；其余 → 角色与授权。
  */
 export default async function AdminIndex() {
   await requireAdmin();
@@ -17,10 +17,6 @@ export default async function AdminIndex() {
     getModeratedForumIds(subject),
   ]);
   redirect(
-    canLogs.allowed || moderated.length > 0
-      ? canLogs.allowed
-        ? "/admin/logs"
-        : "/admin/review"
-      : "/admin/authz",
+    canLogs.allowed ? "/admin/dashboard" : moderated.length > 0 ? "/admin/review" : "/admin/authz",
   );
 }
