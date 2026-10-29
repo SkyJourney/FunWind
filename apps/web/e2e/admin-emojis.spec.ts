@@ -108,27 +108,27 @@ test("admin 全流程：建组 → 上传 → /emoji 可访问 → 改名/关键
     }),
   ).toBeVisible();
 
-  // 再传一个 → 组内 ↓ 移动 → 顺序交换（网格首条变为原名表情）
+  // 再传一个 → 组内数字排序交换（M9.5 范式：sortOrder 输入 + 保存，替代逐位 ↑↓）——首行变为原名表情
   await page
     .getByLabel("选择表情文件（可多选）")
     .setInputFiles({ name: "表情二.png", mimeType: "image/png", buffer: PNG_1X1 });
   await page.getByRole("button", { name: "上传表情" }).click();
   await expect(page).toHaveURL(/saved=upload/);
-  await page
-    .locator('[data-testid="emoji-grid"] tbody tr', {
-      has: page.locator(`img[alt="E2E 改名表情"]`),
-    })
-    .getByRole("button", { name: "↓" })
-    .click();
-  await expect(page).toHaveURL(/saved=emoji-moved/);
+  const renamedRow = page.locator('[data-testid="emoji-grid"] tbody tr', {
+    has: page.locator(`img[alt="E2E 改名表情"]`),
+  });
+  // 把「E2E 改名表情」的排序值改为 0（原值更高），保存后它排到最前
+  await renamedRow.getByLabel(/排序值/).fill("0");
+  await renamedRow.getByRole("button", { name: "保存" }).click();
+  await expect(page).toHaveURL(/saved=emoji-renamed/);
   const firstName = await page
     .locator('[data-testid="emoji-grid"] tbody tr')
     .first()
-    .locator("p")
+    .locator("img")
     .first()
-    .textContent();
-  expect(firstName).toContain("表情二");
-  expect(await auditExists("admin.emoji.move")).toBe(true);
+    .getAttribute("alt");
+  expect(firstName).toBe("E2E 改名表情");
+  expect(await auditExists("admin.emoji.rename")).toBe(true);
 
   // 停用 → 网格标记停用，但 /emoji 仍 200（已发布正文不能碎）
   await page
