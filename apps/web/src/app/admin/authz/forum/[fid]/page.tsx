@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { getForumModerators } from "@/lib/authz/service";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
+import { AdminPageHeader } from "@/components/admin/admin-page-header";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "板块权限视角" };
@@ -38,19 +39,12 @@ export default async function ForumAuthzPage({ params }: { params: Promise<{ fid
 
   return (
     <div className="space-y-6">
-      <nav className="text-sm text-muted-foreground">
-        <Link href="/admin/authz" className="hover:text-primary">
-          ← 角色与授权
-        </Link>
-        <span> / 板块视角</span>
-      </nav>
-
-      <header>
-        <h1 className="text-xl font-bold">{forum.name} · 权限视角</h1>
-        <p className="text-xs text-muted-foreground">
-          作用域链：{chain.join(" ← ")}（授权与策略沿此链向子板块继承）
-        </p>
-      </header>
+      <AdminPageHeader
+        back="/admin/authz"
+        backLabel="角色与授权"
+        title={`${forum.name} · 权限视角`}
+        stats={`作用域链：${chain.join(" ← ")}（授权与策略沿此链向子板块继承）`}
+      />
 
       <section className="rounded-xl border bg-card p-4">
         <h2 className="mb-2 font-semibold">有效策略</h2>

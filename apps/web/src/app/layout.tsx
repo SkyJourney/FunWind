@@ -4,6 +4,7 @@ import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { logoutAction } from "@/app/actions/auth";
 import { BottomTabBar } from "@/components/site/bottom-tab-bar";
+import { BottomSpacer } from "@/components/site/bottom-spacer";
 import { SiteHeader } from "@/components/site/site-header";
 import { AnnouncementBanner } from "@/components/site/announcement-banner";
 import { NavKindCapture } from "@/components/site/nav-kind-capture";
@@ -86,8 +87,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             logoutAction={logoutAction}
           />
           {children}
-          {/* 移动端底部 Tab 占位：内容不被固定栏遮挡 */}
-          <div aria-hidden className="h-16 md:hidden" />
+          {/* 移动端底部 Tab 占位：内容不被固定栏遮挡；后台无底部 Tab，不占位 */}
+          <BottomSpacer />
           {chrome.links.length > 0 && (
             <footer className="border-t py-6">
               <div className="mx-auto max-w-6xl space-y-2 px-4 sm:px-6 lg:px-8">

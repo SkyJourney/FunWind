@@ -1,9 +1,9 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { grantAction, revokeAction } from "@/app/admin/actions";
 import { getRoleGrants, listPermissions, listRoles } from "@/lib/authz/admin";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { getForumTree } from "@/lib/authz/snapshot";
+import { AdminPageHeader } from "@/components/admin/admin-page-header";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "授权矩阵" };
@@ -46,46 +46,45 @@ export default async function RoleMatrixPage({
 
   return (
     <div className="space-y-6">
-      <nav className="text-sm text-muted-foreground">
-        <Link href="/admin/authz" className="hover:text-primary">
-          ← 角色与授权
-        </Link>
-        <span> / {role.name}</span>
-      </nav>
+      <AdminPageHeader
+        back="/admin/authz"
+        backLabel="角色与授权"
+        title={
+          <>
+            {role.name} <code className="text-xs text-muted-foreground">{role.key}</code>
+          </>
+        }
+        stats={`作用域：${scopeLabel}`}
+        actions={
+          <form method="get" className="flex items-center gap-2 text-sm">
+            <span className="text-muted-foreground">作用域：</span>
+            <select
+              name="scopeForum"
+              defaultValue={scopeIsForum ? String(scopeId) : ""}
+              className="rounded-lg border border-input bg-background px-2 py-1.5"
+            >
+              <option value="">全局</option>
+              {forums
+                .filter((f) => f.kind === "forum")
+                .map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {"　".repeat(Math.max(0, f.depth - 1))}
+                    {f.name}
+                  </option>
+                ))}
+            </select>
+            <button type="submit" className="rounded-md border px-3 py-1.5 hover:bg-accent">
+              切换
+            </button>
+          </form>
+        }
+      />
 
       {error && (
         <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}
         </p>
       )}
-
-      <section className="flex flex-wrap items-center gap-3">
-        <h1 className="text-xl font-bold">
-          {role.name} <code className="text-xs text-muted-foreground">{role.key}</code>
-        </h1>
-        <p className="text-sm text-muted-foreground">作用域：{scopeLabel}</p>
-        <form method="get" className="flex items-center gap-2 text-sm">
-          <span className="text-muted-foreground">作用域：</span>
-          <select
-            name="scopeForum"
-            defaultValue={scopeIsForum ? String(scopeId) : ""}
-            className="rounded-lg border border-input bg-background px-2 py-1.5"
-          >
-            <option value="">全局</option>
-            {forums
-              .filter((f) => f.kind === "forum")
-              .map((f) => (
-                <option key={f.id} value={f.id}>
-                  {"　".repeat(Math.max(0, f.depth - 1))}
-                  {f.name}
-                </option>
-              ))}
-          </select>
-          <button type="submit" className="rounded-md border px-3 py-1.5 hover:bg-accent">
-            切换
-          </button>
-        </form>
-      </section>
 
       <section className="space-y-4">
         {[...byResource.entries()].map(([resource, list]) => (

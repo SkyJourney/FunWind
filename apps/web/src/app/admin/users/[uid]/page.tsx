@@ -9,6 +9,7 @@ import { userBadgesOf } from "@/lib/badges/service";
 import { getPointsName } from "@/lib/auth/settings";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import {
   assignRoleAction,
   createRestrictionAction,
@@ -67,6 +68,13 @@ export default async function AdminUserDetailPage({ params, searchParams }: Para
           角色已更新。
         </p>
       )}
+
+      <AdminPageHeader
+        back="/admin/users"
+        backLabel="返回用户管理"
+        title={detail.username}
+        stats={`uid ${detail.id}`}
+      />
 
       <Card>
         <CardContent className="flex flex-wrap gap-x-8 gap-y-1 pt-6 text-sm">

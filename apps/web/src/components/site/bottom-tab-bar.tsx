@@ -39,6 +39,10 @@ export function BottomTabBar({
   pmOn: boolean;
   pmUnread: number;
 }) {
+  // 后台有自己的导航壳（AdminShell，M9.5），前台底部 Tab 不在 /admin 出现
+  const pathname = usePathname();
+  if (pathname.startsWith("/admin")) return null;
+
   const tabs: Tab[] = user
     ? [
         { href: "/", label: "首页", icon: Home, isActive: (p) => p === "/" },

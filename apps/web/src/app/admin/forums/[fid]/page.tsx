@@ -1,5 +1,4 @@
-import Link from "next/link";
-import { ArrowLeft, Tag } from "lucide-react";
+import { Tag } from "lucide-react";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { listForumRows, listPrefixes } from "@/lib/forums/admin";
 import { ForumTree } from "@/lib/forums/forum-tree";
@@ -7,6 +6,7 @@ import { notFound } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { ConfirmSubmit } from "@/components/ui/confirm-submit";
+import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { addPrefixAction, removePrefixAction, updateForumAction } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -71,22 +71,24 @@ export default async function ForumEditPage({
 
   return (
     <div className="space-y-5">
-      <header>
-        <Link
-          href="/admin/forums"
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="size-3.5" aria-hidden /> 返回板块管理
-        </Link>
-        <h2 className="mt-1 text-lg font-bold tracking-tight">编辑：{row.name}</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          #{row.id} · {row.kind === "section" ? "分区" : "板块"} · 当前有效可见性：
-          {effective.value === "public" ? "公开" : effective.value === "members" ? "会员" : "受限"}
-          {effective.holderId !== null && effective.holderId !== fid && (
-            <>（继承自 #{effective.holderId}）</>
-          )}
-        </p>
-      </header>
+      <AdminPageHeader
+        back="/admin/forums"
+        backLabel="返回板块管理"
+        title={`编辑：${row.name}`}
+        stats={
+          <>
+            #{row.id} · {row.kind === "section" ? "分区" : "板块"} · 当前有效可见性：
+            {effective.value === "public"
+              ? "公开"
+              : effective.value === "members"
+                ? "会员"
+                : "受限"}
+            {effective.holderId !== null && effective.holderId !== fid && (
+              <>（继承自 #{effective.holderId}）</>
+            )}
+          </>
+        }
+      />
 
       {sp.err && (
         <p
