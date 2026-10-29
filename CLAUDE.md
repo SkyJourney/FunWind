@@ -151,3 +151,4 @@ pnpm --filter @funwind/web perf:posting                   # 发帖性能基准�
 2. 门禁以真实命令输出为准，不凭文档勾选；测试规则见 `docs/ROADMAP.md`「全局测试基线」。
 3. 代码注释一律简体中文（类/方法/复杂逻辑），标识符保持英文。
 4. 本地开发凭据只放根 `.env`（已 gitignore；模板见 `.env.example`），README 里只有变量名；**不要把口令写进文档或提交**，`pnpm check:secrets`（pre-push / CI 自动跑）会拦截。
+5. **CI（GitHub Actions，`.github/workflows/ci.yml`）**：push main / PR / 手动触发。两个作业——`verify`（秘密扫描 / 脚本 / lint / 格式 / 类型 / 单测含真实 MySQL 集成与覆盖率门槛 / 构建）与 `e2e`（MySQL + MailPit 服务容器、Playwright 全量 `test:e2e:run`、失败自动传现场 artifact）。main 分支保护：required checks = verify + e2e（PR 合并强制过 CI）；`enforce_admins` 关闭（保留直接 push 的工作流，push 后 CI 独立跑一轮留档）。**迁移对账（verify:migration）只在本地跑**——需要只读旧库，CI 无法覆盖。
