@@ -24,6 +24,10 @@ export default defineConfig({
       ],
       exclude: [
         "src/modules/kernel/slot.tsx",
+        // 纯 TypeScript 类型声明（interface/type，零运行时语句）：v8 把空模块计入分母拉低全局阈值（M9.5 收口时逐条核对）
+        "src/components/editor/insert-api.ts",
+        "src/lib/stream/types.ts",
+        "src/lib/gates/types.ts",
         "src/lib/auth/mailer.ts",
         // 裁剪工具（M6.4d2）：react-image-crop 的拖拽与手柄是第三方交互壳，换算逻辑在 crop-math.ts 中单测，交互由 E2E 覆盖
         "src/components/upload/crop-body.tsx",

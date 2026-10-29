@@ -131,17 +131,15 @@ describe.skipIf(skipDb)("限制管理（M9）", () => {
 
   it("listAdminUsersPage：默认最新注册、uid 等值、受限筛选与总数（M9.5）", async () => {
     // 给 member（90005）上一个长期生效的限制，验证 restricted 筛选
-    await db()
-      .insert(userRestrictions)
-      .values({
-        userId: 90005,
-        kind: "mute",
-        scopeId: 0,
-        reason: "列表筛选测试",
-        startsAt: "2026-01-01 00:00:00",
-        endsAt: "2099-01-01 00:00:00",
-        createdAt: "2026-01-01 00:00:00",
-      });
+    await db().insert(userRestrictions).values({
+      userId: 90005,
+      kind: "mute",
+      scopeId: 0,
+      reason: "列表筛选测试",
+      startsAt: "2026-01-01 00:00:00",
+      endsAt: "2099-01-01 00:00:00",
+      createdAt: "2026-01-01 00:00:00",
+    });
 
     const def = await listAdminUsersPage({ status: "all", sort: "recent" }, 1);
     expect(def.total).toBeGreaterThan(0);

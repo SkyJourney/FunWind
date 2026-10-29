@@ -20,7 +20,14 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
-import { approveReview, hidePost, listReviewPage, rejectReview } from "./review";
+import {
+  approveReview,
+  disableContent,
+  hidePost,
+  listContentReviews,
+  listReviewPage,
+  rejectReview,
+} from "./review";
 import { createThread } from "@/lib/posting/service";
 
 let tdb: TempDb;
@@ -181,6 +188,100 @@ describe.skipIf(skipDb)("审核动作（M9）", () => {
     // 板块筛选命中所辖版块
     const byForum = await listReviewPage(admin, { tab: "pending", forumId: REVIEW_FORUM, page: 1 });
     expect(byForum.items.every((i) => i.forumId === REVIEW_FORUM)).toBe(true);
+  });
+
+  it("disableContent：→ disabled 终态（M9.5）——状态、留痕、事件；理由必填与 bad_state", async () => {
+    const { postId } = await seedPendingThread();
+    await approveReview(admin, postId, ACTOR);
+
+    // 理由为空 → 拒绝
+    expect(await disableContent(admin, postId, "  ", ACTOR)).toMatchObject({
+      ok: false,
+      code: "reason_required",
+    });
+    // 不存在
+    expect(await disableContent(admin, 99999999, "理由", ACTOR)).toMatchObject({
+      ok: false,
+      code: "not_found",
+    });
+
+    // 成功：visible → disabled
+    const r = await disableContent(admin, postId, "违规内容封禁", ACTOR);
+    expect(r).toEqual({ ok: true });
+    expect(await postState(postId)).toBe("disabled");
+
+    // 已封禁再封禁 → bad_state
+    expect(await disableContent(admin, postId, "再次", ACTOR)).toMatchObject({
+      ok: false,
+      code: "bad_state",
+    });
+
+    // 封禁留痕进 content_reviews（decision=disabled）
+    const history = await listContentReviews(postId);
+    expect(history.some((h) => h.decision === "disabled" && h.note === "违规内容封禁")).toBe(true);
+
+    // hidden 升格封禁合法（屏蔽 → 封禁是加重治理路径，白名单 hidden→disabled）
+    const t2 = await seedPendingThread();
+    await approveReview(admin, t2.postId, ACTOR);
+    await hidePost(admin, t2.postId, "先屏蔽", ACTOR);
+    expect(await disableContent(admin, t2.postId, "升格封禁", ACTOR)).toEqual({ ok: true });
+    expect(await postState(t2.postId)).toBe("disabled");
+
+    // deleted 不能封禁（白名单无 deleted→disabled → illegal_transition → bad_state）
+    const t4 = await seedPendingThread();
+    await approveReview(admin, t4.postId, ACTOR);
+    const drizzle4 = await import("drizzle-orm");
+    const db4 = await import("@funwind/db");
+    await db4
+      .getWebDb()
+      .update(db4.posts)
+      .set({ state: "deleted" })
+      .where(drizzle4.eq(db4.posts.id, t4.postId));
+    expect(await disableContent(admin, t4.postId, "理由", ACTOR)).toMatchObject({
+      ok: false,
+      code: "bad_state",
+    });
+
+    // 对非版主：forbidden（member 无所辖版块）
+    const member = await loadSubject(DEMO.member);
+    const t3 = await seedPendingThread();
+    await approveReview(admin, t3.postId, ACTOR);
+    expect(
+      await disableContent(member, t3.postId, "理由", {
+        userId: DEMO.member,
+        via: "admin",
+        ip: null,
+      }),
+    ).toMatchObject({ ok: false, code: "forbidden" });
+  });
+
+  it("listContentReviews：倒序全量（M9.5 §9.2-G1）", async () => {
+    const { postId } = await seedPendingThread();
+    await rejectReview(admin, postId, "第一版不合格", ACTOR);
+    // 推回 pending 再通过，制造两行记录
+    const drizzle = await import("drizzle-orm");
+    const dbPkg = await import("@funwind/db");
+    // 主题与首帖必须同步（transition 的分叉保护会拒绝单边修改）
+    await dbPkg
+      .getWebDb()
+      .update(dbPkg.posts)
+      .set({ state: "pending" })
+      .where(drizzle.eq(dbPkg.posts.id, postId));
+    await dbPkg
+      .getWebDb()
+      .update(dbPkg.threads)
+      .set({ state: "pending" })
+      .where(
+        drizzle.eq(
+          dbPkg.threads.id,
+          drizzle.sql`(SELECT thread_id FROM posts WHERE id = ${postId})`,
+        ),
+      );
+    await approveReview(admin, postId, ACTOR);
+    const history = await listContentReviews(postId);
+    expect(history.length).toBeGreaterThanOrEqual(2);
+    expect(history[0]!.decision).toBe("approved"); // 最新在前
+    expect(history.some((h) => h.decision === "rejected")).toBe(true);
   });
 
   it("not_found：不存在的帖子；dispatchOutboxRows 失败路径（事务回滚）后无 outbox 残留", async () => {

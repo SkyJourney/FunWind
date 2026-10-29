@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
-import { handleReport, listReportPage, submitReport } from "./service";
+import { dismissReportsBulk, handleReport, listReportPage, submitReport } from "./service";
 
 let tdb: TempDb;
 let member: Subject;
@@ -95,5 +95,28 @@ describe.skipIf(skipDb)("举报（M9）", () => {
     expect(dismissed.items.find((i) => i.postId === 900101)).toBeDefined();
     const resolved = await listReportPage({ status: "resolved", page: 1 });
     expect(resolved.items.find((i) => i.postId === 900101)).toBeDefined();
+  });
+
+  it("dismissReportsBulk：批量忽略可用行，已处理行跳过并计数（M9.5）", async () => {
+    // 造两条 pending：一条将被批量忽略、一条先手工处置制造「跳过」分支
+    const mk = async (postId: number, reporterId: number) => {
+      const [r] = (await db().insert(reports).values({
+        postId,
+        reporterId,
+        reason: "批量测试",
+        createdAt: "2026-05-03 10:00:00",
+      })) as unknown as [{ insertId: number }];
+      return Number(r.insertId);
+    };
+    const a = await mk(900201, DEMO.member);
+    const b = await mk(900202, DEMO.team);
+    await handleReport(ACTOR, b, "resolved", "先处置一条");
+
+    const r = await dismissReportsBulk(ACTOR, [a, b]);
+    expect(r).toEqual({ ok: 1, failed: 1 });
+    // 行级断言（列表页按时间倒序分页，早时间行可能不在首页）
+    // 批量忽略的说明是统一文案
+    const [row] = await db().select().from(reports).where(eq(reports.id, a));
+    expect(row.handledNote).toBe("经核实不构成违规");
   });
 });

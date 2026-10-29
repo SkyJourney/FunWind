@@ -14,8 +14,8 @@ import { storageKeyFor } from "@/lib/uploads/policy";
  * 旧站 32 枚板块图（165×100 JPEG）由迁移器原字节直存，不走本管线。
  */
 
-const ICON_MAX_EDGE = 512;
-const ICON_MAX_BYTES = 300 * 1024;
+export const ICON_MAX_EDGE = 512;
+export const ICON_MAX_BYTES = 300 * 1024;
 
 const ICON_TYPES: ReadonlySet<SniffedType> = new Set(["png", "jpeg", "webp"]);
 

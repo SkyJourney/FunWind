@@ -3,7 +3,7 @@ import { AS_OF, config } from "./config.js";
 import { assertNoLiveData, closePools, newQuery } from "./db.js";
 import { Report } from "./lib/report.js";
 import { loadSchemaOnce } from "./schema-init.js";
-import { FILE_GROUP, STEPS } from "./pipeline.js";
+import { COUNTER_FOLLOW, FILE_GROUP, STEPS } from "./pipeline.js";
 import { assertSystemSeeded, newCtx } from "./step-types.js";
 
 /**
@@ -13,6 +13,8 @@ import { assertSystemSeeded, newCtx } from "./step-types.js";
 const only = process.argv.slice(2);
 const selected = new Set(only);
 if (FILE_GROUP.some((n) => selected.has(n))) FILE_GROUP.forEach((n) => selected.add(n));
+// counters 联动：content 重跑重置 threads 缓存计数列，必须重算（M9.5 教训）
+if (COUNTER_FOLLOW.slice(0, -1).some((n) => selected.has(n))) selected.add("counters");
 const list = only.length > 0 ? STEPS.filter((s) => selected.has(s.name)) : STEPS;
 if (list.length === 0) {
   console.error(`未找到步骤: ${only.join(",")}。可选: ${STEPS.map((s) => s.name).join(" ")}`);

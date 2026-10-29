@@ -53,7 +53,11 @@ export default async function AdminLogsPage({ searchParams }: Params) {
           </Link>
         </nav>
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          <form action="/admin/logs" method="get" className="flex items-center gap-1.5">
+          <form
+            action="/admin/logs"
+            method="get"
+            className="flex min-w-0 flex-wrap items-center gap-1.5"
+          >
             <input type="hidden" name="tab" value={tab} />
             <input
               name="action"
@@ -61,13 +65,13 @@ export default async function AdminLogsPage({ searchParams }: Params) {
               placeholder={
                 tab === "events" ? "事件名（如 thread.created）" : "动作（如 points.adjust）"
               }
-              className="w-56 rounded-lg border bg-background px-2.5 py-1.5 text-xs"
+              className="w-40 min-w-0 rounded-lg border bg-background px-2.5 py-1.5 text-xs sm:w-56"
             />
             <input
               name="actor"
               defaultValue={actorId ?? ""}
               placeholder="actor uid"
-              className="w-24 rounded-lg border bg-background px-2.5 py-1.5 text-xs"
+              className="w-20 min-w-0 rounded-lg border bg-background px-2.5 py-1.5 text-xs sm:w-24"
             />
             <button type="submit" className="rounded-lg border px-3 py-1.5 text-xs hover:bg-accent">
               筛选

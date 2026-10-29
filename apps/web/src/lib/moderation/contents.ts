@@ -170,6 +170,9 @@ export async function setThreadFlags(
   actor: { userId: number; via: "admin"; ip: string | null },
 ): Promise<ThreadFlagsResult> {
   if (operator.userId === null) return { ok: false, code: "forbidden", message: "请先登录" };
+  // 评估器需要完整 Subject（roles）——只有 userId 时先加载
+  const { loadSubject } = await import("@/lib/authz/subject");
+  const subject = await loadSubject(operator.userId);
   const db = getWebDb();
   const [row] = await db
     .select({ forumId: threads.forumId })
@@ -179,11 +182,10 @@ export async function setThreadFlags(
   if (!row) return { ok: false, code: "not_found", message: "主题不存在" };
 
   const { checkPermission } = await import("@/lib/authz/service");
-  const isSiteAdmin = (await checkPermission(operator as never, "site.admin")).allowed;
+  const isSiteAdmin = (await checkPermission(subject, "site.admin")).allowed;
   if (!isSiteAdmin) {
-    const allowed = (
-      await checkPermission(operator as never, "forum.moderate", { forumId: row.forumId })
-    ).allowed;
+    const allowed = (await checkPermission(subject, "forum.moderate", { forumId: row.forumId }))
+      .allowed;
     if (!allowed) return { ok: false, code: "forbidden", message: "你不是该版块的版主" };
   }
   // 版主置顶上限 1（版块级）；全站置顶仅 site.admin

@@ -47,3 +47,5 @@ export const STEPS: Step[] = [
  * run.ts 选中其中任意一个时，会把整组一并运行。
  */
 export const FILE_GROUP: readonly string[] = ["users", "content", "badges", "files"];
+/** content 重跑会整表替换 threads（缓存计数列被重置），counters 必须跟随重算（M9.5 教训） */
+export const COUNTER_FOLLOW: readonly string[] = ["content", "counters"];
