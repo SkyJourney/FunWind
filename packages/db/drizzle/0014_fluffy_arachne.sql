@@ -1,0 +1,1 @@
+ALTER TABLE `emoji_groups` ADD `icon_key` varchar(128);

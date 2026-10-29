@@ -11,6 +11,8 @@ export interface CommunityEmoji {
   /** /emoji/{id}.{ext}，与正文引用同形 */
   url: string;
   group: string;
+  /** 分组标题图（/files/<key>；null = 组未设置标题图） */
+  groupIcon: string | null;
   width: number | null;
   height: number | null;
 }
@@ -45,7 +47,9 @@ export function searchCommunity(list: CommunityEmoji[], query: string): Communit
   });
 }
 
-/** 面板的分组展示顺序：按接口给定的顺序（(group.sort, emoji.sort, id)），收集不重复的组名 */
-export function groupNames(list: CommunityEmoji[]): string[] {
-  return [...new Set(list.map((e) => e.group))];
+/** 面板的分组元数据（按接口顺序，即 (group.sort, emoji.sort, id)），组名 → 标题图 */
+export function groupMeta(list: CommunityEmoji[]): { name: string; icon: string | null }[] {
+  const seen = new Map<string, string | null>();
+  for (const e of list) if (!seen.has(e.group)) seen.set(e.group, e.groupIcon);
+  return [...seen].map(([name, icon]) => ({ name, icon }));
 }

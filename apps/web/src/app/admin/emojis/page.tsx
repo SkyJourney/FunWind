@@ -14,6 +14,7 @@ import {
   toggleGroupAction,
   updateEmojiAction,
   uploadEmojiAction,
+  uploadGroupIconAction,
 } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -38,6 +39,7 @@ const SAVED: Record<string, string> = {
   "group-toggled": "分组状态已更新。",
   "group-deleted": "分组已删除。",
   "group-moved": "分组顺序已更新。",
+  "group-icon": "分组标题图已更新（面板分组标题旁即时生效）。",
   upload: "表情已上传。",
   "emoji-renamed": "表情已更新。",
   "emoji-moved": "表情顺序已更新。",
@@ -60,6 +62,7 @@ export default async function AdminEmojisPage({ searchParams }: Params) {
       name: emojiGroups.name,
       sort: emojiGroups.sort,
       enabled: emojiGroups.enabled,
+      iconKey: emojiGroups.iconKey,
       count: sql<number>`COUNT(${emojis.id})`,
     })
     .from(emojiGroups)
@@ -126,6 +129,16 @@ export default async function AdminEmojisPage({ searchParams }: Params) {
           <ul className="divide-y" data-testid="group-list">
             {groups.map((g, i) => (
               <li key={g.id} className="flex flex-wrap items-center gap-2 py-2.5 text-sm">
+                {g.iconKey && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={`/files/${g.iconKey}`}
+                    alt=""
+                    width={28}
+                    height={28}
+                    className="size-7 rounded border object-cover"
+                  />
+                )}
                 <a
                   href={`/admin/emojis?group=${g.id}`}
                   className="font-medium text-primary hover:underline"
@@ -185,6 +198,27 @@ export default async function AdminEmojisPage({ searchParams }: Params) {
                     </ConfirmSubmit>
                   </form>
                 </span>
+                <form
+                  action={uploadGroupIconAction}
+                  className="flex w-full items-center gap-2 sm:w-auto"
+                >
+                  <input type="hidden" name="id" value={g.id} />
+                  <input type="hidden" name="back" value={back} />
+                  <input
+                    type="file"
+                    name="icon"
+                    required
+                    accept=".png,.gif,.webp,image/png,image/gif,image/webp"
+                    aria-label={`分组「${g.name}」的标题图`}
+                    className="max-w-52 text-xs"
+                  />
+                  <SubmitButton
+                    className="rounded px-2 py-1 text-xs hover:bg-accent"
+                    pendingText="…"
+                  >
+                    {g.iconKey ? "更换标题图" : "上传标题图"}
+                  </SubmitButton>
+                </form>
                 <form
                   action={renameGroupAction}
                   className="flex w-full items-center gap-2 sm:w-auto"

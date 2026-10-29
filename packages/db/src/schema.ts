@@ -930,7 +930,7 @@ export const auditLog = mysqlTable(
 // 内容走内容寻址存储（storage_key），URL 形如 /emoji/{id}.{ext}。
 // ============================================================
 
-/** 表情分组：旧站分类（茉莉 01 / 茉莉 02）与后台自建分组共用；停用只影响面板，不影响已发布正文的渲染 */
+/** 表情分组：旧站分类合并后的「茉莉」单组与后台自建分组共用；停用只影响面板，不影响已发布正文的渲染 */
 export const emojiGroups = mysqlTable(
   "emoji_groups",
   {
@@ -939,6 +939,9 @@ export const emojiGroups = mysqlTable(
     name: varchar("name", { length: 50 }).notNull(),
     /** 展示排序（小在前） */
     sort: int("sort").notNull().default(0),
+    /** 分组标题图的内容寻址键（ab/cd/<sha>.<ext>，经 /files 出口公开读取）；NULL = 无标题图。
+     *  独立上传而非引用组内表情（站长 2026-10-29 拍板），可随时在后台上传更换。 */
+    iconKey: varchar("icon_key", { length: 128 }),
     enabled: boolean("enabled").notNull().default(true),
     createdAt: dt("created_at").notNull(),
     updatedAt: dt("updated_at").notNull(),

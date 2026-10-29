@@ -65,6 +65,67 @@ export const createGroupAction = defineAction({
   },
 });
 
+export const uploadGroupIconAction = defineAction({
+  name: "admin.emoji.group.icon",
+  auth: { admin: "emoji.manage" },
+  input: z.object({
+    id: z.coerce.number().int().positive(),
+    /** 分组标题图（独立上传，站长 2026-10-29 拍板）：同表情管线校验（≤200×200、≤200KB、png/gif/webp） */
+    icon: z.instanceof(File),
+    back,
+  }),
+  async run(ctx, input) {
+    const [group] = await getWebDb()
+      .select()
+      .from(emojiGroups)
+      .where(eq(emojiGroups.id, input.id))
+      .limit(1);
+    if (!group) notFound();
+    const bytes = Buffer.from(await input.icon.arrayBuffer());
+    const r = await processEmojiUpload(bytes, getStorageDir());
+    if (!r.ok) {
+      redirect(
+        `${input.back}?group=${group.id}&err=${r.code}&name=${encodeURIComponent(input.icon.name)}`,
+      );
+    }
+    await getWebDb().transaction(async (tx) => {
+      // files 表只做内容登记（同 sha 去重）；不写 file_uploads、不占用户配额
+      await tx
+        .insert(files)
+        .ignore()
+        .values({
+          sha256: r.sha256,
+          storageKey: r.storageKey,
+          sizeBytes: r.sizeBytes,
+          mime: r.mime,
+          width: r.width,
+          height: r.height,
+          createdAt: sql`NOW()`,
+        });
+      const [fileRow] = await tx
+        .select({ id: files.id })
+        .from(files)
+        .where(eq(files.sha256, r.sha256))
+        .limit(1);
+      await tx
+        .update(emojiGroups)
+        .set({ iconKey: r.storageKey, updatedAt: sql`NOW()` })
+        .where(eq(emojiGroups.id, input.id));
+      await writeAudit(tx, {
+        actorId: ctx.userId,
+        action: "admin.emoji.group.icon",
+        targetType: "emoji_group",
+        targetId: input.id,
+        before: { iconKey: group.iconKey },
+        after: { iconKey: r.storageKey, fileId: fileRow?.id, via: "admin" },
+        ip: ctx.ip,
+      });
+    });
+    revalidatePath("/admin/emojis");
+    redirect(`${input.back}?group=${group.id}&saved=group-icon`);
+  },
+});
+
 export const renameGroupAction = defineAction({
   name: "admin.emoji.group.rename",
   auth: { admin: "emoji.manage" },

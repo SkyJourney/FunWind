@@ -1,12 +1,15 @@
 /**
- * 表情元数据的转换（M10.9，设计稿 §2.4）：旧库 nw_common_emotion(_category) → emoji_groups / emojis。
+ * 表情元数据的转换（M10.9，设计稿 §2.4；2026-10-29 站长追加修订）：旧库 nw_common_emotion(_category) → emoji_groups / emojis。
  * 纯函数，便于独立单测；加载（幂等 INSERT IGNORE）在 steps-content.ts 的 emojiStep。
  *
- * 口径（Step 1 核实结论，docs/milestones/M10.9-emoji.md §1.1）：
- *  · 分组 = **有成员的**旧分类（实测仅 2 个：117「茉莉 01」、118「茉莉 02」；其余分类 isopen=0 无成员，不建）；
+ * 口径：
+ *  · **分组 = 合并后的单组「茉莉」**（站长拍板：旧分类「茉莉 01 / 茉莉 02」在新系统合并为一个表情包；
+ *    旧库分类名不再成为分组——Step 1 曾按旧分类建 2 组，合并决策后改为单组产出）；
  *  · 表情 = 显式 id（120–169）、storage_key 为空（内容是 public/emoji/{id}.gif 静态资源）、组内 sort 按 emotion_id；
- *  · 名称：旧库 emotion_name 实测全空 → 「旧表情 {id}」占位，站长之后在后台改。
+ *  · 名称 = `transform/emoji-names.ts` 的读图拍板名（旧库 emotion_name 全空，无名字可考古）。
  */
+
+import { EMOJI_NAMES, MERGED_GROUP_NAME } from "./emoji-names.js";
 
 export interface OldEmojiRow {
   /** emotion_id（120–169） */
@@ -21,7 +24,7 @@ export interface OldEmojiRow {
 export interface EmojiGroupPlan {
   /** 幂等键 = 展示名（uq_emoji_groups_name） */
   name: string;
-  /** 展示排序：旧 orderid，缺失时用 categoryId 兜底 */
+  /** 展示排序 */
   sort: number;
 }
 
@@ -39,28 +42,13 @@ export function transformEmojiMeta(rows: readonly OldEmojiRow[]): {
   groups: EmojiGroupPlan[];
   emojis: EmojiPlan[];
 } {
-  // 分组：只建有成员的分类，顺序按 (orderid, categoryId)
-  const byCategory = new Map<number, { name: string; orderid: number | null }>();
-  for (const r of rows) {
-    if (r.categoryId === null || byCategory.has(r.categoryId)) continue;
-    byCategory.set(r.categoryId, {
-      name: (r.categoryName ?? "").trim() || `旧分组 ${r.categoryId}`,
-      orderid: r.orderid,
-    });
-  }
-  const groups: EmojiGroupPlan[] = [...byCategory.entries()]
-    .sort((a, b) => (a[1].orderid ?? a[0]) - (b[1].orderid ?? b[0]) || a[0] - b[0])
-    .map(([id, v]) => ({ name: v.name.slice(0, 50), sort: v.orderid ?? id }));
-
-  const emojis: EmojiPlan[] = rows.map((r) => {
-    const groupName =
-      r.categoryId === null ? "" : (byCategory.get(r.categoryId)?.name ?? "").slice(0, 50);
-    return {
-      id: r.id,
-      groupName,
-      name: ((r.name ?? "").trim() || `旧表情 ${r.id}`).slice(0, 50),
-      sort: r.id,
-    };
-  });
+  const groups: EmojiGroupPlan[] = rows.length > 0 ? [{ name: MERGED_GROUP_NAME, sort: 0 }] : [];
+  const emojis: EmojiPlan[] = rows.map((r) => ({
+    id: r.id,
+    groupName: MERGED_GROUP_NAME,
+    // 名称优先取站长读图拍板名；表里没有的 id（未来旧库变化）回落占位
+    name: (EMOJI_NAMES[r.id] ?? `旧表情 ${r.id}`).slice(0, 50),
+    sort: r.id,
+  }));
   return { groups, emojis };
 }

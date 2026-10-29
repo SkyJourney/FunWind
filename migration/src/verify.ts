@@ -12,6 +12,7 @@ import { AS_OF, config } from "./config.js";
 import { closePools, newQuery, oldQuery } from "./db.js";
 import { auditStored, confinedPath, safeExt } from "./lib/files.js";
 import { Report } from "./lib/report.js";
+import { EMOJI_NAMES } from "./transform/emoji-names.js";
 import { MEMBER_GIDS } from "./transform/legacy-groups.js";
 import { legacyAvatarKey } from "./transform/users.js";
 
@@ -772,13 +773,22 @@ group = "表情";
   )
     .map((r) => r.name)
     .sort();
-  const expGroups = [
-    ...new Set(oldEmojis.map((r) => (r.categoryName ?? "").trim()).filter((n) => n !== "")),
-  ].sort();
+  // 站长 2026-10-29 拍板：旧分类「茉莉 01 / 茉莉 02」在新系统合并为单组「茉莉」——对账随之改为单组断言
   add(
-    "分组与旧库在用分类一致（有成员的才建；站长改名后重跑迁移会暴露空组）",
-    JSON.stringify(expGroups) === JSON.stringify(gotGroups),
-    `期望 [${expGroups.join("、")}] / 实际 [${gotGroups.join("、")}]`,
+    "旧 50 枚全属合并后的单组「茉莉」（旧 2 分类已按站长决策合并）",
+    JSON.stringify(gotGroups) === JSON.stringify(["茉莉"]),
+    `实际 [${gotGroups.join("、")}]`,
+  );
+  const expNames = ids.map((id) => EMOJI_NAMES[id]).filter((n): n is string => Boolean(n));
+  eq(
+    "旧 50 枚的名称 = 读图拍板名（重导后亦为终态）",
+    expNames.length,
+    await num(
+      `SELECT COUNT(*) n FROM emojis WHERE id IN (${idList}) AND name IN (${expNames
+        .map((n) => `'${n.replace(/'/g, "''")}'`)
+        .join(",")})`,
+      newQuery,
+    ),
   );
 }
 

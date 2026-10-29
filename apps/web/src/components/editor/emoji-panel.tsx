@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { applySkin, EMOJI_CATEGORIES, searchEmoji, SKIN_TONES } from "@/lib/emoji/curated";
 import {
   fetchCommunityEmojis,
-  groupNames,
+  groupMeta,
   searchCommunity,
   type CommunityEmoji,
 } from "@/lib/emoji/community";
@@ -113,12 +113,24 @@ export function EmojiPanel({
       </div>
     ) : null;
 
-  /** 社区页签：分组小标题分段平铺（组顺序即接口顺序） */
+  /** 社区页签：分组小标题（带标题图）分段平铺（组顺序即接口顺序） */
   const communityTabsContent = () => (
     <div className="max-h-56 space-y-1 overflow-y-auto">
-      {groupNames(community).map((name) => (
+      {groupMeta(community).map(({ name, icon }) => (
         <div key={name}>
-          <p className="px-0.5 pb-0.5 text-xs font-medium text-muted-foreground">{name}</p>
+          <p className="flex items-center gap-1.5 px-0.5 pb-0.5 text-xs font-medium text-muted-foreground">
+            {icon && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={icon}
+                alt=""
+                width={18}
+                height={18}
+                className="size-[18px] rounded object-cover"
+              />
+            )}
+            {name}
+          </p>
           <div role="grid" aria-label={name} className="grid grid-cols-8 gap-0.5">
             {community.filter((e) => e.group === name).map(communityCell)}
           </div>

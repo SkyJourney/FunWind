@@ -14,7 +14,8 @@
 - **迁移器**：`emojiStep` 扩展为「静态资源 + 元数据」——2 组（旧库在用分类，`INSERT IGNORE` 按名幂等）+ 50 行按 id 幂等（不覆盖后台改动、不删后台自建行），自增拨到 170；`verify:migration` 新增表情对账 3 项。**数据清洗**：`backfill-emoji-alt` 把旧帖 `![表情](/emoji/…)` 的 alt 回填为库内当前名称（7899 帖 10,580 处 + 1 隐藏段，孤儿只报告；围栏与代码 span 保护、转义反引号是字面字符）——幂等可重复，站长后台改名后再跑一次即刷新全站 alt（`pnpm --filter @funwind/migration exec tsx src/backfill-emoji-alt.ts`）。
 - **后台 `/admin/emojis`**：分组（建 / 改名 / 排序 / 启停 / 删除要求组内空）与表情（上传 / 改名 / 关键词 / 排序 / 停用，不做物理删除）；新权限点 `emoji.manage`（词汇表 28 点，admin 基线默认持有）；上传复用 `lib/uploads` 管线（嗅探、去元数据、GIF 不重编码），≤200×200 px、≤200 KB；所有变更同事务写 `audit_log`。**Fixed（存量缺陷）**：`formDataToObject` 自 M6.1 起丢弃文件字段，`/admin/logo` 的上传 Action（`z.instanceof(File)`）提交必 404——现保留 File 字段并归一化单/多文件，LOGO 上传一并修复。
 - **面板接入**：`GET /api/emojis`（公开只读、短缓存 + ETag）；「社区表情」页签按分组小标题平铺，搜索同框命中 Unicode 与社区表情；最近使用条目带类型（兼容 M10.8 纯字符串）；点击插入行内图片节点 `![展示名](/emoji/{id}.{ext})`（`InsertApi.insertImage` 增加 `alt` 参数）；零数据站点不显示社区页签。
-- 门禁实测（2026-10-29）：`pnpm verify:all` 全绿（单测 2163 项 + 构建）、`pnpm test:e2e` dev 328 + 生产冒烟 20 全绿、临时库全量演练对账 113 项全绿、`verify:render` / `verify:fidelity` 全 0。
+- **站长追加（同日第二批）：合并分组 + 分组标题图 + 读图命名**。schema v2.3（迁移 0014）：`emoji_groups.icon_key`（独立上传的标题图，经 `/files` 公开出口）；后台「上传/更换标题图」、`/api/emojis` 带 `groupIcon`、面板分组标题显示标题图。旧两分类「茉莉 01 / 茉莉 02」按站长拍板合并为单组「茉莉」（迁移器直接产出终态，对账改为单组断言）。50 枚旧表情完成读图命名（旧库无名字可考古：`emotion_name` 全空，pw8 的 `pw_write_smiles` 是另一套文件）——站长逐张确认的正式名收录在 `migration/src/transform/emoji-names.ts`（重导即终态）；开发库经 `apps/web/scripts/emoji-rename.ts` 收敛（建组 / 挂组改名 / 提取 142「星星眼」首帧为标题图 / 删旧两组，全程审计），alt 回填随之把全站 10,580 处刷新为正式名。
+- 门禁实测（2026-10-29）：`pnpm verify:all` 全绿（单测 2163 项 + 构建）、`pnpm test:e2e` dev 329 + 生产冒烟 20 全绿、临时库全量演练对账 114 项全绿、`verify:render` / `verify:fidelity` 全 0。
 
 ### Added（M10.8：编辑器与回复体验）
 

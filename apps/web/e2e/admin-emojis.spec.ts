@@ -159,6 +159,40 @@ test("admin 全流程：建组 → 上传 → /emoji 可访问 → 改名/关键
   expect(await auditExists("admin.emoji.group.delete")).toBe(true);
 });
 
+test("分组标题图：admin 上传 → 列表显示 + /files 可访问 + 审计；超限拒绝且不改动", async ({
+  page,
+  request,
+  context,
+}) => {
+  await loginAs(context, USERS.admin);
+  await page.goto("/admin/emojis");
+  const row = page.locator('[data-testid="group-list"] li', { hasText: GROUP_A });
+
+  // 上传标题图（96×96 png）→ /files 可访问 + 审计
+  await row
+    .getByLabel(`分组「${GROUP_A}」的标题图`)
+    .setInputFiles({ name: "标题图.png", mimeType: "image/png", buffer: await solidPng(96) });
+  await row.getByRole("button", { name: "上传标题图" }).click();
+  await expect(page).toHaveURL(/saved=group-icon/);
+  const iconSrc = await row.locator('img[src^="/files/"]').getAttribute("src");
+  expect(iconSrc).toBeTruthy();
+  expect((await request.get(iconSrc!)).status()).toBe(200);
+  expect(await auditExists("admin.emoji.group.icon")).toBe(true);
+
+  // 更换为超限图（201×201）：拒绝并提示，已有标题图不变
+  await page.goto("/admin/emojis");
+  await row
+    .getByLabel(`分组「${GROUP_A}」的标题图`)
+    .setInputFiles({ name: "太大.png", mimeType: "image/png", buffer: await solidPng(201) });
+  await row.getByRole("button", { name: "更换标题图" }).click();
+  await expect(page).toHaveURL(/err=size/);
+  await expect(page.getByText(/尺寸超限/)).toBeVisible();
+  await page.goto("/admin/emojis");
+  await expect(
+    page.locator('[data-testid="group-list"] li img[src^="/files/"]').first(),
+  ).toHaveAttribute("src", iconSrc!);
+});
+
 test("上传拒绝：jpeg 与超大尺寸给出可读提示，不入库", async ({ page, context }) => {
   await loginAs(context, USERS.admin);
   const groupA = await withE2eDb(async (q) => {

@@ -7,6 +7,7 @@ import { emojiGroups, emojis, getWebDb } from "@funwind/db";
  * 面板只展示可插入的内容；已发布正文的渲染不受影响，提供路由不读这里）。一次全量返回（数量级几百）。
  * 短缓存 + ETag：面板数据变化频率低（后台改名后才变），60s 内走共享缓存，跨秒级的重访靠 ETag 304。
  * 零数据站点返回 []（面板只显示 Unicode 页签）。
+ * groupIcon = 分组标题图（emoji_groups.icon_key → /files/<key> 公开出口；NULL = 无）。
  */
 
 const CACHE_MAX_AGE = 60;
@@ -22,6 +23,7 @@ export async function GET(req: Request): Promise<Response> {
       height: emojis.height,
       group: emojiGroups.name,
       groupEnabled: emojiGroups.enabled,
+      groupIcon: emojiGroups.iconKey,
     })
     .from(emojis)
     .innerJoin(emojiGroups, eq(emojis.groupId, emojiGroups.id))
@@ -38,6 +40,7 @@ export async function GET(req: Request): Promise<Response> {
         keywords: r.keywords,
         url: `/emoji/${r.id}.${r.ext}`,
         group: r.group,
+        groupIcon: r.groupIcon === null ? null : `/files/${r.groupIcon}`,
         width: r.width,
         height: r.height,
       })),
