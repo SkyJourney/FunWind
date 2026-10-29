@@ -1,4 +1,4 @@
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { contentReviews, getWebDb, posts, threads, users } from "@funwind/db";
 import type { ConfigActor } from "@/lib/audit";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
@@ -279,100 +279,102 @@ async function threadAuthor(
   return row?.authorId ?? null;
 }
 
-/** 审核队列：某主体的待审内容（所辖版块 ∩ pending；主题与回帖都列，按提交时间升序） */
-export interface ReviewQueueItem {
+export type ReviewTab = "pending" | "removed";
+
+export type ReviewPageFilters = {
+  tab: ReviewTab;
+  /** 按板块筛选（仅所辖板块内的一个） */
+  forumId?: number;
+  /** 按类型筛选：主题首帖 / 回帖 */
+  kind?: "thread" | "reply";
+  page: number;
+  perPage?: number;
+};
+
+export type ReviewQueueItem = {
   postId: number;
   threadId: number;
   forumId: number;
   forumName: string;
   isThread: boolean;
   title: string;
+  /** 正文前 80 字（公开部分 bodyMd；门控隐藏内容天然不出现） */
+  excerpt: string | null;
   authorId: number;
   authorName: string | null;
   createdAt: string;
-}
+};
 
-export async function reviewQueue(operator: Subject, limit = 50): Promise<ReviewQueueItem[]> {
+/**
+ * 审核队列/回收站统一分页查询（M9.5 重做）：SQL where（板块 IN 所辖 + 状态 + 类型筛选）+ COUNT，
+ * 替代原「limit*4 拉取后内存过滤」——旧形态超过预取窗口的队列项永远不可见且无 total。
+ * pending 按提交时间正序（先到先审），removed 按时间倒序（最新删隐在前）。
+ */
+export async function listReviewPage(
+  operator: Subject,
+  opts: ReviewPageFilters,
+): Promise<{ items: ReviewQueueItem[]; total: number }> {
   const { buildViewerScope } = await import("@/lib/queries/visibility");
   const scope = await buildViewerScope(operator);
-  if (scope.moderated.length === 0) return [];
+  if (scope.moderated.length === 0) return { items: [], total: 0 };
   const { forums } = await import("@funwind/db");
 
-  const rows = await getWebDb()
-    .select({
-      postId: posts.id,
-      threadId: threads.id,
-      forumId: threads.forumId,
-      forumName: forums.name,
-      firstPostId: threads.firstPostId,
-      title: threads.title,
-      authorId: posts.authorId,
-      authorName: users.username,
-      createdAt: posts.createdAt,
-    })
-    .from(posts)
-    .innerJoin(threads, eq(threads.id, posts.threadId))
-    .innerJoin(forums, eq(forums.id, threads.forumId))
-    .leftJoin(users, eq(users.id, posts.authorId))
-    .where(eq(posts.state, "pending"))
-    .orderBy(posts.createdAt)
-    .limit(limit * 4);
-  // 版块过滤在应用层（moderated 数组小；SQL IN + 版块 id 对齐也行，这里保持与 visiblePredicate 同源的 scope）
-  return rows
-    .filter((r) => scope.moderated.includes(r.forumId))
-    .slice(0, limit)
-    .map((r) => ({
+  const perPage = opts.perPage ?? 20;
+  const conds = [
+    opts.tab === "pending"
+      ? eq(posts.state, "pending")
+      : inArray(posts.state, ["hidden", "deleted"]),
+    inArray(threads.forumId, scope.moderated),
+  ];
+  if (opts.forumId) conds.push(eq(threads.forumId, opts.forumId));
+  if (opts.kind === "thread") conds.push(eq(threads.firstPostId, posts.id));
+  if (opts.kind === "reply") conds.push(ne(threads.firstPostId, posts.id));
+  const where = and(...conds);
+
+  const listSelect = {
+    postId: posts.id,
+    threadId: threads.id,
+    forumId: threads.forumId,
+    forumName: forums.name,
+    firstPostId: threads.firstPostId,
+    title: threads.title,
+    excerpt: sql<string | null>`SUBSTRING(${posts.bodyMd}, 1, 80)`,
+    authorId: posts.authorId,
+    authorName: users.username,
+    createdAt: posts.createdAt,
+  };
+
+  const [countRow, rows] = await Promise.all([
+    getWebDb()
+      .select({ total: sql<number>`COUNT(*)` })
+      .from(posts)
+      .innerJoin(threads, eq(threads.id, posts.threadId))
+      .where(where),
+    getWebDb()
+      .select(listSelect)
+      .from(posts)
+      .innerJoin(threads, eq(threads.id, posts.threadId))
+      .innerJoin(forums, eq(forums.id, threads.forumId))
+      .leftJoin(users, eq(users.id, posts.authorId))
+      .where(where)
+      .orderBy(opts.tab === "pending" ? asc(posts.createdAt) : desc(posts.createdAt))
+      .limit(perPage)
+      .offset((opts.page - 1) * perPage),
+  ]);
+
+  return {
+    items: rows.map((r) => ({
       postId: r.postId,
       threadId: r.threadId,
       forumId: r.forumId,
       forumName: r.forumName,
       isThread: r.firstPostId === r.postId,
       title: r.title,
+      excerpt: r.excerpt,
       authorId: r.authorId,
       authorName: r.authorName,
       createdAt: r.createdAt,
-    }));
-}
-
-/** 已删隐内容（回收站 tab）：所辖版块内 state ∈ {hidden, deleted}，按时间降序 */
-export async function removedContent(operator: Subject, limit = 50): Promise<ReviewQueueItem[]> {
-  const { buildViewerScope } = await import("@/lib/queries/visibility");
-  const scope = await buildViewerScope(operator);
-  if (scope.moderated.length === 0) return [];
-  const { forums } = await import("@funwind/db");
-
-  const rows = await getWebDb()
-    .select({
-      postId: posts.id,
-      threadId: threads.id,
-      forumId: threads.forumId,
-      forumName: forums.name,
-      firstPostId: threads.firstPostId,
-      title: threads.title,
-      authorId: posts.authorId,
-      authorName: users.username,
-      state: posts.state,
-      createdAt: posts.createdAt,
-    })
-    .from(posts)
-    .innerJoin(threads, eq(threads.id, posts.threadId))
-    .innerJoin(forums, eq(forums.id, threads.forumId))
-    .leftJoin(users, eq(users.id, posts.authorId))
-    .where(inArray(posts.state, ["hidden", "deleted"]))
-    .orderBy(posts.createdAt)
-    .limit(limit * 4);
-  return rows
-    .filter((r) => scope.moderated.includes(r.forumId))
-    .slice(0, limit)
-    .map((r) => ({
-      postId: r.postId,
-      threadId: r.threadId,
-      forumId: r.forumId,
-      forumName: r.forumName,
-      isThread: r.firstPostId === r.postId,
-      title: r.title,
-      authorId: r.authorId,
-      authorName: r.authorName,
-      createdAt: r.createdAt,
-    }));
+    })),
+    total: Number(countRow[0]?.total ?? 0),
+  };
 }

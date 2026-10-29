@@ -85,3 +85,56 @@ async function threadIdOf(postId: number): Promise<number> {
     .where(eq(posts.id, postId));
   return row?.threadId ?? 0;
 }
+
+// —— 批量审核（M9.5）：checkbox 多选 + 共用理由；逐条独立事务（部分成功反馈失败数）——
+
+const postIdsInput = z.object({
+  postIds: z.preprocess(
+    (v) => (Array.isArray(v) ? v : [v]),
+    z.array(z.coerce.number().int().positive()).min(1).max(50),
+  ),
+});
+
+export const approveReviewBulkAction = defineAction({
+  name: "moderation.approve_bulk",
+  auth: "user",
+  input: postIdsInput,
+  async run(ctx, input) {
+    let ok = 0;
+    const failed: string[] = [];
+    for (const postId of input.postIds) {
+      const r = await approveReview(ctx.subject, postId, adminActor(ctx));
+      if (r.ok) ok += 1;
+      else failed.push(`#${postId} ${r.code}`);
+    }
+    revalidatePath("/admin/review");
+    if (failed.length > 0) {
+      redirect(
+        `/admin/review?error=${encodeURIComponent(`批量通过：成功 ${ok} 条，失败 ${failed.length} 条（${failed.slice(0, 3).join("、")}）`)}`,
+      );
+    }
+    redirect(`/admin/review?approved=${ok}`);
+  },
+});
+
+export const rejectReviewBulkAction = defineAction({
+  name: "moderation.reject_bulk",
+  auth: "user",
+  input: postIdsInput.extend({ reason: z.string().min(1).max(500) }),
+  async run(ctx, input) {
+    let ok = 0;
+    const failed: string[] = [];
+    for (const postId of input.postIds) {
+      const r = await rejectReview(ctx.subject, postId, input.reason, adminActor(ctx));
+      if (r.ok) ok += 1;
+      else failed.push(`#${postId} ${r.code}`);
+    }
+    revalidatePath("/admin/review");
+    if (failed.length > 0) {
+      redirect(
+        `/admin/review?error=${encodeURIComponent(`批量驳回：成功 ${ok} 条，失败 ${failed.length} 条（${failed.slice(0, 3).join("、")}）`)}`,
+      );
+    }
+    redirect(`/admin/review?rejected=${ok}`);
+  },
+});

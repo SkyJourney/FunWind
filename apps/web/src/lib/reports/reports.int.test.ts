@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
-import { handleReport, reportQueue, submitReport } from "./service";
+import { handleReport, listReportPage, submitReport } from "./service";
 
 let tdb: TempDb;
 let member: Subject;
@@ -89,11 +89,11 @@ describe.skipIf(skipDb)("举报（M9）", () => {
       .where(and(eq(reports.postId, 900101), eq(reports.reporterId, DEMO.team)));
     await handleReport(ACTOR, row2.id, "dismissed", "不构成违规");
 
-    const pending = await reportQueue("pending");
-    expect(pending.find((i) => i.postId === 900101)).toBeUndefined();
-    const dismissed = await reportQueue("dismissed");
-    expect(dismissed.find((i) => i.postId === 900101)).toBeDefined();
-    const resolved = await reportQueue("resolved");
-    expect(resolved.find((i) => i.postId === 900101)).toBeDefined();
+    const pending = await listReportPage({ status: "pending", page: 1 });
+    expect(pending.items.find((i) => i.postId === 900101)).toBeUndefined();
+    const dismissed = await listReportPage({ status: "dismissed", page: 1 });
+    expect(dismissed.items.find((i) => i.postId === 900101)).toBeDefined();
+    const resolved = await listReportPage({ status: "resolved", page: 1 });
+    expect(resolved.items.find((i) => i.postId === 900101)).toBeDefined();
   });
 });

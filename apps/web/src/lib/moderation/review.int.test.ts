@@ -20,7 +20,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
-import { approveReview, hidePost, rejectReview, removedContent, reviewQueue } from "./review";
+import { approveReview, hidePost, listReviewPage, rejectReview } from "./review";
 import { createThread } from "@/lib/posting/service";
 
 let tdb: TempDb;
@@ -78,8 +78,8 @@ describe.skipIf(skipDb)("审核动作（M9）", () => {
     expect(await postState(postId)).toBe("pending");
 
     // 队列里可见
-    const queue = await reviewQueue(admin);
-    expect(queue.some((i) => i.postId === postId)).toBe(true);
+    const queue = await listReviewPage(admin, { tab: "pending", page: 1 });
+    expect(queue.items.some((i) => i.postId === postId)).toBe(true);
 
     const r = await approveReview(admin, postId, ACTOR);
     if (!r.ok) throw new Error(r.message);
@@ -160,11 +160,27 @@ describe.skipIf(skipDb)("审核动作（M9）", () => {
       .where(eq(threads.id, threadId));
     expect(t.state).toBe("hidden");
 
-    const removed = await removedContent(admin);
-    expect(removed.some((i) => i.postId === postId)).toBe(true);
-    expect(await reviewQueue(admin)).toEqual(
-      expect.arrayContaining([]), // hidden 不在待审队列
-    );
+    const removed = await listReviewPage(admin, { tab: "removed", page: 1 });
+    expect(removed.items.some((i) => i.postId === postId)).toBe(true);
+    expect(
+      (await listReviewPage(admin, { tab: "pending", page: 1 })).items.some(
+        (i) => i.postId === postId,
+      ),
+    ).toBe(false); // hidden 不在待审队列
+  });
+
+  it("listReviewPage：分页/板块与类型筛选/摘要（M9.5）", async () => {
+    const seeded = await seedPendingThread();
+    const page = await listReviewPage(admin, { tab: "pending", page: 1 });
+    expect(page.total).toBeGreaterThanOrEqual(1);
+    const hit = page.items.find((i) => i.postId === seeded.postId);
+    expect(hit?.isThread).toBe(true);
+    // 回帖筛选不含主题首帖
+    const replies = await listReviewPage(admin, { tab: "pending", kind: "reply", page: 1 });
+    expect(replies.items.some((i) => i.postId === seeded.postId)).toBe(false);
+    // 板块筛选命中所辖版块
+    const byForum = await listReviewPage(admin, { tab: "pending", forumId: REVIEW_FORUM, page: 1 });
+    expect(byForum.items.every((i) => i.forumId === REVIEW_FORUM)).toBe(true);
   });
 
   it("not_found：不存在的帖子；dispatchOutboxRows 失败路径（事务回滚）后无 outbox 残留", async () => {

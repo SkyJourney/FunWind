@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { AdminError } from "@/lib/authz/admin";
 import { defineAction } from "@/lib/actions/define-action";
-import { closePoll, deletePoll } from "@/lib/poll/admin";
+import { closePoll, deletePoll, reopenPoll } from "@/lib/poll/admin";
 
 /** 投票管理 Server Actions（M10 补做）：关闭/删除。权限在服务层（site.admin 全站 / 版主所辖版块）。 */
 
@@ -41,5 +41,22 @@ export const deletePollAction = defineAction({
     revalidatePath("/admin/poll");
     revalidatePath(`/t/0`); // 主题页按 id revalidate 由主题页 force-dynamic 兜底
     redirect("/admin/poll?deleted=1");
+  },
+});
+
+/** 重开投票（M9.5 站长拍板补能力）：截止时间置回 NULL，误关可救 */
+export const reopenPollAction = defineAction({
+  name: "admin.poll.reopen",
+  auth: "user",
+  input: pollInput,
+  async run(ctx, input) {
+    try {
+      await reopenPoll({ userId: ctx.userId ?? 0, via: "admin", ip: ctx.ip }, input.pollId);
+    } catch (e) {
+      if (e instanceof AdminError) redirect(`/admin/poll?error=${encodeURIComponent(e.message)}`);
+      throw e;
+    }
+    revalidatePath("/admin/poll");
+    redirect("/admin/poll?reopened=1");
   },
 });

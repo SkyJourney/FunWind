@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { getWebDb, posts, reports, threads, users } from "@funwind/db";
 import type { ConfigActor } from "@/lib/audit";
 import { writeAudit } from "@/lib/audit";
@@ -128,28 +128,65 @@ export interface ReportQueueItem {
   createdAt: string;
 }
 
-/** 举报队列（后台，按状态筛选） */
-export async function reportQueue(
-  status: "pending" | "resolved" | "dismissed",
-  limit = 50,
-): Promise<ReportQueueItem[]> {
-  const rows = await getWebDb()
-    .select({
-      id: reports.id,
-      postId: reports.postId,
-      threadId: threads.id,
-      threadTitle: threads.title,
-      reason: reports.reason,
-      reporterName: users.username,
-      status: reports.status,
-      createdAt: reports.createdAt,
-    })
-    .from(reports)
-    .innerJoin(posts, eq(posts.id, reports.postId))
-    .innerJoin(threads, eq(threads.id, posts.threadId))
-    .leftJoin(users, eq(users.id, reports.reporterId))
-    .where(eq(reports.status, status))
-    .orderBy(desc(reports.createdAt))
-    .limit(limit);
-  return rows;
+/** 举报队列分页参数（M9.5）：状态 tab + 板块筛选 */
+export type ReportPageFilters = {
+  status: "pending" | "resolved" | "dismissed";
+  forumId?: number;
+  page: number;
+  perPage?: number;
+};
+
+/** 举报队列（M9.5 改分页）：SQL where（状态 + 板块）+ COUNT，替代无上限拉取 */
+export async function listReportPage(
+  filters: ReportPageFilters,
+): Promise<{ items: ReportQueueItem[]; total: number }> {
+  const perPage = filters.perPage ?? 20;
+  const conds = [eq(reports.status, filters.status)];
+  if (filters.forumId) conds.push(eq(threads.forumId, filters.forumId));
+  const where = and(...conds);
+
+  const [countRow, rows] = await Promise.all([
+    getWebDb()
+      .select({ total: sql<number>`COUNT(*)` })
+      .from(reports)
+      .innerJoin(posts, eq(posts.id, reports.postId))
+      .innerJoin(threads, eq(threads.id, posts.threadId))
+      .where(where),
+    getWebDb()
+      .select({
+        id: reports.id,
+        postId: reports.postId,
+        threadId: threads.id,
+        threadTitle: threads.title,
+        forumId: threads.forumId,
+        reason: reports.reason,
+        reporterName: users.username,
+        status: reports.status,
+        createdAt: reports.createdAt,
+      })
+      .from(reports)
+      .innerJoin(posts, eq(posts.id, reports.postId))
+      .innerJoin(threads, eq(threads.id, posts.threadId))
+      .leftJoin(users, eq(users.id, reports.reporterId))
+      .where(where)
+      .orderBy(desc(reports.createdAt))
+      .limit(perPage)
+      .offset((filters.page - 1) * perPage),
+  ]);
+  return { items: rows, total: Number(countRow[0]?.total ?? 0) };
+}
+
+/** 批量忽略（M9.5）：说明统一「经核实不构成违规」，逐条独立事务（部分成功反馈）；已处置/已忽略的行跳过 */
+export async function dismissReportsBulk(
+  admin: ConfigActor & { userId: number },
+  reportIds: number[],
+): Promise<{ ok: number; failed: number }> {
+  let ok = 0;
+  let failed = 0;
+  for (const id of reportIds) {
+    const r = await handleReport(admin, id, "dismissed", "经核实不构成违规");
+    if (r.ok) ok += 1;
+    else failed += 1;
+  }
+  return { ok, failed };
 }

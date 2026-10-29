@@ -1,11 +1,10 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getWebDb, pollOptions, polls, pollVotes, threads } from "@funwind/db";
 import type { ConfigActor } from "@/lib/audit";
 import { writeAudit } from "@/lib/audit";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import { AdminError } from "@/lib/authz/admin";
 import { checkPermission } from "@/lib/authz/service";
-import type { Subject } from "@/lib/authz/types";
 import type { DbTx } from "@/lib/audit";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
 
@@ -30,57 +29,94 @@ export interface PollAdminItem {
   closed: boolean;
 }
 
-export async function pollAdminList(operator: Subject, limit = 50): Promise<PollAdminItem[]> {
-  const isSiteAdmin = (await checkPermission(operator, "site.admin")).allowed;
-  const moderated = isSiteAdmin ? null : await moderatedForumIds(operator);
-  if (!isSiteAdmin && moderated !== null && moderated.length === 0) return [];
+/** 投票管理分页参数（M9.5）：状态 tab + 板块筛选 */
+export type PollPageFilters = {
+  status: "all" | "open" | "closed";
+  forumId?: number;
+  page: number;
+  perPage?: number;
+  /** 作用域：null = site.admin 全站；数组 = 版主所辖 */
+  moderated: number[] | null;
+};
 
-  const rows = await getWebDb()
-    .select({
-      pollId: polls.id,
-      threadId: polls.threadId,
-      title: threads.title,
-      forumId: threads.forumId,
-      endsAt: polls.endsAt,
-      voterCount: polls.voterCount,
-    })
-    .from(polls)
-    .innerJoin(threads, eq(threads.id, polls.threadId))
-    .orderBy(desc(polls.id))
-    .limit(limit * 2);
-
-  const filtered = moderated ? rows.filter((r) => moderated!.includes(r.forumId)) : rows;
-
-  const out: PollAdminItem[] = [];
-  for (const r of filtered.slice(0, limit)) {
-    const [{ forumName }] = await getWebDb()
-      .select({ forumName: sql<string>`(SELECT name FROM forums WHERE id = ${r.forumId})` })
-      .from(polls)
-      .where(eq(polls.id, r.pollId));
-    const options = await getWebDb()
-      .select({ voteCount: pollOptions.voteCount })
-      .from(pollOptions)
-      .where(eq(pollOptions.pollId, r.pollId));
-    const totalVotes = options.reduce((sum, o) => sum + o.voteCount, 0);
-    out.push({
-      pollId: r.pollId,
-      threadId: r.threadId,
-      title: r.title,
-      forumId: r.forumId,
-      forumName,
-      optionCount: options.length,
-      totalVotes,
-      voterCount: r.voterCount,
-      endsAt: r.endsAt,
-      closed: r.endsAt !== null && r.endsAt <= nowBeijingWallTime(),
-    });
+/**
+ * 投票管理列表（M9.5 重做）：一条聚合 SQL（选项数/票数用子查询聚合）+ COUNT 分页，
+ * 替代原「limit*2 预取 + 每行 2 条子查询」的 N+1（满载约 101 条 SQL）。
+ */
+export async function listPollPage(
+  filters: PollPageFilters,
+): Promise<{ items: PollAdminItem[]; total: number }> {
+  const { forums: forumsTable } = await import("@funwind/db");
+  const perPage = filters.perPage ?? 20;
+  const conds = [];
+  if (filters.status === "open") {
+    conds.push(sql`(${polls.endsAt} IS NULL OR ${polls.endsAt} > NOW())`);
+  } else if (filters.status === "closed") {
+    conds.push(sql`(${polls.endsAt} IS NOT NULL AND ${polls.endsAt} <= NOW())`);
   }
-  return out;
+  if (filters.forumId) conds.push(eq(threads.forumId, filters.forumId));
+  if (filters.moderated) conds.push(inArray(threads.forumId, filters.moderated));
+  const where = conds.length > 0 ? and(...conds) : undefined;
+
+  const [countRow, rows] = await Promise.all([
+    getWebDb()
+      .select({ total: sql<number>`COUNT(*)` })
+      .from(polls)
+      .innerJoin(threads, eq(threads.id, polls.threadId))
+      .where(where),
+    getWebDb()
+      .select({
+        pollId: polls.id,
+        threadId: polls.threadId,
+        title: threads.title,
+        forumId: threads.forumId,
+        forumName: forumsTable.name,
+        optionCount:
+          sql<number>`(SELECT COUNT(*) FROM poll_options po WHERE po.poll_id = ${polls.id})`.mapWith(
+            Number,
+          ),
+        totalVotes:
+          sql<number>`(SELECT COALESCE(SUM(po.vote_count), 0) FROM poll_options po WHERE po.poll_id = ${polls.id})`.mapWith(
+            Number,
+          ),
+        voterCount: polls.voterCount,
+        endsAt: polls.endsAt,
+      })
+      .from(polls)
+      .innerJoin(threads, eq(threads.id, polls.threadId))
+      .innerJoin(forumsTable, eq(forumsTable.id, threads.forumId))
+      .where(where)
+      .orderBy(desc(polls.id))
+      .limit(perPage)
+      .offset((filters.page - 1) * perPage),
+  ]);
+
+  return {
+    items: rows.map((r) => ({
+      ...r,
+      closed: r.endsAt !== null && r.endsAt <= nowBeijingWallTime(),
+    })),
+    total: Number(countRow[0]?.total ?? 0),
+  };
 }
 
-async function moderatedForumIds(operator: Subject): Promise<number[] | null> {
-  const { getModeratedForumIds } = await import("@/lib/authz/service");
-  return getModeratedForumIds(operator);
+/** 重开投票（M9.5 站长拍板补能力）：截止时间置回 NULL（恢复进行中），仅未删除的投票可重开 */
+export async function reopenPoll(
+  admin: ConfigActor & { userId: number },
+  pollId: number,
+): Promise<void> {
+  await guardAndMutate(admin, pollId, async (tx, poll) => {
+    if (poll.endsAt === null) throw new AdminError("该投票仍在进行中，无需重开");
+    await tx.update(polls).set({ endsAt: null }).where(eq(polls.id, pollId));
+    await writeAudit(tx, {
+      actorId: admin.userId,
+      action: "poll.reopen",
+      targetType: "poll",
+      targetId: pollId,
+      after: { threadId: poll.threadId, via: admin.via },
+      ip: admin.ip,
+    });
+  });
 }
 
 /** 关闭投票（ends_at 置当前；幂等：已关闭报 already） */

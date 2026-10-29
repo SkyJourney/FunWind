@@ -19,12 +19,15 @@ export function ConfirmSubmit({
   title,
   description,
   pendingText = "提交中…",
+  formAction,
 }: {
   children: ReactNode;
   className?: string;
   title: string;
   description: string;
   pendingText?: string;
+  /** 按钮级 action 覆盖（M9.5 批量审核：一个表单多个提交目标）；requestSubmit(submitter) 时生效 */
+  formAction?: string | ((formData: FormData) => void | Promise<void>);
 }) {
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
@@ -43,7 +46,13 @@ export function ConfirmSubmit({
   }, []);
   return (
     <>
-      <button ref={button} type="submit" className={className} disabled={pending}>
+      <button
+        ref={button}
+        type="submit"
+        formAction={formAction}
+        className={className}
+        disabled={pending}
+      >
         {pending ? pendingText : children}
       </button>
       <Dialog open={open} onOpenChange={setOpen}>

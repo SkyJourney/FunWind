@@ -1,40 +1,62 @@
 import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 import Link from "next/link";
 import { requireAdmin } from "@/lib/authz/require-admin";
-import { pmStats, recentMessages } from "@/lib/pm/admin";
+import { listPmMessagesPage, pmStats } from "@/lib/pm/admin";
 import { deleteMessageAction } from "./actions";
-import { Card, CardContent } from "@/components/ui/card";
+import { fmtDateTime } from "@/lib/admin/format";
+import { AdminFlash } from "@/components/admin/admin-flash";
+import { AdminFilterBar } from "@/components/admin/admin-filter-bar";
+import { UserPicker } from "@/components/admin/user-picker";
+import { Pagination } from "@/components/content/pagination";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "私信管理" };
 
-const parseUid = (raw: string | undefined): number | null =>
-  raw !== undefined && /^\d+$/.test(raw) ? Number(raw) : null;
-
-/** 私信管理（M10 补做）：站点级权限（私信无板块作用域）——删除违规消息（审计）+ 按 uid 筛选。 */
+/** 私信管理（M10 补做；M9.5 重做）：筛选下推 SQL（uid 等值 / 用户名精确反查）+ 分页 + 统计缓存。 */
 export default async function AdminPmPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; deleted?: string; sender?: string }>;
+  searchParams: Promise<{ error?: string; deleted?: string; q?: string; page?: string }>;
 }) {
   await requireAdmin();
   const sp = await searchParams;
-  const senderFilter = parseUid(sp.sender);
-  const all = await recentMessages(50);
-  const items = senderFilter !== null ? all.filter((m) => m.senderId === senderFilter) : all;
-  const stats = await pmStats();
+  const q = typeof sp.q === "string" ? sp.q : "";
+  const page = Math.max(1, Number(sp.page ?? "1") || 1);
+
+  const [{ items, total, unknownUser }, stats] = await Promise.all([
+    listPmMessagesPage({ q, page }),
+    pmStats(),
+  ]);
+  const totalPages = Math.max(1, Math.ceil(total / 20));
+
+  const baseQuery = (over: Record<string, string>) => {
+    const p = new URLSearchParams();
+    if (q) p.set("q", q);
+    for (const [k, v] of Object.entries(over)) {
+      if (v) p.set(k, v);
+      else p.delete(k);
+    }
+    const qs = p.toString();
+    return `/admin/pm${qs ? `?${qs}` : ""}`;
+  };
+
+  const emptyText = unknownUser
+    ? `没有名为「${q}」的用户（支持用户名精确匹配或数字 uid）。`
+    : q
+      ? `该发送者没有私信（或最近没有）。`
+      : "还没有私信。";
 
   return (
     <div className="space-y-4">
       {sp.error && (
-        <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <AdminFlash kind="error" dismissHref={baseQuery({ error: "" })}>
           {sp.error}
-        </p>
+        </AdminFlash>
       )}
       {sp.deleted && (
-        <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
+        <AdminFlash kind="success" dismissHref={baseQuery({ deleted: "" })}>
           消息已删除（审计已记录）。
-        </p>
+        </AdminFlash>
       )}
 
       <div className="flex flex-wrap gap-x-8 gap-y-1 text-sm">
@@ -47,23 +69,13 @@ export default async function AdminPmPage({
         <span>
           今日 <strong>{stats.today}</strong>
         </span>
+        <span className="self-center text-xs text-muted-foreground">（统计缓存 60 秒）</span>
       </div>
 
-      <Card>
-        <CardContent className="pt-6">
-          <form action="/admin/pm" method="get" className="flex items-center gap-2">
-            <input
-              name="sender"
-              defaultValue={sp.sender ?? ""}
-              placeholder="按发送者 uid 筛选"
-              className="w-44 rounded-lg border bg-background px-2.5 py-1.5 text-xs"
-            />
-            <button type="submit" className="rounded-lg border px-3 py-1.5 text-xs hover:bg-accent">
-              筛选
-            </button>
-          </form>
-        </CardContent>
-      </Card>
+      <AdminFilterBar action="/admin/pm" resetHref="/admin/pm">
+        {/* UserPicker 自带输入（name=q 与筛选参数对齐），datalist 提供候选 */}
+        <UserPicker name="q" label="发送者筛选（用户名或 uid）" placeholder="发送者用户名 / uid" />
+      </AdminFilterBar>
 
       <ul className="space-y-2">
         {items.map((m) => (
@@ -78,7 +90,7 @@ export default async function AdminPmPage({
                   >
                     {m.conversationId}
                   </Link>{" "}
-                  · {m.createdAt} · 发送者 uid {m.senderId}
+                  · {fmtDateTime(m.createdAt)} · 发送者 uid {m.senderId}
                 </p>
                 <p className="mt-0.5 text-sm break-words whitespace-pre-wrap">{m.body}</p>
               </div>
@@ -105,10 +117,12 @@ export default async function AdminPmPage({
         ))}
         {items.length === 0 && (
           <li className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground">
-            没有消息。
+            {emptyText}
           </li>
         )}
       </ul>
+
+      <Pagination basePath={baseQuery({})} page={page} totalPages={totalPages} />
     </div>
   );
 }

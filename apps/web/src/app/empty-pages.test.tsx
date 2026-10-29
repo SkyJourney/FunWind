@@ -29,18 +29,29 @@ vi.mock("@/lib/queries/follows-feed", () => ({
   followedThreadIds: vi.fn(async () => ({ forumIds: [], userIds: [] })),
 }));
 vi.mock("@/lib/authz/require-admin", () => ({ requireModerator: mocks.moderator }));
-vi.mock("@/lib/authz/service", () => ({ getModeratedForumIds: mocks.moderated }));
-vi.mock("@/lib/moderation/review", () => ({
-  reviewQueue: mocks.review,
-  removedContent: mocks.removed,
+vi.mock("@/components/admin/forum-select", () => ({
+  // jsdom 下 async Server Component 会挂起；空态测试只关心文案与作用域调用
+  ForumSelect: () => null,
 }));
-vi.mock("@/lib/poll/admin", () => ({ pollAdminList: mocks.polls }));
+vi.mock("@/lib/authz/service", () => ({
+  getModeratedForumIds: mocks.moderated,
+  // 投票页读 site.admin 决定作用域；测试主体非 admin → moderated 口径
+  checkPermission: vi.fn(async () => ({ allowed: false, via: "deny" as const })),
+}));
+vi.mock("@/lib/moderation/review", () => ({
+  listReviewPage: mocks.review,
+}));
+vi.mock("@/lib/poll/admin", () => ({ listPollPage: mocks.polls }));
 vi.mock("@/app/actions/posts", () => ({ restorePostAction: vi.fn() }));
 vi.mock("./admin/review/actions", () => ({
   approveReviewAction: vi.fn(),
   rejectReviewAction: vi.fn(),
 }));
-vi.mock("./admin/poll/actions", () => ({ closePollAction: vi.fn(), deletePollAction: vi.fn() }));
+vi.mock("./admin/poll/actions", () => ({
+  closePollAction: vi.fn(),
+  deletePollAction: vi.fn(),
+  reopenPollAction: vi.fn(),
+}));
 
 describe("页面空态", () => {
   beforeEach(() => {
@@ -59,9 +70,8 @@ describe("页面空态", () => {
     });
     mocks.moderator.mockResolvedValue(undefined);
     mocks.moderated.mockResolvedValue([904]);
-    mocks.review.mockResolvedValue([]);
-    mocks.removed.mockResolvedValue([]);
-    mocks.polls.mockResolvedValue([]);
+    mocks.review.mockResolvedValue({ items: [], total: 0 });
+    mocks.polls.mockResolvedValue({ items: [], total: 0 });
   });
 
   it("搜索无结果保留查询和目录链接", async () => {
@@ -88,13 +98,13 @@ describe("页面空态", () => {
     render(await ReviewPage({ searchParams: Promise.resolve({ tab }) }));
     expect(screen.getByText(text)).toBeInTheDocument();
     expect(mocks.moderator).toHaveBeenCalledOnce();
-    expect(tab === "pending" ? mocks.review : mocks.removed).toHaveBeenCalledWith({ userId: 1 });
+    expect(mocks.review).toHaveBeenCalledWith({ userId: 1 }, { tab, page: 1 });
   });
 
   it("投票空态保留版主作用域", async () => {
     render(await AdminPollPage({ searchParams: Promise.resolve({}) }));
     expect(screen.getByText("没有投票（或你管辖的板块内没有）。")).toBeInTheDocument();
     expect(mocks.moderator).toHaveBeenCalledOnce();
-    expect(mocks.polls).toHaveBeenCalledWith({ userId: 1 });
+    expect(mocks.polls).toHaveBeenCalledWith({ status: "all", page: 1, moderated: [904] });
   });
 });

@@ -6,7 +6,7 @@ const db = () => getWebDb();
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { createRestriction, liftRestriction } from "@/lib/authz/restrictions-admin";
-import { closePoll, deletePoll, pollAdminList } from "@/lib/poll/admin";
+import { closePoll, deletePoll, listPollPage } from "@/lib/poll/admin";
 
 let tdb: TempDb;
 const ACTOR = { userId: DEMO.admin, via: "admin" as const, ip: null };
@@ -109,9 +109,7 @@ describe.skipIf(skipDb)("投票管理分支补齐", () => {
         sortOrder: 0,
       });
 
-    const { loadSubject } = await import("@/lib/authz/subject");
-    const admin = await loadSubject(DEMO.admin);
-    const list = await pollAdminList(admin);
+    const list = (await listPollPage({ status: "all", page: 1, moderated: null })).items;
     expect(list.some((x) => x.pollId === Number(p.insertId))).toBe(true);
 
     // 清理

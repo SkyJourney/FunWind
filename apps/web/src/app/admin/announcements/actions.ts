@@ -76,6 +76,37 @@ export const createAnnouncementAction = defineAction({
   },
 });
 
+/** 编辑公告（M9.5 站长拍板补能力）：字段同创建；startsAt 留空 = 保留原值；不重发 published 事件 */
+export const editAnnouncementAction = defineAction({
+  name: "admin.announcement.edit",
+  auth: { admin: "site.admin" },
+  input: createAnnouncementInput.extend({ id: z.coerce.number().int().positive() }),
+  async run(ctx, input) {
+    const [orig] = await getWebDb()
+      .select({ startsAt: announcements.startsAt })
+      .from(announcements)
+      .where(eq(announcements.id, input.id))
+      .limit(1);
+    if (!orig) redirect(`/admin/announcements?err=${encodeURIComponent("公告不存在")}`);
+    await getWebDb()
+      .update(announcements)
+      .set({
+        title: input.title,
+        bodyMd: input.bodyMd,
+        level: input.level,
+        audience: input.audience,
+        showBanner: input.showBanner === "on",
+        startsAt: input.startsAt ? toDatetime(input.startsAt) : orig.startsAt,
+        endsAt: input.endsAt ? toDatetime(input.endsAt) : null,
+        updatedAt: nowBeijingWallTime(),
+      })
+      .where(eq(announcements.id, input.id));
+    revalidatePath("/admin/announcements");
+    revalidatePath("/");
+    redirect(`/admin/announcements?updated=1`);
+  },
+});
+
 const endAnnouncementInput = z.object({ id: z.coerce.number().int().positive() });
 export const endAnnouncementAction = defineAction({
   name: "admin.announcement.end",
@@ -102,8 +133,13 @@ export const saveNavAction = defineAction({
   auth: { admin: "site.admin" },
   input: navInput,
   async run(ctx, input) {
-    const items = parseLines(input.navRaw).map(([label, href]) => ({ label, href }));
-    await setSetting("site.nav", items, { userId: ctx.userId ?? null, via: "admin", ip: ctx.ip });
+    const parsed = parseLinesChecked(input.navRaw, { hrefMustBePath: true });
+    if (parsed.error) redirect(`/admin/announcements?navErr=${encodeURIComponent(parsed.error)}`);
+    await setSetting("site.nav", parsed.items, {
+      userId: ctx.userId ?? null,
+      via: "admin",
+      ip: ctx.ip,
+    });
     invalidateSiteChrome();
     revalidatePath("/", "layout");
     redirect(`/admin/announcements?nav=1`);
@@ -118,8 +154,13 @@ export const saveLinksAction = defineAction({
   auth: { admin: "site.admin" },
   input: linksInput,
   async run(ctx, input) {
-    const items = parseLines(input.linksRaw).map(([label, href]) => ({ label, href }));
-    await setSetting("site.links", items, { userId: ctx.userId ?? null, via: "admin", ip: ctx.ip });
+    const parsed = parseLinesChecked(input.linksRaw, { hrefMustBePath: false });
+    if (parsed.error) redirect(`/admin/announcements?linksErr=${encodeURIComponent(parsed.error)}`);
+    await setSetting("site.links", parsed.items, {
+      userId: ctx.userId ?? null,
+      via: "admin",
+      ip: ctx.ip,
+    });
     invalidateSiteChrome();
     revalidatePath("/", "layout");
     redirect(`/admin/announcements?links=1`);
@@ -143,16 +184,30 @@ export const saveFooterAction = defineAction({
   },
 });
 
-/** 「标签, 路径/URL」逐行解析；非法行丢弃 */
-function parseLines(raw: string): [string, string][] {
-  return raw
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => {
-      const i = line.indexOf(",");
-      return i > 0 ? [line.slice(0, i).trim(), line.slice(i + 1).trim()] : null;
-    })
-    .filter((x): x is [string, string] => x !== null && x[1].length > 0)
-    .slice(0, 20);
+/** 「标签, 路径/URL」逐行解析；非法行报行号（M9.5 条目化编辑配套） */
+function parseLinesChecked(
+  raw: string,
+  opts: { hrefMustBePath: boolean },
+): { items: { label: string; href: string }[]; error: string | null } {
+  const items: { label: string; href: string }[] = [];
+  const lines = raw.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line.length === 0) continue;
+    const idx = line.indexOf(",");
+    if (idx <= 0 || idx === line.length - 1) {
+      return { items: [], error: `第 ${i + 1} 行格式不对：应为「名称,路径」（半角逗号分隔）` };
+    }
+    const label = line.slice(0, idx).trim();
+    const href = line.slice(idx + 1).trim();
+    if (opts.hrefMustBePath && !href.startsWith("/")) {
+      return { items: [], error: `第 ${i + 1} 行路径必须以 / 开头（导航项只能是站内路径）` };
+    }
+    if (!opts.hrefMustBePath && !(href.startsWith("/") || href.startsWith("http"))) {
+      return { items: [], error: `第 ${i + 1} 行链接必须是站内路径（/ 开头）或 http(s):// 链接` };
+    }
+    items.push({ label, href });
+    if (items.length >= 20) break;
+  }
+  return { items, error: null };
 }

@@ -1,5 +1,5 @@
 import { desc, eq, sql } from "drizzle-orm";
-import { conversations, getWebDb, messages } from "@funwind/db";
+import { conversations, getWebDb, messages, users } from "@funwind/db";
 import type { ConfigActor } from "@/lib/audit";
 import { writeAudit } from "@/lib/audit";
 import { AdminError } from "@/lib/authz/admin";
@@ -50,12 +50,19 @@ export async function deleteMessage(
   );
 }
 
-/** 会话总数与消息总数（看板/列表头） */
+/** 会话总数与消息总数（看板/列表头）。双全表 COUNT 进页即扫，60s 进程内缓存（M9.5） */
+let pmStatsCache: {
+  at: number;
+  value: { conversations: number; messages: number; today: number };
+} | null = null;
+const PM_STATS_TTL_MS = 60_000;
+
 export async function pmStats(): Promise<{
   conversations: number;
   messages: number;
   today: number;
 }> {
+  if (pmStatsCache && Date.now() - pmStatsCache.at < PM_STATS_TTL_MS) return pmStatsCache.value;
   const [[c], [m], [t]] = await Promise.all([
     getWebDb()
       .select({ n: sql<number>`COUNT(*)` })
@@ -68,28 +75,72 @@ export async function pmStats(): Promise<{
       .from(messages)
       .where(sql`DATE(${messages.createdAt}) = CURDATE()`),
   ]);
-  return {
+  const value = {
     conversations: Number(c?.n ?? 0),
     messages: Number(m?.n ?? 0),
     today: Number(t?.n ?? 0),
   };
+  pmStatsCache = { at: Date.now(), value };
+  return value;
 }
 
-/** 最近消息（跨会话，管理视角）：定位违规内容 */
-export async function recentMessages(
-  limit = 30,
-): Promise<
-  { id: number; conversationId: number; senderId: number; body: string; createdAt: string }[]
-> {
-  return getWebDb()
-    .select({
-      id: messages.id,
-      conversationId: messages.conversationId,
-      senderId: messages.senderId,
-      body: messages.body,
-      createdAt: messages.createdAt,
-    })
-    .from(messages)
-    .orderBy(desc(messages.id))
-    .limit(limit);
+/** 私信管理列表分页（M9.5）：筛选下推 SQL，替代原「取最近 50 条后内存过滤」（更早的消息永远筛不到） */
+export type PmPageFilters = {
+  /** 纯数字 = 发送者 uid 等值；非空 = 用户名精确匹配反查 uid */
+  q?: string;
+  page: number;
+  perPage?: number;
+};
+
+export async function listPmMessagesPage(filters: PmPageFilters): Promise<{
+  items: {
+    id: number;
+    conversationId: number;
+    senderId: number;
+    body: string;
+    createdAt: string;
+  }[];
+  total: number;
+  /** 用户名筛选命中不到人时的提示（与「无消息」区分） */
+  unknownUser: boolean;
+}> {
+  const perPage = filters.perPage ?? 20;
+  const q = filters.q?.trim() ?? "";
+  let senderFilter: number | null = null;
+  const unknownUser = false;
+  if (q) {
+    if (/^\d+$/.test(q)) {
+      senderFilter = Number(q);
+    } else {
+      const [u] = await getWebDb()
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.username, q))
+        .limit(1);
+      if (!u) return { items: [], total: 0, unknownUser: true };
+      senderFilter = u.id;
+    }
+  }
+
+  const where = senderFilter !== null ? eq(messages.senderId, senderFilter) : undefined;
+  const [countRow, rows] = await Promise.all([
+    getWebDb()
+      .select({ total: sql<number>`COUNT(*)` })
+      .from(messages)
+      .where(where),
+    getWebDb()
+      .select({
+        id: messages.id,
+        conversationId: messages.conversationId,
+        senderId: messages.senderId,
+        body: messages.body,
+        createdAt: messages.createdAt,
+      })
+      .from(messages)
+      .where(where)
+      .orderBy(desc(messages.id))
+      .limit(perPage)
+      .offset((filters.page - 1) * perPage),
+  ]);
+  return { items: rows, total: Number(countRow[0]?.total ?? 0), unknownUser };
 }

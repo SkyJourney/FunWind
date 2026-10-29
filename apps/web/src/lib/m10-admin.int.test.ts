@@ -20,7 +20,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
-import { closePoll, deletePoll, pollAdminList } from "@/lib/poll/admin";
+import { closePoll, deletePoll, listPollPage } from "@/lib/poll/admin";
 import { deleteMessage } from "@/lib/pm/admin";
 import { conversationMessages, sendMessage } from "@/lib/pm/service";
 
@@ -104,7 +104,7 @@ async function seedPoll(): Promise<{ pollId: number; threadId: number; optionIds
 describe.skipIf(skipDb)("投票管理（M10 补做）", () => {
   it("列表：全站视角可见；关闭投票（ends_at 置当前 + 审计）", async () => {
     const { pollId } = await seedPoll();
-    const list = await pollAdminList(admin);
+    const list = (await listPollPage({ status: "all", page: 1, moderated: null })).items;
     expect(list.some((p) => p.pollId === pollId)).toBe(true);
 
     await closePoll(ACTOR, pollId);
@@ -147,7 +147,11 @@ describe.skipIf(skipDb)("投票管理（M10 补做）", () => {
       .from(auditLog)
       .where(and(eq(auditLog.action, "poll.delete"), eq(auditLog.targetId, String(pollId))));
     expect(audit).toBeDefined();
-    expect((await pollAdminList(admin)).some((p) => p.pollId === pollId)).toBe(false);
+    expect(
+      (await listPollPage({ status: "all", page: 1, moderated: null })).items.some(
+        (p) => p.pollId === pollId,
+      ),
+    ).toBe(false);
   });
 });
 

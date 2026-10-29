@@ -274,8 +274,8 @@ describe.skipIf(skipDb)("投票（M10）", () => {
 
   it("管理列表：site.admin 全站可见（与版主作用域过滤在 m10-admin.int 断言）", async () => {
     const { pollId } = await makePoll(alice);
-    const { pollAdminList } = await import("./admin");
-    const list = await pollAdminList(alice); // alice 无 site.admin → 版主口径，无版块 → 空
+    const { listPollPage } = await import("./admin");
+    const list = (await listPollPage({ status: "all", page: 1, moderated: [] })).items; // alice 无 site.admin → 版主口径，无版块 → 空
     expect(list.some((p) => p.pollId === pollId)).toBe(false);
     void pollId;
   });

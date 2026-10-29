@@ -5,7 +5,7 @@ import { getWebDb, siteSettings } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { loadSubject } from "@/lib/authz/subject";
-import { deleteMessage, pmStats, recentMessages } from "./admin";
+import { deleteMessage, listPmMessagesPage, pmStats } from "./admin";
 import { sendMessage } from "./service";
 
 let tdb: TempDb;
@@ -51,12 +51,19 @@ describe.skipIf(skipDb)("私信管理辅助（M10 补做）", () => {
     expect(stats.today).toBeGreaterThanOrEqual(1);
   });
 
-  it("recentMessages：倒序列出最近消息", async () => {
-    const rows = await recentMessages(10);
-    expect(rows.length).toBeGreaterThanOrEqual(1);
-    for (let i = 1; i < rows.length; i++) {
-      expect(rows[i - 1].id).toBeGreaterThan(rows[i].id);
+  it("listPmMessagesPage：倒序分页；uid 与用户名筛选下推（M9.5）", async () => {
+    const all = await listPmMessagesPage({ page: 1 });
+    expect(all.items.length).toBeGreaterThanOrEqual(1);
+    for (let i = 1; i < all.items.length; i++) {
+      expect(all.items[i - 1].id).toBeGreaterThan(all.items[i].id);
     }
+    const target = all.items[0];
+    // uid 筛选
+    const byUid = await listPmMessagesPage({ q: String(target.senderId), page: 1 });
+    expect(byUid.items.every((m) => m.senderId === target.senderId)).toBe(true);
+    // 不存在的用户 → unknownUser（与「无消息」区分）
+    const missing = await listPmMessagesPage({ q: "不存在的用户xyz", page: 1 });
+    expect(missing.unknownUser).toBe(true);
   });
 
   it("deleteMessage：不存在的消息 → AdminError", async () => {
