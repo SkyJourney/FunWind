@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { queryAuditLogs, queryEventLogs } from "@/lib/admin/logs";
+import { JsonViewerButton } from "@/components/admin/json-viewer";
+import { Pagination } from "@/components/content/pagination";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "审计日志" };
@@ -83,25 +85,8 @@ export default async function AdminLogsPage({ searchParams }: Params) {
 
       <p className="text-xs text-muted-foreground">
         共 {result.total} 条 · 第 {page}/{totalPages} 页
-        {totalPages > 1 && (
-          <>
-            {" · "}
-            {page > 1 && (
-              <Link href={baseQuery({ page: page - 1 })} className="text-primary hover:underline">
-                上一页
-              </Link>
-            )}
-            {page < totalPages && (
-              <Link
-                href={baseQuery({ page: page + 1 })}
-                className="ml-2 text-primary hover:underline"
-              >
-                下一页
-              </Link>
-            )}
-          </>
-        )}
       </p>
+      <Pagination basePath={baseQuery({ page: "" })} page={page} totalPages={totalPages} />
 
       <div className="overflow-x-auto rounded-xl border bg-card">
         <table className="w-full text-left text-xs">
@@ -113,8 +98,8 @@ export default async function AdminLogsPage({ searchParams }: Params) {
               <th className="px-3 py-2">actor</th>
               {tab === "audit" ? (
                 <>
-                  <th className="px-3 py-2">目标</th>
-                  <th className="px-3 py-2">详情</th>
+                  <th className="hidden px-3 py-2 md:table-cell">目标</th>
+                  <th className="hidden px-3 py-2 sm:table-cell">详情</th>
                 </>
               ) : (
                 <th className="px-3 py-2">source / 错误</th>
@@ -129,11 +114,11 @@ export default async function AdminLogsPage({ searchParams }: Params) {
                     <td className="px-3 py-1.5 whitespace-nowrap">{r.createdAt}</td>
                     <td className="px-3 py-1.5 font-mono">{r.action}</td>
                     <td className="px-3 py-1.5 tabular-nums">{r.actorId ?? "—"}</td>
-                    <td className="px-3 py-1.5">
+                    <td className="hidden px-3 py-1.5 md:table-cell">
                       {r.targetType}:{r.targetId}
                     </td>
-                    <td className="max-w-md truncate px-3 py-1.5 font-mono">
-                      {JSON.stringify(r.afterJson ?? r.beforeJson ?? "")}
+                    <td className="hidden px-3 py-1.5 sm:table-cell">
+                      <JsonViewerButton label="查看" json={r.afterJson ?? r.beforeJson ?? {}} />
                     </td>
                   </tr>
                 ))
@@ -161,6 +146,9 @@ export default async function AdminLogsPage({ searchParams }: Params) {
           </tbody>
         </table>
       </div>
+      <p className="text-xs text-muted-foreground md:hidden">
+        窄屏隐藏「目标/详情」列，完整数据请导出 CSV。
+      </p>
     </div>
   );
 }

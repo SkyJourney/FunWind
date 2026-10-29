@@ -300,20 +300,26 @@ export const uploadEmojiAction = defineAction({
       .limit(1);
     if (!group) notFound();
 
-    // 全部处理成功才入库：任一超限 / 格式不符即整批退回（带首个失败的文件名），避免「传一半」的困惑
+    // 逐文件处理（M9.5 部分成功语义）：成功的入库，失败收集明细随回跳展示——一张不合格不拖累其余
     const processed: {
       result: Exclude<Awaited<ReturnType<typeof processEmojiUpload>>, { ok: false }>;
       name: string;
     }[] = [];
+    const failed: string[] = [];
     for (const f of input.files) {
       const bytes = Buffer.from(await f.arrayBuffer());
       const r = await processEmojiUpload(bytes, getStorageDir());
       if (!r.ok) {
-        redirect(
-          `${input.back}?group=${group.id}&err=${r.code}&name=${encodeURIComponent(f.name)}`,
-        );
+        failed.push(`${f.name}：${r.code}`);
+        continue;
       }
       processed.push({ result: r, name: defaultEmojiName(f.name) });
+    }
+    if (processed.length === 0) {
+      // 全部失败：沿用单条错误展示
+      redirect(
+        `${input.back}?group=${group.id}&err=${encodeURIComponent(failed[0]?.split("：")[1] ?? "empty")}&name=${encodeURIComponent(failed[0]?.split("：")[0] ?? "")}`,
+      );
     }
 
     await getWebDb().transaction(async (tx) => {
@@ -369,7 +375,11 @@ export const uploadEmojiAction = defineAction({
       }
     });
     revalidatePath("/admin/emojis");
-    redirect(`${input.back}?group=${group.id}&saved=upload`);
+    const failedQ =
+      failed.length > 0
+        ? `&failed=${encodeURIComponent(failed.slice(0, 5).join("|"))}${failed.length > 5 ? `&failedMore=${failed.length - 5}` : ""}`
+        : "";
+    redirect(`${input.back}?group=${group.id}&saved=upload&uploaded=${processed.length}${failedQ}`);
   },
 });
 
@@ -380,24 +390,35 @@ export const updateEmojiAction = defineAction({
     id: z.coerce.number().int().positive(),
     name: z.string().trim().min(1, "名称不能为空").max(50),
     keywords: z.string().trim().max(200).default(""),
+    /** 排序值（M9.5 数字输入范式，替代逐位 ↑↓）：0–9999，同组内升序在前 */
+    sort: z.coerce.number().int().min(0).max(9999),
     back,
   }),
   async run(ctx, input) {
     const [before] = await getWebDb().select().from(emojis).where(eq(emojis.id, input.id)).limit(1);
     if (!before) notFound();
-    if (before.name !== input.name || before.keywords !== input.keywords) {
+    if (
+      before.name !== input.name ||
+      before.keywords !== input.keywords ||
+      before.sort !== input.sort
+    ) {
       await getWebDb().transaction(async (tx) => {
         await tx
           .update(emojis)
-          .set({ name: input.name, keywords: input.keywords, updatedAt: sql`NOW()` })
+          .set({
+            name: input.name,
+            keywords: input.keywords,
+            sort: input.sort,
+            updatedAt: sql`NOW()`,
+          })
           .where(eq(emojis.id, input.id));
         await writeAudit(tx, {
           actorId: ctx.userId,
           action: "admin.emoji.rename",
           targetType: "emoji",
           targetId: input.id,
-          before: { name: before.name, keywords: before.keywords },
-          after: { name: input.name, keywords: input.keywords, via: "admin" },
+          before: { name: before.name, keywords: before.keywords, sort: before.sort },
+          after: { name: input.name, keywords: input.keywords, sort: input.sort, via: "admin" },
           ip: ctx.ip,
         });
       });
@@ -477,5 +498,43 @@ export const toggleEmojiAction = defineAction({
     }
     revalidatePath("/admin/emojis");
     redirect(`${input.back}?group=${before.groupId}&saved=emoji-toggled`);
+  },
+});
+
+/** 分组排序（M9.5 数字输入范式）：直接改 sort 值，展示按 (sort, id) 升序 */
+export const reorderGroupAction = defineAction({
+  name: "admin.emoji.group.reorder",
+  auth: { admin: "emoji.manage" },
+  input: z.object({
+    id: z.coerce.number().int().positive(),
+    sort: z.coerce.number().int().min(0).max(9999),
+    back,
+  }),
+  async run(ctx, input) {
+    const [before] = await getWebDb()
+      .select({ sort: emojiGroups.sort })
+      .from(emojiGroups)
+      .where(eq(emojiGroups.id, input.id))
+      .limit(1);
+    if (!before) notFound();
+    if (before.sort !== input.sort) {
+      await getWebDb().transaction(async (tx) => {
+        await tx
+          .update(emojiGroups)
+          .set({ sort: input.sort, updatedAt: sql`NOW()` })
+          .where(eq(emojiGroups.id, input.id));
+        await writeAudit(tx, {
+          actorId: ctx.userId,
+          action: "admin.emoji.group.move",
+          targetType: "emoji_group",
+          targetId: input.id,
+          before: { sort: before.sort },
+          after: { sort: input.sort, via: "admin" },
+          ip: ctx.ip,
+        });
+      });
+    }
+    revalidatePath("/admin/emojis");
+    redirect(`${input.back}?saved=group-moved`);
   },
 });

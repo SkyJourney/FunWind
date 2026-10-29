@@ -4,6 +4,8 @@ import { getLogoPoolRaw } from "@/lib/brand/logo-pool";
 import { Card, CardContent } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { ConfirmSubmit } from "@/components/ui/confirm-submit";
+import { LogoFileInput } from "@/components/admin/logo-file-input";
+import { AdminFlash } from "@/components/admin/admin-flash";
 import { removeLogoAction, setActiveLogoAction, uploadLogoAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +14,7 @@ export const metadata = { title: "LOGO 管理" };
 const ERR_TEXT: Record<string, string> = {
   forbidden: "没有权限。",
   bad_type: "仅支持 PNG（文件魔数校验）。",
-  too_large: "文件超过 512KB——请先用 scripts/logo-resize.py 入池预处理。",
+  too_large: "文件超过 512KB——请压缩后重试（页内选择文件时会即时校验）。",
 };
 
 /**
@@ -22,7 +24,7 @@ const ERR_TEXT: Record<string, string> = {
 export default async function LogoAdminPage({
   searchParams,
 }: {
-  searchParams: Promise<{ err?: string; "confirm-remove"?: string }>;
+  searchParams: Promise<{ err?: string; added?: string; "confirm-remove"?: string }>;
 }) {
   // 入口鉴权约定：第一个 await 必须是 requireAdmin（admin-entry-guard 静态守护）
   await requireAdmin("site.admin");
@@ -41,17 +43,19 @@ export default async function LogoAdminPage({
         <p className="mt-1 text-sm text-muted-foreground">
           品牌池随时切换（节日 / 联动主题日）；当前项经{" "}
           <code className="rounded bg-muted px-1 text-xs">/brand/logo</code> 全站输出，切换最多 5
-          分钟收敛。PNG ≤512KB（入池前用 scripts/logo-resize.py 预处理出 112/224 双档更佳）。
+          分钟收敛。PNG ≤512KB（选择文件时即时校验，超限会被清空重选）。
         </p>
       </header>
 
       {sp.err && (
-        <p
-          role="alert"
-          className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
-        >
+        <AdminFlash kind="error" dismissHref="/admin/logo">
           {ERR_TEXT[sp.err] ?? "操作失败，请重试。"}
-        </p>
+        </AdminFlash>
+      )}
+      {sp.added && (
+        <AdminFlash kind="success" dismissHref="/admin/logo">
+          已入池并设为当前（下方高亮项）。切换其他项请用「设为当前」。
+        </AdminFlash>
       )}
 
       {confirmRemove && (
@@ -86,16 +90,7 @@ export default async function LogoAdminPage({
                 className="w-48 rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
               />
             </label>
-            <label className="grid flex-1 gap-1 text-sm">
-              PNG 文件（≤512KB）
-              <input
-                type="file"
-                name="file"
-                accept="image/png"
-                required
-                className="rounded-lg border bg-background px-3 py-1.5 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm"
-              />
-            </label>
+            <LogoFileInput maxBytes={512 * 1024} />
             <SubmitButton className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
               <Upload className="mr-1 inline size-4" aria-hidden /> 上传入池
             </SubmitButton>

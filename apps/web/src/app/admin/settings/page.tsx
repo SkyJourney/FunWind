@@ -50,11 +50,11 @@ const numCls = `${inputCls} w-28`;
 
 /** 频控角色字段组（秒/次数含义见 lib/limits/config.ts；0 = 不限） */
 const ROLE_FIELDS = [
-  ["postIntervalSec", "发帖间隔（秒）", 3600],
-  ["threadsPerDay", "每日主题数", 100_000],
-  ["uploadsPerDay", "每日上传数", 100_000],
-  ["pmPerDay", "每日私信数", 100_000],
-  ["editWindowSec", "可编辑时限（秒）", 31_536_000],
+  ["postIntervalSec", "发帖间隔（秒）", 3600, "3600 = 1 小时"],
+  ["threadsPerDay", "每日主题数", 100_000, null],
+  ["uploadsPerDay", "每日上传数", 100_000, null],
+  ["pmPerDay", "每日私信数", 100_000, null],
+  ["editWindowSec", "可编辑时限（秒）", 31_536_000, "86400 = 1 天"],
 ] as const;
 
 /**
@@ -86,6 +86,9 @@ export default async function SiteSettingsPage({
   const adminEmail = adminRow[0]?.email ?? null;
   const flash = sp.saved ? FLASH[sp.saved] : undefined;
   const mailError = sp.mail_error ? MAIL_ERROR[sp.mail_error] : undefined;
+  // env 未配置 ≠ 配了本机默认：判真展示（M9.5 站长反馈「无法区分没配和配了本机」）
+  const smtpConfigured =
+    typeof process.env.SMTP_URL === "string" && process.env.SMTP_URL.trim().length > 0;
   const smtpDisplay = smtpDisplayOf(process.env.SMTP_URL);
   const mailFrom = process.env.MAIL_FROM ?? "青翼字幕组 <noreply@qingyisub.top>";
 
@@ -97,6 +100,24 @@ export default async function SiteSettingsPage({
           站点身份、注册策略与发帖频控；全部修改写入审计日志。全站默认主题将在 M11 随主题选择提供。
         </p>
       </header>
+
+      {/* 锚点导航（M9.5）：400 行单页分签定位，零 JS */}
+      <nav aria-label="配置分区" className="flex flex-wrap gap-2 text-sm">
+        {[
+          ["identity", "站点身份"],
+          ["register", "注册策略"],
+          ["email", "邮件"],
+          ["limits", "发帖频控"],
+        ].map(([id, label]) => (
+          <a
+            key={id}
+            href={`#${id}`}
+            className="rounded-full border px-3 py-1 text-xs hover:bg-accent"
+          >
+            {label}
+          </a>
+        ))}
+      </nav>
 
       {flash && (
         <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
@@ -121,7 +142,7 @@ export default async function SiteSettingsPage({
       )}
 
       {/* 身份 */}
-      <Card>
+      <Card id="identity">
         <CardHeader>
           <CardTitle>站点身份</CardTitle>
         </CardHeader>
@@ -170,7 +191,7 @@ export default async function SiteSettingsPage({
       </Card>
 
       {/* 注册 */}
-      <Card>
+      <Card id="register">
         <CardHeader>
           <CardTitle>注册策略</CardTitle>
         </CardHeader>
@@ -216,7 +237,7 @@ export default async function SiteSettingsPage({
       </Card>
 
       {/* 邮件（M10.6 收尾）：SMTP 凭据留在 env；后台做状态展示、测试发信与验证策略 */}
-      <Card>
+      <Card id="email">
         <CardHeader>
           <CardTitle>邮件</CardTitle>
         </CardHeader>
@@ -224,8 +245,24 @@ export default async function SiteSettingsPage({
           <dl className="grid gap-x-6 gap-y-1 text-muted-foreground sm:grid-cols-[auto_1fr]">
             <dt className="font-medium text-foreground">SMTP 服务</dt>
             <dd>
-              <code className="rounded bg-muted px-1 text-xs">{smtpDisplay}</code>
-              <span className="ml-1 text-xs">（由服务器环境变量 SMTP_URL 配置，凭据不入库）</span>
+              {smtpConfigured ? (
+                <>
+                  <code className="rounded bg-success/10 px-1 text-xs text-success">
+                    {smtpDisplay}
+                  </code>
+                  <span className="ml-1 text-xs">
+                    （已由服务器环境变量 SMTP_URL 配置，凭据不入库）
+                  </span>
+                </>
+              ) : (
+                <>
+                  <code className="rounded bg-warning/10 px-1 text-xs text-warning">未配置</code>
+                  <span className="ml-1 text-xs">
+                    （服务器未设置 SMTP_URL，邮件将投递到默认 dev smtp {smtpDisplay}
+                    ——仅本地可见，生产必须配置）
+                  </span>
+                </>
+              )}
             </dd>
             <dt className="font-medium text-foreground">发件人</dt>
             <dd>
@@ -334,7 +371,7 @@ export default async function SiteSettingsPage({
       </Card>
 
       {/* 频控 */}
-      <Card>
+      <Card id="limits">
         <CardHeader>
           <CardTitle>发帖频控</CardTitle>
         </CardHeader>
@@ -370,7 +407,7 @@ export default async function SiteSettingsPage({
                   {role === "member" ? "普通会员（member）" : "管理员（admin）"}
                 </legend>
                 <div className="flex flex-wrap gap-3">
-                  {ROLE_FIELDS.map(([field, label]) => (
+                  {ROLE_FIELDS.map(([field, label, , hint]) => (
                     <label key={field} className="grid gap-1">
                       {label}
                       <input
@@ -380,13 +417,32 @@ export default async function SiteSettingsPage({
                         defaultValue={limits.roles[role]?.[field] ?? 0}
                         className={numCls}
                       />
+                      {hint && <span className="text-[11px] text-muted-foreground">{hint}</span>}
                     </label>
                   ))}
                 </div>
               </fieldset>
             ))}
+            {/* 其他角色只读展示（M9.5 拍板 A：先可见，编辑低频——直接改库/接口可调） */}
+            {Object.keys(limits.roles)
+              .filter((k) => k !== "member" && k !== "admin")
+              .map((role) => (
+                <fieldset key={role} className="rounded-lg border border-dashed p-3 opacity-80">
+                  <legend className="px-1 text-xs font-medium text-muted-foreground">
+                    {role}（只读）
+                  </legend>
+                  <dl className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
+                    {ROLE_FIELDS.map(([field, label]) => (
+                      <div key={field}>
+                        <dt className="inline">{label}：</dt>
+                        <dd className="inline tabular-nums">{limits.roles[role]?.[field] ?? 0}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </fieldset>
+              ))}
             <p className="text-xs text-muted-foreground">
-              0 = 不限。仅展示 member / admin 两个内置角色；其他角色的现有配置保存时原样保留。
+              0 = 不限。member / admin 可编辑；其他角色当前为只读展示（保存时其配置原样保留）。
             </p>
             <div>
               <SubmitButton className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">

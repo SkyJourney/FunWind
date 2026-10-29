@@ -45,7 +45,14 @@ export interface DashboardData {
   totals: { users: number; threads: number; posts: number };
 }
 
+/** 60s 进程内缓存（M9.5）：3 个全表 COUNT + 3 个趋势聚合进页即跑，看板是站长首屏，缓存防抖 */
+let dashboardCache: { at: number; value: DashboardData } | null = null;
+const DASHBOARD_TTL_MS = 60_000;
+
 export async function dashboardData(): Promise<DashboardData> {
+  if (dashboardCache && Date.now() - dashboardCache.at < DASHBOARD_TTL_MS) {
+    return dashboardCache.value;
+  }
   const since = nowBeijingWallTime(Date.now() - 29 * 86_400_000).slice(0, 10);
   const [registered30, threads30, replies30, [logins], [u], [t], [p]] = await Promise.all([
     dailyCounts(since, "users"),
@@ -70,11 +77,13 @@ export async function dashboardData(): Promise<DashboardData> {
       .select({ n: sql<number>`COUNT(*)` })
       .from(posts),
   ]);
-  return {
+  const value = {
     registered30,
     threads30,
     replies30,
     todayLogins: Number(logins?.n ?? 0),
     totals: { users: Number(u?.n ?? 0), threads: Number(t?.n ?? 0), posts: Number(p?.n ?? 0) },
   };
+  dashboardCache = { at: Date.now(), value };
+  return value;
 }

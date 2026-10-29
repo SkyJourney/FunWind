@@ -27,7 +27,8 @@ export const uploadLogoAction = defineAction({
     const r = await addLogo(input.name, bytes);
     if (!r.ok) redirect(`/admin/logo?err=${r.code}`);
     revalidatePath("/admin/logo");
-    redirect("/admin/logo");
+    // 带 added 回跳：新入池项高亮（M9.5）
+    redirect(`/admin/logo?added=${encodeURIComponent(r.pool.active ?? "")}`);
   },
 });
 
