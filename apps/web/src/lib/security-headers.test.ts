@@ -15,20 +15,37 @@ describe("buildSecurityHeaders", () => {
     expect(get(env, "Permissions-Policy")).toContain("camera=()");
   });
 
-  it("CSP 只以 Report-Only 下发，不含强制的 Content-Security-Policy（转强制前须先看违规报告）", () => {
-    const keys = flat({ NODE_ENV: "production" }).map(([k]) => k);
+  it("业务规则（除 /emoji 资源头外）CSP 只以 Report-Only 下发，不含强制的 Content-Security-Policy", () => {
+    const keys = buildSecurityHeaders({ NODE_ENV: "production" })
+      .filter((r) => r.source !== "/emoji/:file*") // 表情资源自带强制的 sandbox CSP（与 /files 同级），见下
+      .flatMap((r) => r.headers.map((h) => h.key));
     expect(keys).toContain("Content-Security-Policy-Report-Only");
     expect(keys).not.toContain("Content-Security-Policy");
   });
 
-  it("全部规则排除 /files/**：该路由自带更严的 CSP sandbox，不能被叠加或覆盖", () => {
+  it("全部业务规则排除 /files/** 与 /emoji/**：两者自带更严的 CSP sandbox，不能被叠加或覆盖", () => {
     for (const rule of buildSecurityHeaders({ NODE_ENV: "production" })) {
+      if (rule.source === "/emoji/:file*") continue;
       const re = new RegExp(`^${rule.source.replace(/^\//, "/")}$`);
-      expect(re.test("/files/ab/cd/x.png")).toBe(false);
-      expect(re.test("/")).toBe(true);
-      expect(re.test("/t/1")).toBe(true);
-      expect(re.test("/filesystem")).toBe(true); // 对照：只排除 /files/ 前缀，不误伤同前缀的别的路径
+      expect(re.test("/files/ab/cd/x.png"), rule.source).toBe(false);
+      expect(re.test("/emoji/170.png"), rule.source).toBe(false);
+      expect(re.test("/"), rule.source).toBe(true);
+      expect(re.test("/t/1"), rule.source).toBe(true);
+      expect(re.test("/filesystem"), rule.source).toBe(true); // 对照：只排除前缀目录，不误伤同前缀的别的路径
+      expect(re.test("/emojigate"), rule.source).toBe(true);
     }
+  });
+
+  it("/emoji/:file* 资源头：sandbox CSP + 不可变缓存（旧 50 枚静态文件与新表情路由共用）", () => {
+    const rule = buildSecurityHeaders({ NODE_ENV: "production" }).find(
+      (r) => r.source === "/emoji/:file*",
+    );
+    expect(rule).toBeDefined();
+    expect(Object.fromEntries(rule!.headers.map((h) => [h.key, h.value]))).toEqual({
+      "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy": "default-src 'none'; sandbox",
+      "Cache-Control": "public, max-age=31536000, immutable",
+    });
   });
 
   describe("HSTS", () => {

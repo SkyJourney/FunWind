@@ -158,4 +158,53 @@ test.describe("生产构建", () => {
       expect((await request.get(p)).status(), p).toBe(404);
     }
   });
+
+  test("/emoji：生产构建下 public 静态优先于路由（旧 50 枚零改动），新表情走路由", async ({
+    request,
+  }) => {
+    // 旧枚 120 是 public/emoji/120.gif 静态文件且不在库里：200 即证明静态先于 app/emoji/[file] 命中
+    const legacy = await request.get("/emoji/120.gif");
+    expect(legacy.status()).toBe(200);
+    expect(legacy.headers()["content-type"]).toBe("image/gif");
+    expect(legacy.headers()["content-security-policy"]).toBe("default-src 'none'; sandbox");
+    expect(legacy.headers()["cache-control"]).toBe("public, max-age=31536000, immutable");
+
+    // 新表情（自造自清，id 951911）：路由兜底在 next start 下照常
+    const { createHash } = await import("node:crypto");
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const id = 951911;
+    const bytes = Buffer.from(`e2e-emoji-prod-${id}`);
+    const sha = createHash("sha256").update(bytes).digest("hex");
+    const key = `${sha.slice(0, 2)}/${sha.slice(2, 4)}/${sha}.png`;
+    mkdirSync(join(process.env.STORAGE_DIR!, sha.slice(0, 2), sha.slice(2, 4)), {
+      recursive: true,
+    });
+    writeFileSync(join(process.env.STORAGE_DIR!, key), bytes);
+    await withE2eDb(async (q) => {
+      const g = await q.exec(
+        "INSERT INTO emoji_groups (name, sort, enabled, created_at, updated_at) VALUES (?, 0, 1, NOW(), NOW())",
+        [`E2E 生产冒烟组 ${id}`],
+      );
+      await q.exec(
+        "INSERT INTO emojis (id, group_id, name, keywords, ext, storage_key, enabled, created_at, updated_at) " +
+          "VALUES (?, ?, 'E2E 生产冒烟表情', '', 'png', ?, 1, NOW(), NOW())",
+        [id, g.insertId, key],
+      );
+    });
+    try {
+      const fresh = await request.get(`/emoji/${id}.png`);
+      expect(fresh.status()).toBe(200);
+      expect(fresh.headers()["content-type"]).toBe("image/png");
+      expect(fresh.headers()["etag"]).toBe(`"${sha}"`);
+      expect(await fresh.text()).toBe(`e2e-emoji-prod-${id}`);
+      expect((await request.get(`/emoji/${id}.gif`)).status()).toBe(404); // ext 不一致
+      expect((await request.get("/emoji/951912.png")).status()).toBe(404); // 不存在
+    } finally {
+      await withE2eDb(async (q) => {
+        await q.exec("DELETE FROM emojis WHERE id = ?", [id]);
+        await q.exec("DELETE FROM emoji_groups WHERE name = ?", [`E2E 生产冒烟组 ${id}`]);
+      });
+    }
+  });
 });

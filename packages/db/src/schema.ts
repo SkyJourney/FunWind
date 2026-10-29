@@ -961,8 +961,8 @@ export const emojis = mysqlTable(
     keywords: varchar("keywords", { length: 200 }).notNull().default(""),
     /** URL 扩展名（gif / png / webp），与提供路由 /emoji/{id}.{ext} 一致 */
     ext: varchar("ext", { length: 8 }).notNull(),
-    /** 内容寻址存储键；NULL = 静态资源（旧 50 枚）。可空是普通列、不参与唯一键（硬约定 3a 不适用） */
-    storageKey: varchar("storage_key", { length: 66 }),
+    /** 内容寻址存储键（ab/cd/<sha256>.<ext>，与 files.storage_key 同宽 128）；NULL = 静态资源（旧 50 枚）。可空是普通列、不参与唯一键（硬约定 3a 不适用） */
+    storageKey: varchar("storage_key", { length: 128 }),
     width: smallint("width", { unsigned: true }),
     height: smallint("height", { unsigned: true }),
     /** 组内展示排序（小在前），其次按 id */

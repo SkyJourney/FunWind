@@ -1,0 +1,1 @@
+ALTER TABLE `emojis` MODIFY COLUMN `storage_key` varchar(128);

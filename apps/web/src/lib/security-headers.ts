@@ -7,7 +7,7 @@
  *     所以这版 CSP 防的是外部脚本源、<object>/<base> 劫持、表单外投、被嵌入（点击劫持），不是内联脚本注入——后者仍靠 sanitize 白名单。
  *   · style-src 含 'unsafe-inline'：ProseMirror（Tiptap）编辑器与 Tailwind 的内联样式属性需要它。
  *   · img-src 放行 http/https：用户正文允许引用外站图片（lib/sanitize.ts 的 harden 只限协议，不限域名）。
- * /files/** 排除：该路由自带更严的 `default-src 'none'; sandbox`，不能被覆盖或叠加。
+ * /files/** 与 /emoji/** 排除：两者自带更严的 `default-src 'none'; sandbox`，不能被覆盖或叠加。
  */
 
 export interface HeaderEnv {
@@ -17,8 +17,20 @@ export interface HeaderEnv {
 
 type HeaderRule = { source: string; headers: { key: string; value: string }[] };
 
-/** 除 /files 之外的全部路径 */
-const NOT_FILES = "/((?!files/).*)";
+/** 除 /files、/emoji 之外的全部路径 */
+const NOT_FILES = "/((?!files/|emoji/).*)";
+
+/**
+ * 表情资源（M10.9）：public 静态旧 50 枚与新表情路由（app/emoji/[file]）共用同一套头。
+ * URL 含内容 id 且内容不可变（旧枚是迁移期一次性拷贝；新表情内容寻址），缓存可 immutable；
+ * CSP sandbox 与 /files 同级——gif/png/webp 本身不可脚本化，此头是纵深防御。
+ * ETag 只能动态路由按内容给出，静态头里不带（浏览器可用条件请求拿 304）。
+ */
+const EMOJI_RESOURCE_HEADERS = [
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "Content-Security-Policy", value: "default-src 'none'; sandbox" },
+  { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+];
 
 export const CSP_REPORT_PATH = "/api/csp-report";
 
@@ -63,5 +75,6 @@ export function buildSecurityHeaders(env: HeaderEnv): HeaderRule[] {
       // 注意是 Report-Only：不会拦截任何东西。转强制前须先看违规报告（/api/csp-report 记日志）
       headers: [{ key: "Content-Security-Policy-Report-Only", value: buildCsp(env) }],
     },
+    { source: "/emoji/:file*", headers: EMOJI_RESOURCE_HEADERS },
   ];
 }

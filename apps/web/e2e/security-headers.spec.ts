@@ -58,6 +58,17 @@ test.describe("响应头", () => {
     expect(h["x-content-type-options"]).toBe("nosniff");
   });
 
+  test("/emoji/**：同样只有自己的 CSP sandbox + 不可变缓存（旧 50 枚静态文件）；全部分支见 emoji-serving.spec", async ({
+    request,
+  }) => {
+    const h = (await request.get("/emoji/120.gif")).headers();
+    expect(h["content-security-policy"]).toBe("default-src 'none'; sandbox");
+    expect(h["content-security-policy-report-only"]).toBeUndefined();
+    expect(h["x-frame-options"]).toBeUndefined();
+    expect(h["cache-control"]).toBe("public, max-age=31536000, immutable");
+    // 表情帖（/t/{thread.emoji}）已在下方零违规页清单里：表情图作为子资源加载不产生 CSP 违规
+  });
+
   test("/api/csp-report：任何输入都是 204 且没有响应体", async ({ request }) => {
     for (const data of [
       JSON.stringify({ "csp-report": { "violated-directive": "img-src", "blocked-uri": "x" } }),
