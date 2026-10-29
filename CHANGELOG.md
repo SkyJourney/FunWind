@@ -5,7 +5,7 @@
 
 ## [Unreleased]
 
-### Added（M10.8：编辑器与回复体验——进行中）
+### Added（M10.8：编辑器与回复体验）
 
 设计与进度见 [docs/milestones/M10.8-editor-reply.md](docs/milestones/M10.8-editor-reply.md)。
 
