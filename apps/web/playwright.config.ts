@@ -14,7 +14,10 @@ export default defineConfig({
   // 单个用例 30s 上限；整套串行（共享一个库与一个 dev 服务器）
   fullyParallel: false,
   workers: 1,
-  retries: 0,
+  // CI 上重试一次：dev server 冷启动的按需编译（next/dynamic chunk、编辑页首访）在 2 核 runner
+  // 上偶发超过用例内断言的超时，重试时 chunk 已缓存即绿——本地无法复现的环境型 flake。
+  // trace on-first-retry 会在重试时留现场，正好把「偶发」变成可检视的证据。
+  retries: process.env.CI ? 1 : 0,
   reporter: [["list"]],
   use: {
     baseURL: "http://127.0.0.1:3200",
