@@ -116,22 +116,41 @@ export async function listContentsPage(
           pinLevel: sql<number | null>`NULL`,
         };
 
-  const rowsPromise = base
-    .select(listSelect)
-    .from(filters.kind === "thread" ? threads : posts)
-    .innerJoin(threads, eq(threads.id, filters.kind === "thread" ? threads.id : posts.threadId))
-    .innerJoin(forums, eq(forums.id, threads.forumId))
-    .leftJoin(users, eq(users.id, filters.kind === "thread" ? threads.authorId : posts.authorId))
-    .where(where)
-    .orderBy(desc(filters.kind === "thread" ? threads.createdAt : posts.createdAt))
-    .limit(perPage)
-    .offset((filters.page - 1) * perPage);
+  // 主题分支：以 threads 为主表（不 join threads——自连接会触发「Not unique table/alias」）；
+  // 回帖分支：以 posts 为主表 join threads 取所属主题。
+  const rowsPromise =
+    filters.kind === "thread"
+      ? base
+          .select(listSelect)
+          .from(threads)
+          .innerJoin(forums, eq(forums.id, threads.forumId))
+          .leftJoin(users, eq(users.id, threads.authorId))
+          .where(where)
+          .orderBy(desc(threads.createdAt))
+          .limit(perPage)
+          .offset((filters.page - 1) * perPage)
+      : base
+          .select(listSelect)
+          .from(posts)
+          .innerJoin(threads, eq(threads.id, posts.threadId))
+          .innerJoin(forums, eq(forums.id, threads.forumId))
+          .leftJoin(users, eq(users.id, posts.authorId))
+          .where(where)
+          .orderBy(desc(posts.createdAt))
+          .limit(perPage)
+          .offset((filters.page - 1) * perPage);
 
-  const countPromise = base
-    .select({ total: sql<number>`COUNT(*)` })
-    .from(filters.kind === "thread" ? threads : posts)
-    .innerJoin(threads, eq(threads.id, filters.kind === "thread" ? threads.id : posts.threadId))
-    .where(where);
+  const countPromise =
+    filters.kind === "thread"
+      ? base
+          .select({ total: sql<number>`COUNT(*)` })
+          .from(threads)
+          .where(where)
+      : base
+          .select({ total: sql<number>`COUNT(*)` })
+          .from(posts)
+          .innerJoin(threads, eq(threads.id, posts.threadId))
+          .where(where);
 
   const [rows, countRow] = await Promise.all([rowsPromise, countPromise]);
   return { items: rows, total: Number(countRow[0]?.total ?? 0) };
