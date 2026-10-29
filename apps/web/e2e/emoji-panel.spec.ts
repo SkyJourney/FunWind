@@ -12,7 +12,7 @@ import { USERS, loginAs } from "./support/session";
 /**
  * 编辑器面板接入社区表情（M10.9 Step 6，dev 服务器）：
  *   · 零数据站点：面板只有 Unicode 页签，功能不受影响；
- *   · 有数据：「社区表情」页签按分组小标题平铺，停用的表情不出现；搜索同时命中 Unicode 与社区表情；
+ *   · 有数据：每个表情包（分组）在顶部页签行占独立一席（页签图标 = 分组标题图），停用的表情不出现；搜索同时命中 Unicode 与社区表情；
  *   · 点击插入行内图片节点（alt=展示名），发布后帖子页以 /emoji/{id}.{ext} 渲染；文档合法、页面无异常。
  * 表情数据自造自清（emoji-serving / admin-emojis 两案都自清，这里先清全部再自造，顺序无关）。
  */
@@ -58,11 +58,11 @@ test("零数据：面板只有 Unicode 页签；/api/emojis 返回空", async ({
   expect(await api.json()).toEqual([]);
 
   await openEmojiPanel(page);
-  await expect(page.getByRole("tab", { name: "社区表情" })).toHaveCount(0);
+  await expect(page.getByRole("tab", { name: GROUP_A })).toHaveCount(0);
   expect(page.getByRole("tab", { name: "笑脸与情绪" })).toBeVisible();
 });
 
-test("有数据：社区页签分组平铺（带标题图）、停用不出现、合并搜索、插入行内图片并发布渲染", async ({
+test("有数据：表情包独立页签（标题图作图标）、点开即该包网格；停用不出现、合并搜索、插入行内图片并发布渲染", async ({
   page,
   request,
 }) => {
@@ -124,14 +124,12 @@ test("有数据：社区页签分组平铺（带标题图）、停用不出现�
   });
   expect(again.status()).toBe(304);
 
-  // 面板：社区页签 + 分组小标题（A 组标题带标题图）；停用者不可见
+  // 面板：A 组占独立页签（页签图标 = 标题图），点开即该包网格；停用者不可见
   await openEmojiPanel(page);
-  await page.getByRole("tab", { name: "社区表情" }).click();
-  const groupASection = page.getByRole("grid", { name: GROUP_A });
-  await expect(groupASection).toBeVisible();
-  await expect(
-    page.locator(`p:has(+ [role="grid"][aria-label="${GROUP_A}"]) img[src="/files/${iconKey}"]`),
-  ).toBeVisible();
+  const groupATab = page.getByRole("tab", { name: GROUP_A });
+  await groupATab.click();
+  await expect(groupATab.locator(`img[src="/files/${iconKey}"]`)).toBeVisible();
+  await expect(page.getByRole("grid", { name: GROUP_A })).toBeVisible();
   await expect(page.getByRole("gridcell", { name: "E2E 茉莉笑" })).toBeVisible();
   await expect(page.getByRole("gridcell", { name: "E2E 停用表情" })).toHaveCount(0);
 

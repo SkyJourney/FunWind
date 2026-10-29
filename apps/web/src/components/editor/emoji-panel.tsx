@@ -12,9 +12,12 @@ import { pushRecent, readRecent, readSkin, writeSkin, type RecentEntry } from "@
 import { cn } from "@/lib/utils";
 
 /**
- * 表情面板（M10.8 Step 7；M10.9 扩展）：搜索 + 分类页签 + 最近使用 + 肤色 + 社区表情。
+ * 表情面板（M10.8 Step 7；M10.9 扩展）：搜索 + 分类页签 + 最近使用 + 肤色 + 社区表情包。
  * 内置 Unicode 精选 emoji 永远存在；社区表情（后台管理、迁移导入）挂载时拉取一次，
- * 数据为空（零数据站点 / 接口失败）就不显示社区页签。停用的表情不在接口返回里，自然不会出现。
+ * 数据为空（零数据站点 / 接口失败）就不显示分组页签。停用的表情不在接口返回里，自然不会出现。
+ *
+ * 表情包页签（站长 2026-10-29 修订）：每个分组（表情包）在顶部页签行占独立一席，页签图标 = 分组标题图
+ * （emoji_groups.icon_key，后台可上传更换；无标题图的组回落 🖼️），点开即该包的网格。
  *
  * 面板只负责选择：Unicode 交给 onPick，社区图片交给 onPickImage（携带 alt 展示名）。
  * Shift 点击 = 连续插入，面板不关。
@@ -96,13 +99,24 @@ export function EmojiPanel({
     </button>
   );
 
+  /**
+   * 页签行（站长 2026-10-29 修订）：每个表情包在顶部占一个独立页签，页签图标 = 分组标题图
+   * （无标题图的组回落 🖼️）；点开即该包的网格，不再走「社区表情」单页签 + 小标题平铺。
+   */
   const tabs = [
-    ...(recent.length > 0 ? [{ id: "recent", label: "最近使用", icon: "🕘" }] : []),
-    ...EMOJI_CATEGORIES.map((c) => ({ id: c.id, label: c.label, icon: c.icon })),
-    ...(hasCommunity ? [{ id: "community", label: "社区表情", icon: "🖼️" }] : []),
+    ...(recent.length > 0 ? [{ id: "recent", label: "最近使用", icon: "🕘", iconImg: null }] : []),
+    ...EMOJI_CATEGORIES.map((c) => ({ id: c.id, label: c.label, icon: c.icon, iconImg: null })),
+    ...(hasCommunity
+      ? groupMeta(community).map((g) => ({
+          id: `community:${g.name}`,
+          label: g.name,
+          icon: "🖼️",
+          iconImg: g.icon,
+        }))
+      : []),
   ];
 
-  /** 搜索结果里的社区段（有命中才显示小标题）；社区页签关闭时搜不到图片表情是预期 */
+  /** 搜索结果里的社区段（有命中才显示小标题）；分组页签关闭时搜不到图片表情是预期 */
   const communitySection = (list: CommunityEmoji[], heading: string) =>
     list.length > 0 ? (
       <div className="col-span-8">
@@ -113,29 +127,14 @@ export function EmojiPanel({
       </div>
     ) : null;
 
-  /** 社区页签：分组小标题（带标题图）分段平铺（组顺序即接口顺序） */
-  const communityTabsContent = () => (
-    <div className="max-h-56 space-y-1 overflow-y-auto">
-      {groupMeta(community).map(({ name, icon }) => (
-        <div key={name}>
-          <p className="flex items-center gap-1.5 px-0.5 pb-0.5 text-xs font-medium text-muted-foreground">
-            {icon && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={icon}
-                alt=""
-                width={18}
-                height={18}
-                className="size-[18px] rounded object-cover"
-              />
-            )}
-            {name}
-          </p>
-          <div role="grid" aria-label={name} className="grid grid-cols-8 gap-0.5">
-            {community.filter((e) => e.group === name).map(communityCell)}
-          </div>
-        </div>
-      ))}
+  /** 分组页签的内容：该表情包的网格（页签本身已表达分组，不再叠小标题） */
+  const communityGroupContent = (name: string) => (
+    <div
+      role="grid"
+      aria-label={name}
+      className="grid max-h-56 grid-cols-8 content-start gap-0.5 overflow-y-auto"
+    >
+      {community.filter((e) => e.group === name).map(communityCell)}
     </div>
   );
 
@@ -190,7 +189,19 @@ export function EmojiPanel({
                 tab === t.id && "bg-secondary",
               )}
             >
-              {t.icon}
+              {t.iconImg ? (
+                // 分组标题图作页签图标（表情包的门面）
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={t.iconImg}
+                  alt=""
+                  width={24}
+                  height={24}
+                  className="size-6 rounded object-cover"
+                />
+              ) : (
+                t.icon
+              )}
             </button>
           ))}
         </div>
@@ -218,8 +229,8 @@ export function EmojiPanel({
         >
           {recent.map(recentCell)}
         </div>
-      ) : tab === "community" ? (
-        communityTabsContent()
+      ) : tab.startsWith("community:") ? (
+        communityGroupContent(tab.slice("community:".length))
       ) : (
         <div
           role="grid"

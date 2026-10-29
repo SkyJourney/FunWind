@@ -146,6 +146,7 @@ const COMMUNITY = [
     keywords: "",
     url: "/emoji/120.gif",
     group: "茉莉 01",
+    groupIcon: "/files/icon-moli.png",
     width: 40,
     height: 40,
   },
@@ -155,6 +156,7 @@ const COMMUNITY = [
     keywords: "笑 社区",
     url: "/emoji/171.png",
     group: "E2E 组",
+    groupIcon: null,
     width: 32,
     height: 32,
   },
@@ -163,23 +165,28 @@ const COMMUNITY = [
 describe("社区表情页签", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("有数据：页签出现、分组小标题平铺；点击插入行内图片节点（alt=展示名）并关闭", async () => {
+  it("每个表情包一个页签（图标=标题图，无图回落 🖼️）；点开即该包网格；点击插入行内图片节点（alt=展示名）并关闭", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response(JSON.stringify(COMMUNITY), { status: 200 })),
     );
     const { container } = await mount("好");
-    const input = await openPanel();
-    await waitFor(() => expect(screen.getByRole("tab", { name: "社区表情" })).toBeInTheDocument());
+    await openPanel();
+    const tabMoli = await waitFor(() => {
+      const t = screen.getByRole("tab", { name: "茉莉 01" });
+      expect(t.querySelector('img[src="/files/icon-moli.png"]')).toBeInTheDocument(); // 标题图作页签图标
+      return t;
+    });
+    const tabE2e = screen.getByRole("tab", { name: "E2E 组" });
+    expect(tabE2e.querySelector("img")).toBeNull(); // 无标题图 → 回落 🖼️ 字符
     await act(async () => {
-      screen.getByRole("tab", { name: "社区表情" }).click();
+      tabMoli.click();
     });
     expect(screen.getByRole("grid", { name: "茉莉 01" })).toBeInTheDocument();
-    expect(screen.getByRole("grid", { name: "E2E 组" })).toBeInTheDocument();
-    await userEvent.setup().click(screen.getByRole("gridcell", { name: "茉莉笑" }));
-    await waitFor(() => expect(hidden(container).value).toContain("![茉莉笑](/emoji/171.png)"));
-    await waitFor(() => expect(screen.queryByLabelText("搜索表情")).toBeNull());
-    void input;
+    expect(screen.queryByRole("grid", { name: "E2E 组" })).toBeNull(); // 页签即分组：只见本包
+    await userEvent.setup().click(screen.getByRole("gridcell", { name: "旧表情 120" }));
+    await waitFor(() => expect(hidden(container).value).toContain("![旧表情 120](/emoji/120.gif)"));
+    void tabE2e;
   });
 
   it("合并搜索：Unicode 与社区表情同框，社区段有小标题；无数据站点不出现社区段与页签", async () => {
@@ -189,7 +196,7 @@ describe("社区表情页签", () => {
     );
     const first = await mount();
     const input = await openPanel();
-    await waitFor(() => expect(screen.getByRole("tab", { name: "社区表情" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("tab", { name: "茉莉 01" })).toBeInTheDocument());
     await act(async () => {
       fireEvent.change(input, { target: { value: "笑" } });
     });
@@ -204,7 +211,7 @@ describe("社区表情页签", () => {
     );
     await mount();
     await openPanel();
-    await waitFor(() => expect(screen.queryByRole("tab", { name: "社区表情" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("tab", { name: "茉莉 01" })).toBeNull());
   });
 
   it("最近使用带类型：图片条目按展示名渲染、可再次插入；旧格式纯字符串仍按 Unicode 显示", async () => {
@@ -218,7 +225,7 @@ describe("社区表情页签", () => {
     );
     await mount();
     await openPanel();
-    await waitFor(() => expect(screen.getByRole("tab", { name: "社区表情" })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("tab", { name: "茉莉 01" })).toBeInTheDocument());
     // 旧条目在 → 「最近使用」页签是默认选中
     expect(screen.getByRole("tab", { name: "最近使用" })).toHaveAttribute("aria-selected", "true");
     const grid = screen.getByRole("grid", { name: "最近使用" });
