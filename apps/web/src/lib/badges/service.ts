@@ -144,3 +144,67 @@ export async function grantBadgeByAdmin(
   await dispatchOutboxRows(enqueued);
   await sweepPending();
 }
+
+/** 收回徽章（M9.5 站长拍板补能力）：删持有行 + 审计 + badge.revoked 事件（通知当事人） */
+export async function revokeBadgeByAdmin(
+  admin: ConfigActor & { userId: number },
+  req: GrantBadgeRequest,
+): Promise<void> {
+  await withDeadlockRetry(() =>
+    getWebDb().transaction(async (tx) => {
+      const [holder] = await tx
+        .select({ userId: userBadges.userId })
+        .from(userBadges)
+        .where(and(eq(userBadges.userId, req.userId), eq(userBadges.badgeId, req.badgeId)))
+        .limit(1);
+      if (!holder) throw new AdminError("该用户未持有此徽章");
+
+      const [badge] = await tx
+        .select({ name: badges.name })
+        .from(badges)
+        .where(eq(badges.id, req.badgeId))
+        .limit(1);
+
+      await tx
+        .delete(userBadges)
+        .where(and(eq(userBadges.userId, req.userId), eq(userBadges.badgeId, req.badgeId)));
+      await writeAudit(tx, {
+        actorId: admin.userId,
+        action: "badge.revoke",
+        targetType: "user",
+        targetId: req.userId,
+        after: {
+          badgeId: req.badgeId,
+          badgeName: badge?.name ?? String(req.badgeId),
+          via: admin.via,
+        },
+        ip: admin.ip,
+      });
+      await enqueueEventInTx(
+        tx,
+        "badge.revoked",
+        { userId: req.userId, badgeId: req.badgeId },
+        { actorId: admin.userId, source: "badges" },
+      );
+    }, POINTS_TX_OPTIONS),
+  );
+  await sweepPending();
+}
+
+/** 最近授予/收回记录（M9.5）：user_badges 按 granted 时间倒序，供后台核对（不含操作者——审计有） */
+export async function recentBadgeGrants(
+  limit = 10,
+): Promise<{ userId: number; username: string | null; badgeName: string; awardedAt: string }[]> {
+  return getWebDb()
+    .select({
+      userId: userBadges.userId,
+      username: users.username,
+      badgeName: badges.name,
+      awardedAt: userBadges.awardedAt,
+    })
+    .from(userBadges)
+    .leftJoin(users, eq(users.id, userBadges.userId))
+    .innerJoin(badges, eq(badges.id, userBadges.badgeId))
+    .orderBy(desc(userBadges.awardedAt))
+    .limit(limit);
+}

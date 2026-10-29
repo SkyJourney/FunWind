@@ -67,6 +67,7 @@ const ACTOR_FIELD_BY_EVENT: Record<EventName, string | null> = {
   "points.changed": "userId",
   "gate.unlocked": "userId",
   "badge.awarded": "userId",
+  "badge.revoked": "userId",
   "checkin.done": "userId",
 };
 

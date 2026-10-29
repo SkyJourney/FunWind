@@ -115,6 +115,7 @@ export interface EventPayloads {
   "points.changed": { userId: number; channel: string; delta: number };
   "gate.unlocked": { gateId: number; userId: number; authorId: number; price: number };
   "badge.awarded": { userId: number; badgeId: number };
+  "badge.revoked": { userId: number; badgeId: number };
   "checkin.done": { userId: number; streak: number };
 }
 

@@ -206,6 +206,13 @@ export const NOTIFICATION_TYPE_SPECS: NotificationTypeSpec[] = [
     template: "你获得了新徽章",
   },
   {
+    key: "badge.revoked",
+    category: "account",
+    aggregate: false,
+    mandatory: true,
+    template: "你的一个徽章已被管理员收回",
+  },
+  {
     key: "system.welcome",
     category: "account",
     aggregate: false,

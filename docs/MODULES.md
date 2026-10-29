@@ -20,7 +20,7 @@ export const myModule = defineModule({
   schemaFragments: [myTable], // M7 起消费（表仍需登记进 @funwind/db 单一事实源）
   // —— 以下三类为 M5.5 新增边界（已落地到 kernel/types.ts；原第四类 gateConditions 已在 M6.1 删除）——
   pointChannels: [{ key: "earn.checkin", direction: "earn", label: "签到奖励" }], // 见 docs/POINTS.md
-  notificationTypes: [{ key: "badge.awarded", category: "account", aggregate: false, mandatory: false }], // 见 docs/NOTIFICATIONS.md
+  notificationTypes: [{ key: "badge.awarded", … }, { key: "badge.revoked", category: "account", aggregate: false, mandatory: true }], // 见 docs/NOTIFICATIONS.md
   notificationChannels: [{ key: "in_app", deliver: async (n, user) => {} }], // 当前仅站内；email/push 预留
   tokenOverrides: { "--accent": "var(--fw-teal-500)" },
   routePrefix: "/my",         // 约定：自有页面放 src/app/(module-my)/…
@@ -70,6 +70,7 @@ M9 后由管理后台管理）。
 | `points.changed` | `{ userId, channel, delta }` | M5.5 积分核心 `applyPoints` |
 | `gate.unlocked` | `{ gateId, userId, authorId, price }` | M5.5 `unlockGate`（M6 交互） |
 | `badge.awarded` | `{ userId, badgeId }` | M7 徽章（原 `medal.awarded`） |
+| `badge.revoked` | `{ userId, badgeId }` | M9.5 徽章收回 |
 | `checkin.done` | `{ userId, streak }` | M7 签到 |
 
 ## 槽位清单（M2 启用 home.*；页面级随页面建设扩充）

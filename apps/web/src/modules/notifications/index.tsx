@@ -156,6 +156,15 @@ export const notificationsModule = defineModule({
         data: { badgeId: p.badgeId },
       });
     },
+    "badge.revoked": async (p) => {
+      await notify({
+        type: "badge.revoked",
+        recipients: [p.userId],
+        targetType: "user",
+        targetId: p.userId,
+        data: { badgeId: p.badgeId },
+      });
+    },
 
     // ---- M9：审核与账号类生产方 ----
 

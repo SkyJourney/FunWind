@@ -25,6 +25,7 @@ export const EVENT_NAMES = [
   "points.changed",
   "gate.unlocked",
   "badge.awarded",
+  "badge.revoked",
   "checkin.done",
 ] as const satisfies readonly EventName[];
 
@@ -57,6 +58,7 @@ export const REQUIRED_PAYLOAD_KEYS: Record<EventName, readonly string[]> = {
   "points.changed": ["userId", "channel", "delta"],
   "gate.unlocked": ["gateId", "userId", "authorId", "price"],
   "badge.awarded": ["userId", "badgeId"],
+  "badge.revoked": ["userId", "badgeId"],
   "checkin.done": ["userId", "streak"],
 };
 

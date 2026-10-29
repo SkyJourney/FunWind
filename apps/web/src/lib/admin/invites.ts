@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { alias } from "drizzle-orm/mysql-core";
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { getWebDb, inviteCodes, users } from "@funwind/db";
 import { writeAudit, type DbTx } from "@/lib/audit";
 
@@ -39,37 +39,107 @@ export interface InviteRow {
 /** datetime(mode:"string") 是 "YYYY-MM-DD HH:MM:SS"；转 ISO 才能可靠 parse */
 const ts = (s: string): number => new Date(s.replace(" ", "T")).getTime();
 
-/** 最近 100 条（含创建人/使用人名）；状态 = 已用 > 已过期 > 可用 */
+/** 最近 100 条（含创建人/使用人名）；状态 = 已用 > 已过期 > 可用。保留给旧调用兼容 */
 export async function listInvites(): Promise<InviteRow[]> {
+  return (await listInvitesPage({ status: "all", page: 1, perPage: 100 })).items;
+}
+
+export type InviteStatusFilter = "all" | "available" | "used" | "expired";
+
+export type InvitePageFilters = {
+  status: InviteStatusFilter;
+  /** 批次关键词（包含匹配） */
+  batch?: string;
+  page: number;
+  perPage?: number;
+};
+
+/** 邀请码分页（M9.5）：状态/批次筛选下推 SQL（状态在 SQL 侧用同一套 used/expired 口径表达） */
+export async function listInvitesPage(filters: InvitePageFilters): Promise<{
+  items: InviteRow[];
+  total: number;
+}> {
+  const perPage = filters.perPage ?? 20;
+  const conds = [];
+  if (filters.status === "used") conds.push(sql`${inviteCodes.usedAt} IS NOT NULL`);
+  if (filters.status === "available")
+    conds.push(
+      sql`${inviteCodes.usedAt} IS NULL AND (${inviteCodes.expiresAt} IS NULL OR ${inviteCodes.expiresAt} > NOW())`,
+    );
+  if (filters.status === "expired")
+    conds.push(
+      sql`${inviteCodes.usedAt} IS NULL AND ${inviteCodes.expiresAt} IS NOT NULL AND ${inviteCodes.expiresAt} <= NOW()`,
+    );
+  const batch = filters.batch?.trim();
+  if (batch) conds.push(sql`${inviteCodes.batch} LIKE ${`%${batch}%`}`);
+  const where = conds.length > 0 ? and(...conds) : undefined;
+
   const creator = alias(users, "invite_creator");
   const usedByUser = alias(users, "invite_used_by");
-  const rows = await getWebDb()
-    .select({
-      code: inviteCodes.code,
-      createdBy: inviteCodes.createdBy,
-      createdByName: creator.username,
-      usedBy: inviteCodes.usedBy,
-      usedByName: usedByUser.username,
-      usedAt: inviteCodes.usedAt,
-      expiresAt: inviteCodes.expiresAt,
-      batch: inviteCodes.batch,
-      createdAt: inviteCodes.createdAt,
-    })
-    .from(inviteCodes)
-    .leftJoin(creator, eq(inviteCodes.createdBy, creator.id))
-    .leftJoin(usedByUser, eq(inviteCodes.usedBy, usedByUser.id))
-    .orderBy(desc(inviteCodes.createdAt))
-    .limit(100);
+  const [countRow, rows] = await Promise.all([
+    getWebDb()
+      .select({ total: sql<number>`COUNT(*)` })
+      .from(inviteCodes)
+      .where(where),
+    getWebDb()
+      .select({
+        code: inviteCodes.code,
+        createdBy: inviteCodes.createdBy,
+        createdByName: creator.username,
+        usedBy: inviteCodes.usedBy,
+        usedByName: usedByUser.username,
+        usedAt: inviteCodes.usedAt,
+        expiresAt: inviteCodes.expiresAt,
+        batch: inviteCodes.batch,
+        createdAt: inviteCodes.createdAt,
+      })
+      .from(inviteCodes)
+      .leftJoin(creator, eq(inviteCodes.createdBy, creator.id))
+      .leftJoin(usedByUser, eq(inviteCodes.usedBy, usedByUser.id))
+      .where(where)
+      .orderBy(desc(inviteCodes.createdAt))
+      .limit(perPage)
+      .offset((filters.page - 1) * perPage),
+  ]);
+
   const now = Date.now();
-  return rows.map((r) => ({
-    ...r,
-    status:
-      r.usedAt !== null
-        ? "used"
-        : r.expiresAt !== null && ts(r.expiresAt) <= now
-          ? "expired"
-          : "available",
-  }));
+  return {
+    items: rows.map((r) => ({
+      ...r,
+      status:
+        r.usedAt !== null
+          ? "used"
+          : r.expiresAt !== null && ts(r.expiresAt) <= now
+            ? "expired"
+            : "available",
+    })),
+    total: Number(countRow[0]?.total ?? 0),
+  };
+}
+
+/** 撤销某批次全部可用码（M9.5 批量撤销）：一条批次级审计（count 进 after）；已用码不受影响 */
+export async function revokeInvitesByBatch(
+  actor: { userId: number | null; ip?: string | null },
+  batch: string,
+): Promise<{ ok: true; revoked: number } | { ok: false; code: "not_found" }> {
+  const db = getWebDb();
+  const result = await db.transaction(async (tx: DbTx) => {
+    const out = await tx
+      .delete(inviteCodes)
+      .where(and(eq(inviteCodes.batch, batch), isNull(inviteCodes.usedAt)));
+    const revoked = Number((out as unknown as { affectedRows: number }).affectedRows ?? 0);
+    if (revoked === 0) return { ok: false as const, code: "not_found" as const };
+    await writeAudit(tx, {
+      actorId: actor.userId,
+      action: "invite.revoke_batch",
+      targetType: "invite_batch",
+      targetId: batch,
+      after: { revoked },
+      ip: actor.ip,
+    });
+    return { ok: true as const, revoked };
+  });
+  return result;
 }
 
 export type InviteGenInput = {

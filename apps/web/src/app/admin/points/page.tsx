@@ -1,8 +1,12 @@
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { getPointsName } from "@/lib/auth/settings";
 import { getPointRewardConfig } from "@/lib/points/reward-load";
+import { queryAuditLogs } from "@/lib/admin/logs";
+import { fmtDateTime } from "@/lib/admin/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { ConfirmSubmit } from "@/components/ui/confirm-submit";
+import { UserPicker } from "@/components/admin/user-picker";
 import { adjustPointsAction, saveRewardAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +23,11 @@ export default async function AdminPointsPage({
 }) {
   await requireAdmin("admin.points");
   const sp = await searchParams;
-  const [reward, pointsName] = await Promise.all([getPointRewardConfig(), getPointsName()]);
+  const [reward, pointsName, recentAdjusts] = await Promise.all([
+    getPointRewardConfig(),
+    getPointsName(),
+    queryAuditLogs({ action: "points.adjust", limit: 10 }),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -121,11 +129,7 @@ export default async function AdminPointsPage({
             <div className="flex flex-wrap gap-x-8 gap-y-3 text-sm">
               <label className="space-y-1">
                 <span className="block font-medium">用户名</span>
-                <input
-                  name="username"
-                  className="w-44 rounded-lg border bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring"
-                  required
-                />
+                <UserPicker name="username" label="调整对象用户名" placeholder="用户名" required />
               </label>
               <label className="space-y-1">
                 <span className="block font-medium">额度（正加负减）</span>
@@ -141,13 +145,62 @@ export default async function AdminPointsPage({
                 required
               />
             </label>
-            <SubmitButton
+            <ConfirmSubmit
+              title="确认积分调整"
+              description="确认执行该积分调整（可为负数扣分）？入当事人台账并通知，审计已记录操作者。"
               className="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
               pendingText="执行中…"
             >
               执行调整
-            </SubmitButton>
+            </ConfirmSubmit>
           </form>
+
+          <div className="mt-5 border-t pt-3">
+            <p className="text-sm font-medium">最近 10 条手工调整</p>
+            {recentAdjusts.items.length === 0 ? (
+              <p className="mt-1 text-sm text-muted-foreground">还没有调整记录。</p>
+            ) : (
+              <ul className="mt-1 divide-y text-sm">
+                {recentAdjusts.items.map((r) => {
+                  let delta = "";
+                  let note = "";
+                  const target = r.targetId;
+                  try {
+                    const after = (r.afterJson ?? {}) as { delta?: number; note?: string };
+                    delta =
+                      typeof after.delta === "number"
+                        ? `${after.delta > 0 ? "+" : ""}${after.delta}`
+                        : "";
+                    note = after.note ?? "";
+                  } catch {
+                    // JSON 解析失败按原样展示 targetId
+                  }
+                  return (
+                    <li
+                      key={r.id}
+                      className="flex flex-wrap items-baseline justify-between gap-2 py-1.5"
+                    >
+                      <span>
+                        uid {target}
+                        <span
+                          className={`ml-2 font-medium ${delta.startsWith("+") ? "text-success" : "text-destructive"}`}
+                        >
+                          {delta}
+                        </span>
+                        <span className="ml-2 text-muted-foreground">{note}</span>
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {fmtDateTime(r.createdAt)}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            <p className="mt-1 text-xs text-muted-foreground">
+              完整台账见各用户详情页；审计明细（含操作者）见审计日志（action = points.adjust）。
+            </p>
+          </div>
         </CardContent>
       </Card>
     </div>
