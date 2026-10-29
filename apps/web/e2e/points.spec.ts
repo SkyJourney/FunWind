@@ -114,6 +114,8 @@ test("管理员手工调整：强制备注、余额变化、audit_log 留痕", a
   await page.getByLabel("额度（正加负减）").fill("7");
   await page.getByLabel("备注（必填，入台账与审计）").fill("E2E 活动补偿");
   await page.getByRole("button", { name: "执行调整" }).click();
+  // M9.5：调整加了二次确认（可负数扣分，保护等级对齐删除类操作）
+  await page.getByRole("dialog").getByRole("button", { name: "确认" }).click();
   await expect(page).toHaveURL(/\/admin\/points\?adjusted=1/);
   await expect(page.getByText("调整已入账")).toBeVisible();
 

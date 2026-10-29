@@ -38,7 +38,7 @@ test("邀请码：生成 → 列表可用 → 撤销 → 消失", async ({ brows
   await admin.getByLabel("数量（1–20）").fill("2");
   await admin.getByLabel("批次备注").fill("e2e 批次");
   await submitAndWait(admin, "生成");
-  await expect(admin.getByText("邀请码已生成")).toBeVisible();
+  await expect(admin.getByText(/已生成 2 枚邀请码/)).toBeVisible();
   const rows = admin.locator("div.rounded-lg.border").filter({ hasText: "e2e 批次" });
   await expect(rows).toHaveCount(2);
 

@@ -109,7 +109,7 @@ export default async function AdminReportsPage({ searchParams }: Params) {
           该状态下没有举报。
         </p>
       ) : tab === "pending" ? (
-        <form>
+        <>
           <ul className="space-y-2">
             {items.map((item) => (
               <li key={item.id} className="rounded-xl border bg-card px-4 py-3">
@@ -118,6 +118,7 @@ export default async function AdminReportsPage({ searchParams }: Params) {
                     <input
                       type="checkbox"
                       name="reportIds"
+                      form="bulk-reports-form"
                       value={item.id}
                       aria-label={`选择举报：${item.threadTitle}`}
                       className="mt-1 size-4 shrink-0"
@@ -176,8 +177,11 @@ export default async function AdminReportsPage({ searchParams }: Params) {
             ))}
           </ul>
 
-          {/* 批量忽略条（吸底）：忽略说明统一，适合批量 */}
-          <div className="sticky bottom-4 mt-4 flex flex-wrap items-center gap-2 rounded-xl border bg-card px-4 py-3 shadow-sm">
+          {/* 批量忽略条（吸底）：忽略说明统一，适合批量；checkbox 经 form 属性归入本表单 */}
+          <form
+            id="bulk-reports-form"
+            className="sticky bottom-4 mt-4 flex flex-wrap items-center gap-2 rounded-xl border bg-card px-4 py-3 shadow-sm"
+          >
             <span className="text-sm text-muted-foreground">
               勾选后批量忽略（说明统一「经核实不构成违规」）
             </span>
@@ -190,8 +194,8 @@ export default async function AdminReportsPage({ searchParams }: Params) {
             >
               批量忽略已选
             </ConfirmSubmit>
-          </div>
-        </form>
+          </form>
+        </>
       ) : (
         <ul className="space-y-2">
           {items.map((item) => (

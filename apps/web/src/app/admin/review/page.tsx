@@ -174,15 +174,18 @@ function BulkList({
   moderated: number[];
 }) {
   return (
-    <form>
+    <>
       <ul className="space-y-2">
         {items.map((item) => (
           <li key={item.postId} className="rounded-xl border bg-card px-4 py-3">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="flex min-w-0 items-start gap-2">
+                {/* form 属性关联页底批量表单：checkbox 物理上在卡片里、提交时归入 bulk-form
+                    （HTML 禁止嵌套 form——外层大 form 会拆掉逐条操作的独立 form） */}
                 <input
                   type="checkbox"
                   name="postIds"
+                  form="bulk-review-form"
                   value={item.postId}
                   aria-label={`选择：${item.title}`}
                   className="mt-1 size-4 shrink-0"
@@ -212,7 +215,10 @@ function BulkList({
       </ul>
 
       {/* 批量操作条：吸底；批量通过走 formAction 分流，批量驳回共用理由输入 */}
-      <div className="sticky bottom-4 mt-4 flex flex-wrap items-center gap-2 rounded-xl border bg-card px-4 py-3 shadow-sm">
+      <form
+        id="bulk-review-form"
+        className="sticky bottom-4 mt-4 flex flex-wrap items-center gap-2 rounded-xl border bg-card px-4 py-3 shadow-sm"
+      >
         <span className="text-sm text-muted-foreground">勾选后可批量操作（每次最多 50 条）</span>
         <span className="ml-auto flex flex-wrap items-center gap-2">
           <SubmitButton
@@ -238,8 +244,8 @@ function BulkList({
             批量驳回
           </ConfirmSubmit>
         </span>
-      </div>
-    </form>
+      </form>
+    </>
   );
 }
 
