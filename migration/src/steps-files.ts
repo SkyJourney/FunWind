@@ -94,6 +94,66 @@ export const filesStep: Step = {
     );
     await bumpAutoIncrement("attachments");
 
+    // ── 正文引用收敛（M9.5 站长反馈的存量缺口）──
+    // 旧站的「附件下载」与「正文贴图」是两套独立数据；新模型（M10.6d）语义是
+    // 「文件被正文引用即不再作为下载附件」。迁移直映射没有做这个收敛，
+    // 导致旧帖图片既在正文渲染、又重复出现在帖末下载列表（开发库存量 302 公开 + 32 门控）。
+    // 收敛规则：download 行的 storage_key 出现在该帖公开正文 → 转 inline（gate_id=NULL）；
+    // 出现在某门控隐藏正文 → 转 inline 且保留该门控归属（随帖可见性语义不变，绝不能删行——
+    // 删了图片附件行，图片会因「无任何引用」变成全网 public）。
+    {
+      const { extractKeys } = await import("@funwind/content");
+      const downloadRows = await newQuery<{
+        id: number;
+        post_id: number;
+        gate_id: number | null;
+        storage_key: string;
+      }>(
+        `SELECT a.id, a.post_id, a.gate_id, f.storage_key
+         FROM attachments a JOIN files f ON f.id = a.file_id
+         WHERE a.kind = 'download'`,
+      );
+      // 每帖正文引用集合
+      const bodyRefs = new Map<number, Set<string>>();
+      for (const r of await newQuery<{ id: number; body_md: string }>(
+        "SELECT id, body_md FROM posts",
+      )) {
+        const keys = extractKeys(r.body_md ?? "");
+        if (keys.length > 0) bodyRefs.set(r.id, new Set(keys));
+      }
+      // 门控隐藏正文引用：gate_id → 集合
+      const gateRefs = new Map<number, Set<string>>();
+      for (const r of await newQuery<{ id: number; hidden_md: string }>(
+        "SELECT id, hidden_md FROM post_gates",
+      )) {
+        const keys = extractKeys(r.hidden_md ?? "");
+        if (keys.length > 0) gateRefs.set(r.id, new Set(keys));
+      }
+      let toInlinePublic = 0;
+      let toInlineGated = 0;
+      for (const row of downloadRows) {
+        const inBody = bodyRefs.get(row.post_id)?.has(row.storage_key) ?? false;
+        const inGate =
+          row.gate_id !== null && (gateRefs.get(row.gate_id)?.has(row.storage_key) ?? false);
+        if (!inBody && !inGate) continue;
+        // 公开正文引用优先（gate_id 置 NULL）；仅在门控隐藏正文引用时保留门控归属
+        const newGate = inBody ? null : row.gate_id;
+        await newQuery("UPDATE attachments SET kind = 'inline', gate_id = ? WHERE id = ?", [
+          newGate,
+          row.id,
+        ]);
+        if (inBody) toInlinePublic += 1;
+        else toInlineGated += 1;
+      }
+      ctx.report
+        .section("附件引用收敛")
+        .line(
+          `download ${downloadRows.length} 行中：被公开正文引用 ${toInlinePublic} 行 → 转 inline（gate_id=NULL）；` +
+            `仅被门控隐藏正文引用 ${toInlineGated} 行 → 转 inline（保留门控归属）。` +
+            `未收敛 ${downloadRows.length - toInlinePublic - toInlineGated} 行保持 download。`,
+        );
+    }
+
     // 回填头像与勋章图（先清空，保证重跑时不遗留陈旧引用）
     await newQuery("UPDATE user_profiles SET avatar_file_id = NULL");
     for (let i = 0; i < avatarRefs.length; i += CHUNK) {

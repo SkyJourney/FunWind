@@ -887,6 +887,32 @@ group = "文件";
   }
   const orphanFiles = rows.filter((r) => !used.has(Number(r.id)));
   add("没有孤儿文件（登记的文件都被引用）", orphanFiles.length === 0, `孤儿 ${orphanFiles.length}`);
+  // 附件引用收敛（M9.5 站长反馈）：download 行的文件不得同时被其帖子的正文（公开或门控隐藏）引用——
+  // 否则图片既在正文渲染又重复出现在帖末下载列表（迁移直映射的存量缺口，files 步骤已收敛）
+  {
+    const leaked = await newQuery<{ id: number }>(
+      `SELECT a.id FROM attachments a
+       JOIN files f ON f.id = a.file_id
+       JOIN posts p ON p.id = a.post_id
+       WHERE a.kind = 'download' AND p.body_md LIKE CONCAT('%', f.storage_key, '%')`,
+    );
+    add(
+      "download 附件不被公开正文引用（引用即转 inline）",
+      leaked.length === 0,
+      leaked.length ? `残留: ${leaked.map((l) => l.id).slice(0, 8)}` : "全部收敛",
+    );
+    const leakedGate = await newQuery<{ id: number }>(
+      `SELECT a.id FROM attachments a
+       JOIN files f ON f.id = a.file_id
+       JOIN post_gates g ON g.id = a.gate_id
+       WHERE a.kind = 'download' AND g.hidden_md LIKE CONCAT('%', f.storage_key, '%')`,
+    );
+    add(
+      "download 附件不被其门控隐藏正文引用",
+      leakedGate.length === 0,
+      leakedGate.length ? `残留: ${leakedGate.map((l) => l.id).slice(0, 8)}` : "全部收敛",
+    );
+  }
   const danglingFile = await num(
     `SELECT (SELECT COUNT(*) FROM attachments a LEFT JOIN files f ON f.id = a.file_id WHERE f.id IS NULL)
           + (SELECT COUNT(*) FROM user_profiles p LEFT JOIN files f ON f.id = p.avatar_file_id
