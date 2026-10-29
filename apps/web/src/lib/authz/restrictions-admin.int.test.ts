@@ -7,7 +7,12 @@ import { and, desc, eq } from "drizzle-orm";
 import { auditLog, eventOutbox, getWebDb, notifications, userRestrictions } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
-import { createRestriction, liftRestriction, searchUsers } from "./restrictions-admin";
+import {
+  createRestriction,
+  liftRestriction,
+  listAdminUsersPage,
+  searchUsers,
+} from "./restrictions-admin";
 
 let tdb: TempDb;
 const db = () => getWebDb();
@@ -122,5 +127,45 @@ describe.skipIf(skipDb)("限制管理（M9）", () => {
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.every((r) => r.username.includes("demo_"))).toBe(true);
     expect(await searchUsers("")).toEqual([]);
+  });
+
+  it("listAdminUsersPage：默认最新注册、uid 等值、受限筛选与总数（M9.5）", async () => {
+    // 给 member（90005）上一个长期生效的限制，验证 restricted 筛选
+    await db()
+      .insert(userRestrictions)
+      .values({
+        userId: 90005,
+        kind: "mute",
+        scopeId: 0,
+        reason: "列表筛选测试",
+        startsAt: "2026-01-01 00:00:00",
+        endsAt: "2099-01-01 00:00:00",
+        createdAt: "2026-01-01 00:00:00",
+      });
+
+    const def = await listAdminUsersPage({ status: "all", sort: "recent" }, 1);
+    expect(def.total).toBeGreaterThan(0);
+    expect(def.items.length).toBeLessThanOrEqual(20);
+    // 最新注册在前（seed 里 team 90006 注册最晚）
+    expect(def.items[0]?.id).toBe(90006);
+
+    // uid 等值直达
+    const byUid = await listAdminUsersPage({ q: "90005", status: "all", sort: "recent" }, 1);
+    expect(byUid.total).toBe(1);
+    expect(byUid.items[0]?.id).toBe(90005);
+
+    // 受限筛选必含 banned（90003，种子自带永久封禁，任何前序用例不动它），且标记为真
+    const restricted = await listAdminUsersPage({ status: "restricted", sort: "recent" }, 1);
+    expect(restricted.total).toBeGreaterThanOrEqual(1);
+    const hit = restricted.items.find((r) => r.id === 90003);
+    expect(hit?.restricted).toBe(true);
+    // 全量列表里 banned 同样带受限标记；正常用户（90001）不带
+    const all = await listAdminUsersPage({ status: "all", sort: "id" }, 1);
+    expect(all.items.find((r) => r.id === 90003)?.restricted).toBe(true);
+    expect(all.items.find((r) => r.id === 90001)?.restricted).toBe(false);
+
+    // 主题数排序：全 0 时按 uid 倒序兜底，不报错即可
+    const byThreads = await listAdminUsersPage({ status: "all", sort: "threads" }, 1);
+    expect(byThreads.items.length).toBeGreaterThan(0);
   });
 });

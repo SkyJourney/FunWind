@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { getWebDb, pointAccounts, sessions, userRestrictions, userRoles, users } from "@funwind/db";
 import type { ConfigActor } from "@/lib/audit";
 import { writeAudit } from "@/lib/audit";
@@ -169,7 +169,7 @@ export async function liftRestriction(
   return { ok: true };
 }
 
-/** 用户搜索（用户名前缀/包含，仅 active，限 20） */
+/** 用户搜索（用户名包含，仅 active，限 20）——保留给 UserPicker 等轻量场景 */
 export async function searchUsers(query: string): Promise<
   {
     id: number;
@@ -186,17 +186,106 @@ export async function searchUsers(query: string): Promise<
       id: users.id,
       username: users.username,
       createdAt: users.createdAt,
+      // 子查询里必须用字面量限定名 users.id：模板插值 ${users.id} 在单表查询会被渲染成
+      // 裸 `id`，进入子查询作用域后解析到内层表的同名列（M9.5 发现的存量潜伏错误）
       threadCount: sql<
         number | null
-      >`(SELECT COUNT(*) FROM threads t WHERE t.author_id = ${users.id} AND t.state = 'visible')`,
+      >`(SELECT COUNT(*) FROM threads WHERE threads.author_id = users.id AND threads.state = 'visible')`,
       postCount: sql<
         number | null
-      >`(SELECT COUNT(*) FROM posts p WHERE p.author_id = ${users.id} AND p.state = 'visible')`,
+      >`(SELECT COUNT(*) FROM posts WHERE posts.author_id = users.id AND posts.state = 'visible')`,
     })
     .from(users)
     .where(and(eq(users.state, "active"), sql`${users.username} LIKE ${`%${q}%`}`))
     .orderBy(users.id)
     .limit(20);
+}
+
+export type AdminUserListFilters = {
+  /** 纯数字 = uid 等值；否则用户名包含 */
+  q?: string;
+  /** restricted = 存在未过期的生效限制；all/空 = 不过滤 */
+  status?: "all" | "restricted";
+  sort: "recent" | "id" | "threads";
+};
+
+export const ADMIN_USERS_PER_PAGE = 20;
+
+/**
+ * 用户管理列表（M9.5 站长拍板：默认列最近注册，不再默认空页）。
+ * 计数走两个聚合子查询（与 searchUsers 同口径，visible 状态）；受限筛选走 EXISTS 生效限制行。
+ */
+export async function listAdminUsersPage(
+  filters: AdminUserListFilters,
+  page: number,
+): Promise<{
+  items: {
+    id: number;
+    username: string;
+    createdAt: string;
+    threadCount: number | null;
+    postCount: number | null;
+    restricted: boolean;
+  }[];
+  total: number;
+}> {
+  const perPage = ADMIN_USERS_PER_PAGE;
+  const q = filters.q?.trim() ?? "";
+  const conditions = [sql`${users.state} = 'active'`];
+  if (/^\d+$/.test(q)) {
+    conditions.push(eq(users.id, Number(q)));
+  } else if (q) {
+    conditions.push(sql`${users.username} LIKE ${`%${q}%`}`);
+  }
+  if (filters.status === "restricted") {
+    conditions.push(
+      sql`EXISTS (SELECT 1 FROM user_restrictions ur WHERE ur.user_id = ${users.id}
+        AND ur.starts_at <= NOW() AND (ur.ends_at IS NULL OR ur.ends_at > NOW()))`,
+    );
+  }
+  const where = and(...conditions);
+
+  const orderBy =
+    filters.sort === "id"
+      ? [asc(users.id)]
+      : filters.sort === "threads"
+        ? [
+            // 字面量限定名理由同 searchUsers（模板插值在单表查询渲染成裸列名）
+            sql`(SELECT COUNT(*) FROM threads WHERE threads.author_id = users.id AND threads.state = 'visible') DESC`,
+            desc(users.id),
+          ]
+        : [desc(users.id)];
+
+  const [countRow, items] = await Promise.all([
+    getWebDb()
+      .select({ total: sql<number>`COUNT(*)` })
+      .from(users)
+      .where(where),
+    getWebDb()
+      .select({
+        id: users.id,
+        username: users.username,
+        createdAt: users.createdAt,
+        threadCount: sql<
+          number | null
+        >`(SELECT COUNT(*) FROM threads WHERE threads.author_id = users.id AND threads.state = 'visible')`,
+        postCount: sql<
+          number | null
+        >`(SELECT COUNT(*) FROM posts WHERE posts.author_id = users.id AND posts.state = 'visible')`,
+        // EXISTS 回来是 0/1，mapWith 转真布尔（drizzle 的 sql<boolean> 只标注不转换）
+        restricted:
+          sql<boolean>`EXISTS (SELECT 1 FROM user_restrictions ur WHERE ur.user_id = users.id
+          AND ur.starts_at <= NOW() AND (ur.ends_at IS NULL OR ur.ends_at > NOW()))`.mapWith(
+            Boolean,
+          ),
+      })
+      .from(users)
+      .where(where)
+      .orderBy(...orderBy)
+      .limit(perPage)
+      .offset((page - 1) * perPage),
+  ]);
+  return { items, total: Number(countRow[0]?.total ?? 0) };
 }
 
 /** 用户管理详情聚合 */
