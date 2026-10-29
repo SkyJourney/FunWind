@@ -23,7 +23,6 @@ const baseFields = {
   kind: z.enum(["section", "forum"]),
   name: z.string().trim().min(1, "名称不能为空").max(100),
   description: z.string().max(2000).default(""),
-  icon: z.string().trim().max(100).default(""),
   sortOrder: z.coerce.number().int().min(0).max(1_000_000).default(0),
   isListed: z.string().default(""),
 };
@@ -43,7 +42,6 @@ export const createForumAction = defineAction({
       kind: input.kind,
       name: input.name,
       description: input.description.trim() === "" ? null : input.description.trim(),
-      icon: input.icon,
       sortOrder: input.sortOrder,
       isListed: input.isListed === "on",
     });
@@ -71,7 +69,6 @@ export const updateForumAction = defineAction({
       parentId: input.parentId,
       name: input.name,
       description: input.description.trim() === "" ? null : input.description.trim(),
-      icon: input.icon,
       sortOrder: input.sortOrder,
       isListed: input.isListed === "on",
       readPolicy: input.readPolicy,

@@ -82,7 +82,7 @@ export interface EventPayloads {
   "content.moderated": {
     postId: number;
     operatorId: number;
-    action: "approve" | "reject" | "remove" | "hide" | "restore";
+    action: "approve" | "reject" | "remove" | "hide" | "restore" | "disable";
     reason?: string;
   };
   "post.mentioned": { postId: number; authorId: number; mentionedUserId: number };

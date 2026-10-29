@@ -21,10 +21,56 @@ export interface TransitionOptions {
   reason?: string;
   /** 是否写审计（作者删自己的帖子默认不写，版主动作必须写） */
   audit?: boolean;
+  /**
+   * 执行者角色（M9.5 状态机中央白名单）：白名单按「谁执行」区分——
+   * author（作者本人：只允许 rejected→pending 重提、删除自己的内容）
+   * moderator（版主：审核/屏蔽/封禁/恢复等治理动作）
+   * system（系统/迁移：不受限）
+   * 缺省 moderator（历史调用方都是版主语境；作者路径在 rules.ts 已单独约束并显式传 author）。
+   */
+  actor?: "author" | "moderator" | "system";
+}
+
+/**
+ * 状态迁移白名单（M9.5 收拢分散约束）：
+ * 之前每个调用方各自判断「从什么状态能到什么状态」，规则散落、易漏；
+ * 现在中央定义 from→to 矩阵，并按执行者角色区分（作者只能重提与自删）。
+ * 迁移表：
+ *   visible → hidden | disabled | deleted
+ *   pending → visible | rejected | hidden | disabled
+ *   rejected → pending（作者重提）| visible | hidden | disabled
+ *   hidden → visible | deleted | disabled
+ *   deleted → visible（版主恢复）
+ *   disabled → deleted（版主彻底删；**不可恢复、不可重审**——这是 disabled 与 hidden/deleted 的语义分界）
+ */
+const TRANSITION_MATRIX: Record<ContentState, Partial<Record<ContentState, true>>> = {
+  visible: { hidden: true, disabled: true, deleted: true },
+  pending: { visible: true, rejected: true, hidden: true, disabled: true },
+  rejected: { pending: true, visible: true, hidden: true, disabled: true },
+  hidden: { visible: true, deleted: true, disabled: true },
+  deleted: { visible: true },
+  disabled: { deleted: true },
+};
+
+/** 作者可自行执行的目标状态（其余治理动作属版主） */
+const AUTHOR_ALLOWED: ContentState[] = ["pending", "deleted"];
+
+export type TransitionDenial = "not_found" | "illegal_transition";
+
+export function isTransitionAllowed(
+  from: ContentState,
+  to: ContentState,
+  actor: "author" | "moderator" | "system",
+): boolean {
+  if (from === to) return true;
+  if (actor === "system") return true;
+  if (!TRANSITION_MATRIX[from]?.[to]) return false;
+  if (actor === "author") return AUTHOR_ALLOWED.includes(to);
+  return true;
 }
 
 export type TransitionResult =
-  | { ok: false; code: "not_found" }
+  | { ok: false; code: TransitionDenial }
   | {
       ok: true;
       /** false = 状态本来就是目标状态，什么都没做 */
@@ -211,6 +257,10 @@ export async function transitionContent(
     threadAuthorId: thread.authorId,
   };
   if (from === to) return { ...base, changed: false };
+  // 中央白名单（M9.5）：非法迁移直接拒绝（原先由各调用方分散判断，易漏）
+  if (!isTransitionAllowed(from, to, opts.actor ?? "moderator")) {
+    return { ok: false, code: "illegal_transition" };
+  }
 
   // 主题与首帖状态同事务同步：对主题的迁移要求两者此刻一致，否则说明数据已分叉，宁可报错也不在分叉数据上算计数
   if (kind === "thread" && thread.state !== from) {

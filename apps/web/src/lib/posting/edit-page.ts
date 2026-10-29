@@ -33,6 +33,8 @@ export type EditPageModel =
       resubmit: boolean;
       /** 驳回理由（仅驳回后的修改有；没有理由则 null） */
       reviewNote: string | null;
+      /** 当前内容状态（M9.5：编辑页对 pending 给「审核中」提示） */
+      state: string;
       /** 往返不等价：只能源码编辑，这里是原因（null = 可以所见即所得） */
       forceSource: string | null;
       /** 本帖现有的下载附件（作者 / 版主视角，含门控归属） */
@@ -83,6 +85,7 @@ export async function loadEditPage(viewer: Subject, postId: number): Promise<Edi
     reasonRequired: view.decision.reasonRequired,
     resubmit: view.decision.resubmit,
     reviewNote: view.decision.resubmit ? view.reviewNote : null,
+    state: view.state,
     forceSource: richEditReason(source),
     attachments: await listEditableAttachments(postId),
     gateUnlocks: [...(await unlockCountsByGateKey(postId))].map(([gateKey, count]) => ({

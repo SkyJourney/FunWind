@@ -24,6 +24,8 @@ interface Props {
   reasonRequired: boolean;
   /** 驳回后的修改：保存即重新提交审核 */
   resubmit: boolean;
+  /** 当前内容状态（M9.5：pending 时给「审核中」提示） */
+  state: string;
   /** 驳回理由（驳回后的修改才有） */
   reviewNote: string | null;
   /** 往返不等价：只能以源码编辑，并说明原因 */
@@ -53,6 +55,7 @@ export function EditComposer({
   editedAt,
   reasonRequired,
   resubmit,
+  state,
   reviewNote,
   forceSource,
   gateUnlocks,
@@ -95,6 +98,13 @@ export function EditComposer({
         <div className="space-y-1 rounded-lg border border-info/30 bg-info/10 px-3 py-2 text-sm text-info">
           <p>这条内容曾被驳回。保存后将重新提交审核，通过后才对他人可见。</p>
           {reviewNote && <p>驳回理由：{reviewNote}</p>}
+        </div>
+      )}
+
+      {/* M9.5 §9.2-G2：pending 状态在编辑页原本没有任何提示——补「审核中」说明 */}
+      {!resubmit && state === "pending" && (
+        <div className="space-y-1 rounded-lg border border-info/30 bg-info/10 px-3 py-2 text-sm text-info">
+          <p>这条内容正在审核中，通过前只有你和版主能看到。保存会重新进入审核队列。</p>
         </div>
       )}
 

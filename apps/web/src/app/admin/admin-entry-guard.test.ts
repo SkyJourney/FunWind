@@ -77,6 +77,8 @@ const MODERATOR_SCOPE_EXEMPT = new Set([
   "review/actions.ts",
   // 投票管理：关闭/删除的权限在服务层（site.admin 全站 / 版主所辖版块）——M10 补做，同 review 口径
   "poll/actions.ts",
+  // 内容管理：治理动作（通过/驳回/屏蔽/封禁/锁定置顶精华）的权限在服务层按版块判定——M9.5，同 review 口径
+  "contents/actions.ts",
 ]);
 
 const files = walk(ADMIN_DIR)

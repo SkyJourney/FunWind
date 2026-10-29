@@ -14,7 +14,7 @@ import { buildViewerScope, visiblePredicate, type ViewerScope } from "./visibili
 
 export const THREADS_PER_PAGE = 25;
 
-export type ThreadState = "visible" | "pending" | "rejected" | "hidden" | "deleted";
+export type ThreadState = "visible" | "pending" | "rejected" | "hidden" | "deleted" | "disabled";
 
 export interface ThreadListItem {
   id: number;
@@ -272,7 +272,8 @@ export interface FirstPost {
 export interface ThreadView extends ThreadListItem {
   first: FirstPost;
   /** pending / rejected 时的最近一条审核记录（驳回理由） */
-  review: { decision: "approved" | "rejected"; note: string } | null;
+  /** decision 含 disabled（内容封禁留痕，M9.5）；横幅按状态渲染 */
+  review: { decision: "approved" | "rejected" | "disabled"; note: string } | null;
 }
 
 /** 主题详情（含首帖）；不存在或对该访客不可见返回 null（调用方一律 404） */

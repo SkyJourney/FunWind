@@ -26,7 +26,6 @@ export interface ForumCreateInput {
   kind: "section" | "forum";
   name: string;
   description: string | null;
-  icon: string;
   sortOrder: number;
   isListed: boolean;
 }
@@ -35,7 +34,6 @@ export interface ForumUpdateInput {
   parentId: number;
   name: string;
   description: string | null;
-  icon: string;
   sortOrder: number;
   isListed: boolean;
   readPolicy: ForumNode["readPolicy"];
@@ -102,7 +100,7 @@ const forumCols = {
   kind: forums.kind,
   name: forums.name,
   description: forums.description,
-  icon: forums.icon,
+  iconKey: forums.iconKey,
   sortOrder: forums.sortOrder,
   readPolicy: forums.readPolicy,
   writePolicy: forums.writePolicy,
@@ -144,7 +142,6 @@ export async function createForum(
       kind: input.kind,
       name: input.name,
       description: input.description,
-      icon: input.icon,
       sortOrder: input.sortOrder,
       isListed: input.isListed,
     });
@@ -189,7 +186,7 @@ export async function updateForum(
         parentId: input.parentId,
         name: input.name,
         description: input.description,
-        icon: input.icon,
+        // iconKey 不在此更新：板块图由 uploadForumIcon action 维护，普通编辑不得清空
         sortOrder: input.sortOrder,
         readPolicy: input.readPolicy,
         writePolicy: input.writePolicy,

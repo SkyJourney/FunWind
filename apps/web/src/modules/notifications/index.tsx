@@ -202,6 +202,7 @@ export const notificationsModule = defineModule({
         remove: "content.removed",
         hide: "content.hidden",
         restore: "content.restored",
+        disable: "content.disabled",
       };
       const type = typeByAction[p.action];
       if (!type) return;

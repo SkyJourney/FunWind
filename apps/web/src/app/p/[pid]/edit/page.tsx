@@ -99,6 +99,7 @@ export default async function EditPostPage({ params, searchParams }: Params) {
             editedAt={model.editedAt}
             reasonRequired={model.reasonRequired}
             resubmit={model.resubmit}
+            state={model.state}
             reviewNote={model.reviewNote}
             forceSource={model.forceSource}
             forumId={model.forumId}

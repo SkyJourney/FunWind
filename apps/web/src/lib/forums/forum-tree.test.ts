@@ -14,7 +14,7 @@ const node = (id: number, parentId: number, over: Partial<ForumNode> = {}): Foru
   kind: "forum",
   name: `版块${id}`,
   description: null,
-  icon: "",
+  iconKey: null,
   sortOrder: id,
   readPolicy: "inherit",
   writePolicy: "inherit",

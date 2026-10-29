@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { contentReviews, getWebDb, posts, threads, users } from "@funwind/db";
 import type { ConfigActor } from "@/lib/audit";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
+import { nowBeijingWallTime } from "@/lib/datetime";
 import { transitionContent } from "@/lib/posting/transition";
 import { checkPermission } from "@/lib/authz/service";
 import type { Subject } from "@/lib/authz/types";
@@ -377,4 +378,87 @@ export async function listReviewPage(
     })),
     total: Number(countRow[0]?.total ?? 0),
   };
+}
+
+/**
+ * 内容封禁：→ disabled（M9.5 新增终态，§9.2-B）
+ * 语义：作者可见标题+封禁理由横幅，但**不可编辑、不可重提审核**；版主只能 disabled→deleted 彻底删。
+ * 与 hidden/deleted 的区别：后两者可逆（版主可恢复），disabled 是不可逆治理封存（除非彻底删）。
+ */
+export async function disableContent(
+  operator: Subject,
+  postId: number,
+  reason: string,
+  actor: ConfigActor,
+): Promise<ReviewOutcome> {
+  if (operator.userId === null) return { ok: false, code: "forbidden", message: "请先登录" };
+  const operatorId = operator.userId;
+  const ctx = await loadPostContext(postId);
+  if (!ctx) return { ok: false, code: "not_found", message: "帖子不存在" };
+  if (!(await canModerate(operator, ctx.forumId))) {
+    return { ok: false, code: "forbidden", message: "你不是该版块的版主" };
+  }
+  if (ctx.postState === "disabled") {
+    return { ok: false, code: "bad_state", message: "该内容已被封禁" };
+  }
+  if (ctx.postState === "deleted") {
+    return { ok: false, code: "bad_state", message: "已删除内容不能封禁" };
+  }
+  const reasonCheck = checkReason(reason);
+  if (!reasonCheck.ok) return { ok: false, code: reasonCheck.code, message: reasonCheck.message };
+
+  const enqueued: EnqueuedEvent[] = [];
+  const result = await withDeadlockRetry(() =>
+    getWebDb().transaction(async (tx) => {
+      const transition = await transitionContent(tx, postId, "disabled", {
+        actorId: operatorId,
+        ip: actor.ip,
+        reason: reason.trim(),
+        audit: true,
+        actor: "moderator",
+      });
+      if (!transition.ok) return "bad_state";
+      // 封禁留痕：content_reviews 增行（decision=disabled，note=理由）——审核历史时间线的第 3 类记录
+      await tx.insert(contentReviews).values({
+        postId,
+        reviewerId: operatorId,
+        decision: "disabled",
+        note: reason.trim().slice(0, 255),
+        createdAt: nowBeijingWallTime(),
+      });
+      enqueued.push(
+        await enqueueEventInTx(
+          tx,
+          "content.moderated",
+          { postId, operatorId: operatorId, action: "disable", reason: reason.trim() },
+          { actorId: operatorId, source: "moderation" },
+        ),
+      );
+      return null;
+    }, POINTS_TX_OPTIONS),
+  );
+  if (result !== null) return { ok: false, code: "bad_state", message: "状态迁移失败" };
+  await dispatchOutboxRows(enqueued);
+  await sweepPending();
+  return { ok: true };
+}
+
+/** 审核历史（作者与版主可见）：content_reviews 全量行倒序（M9.5 §9.2-G1） */
+export async function listContentReviews(
+  postId: number,
+): Promise<
+  { id: number; decision: string; note: string; reviewerName: string | null; createdAt: string }[]
+> {
+  return getWebDb()
+    .select({
+      id: contentReviews.id,
+      decision: contentReviews.decision,
+      note: contentReviews.note,
+      reviewerName: users.username,
+      createdAt: contentReviews.createdAt,
+    })
+    .from(contentReviews)
+    .leftJoin(users, eq(users.id, contentReviews.reviewerId))
+    .where(eq(contentReviews.postId, postId))
+    .orderBy(desc(contentReviews.id));
 }

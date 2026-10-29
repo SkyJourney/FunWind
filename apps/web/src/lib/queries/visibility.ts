@@ -42,14 +42,18 @@ export function visiblePredicate(cols: ScopeColumns, scope: ViewerScope): SQL {
   const visibleToMe: SQL[] = [eq(cols.state, "visible")];
   if (scope.userId !== null) {
     visibleToMe.push(
-      and(eq(cols.authorId, scope.userId), inArray(cols.state, ["pending", "rejected"]))!,
+      and(
+        eq(cols.authorId, scope.userId),
+        // disabled 也对作者可见（M9.5 拍板 B：作者知情才能申诉——渲染层给封禁理由横幅）
+        inArray(cols.state, ["pending", "rejected", "disabled"]),
+      )!,
     );
   }
   if (scope.moderated.length > 0) {
     visibleToMe.push(
       and(
         inArray(cols.forumId, scope.moderated),
-        inArray(cols.state, ["pending", "rejected", "hidden", "deleted"]),
+        inArray(cols.state, ["pending", "rejected", "hidden", "deleted", "disabled"]),
       )!,
     );
   }

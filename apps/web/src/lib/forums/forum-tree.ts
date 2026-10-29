@@ -18,7 +18,8 @@ export interface ForumNode {
   kind: "section" | "forum";
   name: string;
   description: string | null;
-  icon: string;
+  /** 板块图内容寻址 key（M9.5 schema v2.4）；null = 无图 */
+  iconKey: string | null;
   sortOrder: number;
   readPolicy: ReadPolicy;
   writePolicy: WritePolicy;

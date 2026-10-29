@@ -93,6 +93,13 @@ export const NOTIFICATION_TYPE_SPECS: NotificationTypeSpec[] = [
     template: "你提交的内容已通过审核",
   },
   {
+    key: "content.disabled",
+    category: "moderation",
+    aggregate: false,
+    mandatory: true,
+    template: "你提交的内容已被封禁：{reason}",
+  },
+  {
     key: "content.rejected",
     category: "moderation",
     aggregate: false,

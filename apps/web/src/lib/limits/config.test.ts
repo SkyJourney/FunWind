@@ -184,7 +184,7 @@ describe("applicableRoleKeys：版块作用域", () => {
     kind: "forum",
     name: `版块${id}`,
     description: null,
-    icon: "",
+    iconKey: null,
     sortOrder: id,
     readPolicy: "inherit",
     writePolicy: "inherit",

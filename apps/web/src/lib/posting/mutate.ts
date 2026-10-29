@@ -341,6 +341,8 @@ export interface EditView {
   decision: RuleDecision;
   /** 被驳回的帖子：最近一次驳回的理由（没有则 null） */
   reviewNote: string | null;
+  /** 当前内容状态（M9.5：编辑页据此提示「正在审核中」） */
+  state: string;
 }
 
 export async function readEditView(viewer: Subject, postId: number): Promise<EditView | null> {
@@ -358,6 +360,7 @@ export async function readEditView(viewer: Subject, postId: number): Promise<Edi
     title: f.title,
     decision: canEdit(f.actor, f.target, limits.editWindowSec),
     reviewNote: f.state === "rejected" ? await latestRejectNote(postId) : null,
+    state: f.state,
   };
 }
 

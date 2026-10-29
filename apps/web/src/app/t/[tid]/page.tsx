@@ -17,6 +17,13 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { ReplyComposer } from "@/components/posting/reply-composer";
 import { ReplyFab } from "@/components/posting/reply-fab";
 import { PostActionLink } from "@/components/posting/post-action-link";
+import { ReviewTimeline } from "@/components/content/review-timeline";
+import {
+  approveContentAction,
+  disableContentAction,
+  rejectContentAction,
+} from "@/app/admin/contents/actions";
+import { listContentReviews } from "@/lib/moderation/review";
 import { deletePostAction, restorePostAction } from "@/app/actions/posts";
 import { reportPostAction } from "@/app/actions/reports";
 import { hidePostAction } from "@/app/admin/review/actions";
@@ -129,10 +136,52 @@ export default async function ThreadPage({ params, searchParams }: Params) {
       {canHidePost(authorId, state) && (
         <PostActionLink postId={postId} kind="hide" action={hidePostAction} />
       )}
+      {/* M9.5 §9.2-D：pending 帖就地过审（版主不必跳后台队列）；封禁（→disabled，终态） */}
+      {canModerate && state === "pending" && (
+        <>
+          <form action={approveContentAction}>
+            <input type="hidden" name="postId" value={postId} />
+            <button type="submit" className="text-primary hover:underline">
+              通过
+            </button>
+          </form>
+          <form action={rejectContentAction} className="inline-flex items-center gap-1">
+            <input type="hidden" name="postId" value={postId} />
+            <input
+              name="reason"
+              required
+              maxLength={255}
+              placeholder="驳回理由（必填）"
+              aria-label="驳回理由"
+              className="w-32 rounded border bg-background px-1.5 py-0.5 text-xs"
+            />
+            <button type="submit" className="text-destructive hover:underline">
+              驳回
+            </button>
+          </form>
+        </>
+      )}
+      {canModerate && (state === "visible" || state === "pending" || state === "rejected") && (
+        <form action={disableContentAction} className="inline-flex items-center gap-1">
+          <input type="hidden" name="postId" value={postId} />
+          <input
+            name="reason"
+            required
+            maxLength={255}
+            placeholder="封禁理由（作者可见）"
+            aria-label="封禁理由（作者可见）"
+            className="w-32 rounded border bg-background px-1.5 py-0.5 text-xs"
+          />
+          <button type="submit" className="text-destructive hover:underline">
+            封禁
+          </button>
+        </form>
+      )}
       {canRestorePost(state) && (
         <PostActionLink postId={postId} kind="restore" action={restorePostAction} />
       )}
-      {canReport && state === "visible" && (
+      {/* 举报不排除自己的帖子会显得荒谬（M9.5 §9.2-F）：作者本人不显示举报入口 */}
+      {canReport && state === "visible" && authorId !== viewer.userId && (
         <PostActionLink postId={postId} kind="report" action={reportPostAction} />
       )}
     </>
@@ -155,6 +204,10 @@ export default async function ThreadPage({ params, searchParams }: Params) {
     tagsOfThreads([thread.id]),
     getEnabledModuleIds(),
   ]);
+  // 审核历史（M9.5 §9.2-G1）：仅作者本人与该版块版主可见（其他人不渲染，避免泄露审核过程）
+  const canSeeReviewHistory =
+    viewer.userId !== null && (viewer.userId === thread.authorId || canModerate);
+  const reviewHistory = canSeeReviewHistory ? await listContentReviews(thread.first.id) : [];
   // 投票块随 poll 模块启停（模块装卸语义：能力随模块消失，主题与正文不受损）
   const pollEnabled = enabledModules.has("poll");
   const likeProps = (postId: number) => ({
@@ -281,6 +334,9 @@ export default async function ThreadPage({ params, searchParams }: Params) {
           {thread.kind === "poll" && <Badge variant="outline">投票帖</Badge>}
         </div>
       </header>
+
+      {/* 审核历史时间线（M9.5 §9.2-G1）：作者与版主可见 */}
+      {reviewHistory.length > 0 && <ReviewTimeline entries={reviewHistory} />}
 
       {thread.kind === "poll" && pollEnabled && (
         <PollBlock threadId={thread.id} voteError={voteError} />

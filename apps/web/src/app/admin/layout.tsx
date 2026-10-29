@@ -44,6 +44,7 @@ const NAV_GROUPS: { label: string; items: NavEntry[] }[] = [
     label: "内容",
     items: [
       { href: "/admin/review", label: "内容审核", need: { moderate: true } },
+      { href: "/admin/contents", label: "内容管理", need: { moderate: true } },
       { href: "/admin/reports", label: "举报处理", need: { admin: "admin.reports" } },
       { href: "/admin/poll", label: "投票管理", need: { moderate: true } },
       { href: "/admin/pm", label: "私信管理", need: { admin: "admin.logs" } },

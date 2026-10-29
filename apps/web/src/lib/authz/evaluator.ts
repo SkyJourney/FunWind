@@ -186,7 +186,7 @@ function readDecision(
 
 // ---------- 内容可见性 ----------
 
-export type ContentState = "visible" | "pending" | "rejected" | "hidden" | "deleted";
+export type ContentState = "visible" | "pending" | "rejected" | "hidden" | "deleted" | "disabled";
 
 /**
  * 内容可见性矩阵（docs/DESIGN-MODEL.md §4）。调用方须已通过 forum.read 判定。

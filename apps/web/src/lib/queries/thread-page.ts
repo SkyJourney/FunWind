@@ -39,6 +39,12 @@ export function threadBanner(state: ContentState, reviewNote?: string | null): T
         text: "该主题未通过审核，只有你和版主能看到。",
         reviewNote: reviewNote ? reviewNote : undefined,
       };
+    case "disabled":
+      return {
+        tone: "destructive",
+        text: "该内容已被管理员封禁：不可编辑、不可重新提交审核。",
+        reviewNote: reviewNote ? reviewNote : undefined,
+      };
     case "hidden":
       return { tone: "muted", text: "【版主视图】该主题已被隐藏，普通用户看不到。" };
     case "deleted":
@@ -55,6 +61,8 @@ export function replyBadge(state: ContentState): string | null {
       return "审核中";
     case "rejected":
       return "已驳回";
+    case "disabled":
+      return "已封禁";
     case "hidden":
       return "已隐藏";
     case "deleted":

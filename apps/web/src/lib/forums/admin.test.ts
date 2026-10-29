@@ -15,7 +15,7 @@ const node = (id: number, parentId: number, path: string, kind: Node["kind"] = "
   kind,
   name: `版块${id}`,
   description: null,
-  icon: "",
+  iconKey: null,
   sortOrder: id,
   readPolicy: "inherit",
   writePolicy: "inherit",

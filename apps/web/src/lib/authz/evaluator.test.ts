@@ -33,7 +33,7 @@ const node = (id: number, parentId: number, path: string, over: Partial<ForumNod
     kind: "forum",
     name: `版块${id}`,
     description: null,
-    icon: "",
+    iconKey: "",
     sortOrder: id,
     readPolicy: "inherit",
     writePolicy: "inherit",

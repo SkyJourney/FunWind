@@ -34,7 +34,6 @@ describe.skipIf(skipDb)("版块管理服务（M10.6a）", () => {
       kind: "section",
       name: "测试分区",
       description: null,
-      icon: "",
       sortOrder: 1,
       isListed: true,
     });
@@ -45,7 +44,6 @@ describe.skipIf(skipDb)("版块管理服务（M10.6a）", () => {
       kind: "forum",
       name: "测试版块",
       description: "说明",
-      icon: "",
       sortOrder: 2,
       isListed: true,
     });
@@ -71,7 +69,6 @@ describe.skipIf(skipDb)("版块管理服务（M10.6a）", () => {
       kind: "forum",
       name: "孤儿",
       description: null,
-      icon: "",
       sortOrder: 0,
       isListed: true,
     });
@@ -85,7 +82,6 @@ describe.skipIf(skipDb)("版块管理服务（M10.6a）", () => {
       kind: "section",
       name: "A",
       description: null,
-      icon: "",
       sortOrder: 0,
       isListed: true,
     });
@@ -95,7 +91,6 @@ describe.skipIf(skipDb)("版块管理服务（M10.6a）", () => {
       kind: "forum",
       name: "A1",
       description: null,
-      icon: "",
       sortOrder: 0,
       isListed: true,
     });
@@ -105,7 +100,6 @@ describe.skipIf(skipDb)("版块管理服务（M10.6a）", () => {
       kind: "forum",
       name: "A11",
       description: null,
-      icon: "",
       sortOrder: 0,
       isListed: true,
     });
@@ -115,7 +109,6 @@ describe.skipIf(skipDb)("版块管理服务（M10.6a）", () => {
       parentId: a11.id,
       name: "A",
       description: null,
-      icon: "",
       sortOrder: 0,
       isListed: true,
       readPolicy: "inherit",
@@ -131,7 +124,6 @@ describe.skipIf(skipDb)("版块管理服务（M10.6a）", () => {
       kind: "section",
       name: "B",
       description: null,
-      icon: "",
       sortOrder: 0,
       isListed: true,
     });
@@ -140,7 +132,6 @@ describe.skipIf(skipDb)("版块管理服务（M10.6a）", () => {
       parentId: b.id,
       name: "A1",
       description: null,
-      icon: "",
       sortOrder: 0,
       isListed: true,
       readPolicy: "members",
@@ -172,7 +163,6 @@ describe.skipIf(skipDb)("版块管理服务（M10.6a）", () => {
       kind: "section",
       name: "删测父",
       description: null,
-      icon: "",
       sortOrder: 0,
       isListed: true,
     });
@@ -182,7 +172,6 @@ describe.skipIf(skipDb)("版块管理服务（M10.6a）", () => {
       kind: "forum",
       name: "删测子",
       description: null,
-      icon: "",
       sortOrder: 0,
       isListed: true,
     });

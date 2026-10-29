@@ -30,7 +30,7 @@ async function load(): Promise<AuthzSnapshot> {
         kind: forums.kind,
         name: forums.name,
         description: forums.description,
-        icon: forums.icon,
+        iconKey: forums.iconKey,
         sortOrder: forums.sortOrder,
         readPolicy: forums.readPolicy,
         writePolicy: forums.writePolicy,
