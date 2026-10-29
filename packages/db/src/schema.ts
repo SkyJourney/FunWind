@@ -925,6 +925,56 @@ export const auditLog = mysqlTable(
 );
 
 // ============================================================
+// 表情体系（M10.9，schema v2.2）：分组 + 表情。旧站 50 枚以显式 id 120–169 入表
+// （/emoji/{id}.gif 是 URL 冻结约定，旧帖引用不能变）；后台上传的新表情自增接续，
+// 内容走内容寻址存储（storage_key），URL 形如 /emoji/{id}.{ext}。
+// ============================================================
+
+/** 表情分组：旧站分类（茉莉 01 / 茉莉 02）与后台自建分组共用；停用只影响面板，不影响已发布正文的渲染 */
+export const emojiGroups = mysqlTable(
+  "emoji_groups",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    /** 展示名（面板分组标题）；全站唯一 */
+    name: varchar("name", { length: 50 }).notNull(),
+    /** 展示排序（小在前） */
+    sort: int("sort").notNull().default(0),
+    enabled: boolean("enabled").notNull().default(true),
+    createdAt: dt("created_at").notNull(),
+    updatedAt: dt("updated_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.id] }), uniqueIndex("uq_emoji_groups_name").on(t.name)],
+);
+
+/**
+ * 表情：meta + 内容指针。storage_key 为空 = 迁移期的静态资源（public/emoji/{id}.gif，旧 50 枚）；
+ * 非空 = 内容寻址存储（后台上传）。enabled 只控制面板可见性——已发布正文里的引用永远可渲染。
+ */
+export const emojis = mysqlTable(
+  "emojis",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    groupId: int("group_id", { unsigned: true }).notNull(),
+    /** 展示名（面板提示与正文 alt）；旧 50 枚导入时旧库名称列全空，用「旧表情 {id}」占位，后台可改 */
+    name: varchar("name", { length: 50 }).notNull(),
+    /** 搜索关键词（空格分隔，空串 = 无） */
+    keywords: varchar("keywords", { length: 200 }).notNull().default(""),
+    /** URL 扩展名（gif / png / webp），与提供路由 /emoji/{id}.{ext} 一致 */
+    ext: varchar("ext", { length: 8 }).notNull(),
+    /** 内容寻址存储键；NULL = 静态资源（旧 50 枚）。可空是普通列、不参与唯一键（硬约定 3a 不适用） */
+    storageKey: varchar("storage_key", { length: 66 }),
+    width: smallint("width", { unsigned: true }),
+    height: smallint("height", { unsigned: true }),
+    /** 组内展示排序（小在前），其次按 id */
+    sort: int("sort").notNull().default(0),
+    enabled: boolean("enabled").notNull().default(true),
+    createdAt: dt("created_at").notNull(),
+    updatedAt: dt("updated_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.id] }), index("idx_emojis_group").on(t.groupId, t.sort, t.id)],
+);
+
+// ============================================================
 // 关系声明（查询辅助；不生成外键）
 // ============================================================
 
