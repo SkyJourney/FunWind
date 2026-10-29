@@ -39,6 +39,7 @@ import {
   transformTags,
   transformUnlocks,
 } from "./transform/content.js";
+import { transformEmojiMeta } from "./transform/emoji.js";
 import { transformCheckins, transformPoints } from "./transform/points.js";
 import { transformPlaceholders } from "./transform/users.js";
 import { transformFollows, transformPolls, transformReactions } from "./transform/social.js";
@@ -46,13 +47,26 @@ import { transformFollows, transformPolls, transformReactions } from "./transfor
 const b = (v: boolean) => (v ? 1 : 0);
 const jsonOf = (v: unknown) => JSON.stringify(v);
 
-// ---------- 表情静态资源 ----------
+// ---------- 表情：静态资源 + 元数据入表（M10.9，schema v2.2） ----------
 
 export const emojiStep: Step = {
   name: "emoji",
   async run(ctx) {
-    const rows = await oldQuery<{ id: number; folder: string; icon: string }>(
-      `SELECT emotion_id AS id, emotion_folder AS folder, emotion_icon AS icon FROM nw_common_emotion`,
+    const rows = await oldQuery<{
+      id: number;
+      folder: string;
+      icon: string;
+      categoryId: number | null;
+      name: string | null;
+      categoryName: string | null;
+      orderid: number | null;
+    }>(
+      `SELECT e.emotion_id AS id, e.emotion_folder AS folder, e.emotion_icon AS icon,
+              e.category_id AS categoryId, e.emotion_name AS name,
+              c.category_name AS categoryName, c.orderid AS orderid
+         FROM nw_common_emotion e
+         LEFT JOIN nw_common_emotion_category c ON e.category_id = c.category_id
+        ORDER BY e.emotion_id`,
     );
     mkdirSync(config.emojiOutDir, { recursive: true });
     let copied = 0;
@@ -80,15 +94,58 @@ export const emojiStep: Step = {
       copyFileSync(src, dest);
       copied++;
     }
-    ctx.report
-      .section("表情静态资源")
-      .line(
-        `旧站 ${rows.length} 枚表情复制到 apps/web/public/emoji/{emotion_id}.gif：新复制 ${copied}、已存在 ${same}、源文件缺失 ${missing.length}；合计 ${(bytes / 1024).toFixed(0)}KB。` +
-          `运行时没有表情表；映射外的遗留表情码（旧站自己也渲染不出）已在正文中删除。`,
-      )
-      .bullets(missing.length ? [`缺失：${missing.join("、")}`] : []);
     if (missing.length) throw new Error(`表情源文件缺失: ${missing.join(", ")}`);
-    return { rows: rows.length, note: `${copied} 新复制 / ${same} 已存在` };
+
+    // 元数据导入（M10.9）：emoji_groups / emojis 不是迁移独占表（后台也写），按幂等键 INSERT IGNORE——
+    // 已存在的行（含后台改过的名称 / 分组 / 启停）一律跳过不覆盖，也不删除后台自建的行。
+    // 重跑时若站长已改过组名，会多出一个同名空组：由 verify:migration 的组名对账暴露，人工清理即可。
+    const { groups, emojis: emojiPlans } = transformEmojiMeta(rows);
+    for (const g of groups) {
+      await newQuery(
+        "INSERT IGNORE INTO emoji_groups (name, sort, enabled, created_at, updated_at) VALUES (?, ?, 1, NOW(), NOW())",
+        [g.name, g.sort],
+      );
+    }
+    const groupRows = await newQuery<{ id: number; name: string }>(
+      "SELECT id, name FROM emoji_groups",
+    );
+    const groupIdByName = new Map(groupRows.map((r) => [r.name, Number(r.id)]));
+    let emojisAdded = 0;
+    const noGroup: number[] = [];
+    for (const p of emojiPlans) {
+      const gid = p.groupName === "" ? undefined : groupIdByName.get(p.groupName);
+      if (gid === undefined) {
+        noGroup.push(p.id);
+        continue;
+      }
+      // INSERT IGNORE：新插 affectedRows=1，冲突跳过=0（newQuery 对 INSERT 返回 ResultSetHeader 本体）
+      const res = (await newQuery(
+        "INSERT IGNORE INTO emojis (id, group_id, name, keywords, ext, storage_key, sort, enabled, created_at, updated_at) " +
+          "VALUES (?, ?, ?, '', 'gif', NULL, ?, 1, NOW(), NOW())",
+        [p.id, gid, p.name, p.sort],
+      )) as unknown as { affectedRows: number };
+      emojisAdded += Number(res.affectedRows ?? 0) > 0 ? 1 : 0;
+    }
+    if (noGroup.length) throw new Error(`表情缺少可归入的分组: ${noGroup.join(", ")}`);
+    // 显式 id 导入后把自增拨到旧 id 之后，后台新上传的表情从接续 id 开始
+    await bumpAutoIncrement("emojis");
+    await bumpAutoIncrement("emoji_groups");
+
+    ctx.report
+      .section("表情（静态资源 + 元数据）")
+      .line(
+        `旧站 ${rows.length} 枚表情复制到 apps/web/public/emoji/{emotion_id}.gif：新复制 ${copied}、已存在 ${same}；合计 ${(bytes / 1024).toFixed(0)}KB。` +
+          `映射外的遗留表情码（旧站自己也渲染不出）已在正文中删除。`,
+      )
+      .line(
+        `元数据入表：分组 ${groups.length} 个（按名幂等）、` +
+          `表情 ${emojiPlans.length} 枚按 id 幂等导入（本次新插 ${emojisAdded}、已存在跳过 ${emojiPlans.length - emojisAdded}）；` +
+          `storage_key 全空（静态资源），名称为空者按「旧表情 {id}」占位，后台可改。`,
+      );
+    return {
+      rows: rows.length,
+      note: `${copied} 新复制 / ${same} 已存在；元数据 ${emojisAdded} 新插`,
+    };
   },
 };
 

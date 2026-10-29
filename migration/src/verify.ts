@@ -739,6 +739,49 @@ group = "文本保留";
   add("内联样式标签已降级（正文无残留）", styled === 0, `残留 ${styled} 帖`);
 }
 
+// ---------- 表情（M10.9 元数据入表） ----------
+group = "表情";
+{
+  // 期望值独立推导：旧库 emotion 全表；在用分类 = 有成员的分类（Step 1 核实：恰好 2 个）
+  const oldEmojis = await oldQuery<{ id: number; categoryName: string | null }>(
+    `SELECT e.emotion_id AS id, c.category_name AS categoryName
+       FROM nw_common_emotion e
+       LEFT JOIN nw_common_emotion_category c ON e.category_id = c.category_id
+      ORDER BY e.emotion_id`,
+  );
+  const ids = oldEmojis.map((r) => Number(r.id)).filter(Number.isInteger);
+  const idList = ids.join(",");
+  eq(
+    "旧表情全部入表（id 120–169 原样保留）",
+    ids.length,
+    await num(`SELECT COUNT(*) n FROM emojis WHERE id IN (${idList})`, newQuery),
+  );
+  eq(
+    "入表旧表情 storage_key 全空（内容是 public 静态资源）",
+    ids.length,
+    await num(
+      `SELECT COUNT(*) n FROM emojis WHERE id IN (${idList}) AND storage_key IS NULL`,
+      newQuery,
+    ),
+  );
+  const gotGroups = (
+    await newQuery<{ name: string }>(
+      `SELECT DISTINCT g.name AS name FROM emoji_groups g JOIN emojis e ON e.group_id = g.id
+        WHERE e.id IN (${idList}) ORDER BY g.name`,
+    )
+  )
+    .map((r) => r.name)
+    .sort();
+  const expGroups = [
+    ...new Set(oldEmojis.map((r) => (r.categoryName ?? "").trim()).filter((n) => n !== "")),
+  ].sort();
+  add(
+    "分组与旧库在用分类一致（有成员的才建；站长改名后重跑迁移会暴露空组）",
+    JSON.stringify(expGroups) === JSON.stringify(gotGroups),
+    `期望 [${expGroups.join("、")}] / 实际 [${gotGroups.join("、")}]`,
+  );
+}
+
 // ---------- 文件（内容寻址） ----------
 group = "文件";
 {
