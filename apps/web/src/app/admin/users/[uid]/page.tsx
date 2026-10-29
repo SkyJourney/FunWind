@@ -7,9 +7,12 @@ import { listRoles } from "@/lib/authz/admin";
 import { getLedgerPage } from "@/lib/points/ledger";
 import { userBadgesOf } from "@/lib/badges/service";
 import { getPointsName } from "@/lib/auth/settings";
+import { fmtDateTime } from "@/lib/admin/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
+import { ForumSelect } from "@/components/admin/forum-select";
+import { Pagination } from "@/components/content/pagination";
 import {
   assignRoleAction,
   createRestrictionAction,
@@ -21,7 +24,13 @@ export const dynamic = "force-dynamic";
 
 type Params = {
   params: Promise<{ uid: string }>;
-  searchParams: Promise<{ error?: string; restricted?: string; lifted?: string; role?: string }>;
+  searchParams: Promise<{
+    error?: string;
+    restricted?: string;
+    lifted?: string;
+    role?: string;
+    page?: string;
+  }>;
 };
 
 const KIND_LABELS: Record<string, string> = {
@@ -36,15 +45,17 @@ export default async function AdminUserDetailPage({ params, searchParams }: Para
   await requireAdmin("admin.users");
   const uid = Number((await params).uid);
   if (!Number.isInteger(uid) || uid <= 0) notFound();
+  const sp0 = await searchParams;
+  const ledgerPage = Math.max(1, Number(sp0.page ?? "1") || 1);
   const [detail, roles, ledger, badges, pointsName] = await Promise.all([
     adminUserDetail(uid),
     listRoles(),
-    getLedgerPage(uid, 1),
+    getLedgerPage(uid, ledgerPage),
     userBadgesOf(uid),
     getPointsName(),
   ]);
   if (!detail) notFound();
-  const sp = await searchParams;
+  const sp = sp0;
 
   return (
     <div className="space-y-4">
@@ -78,11 +89,11 @@ export default async function AdminUserDetailPage({ params, searchParams }: Para
 
       <Card>
         <CardContent className="flex flex-wrap gap-x-8 gap-y-1 pt-6 text-sm">
-          <span className="font-medium">{detail.username}</span>
-          <span className="text-muted-foreground">uid {detail.id}</span>
           <span className="text-muted-foreground">{detail.email ?? "（无邮箱）"}</span>
-          <span className="text-muted-foreground">注册于 {detail.createdAt}</span>
-          <span className="text-muted-foreground">最近登录 {detail.lastLoginAt ?? "从未"}</span>
+          <span className="text-muted-foreground">注册于 {fmtDateTime(detail.createdAt)}</span>
+          <span className="text-muted-foreground">
+            最近登录 {detail.lastLoginAt ? fmtDateTime(detail.lastLoginAt) : "从未"}
+          </span>
           <span>
             {pointsName} {detail.points ?? 0}
           </span>
@@ -137,16 +148,21 @@ export default async function AdminUserDetailPage({ params, searchParams }: Para
               </ConfirmSubmit>
             </form>
 
-            {detail.restrictions.length > 0 && (
+            {detail.restrictions.length > 0 ? (
               <ul className="space-y-2 border-t pt-3">
                 {detail.restrictions.map((r) => (
                   <li key={r.id} className="text-sm">
                     <p>
                       <span className="font-medium">{KIND_LABELS[r.kind] ?? r.kind}</span>（
-                      {r.startsAt} ~ {r.endsAt ?? "永久"}）：{r.reason}
+                      {fmtDateTime(r.startsAt)} ~ {r.endsAt ? fmtDateTime(r.endsAt) : "永久"}）：
+                      {r.reason}
+                      {!r.active && (
+                        <span className="ml-1 rounded-full bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                          已过期
+                        </span>
+                      )}
                     </p>
-                    {r.endsAt !== null &&
-                    r.endsAt > new Date().toISOString().slice(0, 19).replace("T", " ") ? null : (
+                    {r.active && (
                       <form action={liftRestrictionAction} className="mt-1 flex gap-1">
                         <input type="hidden" name="restrictionId" value={r.id} />
                         <input type="hidden" name="userId" value={detail.id} />
@@ -170,6 +186,8 @@ export default async function AdminUserDetailPage({ params, searchParams }: Para
                   </li>
                 ))}
               </ul>
+            ) : (
+              <p className="border-t pt-3 text-sm text-muted-foreground">当前没有限制记录。</p>
             )}
           </CardContent>
         </Card>
@@ -222,13 +240,11 @@ export default async function AdminUserDetailPage({ params, searchParams }: Para
                   </option>
                 ))}
               </select>
-              <input
-                type="number"
+              <ForumSelect
                 name="scopeId"
-                min={0}
+                label="板块作用域（全局或具体板块）"
                 defaultValue={0}
-                aria-label="板块作用域（0=全局）"
-                className="w-32 rounded-lg border bg-background px-2.5 py-1.5 text-sm"
+                allLabel="全局"
               />
               <SubmitButton
                 className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
@@ -260,22 +276,37 @@ export default async function AdminUserDetailPage({ params, searchParams }: Para
 
         <Card>
           <CardHeader>
-            <CardTitle>
-              {pointsName}台账（最近 {ledger.items.length} 条）与徽章（{badges.length}）
-            </CardTitle>
+            <CardTitle>{pointsName}台账</CardTitle>
           </CardHeader>
           <CardContent>
             <ul className="space-y-1 text-sm text-muted-foreground">
-              {ledger.items.slice(0, 5).map((l) => (
-                <li key={l.id}>
-                  {l.createdAt} {l.channel} {l.delta > 0 ? `+${l.delta}` : l.delta}
+              {ledger.items.map((l) => (
+                <li key={l.id} className="flex items-baseline gap-2">
+                  <span className="whitespace-nowrap">{fmtDateTime(l.createdAt)}</span>
+                  <span>{l.channel}</span>
+                  <span className={l.delta > 0 ? "text-success" : "text-destructive"}>
+                    {l.delta > 0 ? `+${l.delta}` : l.delta}
+                  </span>
+                  <span className="min-w-0 truncate">{l.note}</span>
                 </li>
               ))}
               {ledger.items.length === 0 && <li>无台账记录</li>}
             </ul>
-            <p className="mt-2 text-xs">
-              徽章：
-              {badges.length > 0 ? badges.map((b) => b.name).join("、") : "无"}
+            <Pagination
+              basePath={`/admin/users/${detail.id}`}
+              page={ledger.page}
+              totalPages={ledger.totalPages}
+            />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>徽章（{badges.length}）</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              {badges.length > 0 ? badges.map((b) => b.name).join("、") : "暂无徽章"}
             </p>
           </CardContent>
         </Card>

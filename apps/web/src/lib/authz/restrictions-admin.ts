@@ -304,6 +304,8 @@ export async function adminUserDetail(userId: number): Promise<{
     reason: string;
     startsAt: string;
     endsAt: string | null;
+    /** 服务端 NOW() 口径的生效布尔（替代页面侧 UTC 字符串比较，M9.5） */
+    active: boolean;
   }[];
   sessions: { createdAt: string; ip: string | null; lastSeenAt: string | null }[];
 } | null> {
@@ -339,6 +341,10 @@ export async function adminUserDetail(userId: number): Promise<{
         reason: userRestrictions.reason,
         startsAt: userRestrictions.startsAt,
         endsAt: userRestrictions.endsAt,
+        active:
+          sql<boolean>`(${userRestrictions.endsAt} IS NULL OR ${userRestrictions.endsAt} > NOW())`.mapWith(
+            Boolean,
+          ),
       })
       .from(userRestrictions)
       .where(eq(userRestrictions.userId, userId))

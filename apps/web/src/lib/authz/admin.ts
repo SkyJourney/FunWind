@@ -78,10 +78,31 @@ async function requireScope(scopeId: number): Promise<void> {
 // ---------- 查询 ----------
 
 export async function listRoles(): Promise<
-  { key: string; name: string; kind: string; description: string }[]
+  {
+    key: string;
+    name: string;
+    kind: string;
+    description: string;
+    /** 授权点数与持有人数（列表页影响面展示，M9.5）；字面量限定名理由同 restrictions-admin */
+    grantCount: number;
+    holderCount: number;
+  }[]
 > {
   return getWebDb()
-    .select({ key: roles.key, name: roles.name, kind: roles.kind, description: roles.description })
+    .select({
+      key: roles.key,
+      name: roles.name,
+      kind: roles.kind,
+      description: roles.description,
+      grantCount:
+        sql<number>`(SELECT COUNT(*) FROM role_grants WHERE role_grants.role_key = roles.key)`.mapWith(
+          Number,
+        ),
+      holderCount:
+        sql<number>`(SELECT COUNT(*) FROM user_roles WHERE user_roles.role_key = roles.key)`.mapWith(
+          Number,
+        ),
+    })
     .from(roles)
     .orderBy(roles.kind, roles.key);
 }

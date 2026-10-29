@@ -4,6 +4,8 @@ import { getRoleGrants, listPermissions, listRoles } from "@/lib/authz/admin";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { getForumTree } from "@/lib/authz/snapshot";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
+import { AutoSubmitSelect } from "@/components/admin/auto-submit-select";
+import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "授权矩阵" };
@@ -58,9 +60,10 @@ export default async function RoleMatrixPage({
         actions={
           <form method="get" className="flex items-center gap-2 text-sm">
             <span className="text-muted-foreground">作用域：</span>
-            <select
+            <AutoSubmitSelect
               name="scopeForum"
               defaultValue={scopeIsForum ? String(scopeId) : ""}
+              aria-label="切换作用域"
               className="rounded-lg border border-input bg-background px-2 py-1.5"
             >
               <option value="">全局</option>
@@ -72,10 +75,12 @@ export default async function RoleMatrixPage({
                     {f.name}
                   </option>
                 ))}
-            </select>
-            <button type="submit" className="rounded-md border px-3 py-1.5 hover:bg-accent">
-              切换
-            </button>
+            </AutoSubmitSelect>
+            <noscript>
+              <button type="submit" className="rounded-md border px-3 py-1.5 hover:bg-accent">
+                切换
+              </button>
+            </noscript>
           </form>
         }
       />
@@ -86,70 +91,75 @@ export default async function RoleMatrixPage({
         </p>
       )}
 
-      <section className="space-y-4">
-        {[...byResource.entries()].map(([resource, list]) => (
-          <div key={resource} className="rounded-xl border bg-card p-4">
-            <h2 className="mb-2 font-semibold">{resource}</h2>
-            <div className="space-y-1.5">
-              {list.map((p) => {
-                const granted = grantSet.has(p.key);
-                return (
-                  <form
-                    key={p.key}
-                    action={grantAction}
-                    className="flex items-center justify-between gap-2 py-0.5"
-                  >
-                    <input type="hidden" name="roleKey" value={roleKey} />
-                    <input type="hidden" name="permissionKey" value={p.key} />
-                    <input type="hidden" name="scopeId" value={String(scopeId)} />
-                    <div className="min-w-0">
-                      <code className="text-xs text-muted-foreground">{p.key}</code>
-                      <span className="ml-2 text-sm">{p.description}</span>
-                      {p.level && (
-                        <span className="ml-1 rounded border px-1 text-xs text-muted-foreground">
-                          {p.level}
-                        </span>
-                      )}
-                    </div>
-                    <button
-                      type="submit"
-                      className={`rounded-md border px-3 py-1 text-xs ${
-                        granted ? "border-primary/40 bg-primary/10 text-primary" : "hover:bg-accent"
-                      }`}
+      <section className="space-y-3">
+        {[...byResource.entries()].map(([resource, list]) => {
+          const resourceGranted = list.filter((p) => grantSet.has(p.key)).length;
+          return (
+            <details
+              key={resource}
+              className="rounded-xl border bg-card p-4"
+              // 默认展开当前作用域有授权的组，收起无授权组
+              open={resourceGranted > 0}
+            >
+              <summary className="flex cursor-pointer items-center gap-2 font-semibold select-none">
+                {resource}
+                <span className="text-xs font-normal text-muted-foreground">
+                  {resourceGranted}/{list.length} 已授权（当前作用域）
+                </span>
+              </summary>
+              <div className="mt-2 space-y-1.5">
+                {list.map((p) => {
+                  const granted = grantSet.has(p.key);
+                  return (
+                    <form
+                      key={p.key}
+                      action={granted ? revokeAction : grantAction}
+                      className="flex items-center justify-between gap-2 py-0.5"
                     >
-                      {granted ? "已授权 ✓" : "未授权"}
-                    </button>
-                  </form>
-                );
-              })}
-            </div>
-          </div>
-        ))}
+                      <input type="hidden" name="roleKey" value={roleKey} />
+                      <input type="hidden" name="permissionKey" value={p.key} />
+                      <input type="hidden" name="scopeId" value={String(scopeId)} />
+                      <div className="min-w-0">
+                        <code className="text-xs text-muted-foreground">{p.key}</code>
+                        <span className="ml-2 text-sm">{p.description}</span>
+                        {p.level && (
+                          <span className="ml-1 rounded border px-1 text-xs text-muted-foreground">
+                            {p.level}
+                          </span>
+                        )}
+                      </div>
+                      {/* 双向 toggle：已授权=撤销（确认），未授权=授权（M9.5 交互合一） */}
+                      {granted ? (
+                        <ConfirmSubmit
+                          title="撤销授权"
+                          description={`确认撤销 ${roleKey} 在当前作用域的 ${p.key} 授权？撤销后依赖该权限的后台功能立即失效。`}
+                          className="rounded-md border border-destructive/40 px-3 py-1 text-xs text-destructive hover:bg-destructive/10 disabled:opacity-60"
+                          pendingText="…"
+                        >
+                          已授权 ✓ 撤销
+                        </ConfirmSubmit>
+                      ) : (
+                        <button
+                          type="submit"
+                          className="rounded-md border px-3 py-1 text-xs hover:bg-accent"
+                        >
+                          授权
+                        </button>
+                      )}
+                    </form>
+                  );
+                })}
+              </div>
+            </details>
+          );
+        })}
       </section>
 
-      {scopeIsForum && (
-        <section className="rounded-xl border bg-card p-4">
-          <h2 className="mb-2 font-semibold">当前作用域已授权项</h2>
-          <div className="space-y-1">
-            {grants
-              .filter((g) => g.scopeId === scopeId)
-              .map((g) => (
-                <form
-                  key={g.permissionKey}
-                  action={revokeAction}
-                  className="flex items-center justify-between gap-2 text-sm"
-                >
-                  <input type="hidden" name="roleKey" value={roleKey} />
-                  <input type="hidden" name="permissionKey" value={g.permissionKey} />
-                  <input type="hidden" name="scopeId" value={String(scopeId)} />
-                  <code className="text-xs">{g.permissionKey}</code>
-                  <button type="submit" className="text-xs text-destructive hover:underline">
-                    撤销
-                  </button>
-                </form>
-              ))}
-          </div>
-        </section>
+      {scopeIsForum && grants.filter((g) => g.scopeId === scopeId).length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          当前板块作用域共 {grants.filter((g) => g.scopeId === scopeId).length}{" "}
+          项授权（见上方各组内「已授权 ✓ 撤销」按钮）。
+        </p>
       )}
     </div>
   );

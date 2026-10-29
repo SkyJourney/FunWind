@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createRoleAction, deleteRoleAction } from "@/app/admin/actions";
 import { listRoles } from "@/lib/authz/admin";
 import { requireAdmin } from "@/lib/authz/require-admin";
+import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "角色与授权" };
@@ -19,7 +20,10 @@ export default async function AuthzPage({
   return (
     <div className="space-y-8">
       {error && (
-        <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <p
+          role="alert"
+          className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
           {error}
         </p>
       )}
@@ -33,7 +37,7 @@ export default async function AuthzPage({
               className="flex items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3"
             >
               <div className="min-w-0">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Link href={`/admin/authz/${r.key}`} className="font-medium hover:text-primary">
                     {r.name}
                   </Link>
@@ -47,6 +51,9 @@ export default async function AuthzPage({
                       自定义
                     </span>
                   )}
+                  <span className="text-xs text-muted-foreground">
+                    授权 {r.grantCount} 项 · 持有 {r.holderCount} 人
+                  </span>
                 </div>
                 {r.description && (
                   <p className="truncate text-xs text-muted-foreground">{r.description}</p>
@@ -62,12 +69,14 @@ export default async function AuthzPage({
                 {r.kind === "custom" && (
                   <form action={deleteRoleAction}>
                     <input type="hidden" name="key" value={r.key} />
-                    <button
-                      type="submit"
-                      className="rounded-md border border-destructive/40 px-3 py-1 text-sm text-destructive hover:bg-destructive/10"
+                    <ConfirmSubmit
+                      title="删除自定义角色"
+                      description={`确认删除「${r.name}」？将级联移除其 ${r.grantCount} 项授权与 ${r.holderCount} 个用户的角色绑定，不可恢复。`}
+                      className="rounded-md border border-destructive/40 px-3 py-1 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-60"
+                      pendingText="…"
                     >
                       删除
-                    </button>
+                    </ConfirmSubmit>
                   </form>
                 )}
               </div>
