@@ -14,6 +14,8 @@ export interface DirectoryForum {
   id: number;
   name: string;
   description: string | null;
+  /** 板块图（M9.5 schema v2.4）：内容寻址 key，null = 无图（渲染底纹渐变占位） */
+  iconKey: string | null;
   threadCount: number;
   postCount: number;
   /** 直接子版块（同样只含读得到且上目录的） */
@@ -58,6 +60,7 @@ export async function getDirectory(viewer: Subject): Promise<Directory> {
     id: n.id,
     name: n.name,
     description: n.description,
+    iconKey: n.iconKey,
     threadCount: counts.get(n.id)?.threads ?? 0,
     postCount: counts.get(n.id)?.posts ?? 0,
     subs: tree

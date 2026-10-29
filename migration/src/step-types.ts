@@ -15,6 +15,8 @@ export interface Ctx {
   avatarSources: Map<number, string>;
   /** badges 步骤填充：badge id → 勋章图相对路径（medalDir 之下） */
   badgeIcons: Map<number, string>;
+  /** forums 步骤填充（M9.5）：fid → 板块图相对路径（attachmentDir 之下，nw_bbs_forum.icon）；文件管线据此入库并回填 icon_key */
+  forumIconSources: Map<number, string>;
   /** 转换阶段收集的、真正被引用的文件；files 步骤据此统一分配 id、复制并写表 */
   files: FileCollector;
   /** content 步骤填充：已解析到文件的附件（files 步骤补上 file_id 后写 attachments） */
@@ -43,6 +45,7 @@ export const newCtx = (report: Report, privateReport: Report): Ctx => ({
   asOf: AS_OF,
   userIds: new Set(),
   avatarSources: new Map(),
+  forumIconSources: new Map(),
   badgeIcons: new Map(),
   files: new FileCollector(),
   attachments: [],

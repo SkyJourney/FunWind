@@ -799,3 +799,45 @@ html[data-vt="expand"]::view-transition-new(root) {
   list-style: decimal;
   padding-left: 1.5rem;
 }
+
+/* ============================================================
+ * 板块卡片底纹插槽（M9.5 §3.4.4；M11 主题插槽骨架）
+ * 形态（站长定稿）：左侧图区 + 右向渐隐遮罩 + 文本右移；
+ * 遮罩的方向/斜率/渐隐宽度/透明度全部由 --band-* 变量驱动——
+ * 主题包按元素类型自由组合（换方向、斜切梯形、只压透明度、不遮罩），
+ * 组件层只挂 .forum-card-band 类与变量值，不定死样式。
+ * ============================================================ */
+.forum-card-band {
+  position: relative;
+}
+.forum-card-band__img {
+  position: relative;
+}
+/* 遮罩层：叠在图区之上、横跨图区并探入文本区 fade 宽度——角度即斜率（90deg 垂直边界=矩形；>90deg 斜切=梯形） */
+.forum-card-band__img::after {
+  content: "";
+  position: absolute;
+  inset: 0 calc(var(--band-width) * -1) 0 0;
+  background: linear-gradient(
+    var(--band-angle),
+    transparent calc(100% - var(--band-fade)),
+    var(--band-mask-color)
+  );
+  pointer-events: none;
+}
+/* 主题插槽备用档：--band-mask-mode: none → 去遮罩（硬边界全展示）；dim → 只整体压透明度 */
+.forum-card-band[data-band-mask="none"] .forum-card-band__img::after {
+  display: none;
+}
+.forum-card-band[data-band-mask="dim"] .forum-card-band__img::after {
+  background: none;
+}
+.forum-card-band[data-band-mask="dim"] .forum-card-band__img {
+  opacity: var(--band-dim-opacity);
+}
+@media (prefers-reduced-motion: reduce) {
+  .forum-card-band,
+  .forum-card-band * {
+    transition: none !important;
+  }
+}

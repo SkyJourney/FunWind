@@ -205,6 +205,30 @@ group = "版块";
   const maxDepth = await num("SELECT MAX(depth) n FROM forums", newQuery);
   add("层级深度", maxDepth >= 1, `最大 ${maxDepth} 层`);
 
+  // 板块图（M9.5 §3.4.3）：旧库 icon 非空且附件实存的版块 → 新库 icon_key 非空且可解析（ab/cd/<sha>.<ext>）
+  {
+    const [oldIcons, newIcons, badKeys] = await Promise.all([
+      oldQuery<{ fid: number }>(
+        `SELECT fid FROM nw_bbs_forum WHERE fid IN (${keepFidSql}) AND icon <> ''`,
+      ),
+      newQuery<{ id: number }>("SELECT id FROM forums WHERE icon_key IS NOT NULL"),
+      newQuery<{ id: number }>(
+        `SELECT id FROM forums WHERE icon_key IS NOT NULL
+         AND icon_key NOT REGEXP '^[0-9a-f]{2}/[0-9a-f]{2}/[0-9a-f]{64}\\.(png|jpg|jpeg|gif|webp)$'`,
+      ),
+    ]);
+    add(
+      "板块图 icon_key 数与旧库 icon 非空数一致",
+      newIcons.length === oldIcons.length,
+      `旧 ${oldIcons.length} / 新 ${newIcons.length}`,
+    );
+    add(
+      "板块图 storage key 格式可解析",
+      badKeys.length === 0,
+      badKeys.length ? `异常: ${badKeys.map((b) => b.id)}` : "全部合法",
+    );
+  }
+
   // 读策略：独立用 FIND_IN_SET 推导期望的 public/members/restricted 数量
   const memberAny = [...MEMBER_GIDS].map((g) => `FIND_IN_SET(${g}, allow_read)`).join(" OR ");
   const expPublic = await num(
@@ -856,6 +880,8 @@ group = "文件";
     "SELECT file_id AS id FROM attachments",
     "SELECT avatar_file_id AS id FROM user_profiles WHERE avatar_file_id IS NOT NULL",
     "SELECT icon_file_id AS id FROM badges WHERE icon_file_id IS NOT NULL",
+    // 板块图（M9.5）：icon_key 是存储键而非 file_id——join files 换算成 id 计入引用
+    "SELECT f.id AS id FROM forums fo JOIN files f ON f.storage_key = fo.icon_key WHERE fo.icon_key IS NOT NULL",
   ]) {
     for (const r of await newQuery<{ id: number }>(sql)) used.add(Number(r.id));
   }

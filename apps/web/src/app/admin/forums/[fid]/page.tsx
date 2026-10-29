@@ -3,11 +3,17 @@ import { requireAdmin } from "@/lib/authz/require-admin";
 import { listForumRows, listPrefixes } from "@/lib/forums/admin";
 import { ForumTree } from "@/lib/forums/forum-tree";
 import { notFound } from "next/navigation";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
-import { addPrefixAction, removePrefixAction, updateForumAction } from "../actions";
+import {
+  addPrefixAction,
+  removePrefixAction,
+  updateForumAction,
+  uploadForumIconAction,
+  removeForumIconAction,
+} from "../actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "编辑板块" };
@@ -52,7 +58,12 @@ export default async function ForumEditPage({
   searchParams,
 }: {
   params: Promise<{ fid: string }>;
-  searchParams: Promise<{ err?: string }>;
+  searchParams: Promise<{
+    err?: string;
+    iconErr?: string;
+    iconSaved?: string;
+    iconRemoved?: string;
+  }>;
 }) {
   // 入口鉴权约定：第一个 await 必须是 requireAdmin（admin-entry-guard 静态守护）
   await requireAdmin("site.admin");
@@ -98,6 +109,89 @@ export default async function ForumEditPage({
           {ERR_TEXT[sp.err] ?? "操作失败，请重试。"}
         </p>
       )}
+
+      {sp.iconErr && (
+        <p
+          role="alert"
+          className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
+        >
+          板块图：{sp.iconErr}
+        </p>
+      )}
+      {sp.iconSaved && (
+        <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
+          板块图已更新（前台板块卡片即时生效）。
+        </p>
+      )}
+      {sp.iconRemoved && (
+        <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
+          板块图已移除（前台回落到底纹渐变占位）。
+        </p>
+      )}
+
+      {/* 板块图管理（M9.5 §3.4）：预览 + 上传/更换 + 移除；schema v2.4 forums.icon_key */}
+      <Card>
+        <CardHeader>
+          <CardTitle>板块图</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap items-center gap-4">
+            {row.iconKey ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={`/files/${row.iconKey}`}
+                alt={`${row.name} 的板块图`}
+                className="h-16 w-28 rounded-lg border object-cover"
+              />
+            ) : (
+              <div
+                aria-hidden
+                className="grid h-16 w-28 place-items-center rounded-lg border border-dashed bg-gradient-to-br from-primary/10 via-accent/15 to-secondary/20 text-xs text-muted-foreground"
+              >
+                无图占位
+              </div>
+            )}
+            <div className="space-y-2 text-sm">
+              <form action={uploadForumIconAction} className="flex flex-wrap items-center gap-2">
+                <input type="hidden" name="fid" value={fid} />
+                <input type="hidden" name="back" value={`/admin/forums/${fid}`} />
+                <input
+                  type="file"
+                  name="icon"
+                  required
+                  accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
+                  aria-label="板块图文件（PNG/JPG/WebP，≤512×512、≤300KB）"
+                  className="max-w-56 text-xs"
+                />
+                <SubmitButton
+                  className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                  pendingText="上传中…"
+                >
+                  {row.iconKey ? "更换" : "上传"}
+                </SubmitButton>
+              </form>
+              <p className="text-xs text-muted-foreground">
+                PNG / JPG / WebP，≤ 512×512 像素、≤ 300KB。旧站 32 枚板块图已由迁移导入；
+                展示为前台板块卡片左图区（右侧渐隐遮罩，可调斜率）。
+              </p>
+              {row.iconKey && (
+                <form action={removeForumIconAction}>
+                  <input type="hidden" name="fid" value={fid} />
+                  <input type="hidden" name="back" value={`/admin/forums/${fid}`} />
+                  <ConfirmSubmit
+                    title="移除板块图"
+                    description="确认移除该板块的板块图？前台将回落到底纹渐变占位。"
+                    className="rounded-lg border border-destructive/40 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10"
+                    pendingText="…"
+                  >
+                    移除板块图
+                  </ConfirmSubmit>
+                </form>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardContent className="pt-5">

@@ -35,6 +35,11 @@ export const forumsStep: Step = {
   name: "forums",
   async run(ctx) {
     const result = transformForums(await extractForums());
+    // 板块图（M9.5 §3.4.3）：icon 非空的版块登记相对路径，文件管线入库后回填 icon_key
+    ctx.forumIconSources.clear();
+    for (const f of result.forums) {
+      if (f.icon) ctx.forumIconSources.set(f.id, f.icon);
+    }
     await upsert(
       "forums",
       [
@@ -45,7 +50,6 @@ export const forumsStep: Step = {
         "kind",
         "name",
         "description",
-        "icon",
         "sort_order",
         "read_policy",
         "write_policy",
@@ -59,7 +63,6 @@ export const forumsStep: Step = {
         kind: f.kind,
         name: f.name,
         description: f.description,
-        icon: f.icon,
         sort_order: f.sortOrder,
         read_policy: f.readPolicy,
         write_policy: f.writePolicy,

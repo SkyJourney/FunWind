@@ -313,10 +313,11 @@ restricted 版块的团队角色作用域授权 48 条（读 24 / 写 24）。
 
 ## 文件（内容寻址存储）
 
-登记 2014 个文件（引用 8323 次，按 SHA-256 去重后省去 6309 份），合计 93.3MB；存储键为 ab/cd/<sha256>.<ext>，运行时经 /files/<storage_key> 提供。
+登记 2046 个文件（引用 8355 次，按 SHA-256 去重后省去 6309 份），合计 94.7MB；存储键为 ab/cd/<sha256>.<ext>，运行时经 /files/<storage_key> 提供。
 
 - 头像 7330 个已回填 avatar_file_id（旧站路径存在但文件缺失 0）
 - 勋章图 21 个已回填 icon_file_id（缺失 4）
+- 板块图 32 枚已回填 icon_key（缺失 0；原字节直存不重编码）
 - 附件 402 条已写入（文件缺失而丢弃的附件见内容小节）
 - 旧站磁盘上找不到的引用路径 150 个：medal/5e3aa59329efe99.gif、medal/da8335c6f82b76c.gif、medal/eeb33e5ce72e6eb.gif、medal/ffc4ca25de59f2a.gif、photo/Mon_1004/6_4d2c127065277314eacc6c8eac8fd.jpg、photo/Mon_1004/6_662512706527732478e5a5520ee17.jpg、photo/Mon_1005/2_3a911273104014df474a64ab3a2c5.jpg、photo/Mon_1005/2_5b9d1273057464f18fd32df88fad9.jpg、photo/Mon_1005/2_668b12731040149d0dd9e1e45bd82.jpg、photo/Mon_1005/2_677c12730574649b343bcb05db316.jpg 等 150 个
 - 逃出源目录而被拒绝的路径 0 个（数据里的 .. / 绝对路径 / 符号链接，已拒绝读取）：无

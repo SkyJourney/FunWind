@@ -41,6 +41,14 @@ export const filesStep: Step = {
       if (file) iconRefs.push({ badgeId, file });
       else iconMissing++;
     }
+    // 板块图（M9.5 §3.4.3）：fid 升序登记（forum/icon/{fid}.jpg，attachmentDir 之下）；原字节直存不重编码
+    const forumIconRefs: { forumId: number; file: CollectedFile }[] = [];
+    let forumIconMissing = 0;
+    for (const [forumId, src] of [...ctx.forumIconSources].sort((a, b) => a[0] - b[0])) {
+      const file = c.addUnder(config.attachmentDir, src);
+      if (file) forumIconRefs.push({ forumId, file });
+      else forumIconMissing++;
+    }
 
     // 分配 id：按 sha256 升序，与处理顺序无关
     const all = c.all();
@@ -107,6 +115,14 @@ export const filesStep: Step = {
         r.badgeId,
       ]);
     }
+    // 板块图回填（M9.5 §3.4.3）：icon_key 已非 NULL 不覆盖（保护后台改动）；NULL 才写入
+    await newQuery("UPDATE forums SET icon_key = NULL WHERE icon_key IS NULL OR icon_key = ''");
+    for (const r of forumIconRefs) {
+      await newQuery("UPDATE forums SET icon_key = ? WHERE id = ? AND icon_key IS NULL", [
+        r.file.storageKey,
+        r.forumId,
+      ]);
+    }
 
     const bytes = all.reduce((n, f) => n + f.sizeBytes, 0);
     const missing = [...c.missing].map(rel).sort();
@@ -118,6 +134,7 @@ export const filesStep: Step = {
     s.bullets([
       `头像 ${avatarRefs.length} 个已回填 avatar_file_id（旧站路径存在但文件缺失 ${avatarMissing}）`,
       `勋章图 ${iconRefs.length} 个已回填 icon_file_id（缺失 ${iconMissing}）`,
+      `板块图 ${forumIconRefs.length} 枚已回填 icon_key（缺失 ${forumIconMissing}；原字节直存不重编码）`,
       `附件 ${ctx.attachments.length} 条已写入（文件缺失而丢弃的附件见内容小节）`,
       `旧站磁盘上找不到的引用路径 ${missing.length} 个：${head(missing, 10) || "无"}`,
       `逃出源目录而被拒绝的路径 ${c.rejected.size} 个（数据里的 .. / 绝对路径 / 符号链接，已拒绝读取）：${head([...c.rejected].sort(), 10) || "无"}`,
