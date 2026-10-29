@@ -45,14 +45,12 @@ export const createGroupAction = defineAction({
       .limit(1);
     if (exists.length > 0) redirect(`${input.back}?err=name-exists`);
     await getWebDb().transaction(async (tx) => {
-      const [ins] = (await tx
-        .insert(emojiGroups)
-        .values({
-          name: input.name,
-          sort: 0,
-          createdAt: sql`NOW()`,
-          updatedAt: sql`NOW()`,
-        })) as unknown as [{ insertId: number }];
+      const [ins] = (await tx.insert(emojiGroups).values({
+        name: input.name,
+        sort: 0,
+        createdAt: sql`NOW()`,
+        updatedAt: sql`NOW()`,
+      })) as unknown as [{ insertId: number }];
       await writeAudit(tx, {
         actorId: ctx.userId,
         action: "admin.emoji.group.create",
