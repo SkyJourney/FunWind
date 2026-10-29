@@ -13,7 +13,7 @@ import type { Directory } from "@/lib/queries/forums";
 const BAND_STYLE_VARS = {
   "--band-width": "7rem",
   "--band-angle": "105deg",
-  "--band-fade": "38%",
+  "--band-fade": "50%",
   "--band-mask-color": "var(--card)",
   "--band-dim-opacity": "0.85",
 } as const;

@@ -813,15 +813,16 @@ html[data-vt="expand"]::view-transition-new(root) {
 .forum-card-band__img {
   position: relative;
 }
-/* 遮罩层：叠在图区之上、横跨图区并探入文本区 fade 宽度——角度即斜率（90deg 垂直边界=矩形；>90deg 斜切=梯形） */
+/* 遮罩层：只盖图区，渐变终点色 = 卡片底色（与文本区背景无缝衔接）——
+   角度即斜率（90deg 垂直边界=矩形；105deg 右缘斜切=梯形）；渐隐带宽 = fade（相对图区） */
 .forum-card-band__img::after {
   content: "";
   position: absolute;
-  inset: 0 calc(var(--band-width) * -1) 0 0;
+  inset: -1px -1px -1px 0;
   background: linear-gradient(
     var(--band-angle),
     transparent calc(100% - var(--band-fade)),
-    var(--band-mask-color)
+    var(--band-mask-color) 100%
   );
   pointer-events: none;
 }
