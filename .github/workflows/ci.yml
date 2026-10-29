@@ -1,6 +1,6 @@
 # CI：与本地 pre-push / verify:all 同一套门禁，外加自包含 E2E。
 #   verify —— 秘密扫描 / lint / 格式 / 类型 / 单测（含真实 MySQL 集成测试与覆盖率门槛）/ 构建
-#   e2e    —— Playwright：dev 服务器 E2E + 生产构建冒烟。库里只有 bootstrap + 演示种子 + E2E 夹具，不依赖任何真实迁移数据。
+#   e2e    —— Playwright：生产构建跑功能全量，dev 服务器只跑 /api/dev/*、/design 冒烟；两阶段隔离重置库。
 # 不使用任何仓库密钥；MySQL 口令是只存在于 CI 容器里的一次性值。
 name: CI
 
@@ -102,7 +102,7 @@ jobs:
           done
           echo "MailPit 未就绪" >&2
           exit 1
-      - name: E2E（重置库 → bootstrap → 种子 → E2E 夹具 → dev E2E → 生产构建冒烟）
+      - name: E2E（重置库 → bootstrap → 种子 → 生产全量 → 重置库 → dev-only 冒烟）
         run: pnpm test:e2e:run
       - name: 失败时上传 Playwright 现场
         if: failure()

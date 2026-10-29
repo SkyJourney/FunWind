@@ -12,7 +12,8 @@ import { USERS, loginAs } from "./support/session";
 
 const TID = 991010;
 const POST = TID + 100;
-const ORIGIN = "http://127.0.0.1:3200";
+// 同源对照的 Origin 取自测试配置（dev 3200 / prod 3201 各自正确）；跨站伪造值不变
+const ORIGIN = "http://127.0.0.1:3201";
 
 test.describe.configure({ mode: "serial" });
 

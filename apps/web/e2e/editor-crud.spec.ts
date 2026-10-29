@@ -36,9 +36,27 @@ async function openEditor(
  * 点到某个内容元素本身并把光标放到该行末尾。不要点编辑区中央：切换源码 / 所见即所得后编辑器会重建，光标回到文档开头；
  * 而点编辑区空白处会落进 TrailingNode 在末尾补的空段落里（光标跑到引用 / 列表外面）。
  */
-async function caretAtEndOf(page: Page, selector: string) {
-  await bodyEditor(page).locator(selector).first().click();
-  await page.keyboard.press("End");
+async function caretAtEndOf(page: Page, selector: string, nth = 0) {
+  // 同上：click 建立选区 + 原生 Selection collapse 到最后一个文本节点末尾
+  await bodyEditor(page).locator(selector).nth(nth).click();
+  await page.evaluate(
+    ({ sel, n }) => {
+      const el = document.querySelector(".fw-rich-editor")?.querySelectorAll(sel)[n];
+      if (!el) return;
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let last: Text | null = null;
+      while (walker.nextNode()) last = walker.currentNode as Text;
+      if (last) {
+        const range = document.createRange();
+        range.setStart(last, last.data.length);
+        range.collapse(true);
+        const selection = document.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+      }
+    },
+    { sel: selector, n: nth },
+  );
   // ProseMirror 异步同步 DOM 选区；脚本的下一次按键若紧跟着发出，会在旧选区上生效（真人手速不会）
   await page.waitForTimeout(120);
 }
@@ -216,6 +234,9 @@ test("表格：增 → 查 → 改（单元格 / 增行 / 增列）→ 删", asy
   await openEditor(page, context);
   await tool(page, "插入表格").click();
   await expect.poll(() => source(page)).toMatch(/\|\s*-{3,}\s*\|/); // 增
+  // 生产模式：表格插入后焦点可能还在工具栏按钮上（dev 的转场时序掩盖了这点），
+  // 显式点回第一格再打字——否则字符全部丢失
+  await bodyEditor(page).locator("th").first().click();
   await page.keyboard.type("甲"); // 改：写第一个表头单元格
   await expect.poll(() => source(page)).toContain("甲");
   await page.keyboard.press("Tab");
@@ -289,8 +310,11 @@ test("图片：增 → 查（附件面板）→ 删（键盘 / 面板）", async
   await expect.poll(() => source(page)).toMatch(/!\[.*\]\(\/files\//);
   await expect(page.getByTestId("inline-image-row")).toHaveCount(1); // 查：面板派生
   await expectRoundtripStable(page);
-  // 删（键盘）：切模式后光标回到开头，重新放到行尾（图片后面），Backspace 删除图片 → Markdown 与面板同步消失
-  await caretAtEndOf(page, "p");
+  // 删（键盘）：切模式后光标回到开头。图片与「图前」同段（上传插在光标处=文字后），
+  // DOM 为 <p>图前<img></p>——「p 的文本末尾」在图片【之前】，Backspace 删不到它。
+  // 改为点击图片节点本身（NodeSelection），按 ArrowRight 把光标移到图片之后，再 Backspace 删图
+  await bodyEditor(page).locator("img:not(.ProseMirror-separator)").click();
+  await page.keyboard.press("ArrowRight");
   await page.keyboard.press("Backspace");
   await expect(img).toHaveCount(0);
   await expect.poll(() => source(page)).not.toContain("/files/");

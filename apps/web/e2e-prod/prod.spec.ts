@@ -73,6 +73,17 @@ test.describe("生产构建", () => {
     expect(res.headers()["content-security-policy"]).toBe("default-src 'none'; sandbox");
     expect(res.headers()["content-type"]).toBe(row!.mime);
     expect((await request.get("/files/aa/aa/xx.png")).status()).toBe(404);
+    // Next 生产路由在解析 [...key] params 时遇到非法 UTF-8（%c0%ae / %c0%af）会抛 URIError；
+    // middleware 必须在 params 解析前用原始 req.url 拦成 404（本地 dev 原本返回 400）。
+    for (const malformed of [
+      "/files/%c0%ae%c0%ae/%c0%ae%c0%ae/etc/passwd",
+      "/files/..%c0%af..%c0%af..%c0%afetc%c0%afpasswd",
+    ]) {
+      expect((await request.get(malformed)).status(), malformed).toBe(404);
+    }
+    // 畸形 URL middleware 门不能误伤正常站点路径或 query 百分号
+    expect((await request.get("/login")).status()).toBe(200);
+    expect((await request.get("/search?q=50%25off")).status()).toBe(200);
     expect((await request.get("/attachment/x")).status()).toBe(404);
   });
 

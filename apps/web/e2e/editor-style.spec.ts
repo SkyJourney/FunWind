@@ -71,7 +71,9 @@ test("表格：插入后出现表格工具条；Tab 走格并在表尾自动加�
   const rows = page.locator(".fw-rich-editor tr");
   await expect(rows).toHaveCount(3);
 
-  // 插入后光标在第一格：连按 Tab 走完 3×3 的 9 格，再按一次在表尾自动新增一行
+  // 生产模式中插入按钮后焦点可能留在工具栏（dev 时序碰巧回到首格）；显式点首格，
+  // 再连按 Tab 走完 3×3 的 9 格，下一次在表尾自动新增一行。
+  await page.locator(".fw-rich-editor th").first().click();
   for (let i = 0; i < 9; i++) await page.keyboard.press("Tab");
   await expect(rows).toHaveCount(4);
 

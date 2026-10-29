@@ -15,12 +15,6 @@ const RESTRICTED_TITLES = [FIX.teamSecretTitle, FIX.staffSecretTitle];
 const SECRET_THREAD = { id: 900005, title: FIX.teamSecretTitle };
 
 test.describe("权限内核", () => {
-  test("隔离校验：E2E server 连接的是隔离库", async ({ request }) => {
-    const r = await request.get("/api/dev/whoami");
-    const body = (await r.json()) as { database: string };
-    expect(body.database).toBe("qysub_next_e2e");
-  });
-
   test("游客可读公开版块", async ({ page }) => {
     await page.goto(`/f/${FIX.anime.id}`);
     await expect(page.getByRole("heading", { level: 1 })).toContainText("E2E 动画");
@@ -114,7 +108,7 @@ test.describe("权限内核", () => {
         // 否则看到的 307 只是这一跳而不是鉴权结果
       });
     const newCtx = async (uid: number | null) => {
-      const ctx = await browser.newContext({ baseURL: "http://127.0.0.1:3200" });
+      const ctx = await browser.newContext(); // baseURL 取自 playwright 配置（dev 3200 / prod 3201 各自正确）
       if (uid !== null) await loginAs(ctx, uid);
       return ctx;
     };

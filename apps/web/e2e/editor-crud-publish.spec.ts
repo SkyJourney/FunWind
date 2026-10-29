@@ -73,8 +73,29 @@ const inlineRows = (pid: number) =>
 
 /** 点到某个元素本身并把光标放到行尾；等 ProseMirror 异步同步 DOM 选区（脚本紧跟的按键会在旧选区上生效，真人手速不会） */
 async function caretAtEndOf(page: Page, selector: string, nth = 0) {
+  // 生产模式实测两个坑：①合成 End 键在 ProseMirror 不移动光标；②坐标点击块级元素右缘
+  // 落在文字后的空白区（解析到行中）。最终方案：先 click 建立编辑器选区，
+  // 再用原生 Selection 把光标 collapse 到目标节点最后一个文本节点的末尾——
+  // ProseMirror 会把 DOM 选区同步回内部 state（posAtDOM），语义即「行尾」。
   await bodyEditor(page).locator(selector).nth(nth).click();
-  await page.keyboard.press("End");
+  await page.evaluate(
+    ({ sel, n }) => {
+      const el = document.querySelector(".fw-rich-editor")?.querySelectorAll(sel)[n];
+      if (!el) return;
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let last: Text | null = null;
+      while (walker.nextNode()) last = walker.currentNode as Text;
+      if (last) {
+        const range = document.createRange();
+        range.setStart(last, last.data.length);
+        range.collapse(true);
+        const selection = document.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+      }
+    },
+    { sel: selector, n: nth },
+  );
   await page.waitForTimeout(150);
 }
 

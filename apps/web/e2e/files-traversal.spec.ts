@@ -10,7 +10,8 @@ import { FIX } from "./support/fixtures";
  * 对照：规范路径同样用原始 HTTP 发出，必须是 200，证明这条通道本身是通的。
  */
 
-const BASE = new URL("http://127.0.0.1:3200");
+// 原始 HTTP 断言的基址取自测试配置（dev 3200 / prod 3201 各自正确）
+const BASE = new URL("http://127.0.0.1:3201");
 
 function once(rawPath: string): Promise<{ status: number; body: string; location?: string }> {
   return new Promise((resolve, reject) => {

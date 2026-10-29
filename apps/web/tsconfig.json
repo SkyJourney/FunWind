@@ -36,5 +36,13 @@
     ".next-size/types/**/*.ts",
     ".next-size/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules", ".next-e2e", ".next-e2e-prod"]
+  "exclude": [
+    "node_modules",
+    ".next-e2e",
+    ".next-e2e-prod",
+    "e2e",
+    "e2e-dev",
+    "e2e-prod",
+    "test-results"
+  ]
 }

@@ -10,7 +10,8 @@ process.env.NEW_DB_NAME = "qysub_next_e2e";
  * - 库内容由根 test:e2e 编排先行重置（重置→迁移导入→种子）
  */
 export default defineConfig({
-  testDir: "./e2e",
+  // dev-only 冒烟（M9.5 CI 优化）：依赖 /api/dev/* 与 /design 的用例；功能用例全部在 prod 配置跑
+  testDir: "./e2e-dev",
   // 单个用例 30s 上限；整套串行（共享一个库与一个 dev 服务器）
   fullyParallel: false,
   workers: 1,

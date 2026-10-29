@@ -102,7 +102,7 @@ async function newCtx(
   browser: import("@playwright/test").Browser,
   uid: number | null,
 ): Promise<BrowserContext> {
-  const ctx = await browser.newContext({ baseURL: "http://127.0.0.1:3200" });
+  const ctx = await browser.newContext(); // baseURL 取自 playwright 配置（dev 3200 / prod 3201 各自正确）
   if (uid !== null) await loginAs(ctx, uid);
   return ctx;
 }

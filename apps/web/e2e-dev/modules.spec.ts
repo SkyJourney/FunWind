@@ -1,8 +1,31 @@
 import { expect, test } from "@playwright/test";
-import { withE2eDb } from "./support/db";
+import { withE2eDb } from "../e2e/support/db";
 
-// 装卸状态共享同一 dev 服务器与 module_state 表：两用例必须串行
+// 装卸状态共享同一 dev 服务器与 module_state 表：两用例必须串行；afterAll 恢复原 override
 test.describe.configure({ mode: "serial" });
+
+let originalOverride: boolean | null = null;
+
+test.beforeAll(async () => {
+  const [row] = await withE2eDb((q) =>
+    q.query<{ enabled: number }>(
+      "SELECT enabled FROM module_state WHERE module_id = 'checkin' LIMIT 1",
+    ),
+  );
+  originalOverride = row ? Number(row.enabled) === 1 : null;
+});
+
+test.afterAll(async () => {
+  // 即使中间断言失败也恢复测试前状态；默认启用对应删除 override 行。
+  await withE2eDb((q) =>
+    originalOverride === null
+      ? q.exec("DELETE FROM module_state WHERE module_id = 'checkin'")
+      : q.exec(
+          "INSERT INTO module_state (module_id, enabled, updated_at) VALUES ('checkin', ?, NOW()) ON DUPLICATE KEY UPDATE enabled = VALUES(enabled), updated_at = NOW()",
+          [originalOverride ? 1 : 0],
+        ),
+  );
+});
 
 test.describe("模块装卸闭环（checkin，M7 起为真实模块）", () => {
   test("启用 → 首页签到条出现；宿主页不受影响；dev emit 落 event_log", async ({
