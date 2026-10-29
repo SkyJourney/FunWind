@@ -105,7 +105,7 @@ test("邮件组：测试邮件进 Mailpit；always 策略下邀请注册也收�
   await admin.getByLabel("数量（1–20）").fill("1");
   await admin.getByLabel("批次备注").fill("e2e 验证策略");
   await admin.getByRole("button", { name: "生成" }).click();
-  await admin.waitForURL("**/admin/invites?saved=1");
+  await admin.waitForURL(/\/admin\/invites\?saved=1&batch=/);
   const codeRow = admin
     .locator("div.rounded-lg.border")
     .filter({ hasText: "e2e 验证策略" })

@@ -37,6 +37,8 @@ test("后台授予 → 资料页徽章卡 → 帖子页作者行图标", async (
   await page.getByLabel("用户名").fill("demo_alice");
   await page.getByLabel("徽章").selectOption({ label: "[荣誉] 演示·开荒先锋" });
   await page.getByRole("button", { name: "授予" }).click();
+  // M9.5：授予加了二次确认
+  await page.getByRole("dialog").getByRole("button", { name: "确认" }).click();
   await expect(page).toHaveURL(/\/admin\/badges\?granted=1/);
   await expect(page.getByText("已授予")).toBeVisible();
 

@@ -41,7 +41,7 @@ async function cleanup() {
 
 async function emojiIdOf(page: Page, name: string): Promise<number> {
   const src = await page
-    .locator('[data-testid="emoji-grid"] li', { hasText: name })
+    .locator('[data-testid="emoji-grid"] tbody tr', { hasText: name })
     .locator("img")
     .first()
     .getAttribute("src");
@@ -85,7 +85,7 @@ test("admin 全流程：建组 → 上传 → /emoji 可访问 → 改名/关键
     .setInputFiles({ name: "表情一.png", mimeType: "image/png", buffer: await solidPng(96) });
   await page.getByRole("button", { name: "上传表情" }).click();
   await expect(page).toHaveURL(new RegExp(`group=${groupA}&saved=upload`));
-  const row = page.locator('[data-testid="emoji-grid"] li', { hasText: "表情一" });
+  const row = page.locator('[data-testid="emoji-grid"] tbody tr', { hasText: "表情一" });
   await expect(row).toBeVisible();
   const id1 = await emojiIdOf(page, "表情一");
   const served = await request.get(`/emoji/${id1}.png`);
@@ -100,7 +100,7 @@ test("admin 全流程：建组 → 上传 → /emoji 可访问 → 改名/关键
   await row.getByRole("button", { name: "保存" }).click();
   await expect(page).toHaveURL(/saved=emoji-renamed/);
   await expect(
-    page.locator('[data-testid="emoji-grid"] li', { hasText: "E2E 改名表情" }),
+    page.locator('[data-testid="emoji-grid"] tbody tr', { hasText: "E2E 改名表情" }),
   ).toBeVisible();
 
   // 再传一个 → 组内 ↓ 移动 → 顺序交换（网格首条变为原名表情）
@@ -110,12 +110,12 @@ test("admin 全流程：建组 → 上传 → /emoji 可访问 → 改名/关键
   await page.getByRole("button", { name: "上传表情" }).click();
   await expect(page).toHaveURL(/saved=upload/);
   await page
-    .locator('[data-testid="emoji-grid"] li', { hasText: "E2E 改名表情" })
+    .locator('[data-testid="emoji-grid"] tbody tr', { hasText: "E2E 改名表情" })
     .getByRole("button", { name: "↓" })
     .click();
   await expect(page).toHaveURL(/saved=emoji-moved/);
   const firstName = await page
-    .locator('[data-testid="emoji-grid"] li')
+    .locator('[data-testid="emoji-grid"] tbody tr')
     .first()
     .locator("p")
     .first()
@@ -125,13 +125,13 @@ test("admin 全流程：建组 → 上传 → /emoji 可访问 → 改名/关键
 
   // 停用 → 网格标记停用，但 /emoji 仍 200（已发布正文不能碎）
   await page
-    .locator('[data-testid="emoji-grid"] li', { hasText: "E2E 改名表情" })
+    .locator('[data-testid="emoji-grid"] tbody tr', { hasText: "E2E 改名表情" })
     .getByRole("button", { name: "停用" })
     .click();
   await expect(page).toHaveURL(/saved=emoji-toggled/);
   await expect(
     page
-      .locator('[data-testid="emoji-grid"] li', { hasText: "E2E 改名表情" })
+      .locator('[data-testid="emoji-grid"] tbody tr', { hasText: "E2E 改名表情" })
       .and(page.locator('[data-enabled="0"]')),
   ).toBeVisible();
   expect((await request.get(`/emoji/${id1}.png`)).status()).toBe(200);

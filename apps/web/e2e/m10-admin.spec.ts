@@ -87,8 +87,9 @@ test("投票管理：关闭投票 → 已截止标记；删除投票 → 主题�
     await adminPage.goto("/admin/poll");
     const row = adminPage.locator("li", { hasText: /E2E 投票管理/ });
     await expect(row).toBeVisible();
-    await row.getByRole("button", { name: "删除投票" }).click();
-    await adminPage.getByRole("button", { name: "确认" }).click();
+    await row.getByRole("button", { name: "删除", exact: true }).click();
+    // M9.5：删除确认文案带影响面（选项数/票数），弹窗确认
+    await adminPage.getByRole("dialog").getByRole("button", { name: "确认" }).click();
     await expect(adminPage).toHaveURL(/\/admin\/poll\?deleted=1/);
 
     // 主题回普通帖（投票块消失、kind 回 normal）
