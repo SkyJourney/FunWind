@@ -28,7 +28,8 @@ export type AdminPermission =
   | "admin.users"
   | "admin.reports"
   | "admin.logs"
-  | "admin.recycle";
+  | "admin.recycle"
+  | "emoji.manage";
 
 export async function requireAdmin(...extra: AdminPermission[]): Promise<AdminActor> {
   const user = await getCurrentUser();

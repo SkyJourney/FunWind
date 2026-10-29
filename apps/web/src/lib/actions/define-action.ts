@@ -100,7 +100,12 @@ export function createDefineAction(deps: ActionDeps) {
         let input = undefined as I;
         if (def.input) {
           const parsed = def.input.safeParse(formDataToObject(formData));
-          if (!parsed.success) notFound();
+          if (!parsed.success) {
+            // 校验失败对外一律 404（不泄露校验细节），但日志要留一行——静默 404 曾让 z.instanceof(File)
+            // 的表单在 Next 运行时里查不到原因（M10.9 表情上传排查）。
+            console.error(`[action] ${def.name} input 校验失败:`, parsed.error.message);
+            notFound();
+          }
           input = parsed.data;
         }
 

@@ -132,6 +132,9 @@ export async function seedSystemData(db: Db): Promise<SystemSeedSummary> {
       },
     });
 
+  // 基线授权只在该角色没有任何授权行时整体插入（基线仅首次写入）：管理员调整过的授权不会被
+  // 重跑 bootstrap 恢复（角色矩阵可编辑，bootstrap 幂等不覆盖人工调整；守卫 bootstrap.int.test）。
+  // 新权限点对存量库的补齐 = 评估器对 admin 的短路放行（功能层）+ 一次性手工 INSERT（矩阵页显示）。
   let grantsInserted = 0;
   for (const roleKey of BUILTIN_ROLE_KEYS) {
     const existing = await db

@@ -1,5 +1,5 @@
 /**
- * 权限点词汇表（schema v2.1 单一事实源）：27 个权限点。
+ * 权限点词汇表（schema v2.1 单一事实源）：28 个权限点。
  * 消费方：bootstrap 的 seedSystemData、web 评估器（级别隐含）、导入适配层（把外部权限翻译到这些键）。
  * 扩展权限点 = 修改本文件 + 在 docs/AUTHZ.md 说明（与模块清单同纪律）。
  *
@@ -35,6 +35,8 @@ export const PERMISSION_DEFINITIONS: PermissionDef[] = [
   // M7：积分与荣誉的管理动作（规则配置/手工调整、徽章授予），页面与动作均要求 site.admin 总门 + 此处权限点
   def("admin.points", "admin", "积分规则配置与手工调整"),
   def("admin.badges", "admin", "荣誉徽章授予"),
+  // M10.9：社区表情（emoji_groups / emojis）的管理动作，admin 默认持有；页面与动作均要求 site.admin 总门 + 此处权限点
+  def("emoji.manage", "emoji", "管理社区表情（分组 / 上传 / 改名 / 排序 / 停用）"),
   // ---- 版块（分级域：moderate ⊃ write ⊃ read）----
   def("forum.read", "forum", "浏览版块与帖子", { level: "read" }),
   def("forum.write", "forum", "发帖/回帖/编辑自己的帖", { level: "write" }),
@@ -120,6 +122,7 @@ export const DEFAULT_ROLE_GRANTS: Record<BuiltinRoleKey, string[]> = {
     "admin.recycle",
     "admin.points",
     "admin.badges",
+    "emoji.manage",
     "forum.read",
     "forum.write",
     "forum.moderate",

@@ -62,8 +62,8 @@ export async function quotaPrecheck(userId: number, uploadsPerDay: number): Prom
   return !dailyQuotaExceeded(await uploadsToday(userId, getWebDb()), uploadsPerDay);
 }
 
-/** 落盘：已存在则不写；否则写临时文件再原子 rename */
-async function writeContentAddressed(
+/** 落盘：已存在则不写；否则写临时文件再原子 rename（内容寻址的唯一实现，表情上传同用） */
+export async function writeContentAddressed(
   storageDir: string,
   key: string,
   bytes: Buffer,

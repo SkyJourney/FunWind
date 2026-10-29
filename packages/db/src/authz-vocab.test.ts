@@ -24,8 +24,8 @@ describe("权限词汇表", () => {
     }
   });
 
-  it("共 27 个权限点；已取消功能的权限点不再出现", () => {
-    expect(PERMISSION_DEFINITIONS).toHaveLength(27);
+  it("共 28 个权限点；已取消功能的权限点不再出现", () => {
+    expect(PERMISSION_DEFINITIONS).toHaveLength(28);
     for (const dead of [
       "forum.manage",
       "thread.sell",

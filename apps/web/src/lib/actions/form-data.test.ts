@@ -41,7 +41,7 @@ describe("formDataToObject", () => {
     });
   });
 
-  it("文件字段一律忽略（Server Action 不接文件，上传走专门的 route handler）；对照：同名的字符串字段仍保留", () => {
+  it("文件字段保留为 File（M10.9 起 defineAction 也接上传）；同名混合时字符串与文件归并为数组", () => {
     const file = new File(["data"], "a.png", { type: "image/png" });
     expect(
       formDataToObject(
@@ -50,15 +50,16 @@ describe("formDataToObject", () => {
           ["note", "hi"],
         ]),
       ),
-    ).toEqual({ note: "hi" });
-    expect(
-      formDataToObject(
-        fd([
-          ["x", file],
-          ["x", "s"],
-        ]),
-      ),
-    ).toEqual({ x: "s" });
+    ).toEqual({ upload: file, note: "hi" });
+    const mixed = formDataToObject(
+      fd([
+        ["x", file],
+        ["x", "s"],
+      ]),
+    );
+    expect(mixed.x).toHaveLength(2);
+    expect((mixed.x as (string | File)[])[0]).toBeInstanceOf(File);
+    expect((mixed.x as (string | File)[])[1]).toBe("s");
   });
 
   it("原型污染：__proto__ / constructor / prototype 字段被丢弃，结果是空原型对象，全局 Object 不受影响", () => {
