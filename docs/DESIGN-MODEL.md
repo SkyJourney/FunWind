@@ -33,7 +33,7 @@
 
 | 表 | 要点 |
 |----|------|
-| `forums` | 邻接表 `parent_id` + 物化路径 `path`/`depth`、`kind(section\|forum)`、`name`、`description`、`icon`、`sort_order`；策略三件套 `read_policy`（inherit\|public\|members\|restricted）、`write_policy`（inherit\|members\|restricted）、`review_policy`（inherit\|none\|threads\|all）；`is_listed`、`is_archived`；可重算缓存 `thread_count`/`post_count`/`last_post_*` |
+| `forums` | 邻接表 `parent_id` + 物化路径 `path`/`depth`、`kind(section\|forum)`、`name`、`description`、`icon_key`（板块图，M9.5 schema v2.4：内容寻址 storage key 走 /files/<key>，NULL=无图）、`sort_order`；策略三件套 `read_policy`（inherit\|public\|members\|restricted）、`write_policy`（inherit\|members\|restricted）、`review_policy`（inherit\|none\|threads\|all）；`is_listed`、`is_archived`；可重算缓存 `thread_count`/`post_count`/`last_post_*` |
 | `forum_prefixes` | 主题前缀 |
 
 ### 内容（9）
@@ -87,14 +87,20 @@
                      │ 驳回                    │  │
                      ▼                        ▼  │
                   rejected              hidden / deleted（版主/作者操作，带理由）
-                     │ 作者修改后重新提交 → pending
+                     │ 作者修改后重新提交 → pending   │
+                                                  ▼
+                              disabled（内容封禁终态，M9.5）：作者可见标题+封禁理由横幅，
+                              不可编辑、不可重审；版主唯一出路是 → deleted 彻底删
 ```
+
+迁移白名单（中央定义于 `lib/posting/transition.ts`，按执行者 author/moderator/system 区分）。
 
 | 状态 | 谁能看到 |
 |------|----------|
 | `visible` | 按版块读策略 |
 | `pending` / `rejected` | 作者本人（可见驳回理由、可编辑后重新提交）+ 持有 `forum.moderate` 的版主 |
 | `hidden` / `deleted` | 版主（可恢复）；对其他人表现为不存在 |
+| `disabled` | 作者本人（只读横幅：标题 + 封禁理由，不可编辑）+ 版主；对其他人表现为不存在 |
 
 状态变化由领域事件驱动通知（见 NOTIFICATIONS.md），并写 `audit_log` 与（审核类）`content_reviews`。
 

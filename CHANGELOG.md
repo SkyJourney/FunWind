@@ -5,6 +5,17 @@
 
 ## [Unreleased]
 
+### Added（M9.5：后台管理体验专项 + 内容治理体系 + 板块图）
+
+设计与进度见 [docs/milestones/M9.5-admin-ux.md](docs/milestones/M9.5-admin-ux.md)。
+
+- **后台布局壳重做**：桌面（≥lg）前台顶栏下方全高固定侧栏（bg-card + 边框 + 独立滚动，站点名置顶，激活态左竖线，二级页父项同步高亮）；内容区让位并收窄行宽；平板/手机走汉堡抽屉；前台底部 Tab 在 /admin 排除；`AdminPageHeader` 统一二级页页头；后台入口默认落点改为看板（原 M8 占位逻辑跳审计日志）。
+- **列表基建 + 全菜单改造**：分页（复用前台 `Pagination`）、`AdminFilterBar`、`AdminFlash`（role=status/alert + 关闭清参）、`UserPicker`（datalist 零 JS）、`ForumSelect`、`lib/admin/format` 时间统一；16 个菜单逐页改造——users 默认列最近注册（表格化+三档排序+uid 等值直达）、authz 授权矩阵双向 toggle（授权/撤销入口合一，撤销带影响面确认）与角色影响面徽标（授权 N 项·持有 M 人）、review/reports 批量通过/驳回/忽略（checkbox + 吸底操作条 + formAction 分流）、投票重开与 N+1 修复（≈101 SQL → 聚合子查询）、私信筛选 SQL 下推（用户名反查 uid）+ 统计缓存、公告编辑能力 + 导航/友链条目化编辑器 + 行号校验、邀请码状态页签/批次高亮/一键复制/按批次撤销、徽章收回能力（badge.revoked 事件+通知+审计）、积分调整确认 + 最近调整记录、审计日志页码 + JSON 弹层、settings 锚点分签 + SMTP 未配置判真 + 频控全角色只读、LOGO 客户端预校验、表情组内表格化（500 枚 ≈2500 form → 每页 20 行）+ 数字排序范式 + 批量上传部分成功语义。
+- **内容治理体系（站长追加批次）**：schema v2.4（迁移 0015+0016）——内容状态机增 **`disabled`（封禁终态）**：作者可见标题+封禁理由横幅但不可编辑不可重审，版主唯一出路 →deleted；`transitionContent` 中央 from→to 白名单（按 author/moderator 区分）；新增 `/admin/contents` 内容管理页（单菜单 + 主题/回帖页签，关键词/板块/六态筛选 + 分页，版主看所辖、`admin.recycle` 落地为全站回收站视角）；**主题锁定/置顶（0–3 级权限递减）/精华首次补上写入口**；前台 pending 帖就地过审与封禁；举报排除自己的帖子；**审核历史时间线**（`content_reviews` 原来只读最新一条 → 帖子页作者与版主可见完整记录）；编辑页补 pending「审核中」横幅；`content.disabled` / `badge.revoked` 通知类型。
+- **板块图（schema v2.4）**：`forums.icon`（v2 预留空列）→ `icon_key`（内容寻址 storage key 走 `/files/<key>`）；`processForumIcon` 管线（≤512×512 ≤300KB PNG/JPG/WebP）+ 板块编辑页上传/更换/移除（审计 `admin.forum.icon`）；迁移器子步骤把旧站 32 枚板块图原字节直存（保真 2014 原图，幂等不覆盖后台改动）+ verify 对账三项（32 枚一致 / key 可解析 / 孤儿 0）；前台板块卡片定稿形态：**左侧图区 + 右向渐隐遮罩（105deg 斜率可调梯形）+ 文本右移**，无图回落渐变 + 首字符水印；`--band-*` 七变量遮罩插槽骨架（fade/none/dim 模式）作为 M11 主题插槽。
+- **性能与修复**：投票列表 N+1（≈101 SQL）修复；看板全表 COUNT 60s 缓存 + 峰值/日均标注 + 半月对比 + sr-only 逐日表； forums 双全表查询合一；迁移编排修 `counters` 联动坑（content 重跑重置 threads 缓存计数必须重算，run.ts 内置联动）；存量潜伏错误修复——drizzle 单表 SELECT 字段里模板插值列渲染成裸列名导致子查询解析到内层同名列（`searchUsers` 计数长期错误）。
+- 门禁实测（2026-10-29）：`pnpm verify:all` 全绿（exit 0；单测 202 文件 1812+ 项、全局分支覆盖 85.46% 过 85% 阈值、生产构建通过）；临时库全量演练 15 步 + 对账 116 项全绿；三断点（375/768/1024）22 页程序化溢出扫描清零。E2E 与真机清单见里程碑文档。
+
 ### Added（M10.9：表情体系）
 
 设计与进度见 [docs/milestones/M10.9-emoji.md](docs/milestones/M10.9-emoji.md)。

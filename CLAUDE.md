@@ -61,7 +61,7 @@ pnpm --filter @funwind/web perf:posting                   # 发帖性能基准�
    未被新模型使用的旧表一律丢弃、**不建归档库**；旧库保持只读且在 M13 签字前不得删除（即归档）。
 2a. **运行时 schema 不认识旧站**：禁止 `legacy_*` 列、`migrated` 标记、迁移用 id 公式、`migration_*` 表；旧键映射/旧 gid/旧路径只放 `migration/`。
     被引用但已不存在的作者建「已注销用户」占位账号（`state=deleted`），不在内容表加冗余列。`schema-rules.ts` 将加断言（R2）。
-3. **垃圾空壳、回收站与屏蔽内容、私信不迁**（旧库即归档）；内容状态机为 `visible|pending|rejected|hidden|deleted`；旧密码不迁移（`password_hash=NULL`，走邮件认领/重置）。
+3. **垃圾空壳、回收站与屏蔽内容、私信不迁**（旧库即归档）；内容状态机为 `visible|pending|rejected|hidden|deleted|disabled`（M9.5 增封禁终态：迁移白名单中央定义于 `lib/posting/transition.ts`，disabled 不可编辑不可重审、唯一出路 →deleted）；旧密码不迁移（`password_hash=NULL`，走邮件认领/重置）。
 3a. **唯一键不得依赖 NULL 去重来表达作用域/层级**：全局作用域用 `scope_id = 0` 哨兵（MySQL 唯一索引不去重 NULL）。
     唯一例外：单列且「空值 = 没有」即期望语义（`users.email_key`）。由 `packages/db/src/schema-rules.ts` 断言，`db:verify` 与单测强制。
 3b. **隐藏内容只能经 `getGateContent` 读取**；`body_md` 永远只含公开部分（门控规范见 `docs/GATES.md`）。
@@ -73,7 +73,7 @@ pnpm --filter @funwind/web perf:posting                   # 发帖性能基准�
 7. **权限**：一律走 `lib/authz` 的 `checkPermission`；越权对外表现为 **404**（不暴露存在性）；不允许硬编码身份判断。
 8. **URL 已冻结**：`/f/{fid}`、`/t/{tid}`、`?page=`、`#p{pid}`（M13 的 301 依赖）。文件统一走 `/files/<storage_key>`（已取代 `/attachment/**`，S4-4 落地）；表情为 `/emoji/{id}.{ext}`（旧 50 枚是 public 静态 `{id}.gif`，新表情内容寻址由 `/emoji/[file]` 路由提供，id 冻结、已发布正文引用不能碎）。
 9. **模块**：扩事件/槽位 = 改 `modules/kernel/types.ts` + 同步 `docs/MODULES.md`；使用内核的 route handler 必须自行 `import "@/modules"`，Server Action 一律用 `defineAction`（`lib/actions/define-action.ts` 顶部已导入，经它的入口天然满足；`use-server-exports-guard.test.ts` 保证 `"use server"` 文件只导出 `defineAction(...)`）——凡（传递）引用会触及内核的代码（派发事件 / 读写注册表）都算，`modules-import-guard.test.ts` 静态分析并守护（入口或其传递依赖里有 `import "@/modules"` 即合规，注释里写的不算），新增入口漏写会直接变红。`/admin/**` 的 Action 必须声明 `auth: { admin: "…" }`（`admin-entry-guard.test.ts`）。
-10. **schema 变更**：改 `packages/db/src/schema.ts` → `drizzle-kit generate` → 提交迁移 SQL → `db:verify` 通过；迁移程序与应用共用同一管线。
+10. **schema 变更**：改 `packages/db/src/schema.ts` → `drizzle-kit generate` → 提交迁移 SQL → `db:verify` 通过；迁移程序与应用共用同一管线。开发库用 `MIGRATION_FORCE=1` 重跑部分步骤时注意步骤联动：`files` 组会拉起 users/content/badges，且 content 重跑会重置 threads 缓存计数列——**必须连带重跑 `counters`**（run.ts 已内置该联动）。
 11. **数据层双模式**：零数据部署是默认路径，青翼导入只是可选路径，应用代码不得依赖旧库。
 
 ## 架构要点
