@@ -173,8 +173,8 @@ describe("normalizeHref", () => {
     ["HTTPS://A.CN", "HTTPS://A.CN"],
     ["/t/123", "/t/123"],
     ["#p9", "#p9"],
-    ["a@b.com", "mailto:a@b.com"],
-    ["mailto:a@b.com", "mailto:a@b.com"],
+    ["a@example.com", "mailto:a@example.com"],
+    ["mailto:a@example.com", "mailto:a@example.com"],
   ])("%j → %j", (input, expected) => {
     expect(normalizeHref(input)).toBe(expected);
   });
