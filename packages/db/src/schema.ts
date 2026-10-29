@@ -37,8 +37,19 @@ import {
 
 const dt = (name: string) => datetime(name, { mode: "string" });
 
-/** 内容状态机（threads / posts 共用，见 docs/DESIGN-MODEL.md §4） */
-export const CONTENT_STATES = ["visible", "pending", "rejected", "hidden", "deleted"] as const;
+/**
+ * 内容状态机（threads / posts 共用，见 docs/DESIGN-MODEL.md §4）
+ * M9.5 增 disabled（内容封禁终态）：作者可见标题+封禁理由横幅，但不可编辑、不可重提审核；
+ * 版主只能 disabled → deleted 彻底删（不可恢复）——与 hidden/deleted 的可逆语义区分开。
+ */
+export const CONTENT_STATES = [
+  "visible",
+  "pending",
+  "rejected",
+  "hidden",
+  "deleted",
+  "disabled",
+] as const;
 export type ContentState = (typeof CONTENT_STATES)[number];
 
 /** 通知大类（公告不在其中：它走 announcements） */
@@ -218,7 +229,12 @@ export const forums = mysqlTable(
     kind: mysqlEnum("kind", ["section", "forum"]).notNull().default("forum"),
     name: varchar("name", { length: 100 }).notNull(),
     description: text("description"),
-    icon: varchar("icon", { length: 100 }).notNull().default(""),
+    /**
+     * 板块图（M9.5，schema v2.4）：内容寻址 storage key（走 /files/<key> 公开出口）；
+     * NULL = 无图，前台渲染底纹渐变占位。旧站 32 枚板块图由迁移器导入。
+     */
+    iconKey: varchar("icon_key", { length: 128 }),
+
     sortOrder: int("sort_order").notNull().default(0),
     readPolicy: mysqlEnum("read_policy", ["inherit", "public", "members", "restricted"])
       .notNull()
@@ -447,7 +463,8 @@ export const contentReviews = mysqlTable(
     id: int("id", { unsigned: true }).notNull().autoincrement(),
     postId: int("post_id", { unsigned: true }).notNull(),
     reviewerId: int("reviewer_id", { unsigned: true }).notNull(),
-    decision: mysqlEnum("decision", ["approved", "rejected"]).notNull(),
+    /** M9.5 增 disabled（内容封禁终态） */
+    decision: mysqlEnum("decision", ["approved", "rejected", "disabled"]).notNull(),
     note: varchar("note", { length: 255 }).notNull().default(""),
     createdAt: dt("created_at").notNull(),
   },
