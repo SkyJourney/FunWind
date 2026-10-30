@@ -3,8 +3,9 @@
  * 限制管理集成测试（M9 S5）：创建/幂等冲突/解除、审计、事件经 outbox、当事人通知（经真实消费者）。
  */
 import "@/modules";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import {
+  accountDeletionRequests,
   auditLog,
   DEMO,
   eventOutbox,
@@ -18,9 +19,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { generateToken, hashToken } from "@/lib/auth/token";
 import {
+  adminUserDetail,
   createRestriction,
   liftRestriction,
   listAdminUsersPage,
+  revokeUserSessionByAdmin,
   searchUsers,
 } from "./restrictions-admin";
 import {
@@ -264,7 +267,7 @@ describe.skipIf(skipDb)("限制管理（M9）", () => {
     await createCustomRole(adminActor, roleKey, "并发管理员", "");
     await grantRolePermission(adminActor, roleKey, "site.admin", 0);
     await grantRolePermission(adminActor, roleKey, "admin.roles", 0);
-    await assignUserRole(adminActor, DEMO.member, roleKey, 0);
+    await assignUserRole(adminActor, DEMO.member, roleKey, 0, null, "跨服务并发测试");
 
     try {
       const [banAttempt, revokeAttempt] = await Promise.all([
@@ -274,7 +277,7 @@ describe.skipIf(skipDb)("限制管理（M9）", () => {
           reason,
           endsAt: null,
         }),
-        revokeUserRole(adminActor, DEMO.member, roleKey, 0).then(
+        revokeUserRole(adminActor, DEMO.member, roleKey, 0, "跨服务并发测试").then(
           () => ({ ok: true as const }),
           (error: unknown) => ({ ok: false as const, error }),
         ),
@@ -288,6 +291,32 @@ describe.skipIf(skipDb)("限制管理（M9）", () => {
       );
       if (ban) await liftRestriction(ACTOR, ban.id, "并发测试清理");
       await deleteCustomRole(adminActor, roleKey);
+    }
+  });
+
+  it("后台详情只有显式 user.viewIp 授权结果才带会话 IP", async () => {
+    const sessionId = hashToken(generateToken());
+    const ip = "203.0.113.77";
+    await db()
+      .insert(sessions)
+      .values({
+        id: sessionId,
+        userId: DEMO.team,
+        createdAt: sql`NOW()`,
+        expiresAt: sql`NOW() + INTERVAL 1 DAY`,
+        lastSeenAt: sql`NOW()`,
+        ip,
+        userAgent: "step5-ip-projection",
+      });
+    try {
+      const hidden = await adminUserDetail(DEMO.team, false);
+      const visible = await adminUserDetail(DEMO.team, true);
+      expect(hidden?.sessions.some((session) => session.ip === ip)).toBe(false);
+      expect(visible?.sessions.some((session) => session.ip === ip)).toBe(true);
+      expect(await revokeUserSessionByAdmin(ACTOR, DEMO.team, sessionId)).toEqual({ ok: true });
+      expect(await db().select().from(sessions).where(eq(sessions.id, sessionId))).toHaveLength(0);
+    } finally {
+      await db().delete(sessions).where(eq(sessions.id, sessionId));
     }
   });
 
@@ -334,5 +363,161 @@ describe.skipIf(skipDb)("限制管理（M9）", () => {
     // 主题数排序：全 0 时按 uid 倒序兜底，不报错即可
     const byThreads = await listAdminUsersPage({ status: "all", sort: "threads" }, 1);
     expect(byThreads.items.length).toBeGreaterThan(0);
+  });
+
+  it("生命周期与凭据筛选展示注销申请、待验证、待认领和匿名删除账号", async () => {
+    const deletedId = 99999234;
+    const noPasswordId = 99999235;
+    const completedTombstoneId = 99999236;
+    const [previous] = await db()
+      .select({
+        emailVerificationRequired: users.emailVerificationRequired,
+        legacyPasswordPending: users.legacyPasswordPending,
+      })
+      .from(users)
+      .where(eq(users.id, DEMO.team));
+    await db()
+      .update(users)
+      .set({ emailVerificationRequired: true, legacyPasswordPending: true })
+      .where(eq(users.id, DEMO.team));
+    const [closure] = (await db()
+      .insert(accountDeletionRequests)
+      .values({
+        userId: DEMO.team,
+        status: "pending",
+        requestedAt: sql`NOW()`,
+        scheduledAt: sql`NOW() + INTERVAL 30 DAY`,
+      })) as unknown as [{ insertId: number }];
+    await db()
+      .insert(users)
+      .values({
+        id: deletedId,
+        username: `已注销用户#${deletedId}`,
+        usernameKey: `deleted-${deletedId}`,
+        email: null,
+        emailKey: null,
+        passwordHash: null,
+        state: "deleted",
+        createdAt: "2026-01-01 00:00:00",
+      });
+    await db().insert(users).values({
+      id: noPasswordId,
+      username: "governance_claim_pending",
+      usernameKey: "governance_claim_pending",
+      email: null,
+      emailKey: null,
+      passwordHash: null,
+      state: "active",
+      createdAt: "2026-01-01 00:00:00",
+    });
+    await db().insert(users).values({
+      id: completedTombstoneId,
+      username: "old-private-name",
+      usernameKey: "old_private_name",
+      email: "completed@example.com",
+      emailKey: "completed@example.com",
+      passwordHash: "test-hash",
+      emailVerificationRequired: true,
+      state: "active",
+      createdAt: "2026-01-01 00:00:00",
+    });
+    await db()
+      .insert(accountDeletionRequests)
+      .values({
+        userId: completedTombstoneId,
+        status: "completed",
+        requestedAt: sql`NOW()`,
+        scheduledAt: sql`NOW()`,
+        completedAt: sql`NOW()`,
+      });
+
+    try {
+      const [storedClosure] = await db()
+        .select()
+        .from(accountDeletionRequests)
+        .where(eq(accountDeletionRequests.userId, DEMO.team))
+        .orderBy(desc(accountDeletionRequests.id))
+        .limit(1);
+      expect(storedClosure?.status).toBe("pending");
+      expect(await adminUserDetail(DEMO.team, false)).toMatchObject({
+        state: "active",
+        emailVerificationRequired: true,
+        legacyPasswordPending: true,
+        closureRequest: { status: "pending" },
+      });
+      const closurePage = await listAdminUsersPage({ lifecycle: "closure_pending", sort: "id" }, 1);
+      expect(closurePage.items.find((row) => row.id === DEMO.team)).toMatchObject({
+        closurePending: true,
+        emailVerificationRequired: true,
+        legacyPasswordPending: true,
+      });
+      expect(
+        closurePage.items.find((row) => row.id === DEMO.team)?.closureScheduledAt,
+      ).toBeTruthy();
+
+      const deletedPage = await listAdminUsersPage({ lifecycle: "deleted", sort: "id" }, 1);
+      expect(deletedPage.items.find((row) => row.id === deletedId)?.username).toBe("已注销用户");
+      expect(await adminUserDetail(completedTombstoneId, false)).toMatchObject({
+        username: "已注销用户",
+        state: "deleted",
+        email: null,
+        emailVerificationRequired: false,
+        hasPassword: false,
+      });
+      expect(deletedPage.items.find((row) => row.id === completedTombstoneId)).toMatchObject({
+        username: "已注销用户",
+        state: "deleted",
+        emailVerified: false,
+        emailVerificationRequired: false,
+        hasPassword: false,
+        legacyPasswordPending: false,
+        restricted: false,
+      });
+
+      const unverifiedPage = await listAdminUsersPage(
+        {
+          lifecycle: "all",
+          credential: "email_unverified",
+          sort: "id",
+        },
+        1,
+      );
+      expect(unverifiedPage.items.some((row) => row.id === DEMO.team)).toBe(true);
+      const noPasswordPage = await listAdminUsersPage(
+        {
+          lifecycle: "all",
+          credential: "no_password",
+          sort: "id",
+        },
+        1,
+      );
+      expect(noPasswordPage.items.some((row) => row.id === noPasswordId)).toBe(true);
+      const legacyPage = await listAdminUsersPage(
+        {
+          lifecycle: "all",
+          credential: "legacy_password_pending",
+          sort: "id",
+        },
+        1,
+      );
+      expect(legacyPage.items.some((row) => row.id === DEMO.team)).toBe(true);
+    } finally {
+      await db()
+        .delete(accountDeletionRequests)
+        .where(eq(accountDeletionRequests.id, Number(closure.insertId)));
+      await db()
+        .delete(accountDeletionRequests)
+        .where(eq(accountDeletionRequests.userId, completedTombstoneId));
+      await db()
+        .update(users)
+        .set({
+          emailVerificationRequired: previous?.emailVerificationRequired ?? false,
+          legacyPasswordPending: previous?.legacyPasswordPending ?? false,
+        })
+        .where(eq(users.id, DEMO.team));
+      await db()
+        .delete(users)
+        .where(inArray(users.id, [deletedId, noPasswordId, completedTombstoneId]));
+    }
   });
 });

@@ -5,7 +5,11 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { AdminError } from "@/lib/authz/admin";
 import { defineAction } from "@/lib/actions/define-action";
-import { createRestriction, liftRestriction } from "@/lib/authz/restrictions-admin";
+import {
+  createRestriction,
+  liftRestriction,
+  revokeUserSessionByAdmin,
+} from "@/lib/authz/restrictions-admin";
 import { assignUserRole, revokeUserRole } from "@/lib/authz/admin";
 import { isTeamMembershipRole } from "@/lib/authz/team-role-mapping";
 import { assignTeamMembership, revokeTeamMembership } from "@/lib/authz/team-membership";
@@ -88,6 +92,7 @@ const assignRoleInput = z.object({
   roleKey: z.string().max(64),
   scopeId: z.coerce.number().int().min(0).default(0),
   expiresAt: z.string().max(32).default(""),
+  reason: z.string().trim().min(1, "必须填写授予理由").max(255, "授予理由不能超过 255 个字符"),
 });
 export const assignRoleAction = defineAction({
   name: "admin.user_role.assign",
@@ -104,6 +109,7 @@ export const assignRoleAction = defineAction({
           userId: input.userId,
           roleKey: input.roleKey,
           expiresAt,
+          reason: input.reason,
         });
       } else {
         await assignUserRole(
@@ -112,6 +118,7 @@ export const assignRoleAction = defineAction({
           input.roleKey,
           input.scopeId,
           expiresAt,
+          input.reason,
         );
       }
     } catch (e) {
@@ -127,6 +134,7 @@ const revokeRoleInput = z.object({
   userId: z.coerce.number().int().positive(),
   roleKey: z.string().max(64),
   scopeId: z.coerce.number().int().min(0).default(0),
+  reason: z.string().trim().min(1, "必须填写撤销理由").max(255, "撤销理由不能超过 255 个字符"),
 });
 export const revokeRoleAction = defineAction({
   name: "admin.user_role.revoke",
@@ -137,9 +145,20 @@ export const revokeRoleAction = defineAction({
     try {
       if (isTeamMembershipRole(input.roleKey)) {
         if (input.scopeId !== 0) throw new AdminError("固定团队角色只能绑定为全站身份");
-        await revokeTeamMembership(actor(ctx.userId, ctx.ip), input.userId, input.roleKey);
+        await revokeTeamMembership(
+          actor(ctx.userId, ctx.ip),
+          input.userId,
+          input.roleKey,
+          input.reason,
+        );
       } else {
-        await revokeUserRole(actor(ctx.userId, ctx.ip), input.userId, input.roleKey, input.scopeId);
+        await revokeUserRole(
+          actor(ctx.userId, ctx.ip),
+          input.userId,
+          input.roleKey,
+          input.scopeId,
+          input.reason,
+        );
       }
     } catch (e) {
       if (e instanceof AdminError) redirect(`${back}?error=${encodeURIComponent(e.message)}`);
@@ -147,5 +166,25 @@ export const revokeRoleAction = defineAction({
     }
     revalidatePath(back);
     redirect(`${back}?role=1`);
+  },
+});
+
+export const revokeUserSessionAction = defineAction({
+  name: "admin.user_session.revoke",
+  auth: { admin: "admin.users" },
+  input: z.object({
+    userId: z.coerce.number().int().positive(),
+    sessionId: z.string().regex(/^[0-9a-f]{64}$/),
+  }),
+  async run(ctx, input) {
+    const back = `/admin/users/${input.userId}`;
+    const result = await revokeUserSessionByAdmin(
+      actor(ctx.userId, ctx.ip),
+      input.userId,
+      input.sessionId,
+    );
+    if (!result.ok) redirect(`${back}?error=${encodeURIComponent("会话已不存在或已被吊销")}`);
+    revalidatePath(back);
+    redirect(`${back}?session=revoked`);
   },
 });

@@ -106,19 +106,19 @@ export default async function ThreadPage({ params, searchParams }: Params) {
   const canModerate =
     viewer.userId !== null &&
     (await checkPermission(viewer, "forum.moderate", { forumId: thread.forumId })).allowed;
-  const canEditPost = (authorId: number, state: string): boolean =>
+  const canEditPost = (authorId: number | null, state: string): boolean =>
     viewer.userId !== null && state !== "deleted" && (authorId === viewer.userId || canModerate);
   // 恢复入口只给版主，且只对已删除 / 已隐藏的内容显示（删除与恢复的判定在确认页与保存时再做）
   const canRestorePost = (state: string): boolean =>
     canModerate && (state === "deleted" || state === "hidden");
-  const hasPostActions = (authorId: number, state: string): boolean =>
+  const hasPostActions = (authorId: number | null, state: string): boolean =>
     canEditPost(authorId, state) || canRestorePost(state) || (canReport && state === "visible");
-  const canHidePost = (authorId: number, state: string): boolean =>
+  const canHidePost = (authorId: number | null, state: string): boolean =>
     canModerate && state === "visible";
   // 举报入口：登录 + forum.report（member 基线）；按帖子状态在 postActions 内判定
   const canReport =
     viewer.userId !== null && (await checkPermission(viewer, "forum.report")).allowed;
-  const postActions = (postId: number, authorId: number, state: string) => (
+  const postActions = (postId: number, authorId: number | null, state: string) => (
     <>
       {canEditPost(authorId, state) && (
         <>
@@ -313,7 +313,7 @@ export default async function ThreadPage({ params, searchParams }: Params) {
         </h1>
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
           <UserBadge
-            uid={thread.authorId}
+            uid={thread.authorId ?? undefined}
             name={thread.authorName}
             deleted={thread.authorDeleted}
           />
@@ -399,7 +399,11 @@ export default async function ThreadPage({ params, searchParams }: Params) {
           return (
             <Card key={f.id} id={`p${f.id}`} className="scroll-mt-20">
               <CardHeader className="flex flex-row items-center justify-between gap-2 py-3">
-                <UserBadge uid={f.authorId} name={f.authorName} deleted={f.authorDeleted} />
+                <UserBadge
+                  uid={f.authorId ?? undefined}
+                  name={f.authorName}
+                  deleted={f.authorDeleted}
+                />
                 <span className="flex items-center gap-2 text-xs text-muted-foreground">
                   {replyBadge(f.state) && <Badge variant="outline">{replyBadge(f.state)}</Badge>}#
                   {f.floor}

@@ -47,7 +47,7 @@ export function FeedCard({
           </p>
         )}
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          <span>{author}</span>
+          <span className={item.authorDeleted ? "italic" : undefined}>{author}</span>
           {item.lastPostedAt && <span>{item.lastPostedAt}</span>}
           <span className="inline-flex items-center gap-1" title="回复">
             <MessageSquare className="size-3" aria-hidden />

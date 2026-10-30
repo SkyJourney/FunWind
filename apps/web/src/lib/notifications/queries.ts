@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { announcementReads, announcements, getWebDb, notifications, users } from "@funwind/db";
 import { nowBeijingWallTime } from "@/lib/datetime";
+import { publicUserId, publicUsername } from "@/lib/queries/public-identity";
 
 /**
  * 读取契约（M8，docs/NOTIFICATIONS.md §6）：unreadSummary / list / markRead。
@@ -129,8 +130,8 @@ export async function listFeed(
             id: notifications.id,
             category: notifications.category,
             type: notifications.type,
-            actorId: notifications.actorId,
-            actorName: users.username,
+            actorId: publicUserId(notifications.actorId, users.state),
+            actorName: publicUsername(users.username, users.state, users.id),
             readAt: notifications.readAt,
             createdAt: notifications.createdAt,
             data: notifications.data,

@@ -1,5 +1,5 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
-import { follows, getWebDb, forums, userStats, users } from "@funwind/db";
+import { and, eq, inArray, notExists, sql } from "drizzle-orm";
+import { accountDeletionRequests, follows, getWebDb, forums, userStats, users } from "@funwind/db";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import type { DbTx } from "@/lib/audit";
 import { enqueueEventInTx, sweepPending } from "@/lib/events/outbox";
@@ -25,7 +25,23 @@ async function targetExists(tx: DbTx, type: FollowTargetType, id: number): Promi
     const [u] = await tx
       .select({ id: users.id })
       .from(users)
-      .where(and(eq(users.id, id), eq(users.state, "active")))
+      .where(
+        and(
+          eq(users.id, id),
+          eq(users.state, "active"),
+          notExists(
+            tx
+              .select({ id: accountDeletionRequests.id })
+              .from(accountDeletionRequests)
+              .where(
+                and(
+                  eq(accountDeletionRequests.userId, users.id),
+                  eq(accountDeletionRequests.status, "completed"),
+                ),
+              ),
+          ),
+        ),
+      )
       .limit(1);
     return u !== undefined;
   }

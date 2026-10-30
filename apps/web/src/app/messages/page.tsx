@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { MessageSquareOff } from "lucide-react";
+import { and, eq, not } from "drizzle-orm";
+import { follows, getWebDb, userProfiles, users } from "@funwind/db";
 import { getCurrentUser } from "@/lib/auth/session";
 import { findActiveGlobalBan } from "@/lib/authz/restrictions";
 import { conversationPage } from "@/lib/pm/queries";
+import { publicUserDeleted } from "@/lib/queries/public-identity";
 import { sendMessageAction } from "@/app/actions/pm";
 import { Card, CardContent } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
@@ -29,7 +32,37 @@ export default async function MessagesPage({
   const page = Math.max(1, Math.trunc(Number(sp.page)) || 1);
   const { items: list, hasMore } = await conversationPage(user.id, page);
   const to = sp.to !== undefined && /^\d+$/.test(sp.to) ? Number(sp.to) : null;
-  const targetBanned = to !== null && (await findActiveGlobalBan(to)) !== null;
+  const [target] =
+    to !== null && to !== user.id
+      ? await getWebDb()
+          .select({ id: users.id, state: users.state, pmPolicy: userProfiles.pmPolicy })
+          .from(users)
+          .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
+          .where(and(eq(users.id, to), not(publicUserDeleted(users.id, users.state))))
+          .limit(1)
+      : [];
+  const targetBanned =
+    target?.state === "active" && (await findActiveGlobalBan(target.id)) !== null;
+  const targetUnavailable =
+    to !== null && to !== user.id && (!target || target.state !== "active" || targetBanned);
+  const targetCanMessageByPolicy =
+    target?.pmPolicy !== "off" &&
+    (target?.pmPolicy !== "following" ||
+      (
+        await getWebDb()
+          .select({ userId: follows.userId })
+          .from(follows)
+          .where(
+            and(
+              eq(follows.userId, target.id),
+              eq(follows.targetType, "user"),
+              eq(follows.targetId, user.id),
+            ),
+          )
+          .limit(1)
+      ).length > 0);
+  const targetPolicyUnavailable =
+    to !== null && to !== user.id && target !== undefined && !targetCanMessageByPolicy;
 
   return (
     <main className="mx-auto max-w-2xl space-y-4 px-4 py-8 sm:px-6">
@@ -65,13 +98,18 @@ export default async function MessagesPage({
         </p>
       )}
 
-      {to !== null && to !== user.id && targetBanned && (
+      {targetUnavailable && (
         <p className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground">
           对方暂时无法接收新私信。
         </p>
       )}
+      {targetPolicyUnavailable && (
+        <p className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground">
+          {target?.pmPolicy === "off" ? "对方已关闭私信。" : "对方仅接受其关注的人的私信。"}
+        </p>
+      )}
 
-      {to !== null && to !== user.id && !targetBanned && (
+      {to !== null && to !== user.id && !targetUnavailable && !targetPolicyUnavailable && (
         <Card>
           <CardContent className="pt-6">
             <h2 className="mb-2 text-sm font-semibold">发起新会话</h2>

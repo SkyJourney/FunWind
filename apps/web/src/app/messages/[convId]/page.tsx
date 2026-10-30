@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
 import { openConversation } from "@/lib/pm/service";
-import { messagesBefore, otherMemberOf, sentTodayCount } from "@/lib/pm/queries";
+import { messagesBefore, otherMemberSummaryOf, sentTodayCount } from "@/lib/pm/queries";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { findActiveGlobalBan } from "@/lib/authz/restrictions";
 import { limitsFor } from "@/lib/limits/load";
@@ -48,12 +48,14 @@ export default async function ConversationPage({
   const beforeRaw = Number(sp.before);
   const before = Number.isInteger(beforeRaw) && beforeRaw > 0 ? beforeRaw : null;
   const subject = await getCurrentSubject();
-  const [batch, otherId, sentToday, limits] = await Promise.all([
+  const [batch, other, sentToday, limits] = await Promise.all([
     messagesBefore(convId, before),
-    otherMemberOf(convId, user.id),
+    otherMemberSummaryOf(convId, user.id),
     sentTodayCount(user.id),
     limitsFor(subject),
   ]);
+  const otherId = other?.userId ?? null;
+  const otherDeleted = other?.deleted ?? false;
   const otherBanned = otherId !== null && (await findActiveGlobalBan(otherId)) !== null;
   const messages = batch.items;
   const perDay = limits.pmPerDay ?? 0;
@@ -70,13 +72,15 @@ export default async function ConversationPage({
         >
           ←
         </Link>
-        {otherId !== null ? (
+        {otherId !== null || otherDeleted ? (
           <Avatar size="sm">
-            <AvatarFallback>{"?".slice(0, 1)}</AvatarFallback>
+            <AvatarFallback>{otherDeleted ? "已" : "?"}</AvatarFallback>
           </Avatar>
         ) : null}
         <h1 className="min-w-0 flex-1 truncate text-sm font-semibold">
-          {otherId ? (
+          {otherDeleted ? (
+            "已注销用户"
+          ) : otherId !== null ? (
             <Link href={`/u/${otherId}`} className="hover:text-primary">
               对方的资料
             </Link>
@@ -127,6 +131,11 @@ export default async function ConversationPage({
         </Card>
       </div>
 
+      {otherDeleted && (
+        <p className="py-3 text-center text-sm text-muted-foreground">
+          对方已注销，本对话仅供查看。
+        </p>
+      )}
       {otherId !== null && otherBanned && (
         <p className="py-3 text-center text-sm text-muted-foreground">该对话暂时只读。</p>
       )}

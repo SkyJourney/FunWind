@@ -13,7 +13,7 @@ import type { AuthzSnapshot, Decision, GrantRow, Subject } from "./types";
  */
 
 /**
- * 写类权限：会产生内容或社交副作用的动作。禁言与账号级邮箱验证门拦截这一类权限；全站封禁另在限制阶段拒绝所有权限。
+ * 写类权限：会产生内容或社交副作用的动作。禁言拦截有作用域上下文的写入；无版块上下文的私信与关注等动作不受 mute 影响。账号级邮箱验证门拦截此类权限；全站封禁另拒绝所有权限。
  * 浏览、举报、参与投票、查看投票结果不在其中——禁言不应妨碍举报与投票。
  */
 export const WRITE_CLASS_KEYS: ReadonlySet<string> = new Set([
@@ -94,7 +94,11 @@ export function evaluate(
     if (!applies(r.scopeId)) continue;
     if (r.kind === "ban" && r.scopeId === 0) return deny("账号已被封禁");
     if (r.kind === "forum_ban" && ctx.forumId !== undefined) return deny("该版块不可访问");
-    if (isWrite && (r.kind === "ban" || r.kind === "mute")) {
+    if (
+      isWrite &&
+      (r.kind === "ban" ||
+        (r.kind === "mute" && !(permissionKey === "pm.send" && ctx.forumId === undefined)))
+    ) {
       return deny(r.kind === "ban" ? "账号已被封禁" : "账号处于禁言状态");
     }
     if (r.kind === "no_signature" && permissionKey === "sign.use") {
@@ -113,8 +117,8 @@ export function evaluate(
     return deny("请先验证邮箱");
   }
 
-  // 管理员仍可跨普通权限域，但不能越过账号限制、板块禁入或邮箱验证门。
-  if (held.has("admin")) return allow("admin");
+  // 管理员仅短路普通权限；账号限制、邮箱验证门和敏感 IP 查看仍按专门规则评估。
+  if (held.has("admin") && permissionKey !== "user.viewIp") return allow("admin");
 
   /** 持有（适用作用域内）满足该权限点的授权；scopeFilter 可进一步限定授权的作用域 */
   const hasGrant = (key: string, scopeFilter: (scopeId: number) => boolean): boolean =>

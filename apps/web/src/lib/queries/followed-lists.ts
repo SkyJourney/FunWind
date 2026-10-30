@@ -1,6 +1,7 @@
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { files, forums, getWebDb, userProfiles, userRestrictions, users } from "@funwind/db";
 import { restrictionActive } from "@/lib/authz/restrictions";
+import { publicUserDeleted } from "./public-identity";
 import { checkPermission, getReadableForumIds } from "@/lib/authz/service";
 import { loadSubject } from "@/lib/authz/subject";
 
@@ -61,7 +62,13 @@ export async function followedLists(
         .from(users)
         .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
         .leftJoin(files, eq(files.id, userProfiles.avatarFileId))
-        .where(inArray(users.id, [...userIds]))
+        .where(
+          and(
+            inArray(users.id, [...userIds]),
+            eq(users.state, "active"),
+            sql`NOT ${publicUserDeleted(users.id, users.state)}`,
+          )!,
+        )
     : [];
   const uOrder = new Map(userIds.map((id, i) => [id, i]));
   const userItems = userItemsSort(userRows, uOrder);

@@ -63,7 +63,7 @@ export type AttachmentView = OpenAttachment | LockedAttachment;
 export async function listAttachments(
   viewer: Subject,
   thread: { id: number; forumId: number },
-  postList: readonly { id: number; authorId: number }[],
+  postList: readonly { id: number; authorId: number | null }[],
 ): Promise<Map<number, AttachmentView[]>> {
   const out = new Map<number, AttachmentView[]>();
   if (postList.length === 0) return out;

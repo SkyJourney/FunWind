@@ -30,6 +30,7 @@ export interface TeamMembershipRequest {
   userId: number;
   roleKey: TeamMembershipRoleKey;
   expiresAt: string | null;
+  reason: string;
 }
 
 function validFutureDateTime(value: string): boolean {
@@ -59,6 +60,9 @@ export async function assignTeamMembership(
   if (input.expiresAt !== null && !validFutureDateTime(input.expiresAt)) {
     throw new AdminError("到期时间必须是有效的未来北京时间");
   }
+  const reason = input.reason.trim();
+  if (!reason) throw new AdminError("必须填写授予理由");
+  if (reason.length > 255) throw new AdminError("授予理由不能超过 255 个字符");
   const badgeKey = teamBadgeKeyForRole(input.roleKey);
   let enqueued: EnqueuedEvent[] = [];
 
@@ -170,6 +174,7 @@ export async function assignTeamMembership(
           badgeKey,
           scopeId: 0,
           expiresAt: input.expiresAt,
+          reason,
         },
         ip: actor.ip,
       });
@@ -209,8 +214,12 @@ export async function revokeTeamMembership(
   actor: ConfigActor & { userId: number },
   userId: number,
   roleKey: string,
+  reason: string,
 ): Promise<void> {
   if (!isTeamMembershipRole(roleKey)) throw new AdminError("团队角色不存在");
+  const why = reason.trim();
+  if (!why) throw new AdminError("必须填写撤销理由");
+  if (why.length > 255) throw new AdminError("撤销理由不能超过 255 个字符");
   const badgeKey = teamBadgeKeyForRole(roleKey);
   let enqueued: EnqueuedEvent[] = [];
 
@@ -276,7 +285,7 @@ export async function revokeTeamMembership(
           roleKey: roleHolder ? { roleKey, scopeId: 0, expiresAt: roleHolder.expiresAt } : null,
           badgeKey: badgeHolder ? { badgeKey, expiresAt: badgeHolder.expiresAt } : null,
         },
-        after: null,
+        after: { reason: why },
         ip: actor.ip,
       });
       if (roleHolder) {

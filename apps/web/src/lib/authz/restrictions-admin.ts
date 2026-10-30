@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   accountDeletionRequests,
+  auditLog,
   forums,
   getWebDb,
   pointAccounts,
@@ -19,6 +20,7 @@ import {
   lockSiteAdminInvariant,
 } from "@/lib/authz/site-admin-invariant";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
+import { publicUserDeleted } from "@/lib/queries/public-identity";
 import {
   dispatchOutboxRows,
   enqueueEventInTx,
@@ -302,15 +304,14 @@ export type AdminUserListFilters = {
   q?: string;
   /** restricted = 存在未过期的生效限制；all/空 = 不过滤 */
   status?: "all" | "restricted";
+  lifecycle?: "active" | "closure_pending" | "deleted" | "all";
+  credential?: "all" | "email_unverified" | "no_password" | "legacy_password_pending";
   sort: "recent" | "id" | "threads";
 };
 
 export const ADMIN_USERS_PER_PAGE = 20;
 
-/**
- * 用户管理列表（M9.5 站长拍板：默认列最近注册，不再默认空页）。
- * 计数走两个聚合子查询（与 searchUsers 同口径，visible 状态）；受限筛选走 EXISTS 生效限制行。
- */
+/** 用户治理列表：按生命周期、凭据状态与生效限制筛选，计数只聚合公开内容。 */
 export async function listAdminUsersPage(
   filters: AdminUserListFilters,
   page: number,
@@ -318,6 +319,13 @@ export async function listAdminUsersPage(
   items: {
     id: number;
     username: string;
+    state: "active" | "deleted";
+    closurePending: boolean;
+    closureScheduledAt: string | null;
+    emailVerified: boolean;
+    emailVerificationRequired: boolean;
+    hasPassword: boolean;
+    legacyPasswordPending: boolean;
     createdAt: string;
     threadCount: number | null;
     postCount: number | null;
@@ -327,7 +335,26 @@ export async function listAdminUsersPage(
 }> {
   const perPage = ADMIN_USERS_PER_PAGE;
   const q = filters.q?.trim() ?? "";
-  const conditions = [sql`${users.state} = 'active'`];
+  const conditions = [];
+  const lifecycle = filters.lifecycle ?? "active";
+  if (lifecycle === "active") {
+    conditions.push(
+      eq(users.state, "active"),
+      sql`NOT EXISTS (SELECT 1 FROM account_deletion_requests adr WHERE adr.user_id = ${users.id}
+        AND adr.status IN ('pending', 'completed'))`,
+    );
+  } else if (lifecycle === "closure_pending") {
+    conditions.push(
+      eq(users.state, "active"),
+      sql`EXISTS (SELECT 1 FROM account_deletion_requests adr WHERE adr.user_id = ${users.id}
+        AND adr.status = 'pending')`,
+    );
+  } else if (lifecycle === "deleted") {
+    conditions.push(
+      sql`(${users.state} = 'deleted' OR EXISTS (SELECT 1 FROM account_deletion_requests adr
+        WHERE adr.user_id = ${users.id} AND adr.status = 'completed'))`,
+    );
+  }
   if (/^\d+$/.test(q)) {
     conditions.push(eq(users.id, Number(q)));
   } else if (q) {
@@ -339,6 +366,29 @@ export async function listAdminUsersPage(
         AND ur.starts_at <= NOW() AND (ur.ends_at IS NULL OR ur.ends_at > NOW()))`,
     );
   }
+  if (filters.credential === "email_unverified") {
+    conditions.push(
+      and(
+        sql`NOT ${publicUserDeleted(users.id, users.state)}`,
+        eq(users.emailVerificationRequired, true),
+        sql`${users.emailVerifiedAt} IS NULL`,
+      )!,
+    );
+  } else if (filters.credential === "no_password") {
+    conditions.push(
+      and(
+        sql`NOT ${publicUserDeleted(users.id, users.state)}`,
+        sql`${users.passwordHash} IS NULL`,
+      )!,
+    );
+  } else if (filters.credential === "legacy_password_pending") {
+    conditions.push(
+      and(
+        sql`NOT ${publicUserDeleted(users.id, users.state)}`,
+        eq(users.legacyPasswordPending, true),
+      )!,
+    );
+  }
   const where = and(...conditions);
 
   const orderBy =
@@ -346,7 +396,6 @@ export async function listAdminUsersPage(
       ? [asc(users.id)]
       : filters.sort === "threads"
         ? [
-            // 字面量限定名理由同 searchUsers（模板插值在单表查询渲染成裸列名）
             sql`(SELECT COUNT(*) FROM threads WHERE threads.author_id = users.id AND threads.state = 'visible') DESC`,
             desc(users.id),
           ]
@@ -360,18 +409,22 @@ export async function listAdminUsersPage(
     getWebDb()
       .select({
         id: users.id,
-        username: users.username,
+        username: sql<string>`CASE WHEN ${publicUserDeleted(users.id, users.state)} THEN '已注销用户' ELSE ${users.username} END`,
+        state: sql<
+          "active" | "deleted"
+        >`CASE WHEN ${publicUserDeleted(users.id, users.state)} THEN 'deleted' ELSE 'active' END`,
+        emailVerified: sql<boolean>`${users.emailVerifiedAt} IS NOT NULL`.mapWith(Boolean),
+        emailVerificationRequired: users.emailVerificationRequired,
+        hasPassword: sql<boolean>`${users.passwordHash} IS NOT NULL`.mapWith(Boolean),
+        legacyPasswordPending: users.legacyPasswordPending,
         createdAt: users.createdAt,
-        threadCount: sql<
-          number | null
-        >`(SELECT COUNT(*) FROM threads WHERE threads.author_id = users.id AND threads.state = 'visible')`,
-        postCount: sql<
-          number | null
-        >`(SELECT COUNT(*) FROM posts WHERE posts.author_id = users.id AND posts.state = 'visible')`,
-        // EXISTS 回来是 0/1，mapWith 转真布尔（drizzle 的 sql<boolean> 只标注不转换）
+        threadCount: sql<number | null>`(SELECT COUNT(*) FROM threads
+          WHERE threads.author_id = users.id AND threads.state = 'visible')`,
+        postCount: sql<number | null>`(SELECT COUNT(*) FROM posts
+          WHERE posts.author_id = users.id AND posts.state = 'visible')`,
         restricted:
           sql<boolean>`EXISTS (SELECT 1 FROM user_restrictions ur WHERE ur.user_id = users.id
-          AND ur.starts_at <= NOW() AND (ur.ends_at IS NULL OR ur.ends_at > NOW()))`.mapWith(
+            AND ur.starts_at <= NOW() AND (ur.ends_at IS NULL OR ur.ends_at > NOW()))`.mapWith(
             Boolean,
           ),
       })
@@ -381,18 +434,105 @@ export async function listAdminUsersPage(
       .limit(perPage)
       .offset((page - 1) * perPage),
   ]);
-  return { items, total: Number(countRow[0]?.total ?? 0) };
+  const closureRows = items.length
+    ? await getWebDb()
+        .select({
+          userId: accountDeletionRequests.userId,
+          scheduledAt: accountDeletionRequests.scheduledAt,
+        })
+        .from(accountDeletionRequests)
+        .where(
+          and(
+            inArray(
+              accountDeletionRequests.userId,
+              items.map((row) => row.id),
+            ),
+            eq(accountDeletionRequests.status, "pending"),
+          ),
+        )
+        .orderBy(desc(accountDeletionRequests.id))
+    : [];
+  const closureByUser = new Map<number, string>();
+  for (const closure of closureRows) {
+    if (!closureByUser.has(closure.userId)) closureByUser.set(closure.userId, closure.scheduledAt);
+  }
+
+  return {
+    items: items.map((row) => {
+      const closureScheduledAt = closureByUser.get(row.id) ?? null;
+      const deleted = row.state === "deleted";
+      return {
+        ...row,
+        emailVerified: deleted ? false : row.emailVerified,
+        emailVerificationRequired: deleted ? false : row.emailVerificationRequired,
+        hasPassword: deleted ? false : row.hasPassword,
+        legacyPasswordPending: deleted ? false : row.legacyPasswordPending,
+        restricted: deleted ? false : row.restricted,
+        closurePending: closureScheduledAt !== null,
+        closureScheduledAt,
+      };
+    }),
+    total: Number(countRow[0]?.total ?? 0),
+  };
+}
+
+/** 后台吊销指定用户的一台 session；要求查询后仍校验 session 属于该用户。 */
+export async function revokeUserSessionByAdmin(
+  admin: ConfigActor & { userId: number },
+  userId: number,
+  sessionId: string,
+): Promise<{ ok: true } | { ok: false; code: "not_found" | "session_not_found" }> {
+  return getWebDb().transaction(async (tx) => {
+    const [session] = await tx
+      .select({ createdAt: sessions.createdAt, lastSeenAt: sessions.lastSeenAt })
+      .from(sessions)
+      .where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)))
+      .limit(1)
+      .for("update");
+    if (!session) return { ok: false, code: "session_not_found" };
+    await tx.delete(sessions).where(and(eq(sessions.id, sessionId), eq(sessions.userId, userId)));
+    await writeAudit(tx, {
+      actorId: admin.userId,
+      action: "session.revoke",
+      targetType: "user",
+      targetId: userId,
+      before: { sessionIdPrefix: sessionId.slice(0, 12), createdAt: session.createdAt },
+      after: { revoked: true },
+      ip: admin.ip,
+    });
+    return { ok: true };
+  });
 }
 
 /** 用户管理详情聚合 */
-export async function adminUserDetail(userId: number): Promise<{
+export async function adminUserDetail(
+  userId: number,
+  includeIp = false,
+): Promise<{
   id: number;
   username: string;
+  state: "active" | "deleted";
   email: string | null;
+  emailVerifiedAt: string | null;
+  emailVerificationRequired: boolean;
+  hasPassword: boolean;
+  legacyPasswordPending: boolean;
+  closureRequest: {
+    status: "pending" | "cancelled" | "completed";
+    requestedAt: string;
+    scheduledAt: string;
+  } | null;
   createdAt: string;
   lastLoginAt: string | null;
   points: number | null;
-  roles: { roleKey: string; scopeId: number; expiresAt: string | null }[];
+  roles: {
+    roleKey: string;
+    scopeId: number;
+    expiresAt: string | null;
+    grantedAt: string;
+    grantedBy: number | null;
+    active: boolean;
+  }[];
   restrictions: {
     id: number;
     kind: string;
@@ -403,16 +543,55 @@ export async function adminUserDetail(userId: number): Promise<{
     /** 服务端 NOW() 口径的生效布尔（替代页面侧 UTC 字符串比较，M9.5） */
     active: boolean;
   }[];
-  sessions: { createdAt: string; ip: string | null; lastSeenAt: string | null }[];
+  sessions: {
+    id: string;
+    createdAt: string;
+    expiresAt: string;
+    ip: string | null;
+    lastSeenAt: string | null;
+    active: boolean;
+  }[];
+  audit: {
+    id: number;
+    action: string;
+    actorId: number | null;
+    createdAt: string;
+    beforeJson: unknown;
+    afterJson: unknown;
+  }[];
 } | null> {
   const [user] = await getWebDb()
     .select({
       id: users.id,
-      username: users.username,
-      email: users.email,
+      username: sql<string>`CASE WHEN ${publicUserDeleted(users.id, users.state)} THEN '已注销用户' ELSE ${users.username} END`,
+      state: sql<
+        "active" | "deleted"
+      >`CASE WHEN ${publicUserDeleted(users.id, users.state)} THEN 'deleted' ELSE 'active' END`,
+      email: sql<
+        string | null
+      >`CASE WHEN ${publicUserDeleted(users.id, users.state)} THEN NULL ELSE ${users.email} END`,
+      emailVerifiedAt: sql<
+        string | null
+      >`CASE WHEN ${publicUserDeleted(users.id, users.state)} THEN NULL ELSE ${users.emailVerifiedAt} END`,
+      emailVerificationRequired:
+        sql<boolean>`(${users.emailVerificationRequired} AND NOT ${publicUserDeleted(users.id, users.state)})`.mapWith(
+          Boolean,
+        ),
+      hasPassword:
+        sql<boolean>`(${users.passwordHash} IS NOT NULL AND NOT ${publicUserDeleted(users.id, users.state)})`.mapWith(
+          Boolean,
+        ),
+      legacyPasswordPending:
+        sql<boolean>`(${users.legacyPasswordPending} AND NOT ${publicUserDeleted(users.id, users.state)})`.mapWith(
+          Boolean,
+        ),
       createdAt: users.createdAt,
-      lastLoginAt: users.lastLoginAt,
-      points: pointAccounts.balance,
+      lastLoginAt: sql<
+        string | null
+      >`CASE WHEN ${publicUserDeleted(users.id, users.state)} THEN NULL ELSE ${users.lastLoginAt} END`,
+      points: sql<
+        number | null
+      >`CASE WHEN ${publicUserDeleted(users.id, users.state)} THEN NULL ELSE ${pointAccounts.balance} END`,
     })
     .from(users)
     .leftJoin(pointAccounts, eq(pointAccounts.userId, users.id))
@@ -420,12 +599,18 @@ export async function adminUserDetail(userId: number): Promise<{
     .limit(1);
   if (!user) return null;
 
-  const [roles, restrictions, sessionRows] = await Promise.all([
+  const [roles, restrictions, sessionRows, closureRows, auditRows] = await Promise.all([
     getWebDb()
       .select({
         roleKey: userRoles.roleKey,
         scopeId: userRoles.scopeId,
         expiresAt: userRoles.expiresAt,
+        grantedAt: userRoles.grantedAt,
+        grantedBy: userRoles.grantedBy,
+        active:
+          sql<boolean>`(${userRoles.expiresAt} IS NULL OR ${userRoles.expiresAt} > NOW())`.mapWith(
+            Boolean,
+          ),
       })
       .from(userRoles)
       .where(eq(userRoles.userId, userId)),
@@ -443,17 +628,49 @@ export async function adminUserDetail(userId: number): Promise<{
       .where(eq(userRestrictions.userId, userId))
       .orderBy(desc(userRestrictions.id)),
     getWebDb()
-      .select({ createdAt: sessions.createdAt, ip: sessions.ip, lastSeenAt: sessions.lastSeenAt })
+      .select({
+        id: sessions.id,
+        createdAt: sessions.createdAt,
+        expiresAt: sessions.expiresAt,
+        ip: includeIp ? sessions.ip : sql<string | null>`NULL`,
+        lastSeenAt: sessions.lastSeenAt,
+        active: sql<boolean>`${sessions.expiresAt} > NOW()`.mapWith(Boolean),
+      })
       .from(sessions)
       .where(eq(sessions.userId, userId))
       .orderBy(desc(sessions.lastSeenAt))
       .limit(5),
+    getWebDb()
+      .select({
+        status: accountDeletionRequests.status,
+        requestedAt: accountDeletionRequests.requestedAt,
+        scheduledAt: accountDeletionRequests.scheduledAt,
+      })
+      .from(accountDeletionRequests)
+      .where(eq(accountDeletionRequests.userId, userId))
+      .orderBy(desc(accountDeletionRequests.id))
+      .limit(1),
+    getWebDb()
+      .select({
+        id: auditLog.id,
+        action: auditLog.action,
+        actorId: auditLog.actorId,
+        createdAt: auditLog.createdAt,
+        beforeJson: auditLog.beforeJson,
+        afterJson: auditLog.afterJson,
+      })
+      .from(auditLog)
+      .where(and(eq(auditLog.targetType, "user"), eq(auditLog.targetId, String(userId))))
+      .orderBy(desc(auditLog.id))
+      .limit(20),
   ]);
 
   return {
     ...user,
+    closureRequest: closureRows[0] ?? null,
     roles,
     restrictions,
     sessions: sessionRows,
+    audit: auditRows,
   };
 }

@@ -7,8 +7,6 @@ import { isFollowing } from "@/lib/interact/follows";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { getProfile } from "@/lib/queries/users";
-import { and, eq, isNull, or, sql } from "drizzle-orm";
-import { getWebDb, roles, userRoles } from "@funwind/db";
 import { fileUrl } from "@/lib/files";
 
 /**
@@ -33,24 +31,7 @@ export async function UserHoverCard({
   if (gone || uid === undefined) {
     return <span className="contents">{children}</span>;
   }
-  const [viewer, viewerSubject, customRoles] = await Promise.all([
-    getCurrentUser(),
-    getCurrentSubject(),
-    // 只有显式公开的自定义身份可上名片；有版块作用域时明确标注，后台角色默认隐藏
-    getWebDb()
-      .select({ name: roles.name, scopeId: userRoles.scopeId })
-      .from(userRoles)
-      .innerJoin(roles, eq(roles.key, userRoles.roleKey))
-      .where(
-        and(
-          eq(userRoles.userId, uid),
-          eq(roles.kind, "custom"),
-          eq(roles.isPublic, true),
-          or(isNull(userRoles.expiresAt), sql`${userRoles.expiresAt} > NOW()`),
-        ),
-      )
-      .limit(3),
-  ]);
+  const [viewer, viewerSubject] = await Promise.all([getCurrentUser(), getCurrentSubject()]);
   const profile = await getProfile(uid, viewerSubject);
   if (!profile) return <span className="contents">{children}</span>;
   const isSelf = viewer?.id === uid;
@@ -77,14 +58,14 @@ export async function UserHoverCard({
           <p className="text-xs text-muted-foreground">注册于 {profile.createdAt.slice(0, 10)}</p>
         </div>
       </div>
-      {customRoles.length > 0 && (
+      {profile.publicRoles.length > 0 && (
         <div className="flex flex-wrap gap-1">
-          {customRoles.map((r) => (
+          {profile.publicRoles.map((role) => (
             <span
-              key={`${r.name}:${r.scopeId}`}
+              key={`${role.key}:${role.scopeId}`}
               className="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary"
             >
-              {r.scopeId === 0 ? r.name : `${r.name} · 板块范围`}
+              {role.scopeId === 0 ? role.name : `${role.name} · ${role.scopeLabel}`}
             </span>
           ))}
         </div>

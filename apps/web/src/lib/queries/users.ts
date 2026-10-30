@@ -1,6 +1,7 @@
 import { and, count, desc, eq, inArray, notExists, sql } from "drizzle-orm";
 import { cache } from "react";
 import {
+  accountDeletionRequests,
   files,
   getWebDb,
   normalizeKey,
@@ -16,6 +17,7 @@ import { findActiveGlobalBan, restrictionActive } from "@/lib/authz/restrictions
 import { getPointsName } from "@/lib/auth/settings";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
 import { buildViewerScope, visiblePredicate } from "./visibility";
+import { publicRolesOf, type PublicRoleIdentity } from "./public-identity";
 import { GUEST_SUBJECT, type Subject } from "@/lib/authz/types";
 import { extractFeedMedia } from "./feed-media";
 import { selectList, threadScope, toItem, type ThreadListItem } from "./threads";
@@ -40,6 +42,8 @@ export interface Profile {
   pmPolicy: "all" | "following" | "off";
   /** 仅公开显示通用封禁标记，不含理由/期限 */
   ban: boolean;
+  /** 仅显式公开、仍有效的自定义角色身份 */
+  publicRoles: PublicRoleIdentity[];
 }
 
 export async function getProfile(
@@ -64,7 +68,23 @@ export async function getProfile(
       .leftJoin(files, eq(files.id, userProfiles.avatarFileId))
       .leftJoin(userStats, eq(userStats.userId, users.id))
       .leftJoin(pointAccounts, eq(pointAccounts.userId, users.id))
-      .where(and(eq(users.id, uid), eq(users.state, "active")))
+      .where(
+        and(
+          eq(users.id, uid),
+          eq(users.state, "active"),
+          notExists(
+            db
+              .select({ id: accountDeletionRequests.id })
+              .from(accountDeletionRequests)
+              .where(
+                and(
+                  eq(accountDeletionRequests.userId, users.id),
+                  eq(accountDeletionRequests.status, "completed"),
+                ),
+              ),
+          ),
+        ),
+      )
       .limit(1),
     db
       .select({ kind: userRestrictions.kind })
@@ -133,6 +153,7 @@ export async function getProfile(
     pointsName: await getPointsName(),
     pmPolicy: r.pmPolicy ?? "all",
     ban: (await findActiveGlobalBan(uid)) !== null,
+    publicRoles: await publicRolesOf(uid),
   };
 }
 
@@ -144,7 +165,23 @@ export async function findUserIdByName(username: string): Promise<number | null>
   const [row] = await getWebDb()
     .select({ id: users.id })
     .from(users)
-    .where(and(eq(users.usernameKey, normalizeKey(username)), eq(users.state, "active")))
+    .where(
+      and(
+        eq(users.usernameKey, normalizeKey(username)),
+        eq(users.state, "active"),
+        notExists(
+          getWebDb()
+            .select({ id: accountDeletionRequests.id })
+            .from(accountDeletionRequests)
+            .where(
+              and(
+                eq(accountDeletionRequests.userId, users.id),
+                eq(accountDeletionRequests.status, "completed"),
+              ),
+            ),
+        ),
+      ),
+    )
     .limit(1);
   return row?.id ?? null;
 }
@@ -155,10 +192,23 @@ export const avatarKeyOf = cache(async (userId: number): Promise<string | null> 
   const [row] = await db
     .select({ key: files.storageKey })
     .from(userProfiles)
+    .innerJoin(users, eq(users.id, userProfiles.userId))
     .innerJoin(files, eq(files.id, userProfiles.avatarFileId))
     .where(
       and(
         eq(userProfiles.userId, userId),
+        eq(users.state, "active"),
+        notExists(
+          db
+            .select({ id: accountDeletionRequests.id })
+            .from(accountDeletionRequests)
+            .where(
+              and(
+                eq(accountDeletionRequests.userId, users.id),
+                eq(accountDeletionRequests.status, "completed"),
+              ),
+            ),
+        ),
         notExists(
           db
             .select({ id: userRestrictions.id })

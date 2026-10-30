@@ -7,6 +7,7 @@ import { FeedCard } from "@/components/content/feed-card";
 import { HomeFeedStream } from "@/components/content/home-feed-stream";
 import { Pagination } from "@/components/content/pagination";
 import { FollowButton } from "@/components/interact/follow-button";
+import { UserHoverCard } from "@/components/content/user-hover-card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getCurrentSubject } from "@/lib/authz/subject";
@@ -87,18 +88,20 @@ export default async function FollowsPage({
                     key={u.id}
                     className="inline-flex items-center gap-1.5 rounded-full border py-0.5 pr-1 pl-1 text-xs"
                   >
-                    <Link
-                      href={`/u/${u.id}`}
-                      className="flex items-center gap-1.5 hover:text-primary"
-                    >
-                      <Avatar className="size-5">
-                        {u.avatarKey && <AvatarImage src={fileUrl(u.avatarKey)} alt="" />}
-                        <AvatarFallback className="bg-primary/15 text-[10px]">
-                          {u.username.slice(0, 1).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      {u.username}
-                    </Link>
+                    <UserHoverCard uid={u.id} name={u.username}>
+                      <Link
+                        href={`/u/${u.id}`}
+                        className="flex items-center gap-1.5 hover:text-primary"
+                      >
+                        <Avatar className="size-5">
+                          {u.avatarKey && <AvatarImage src={fileUrl(u.avatarKey)} alt="" />}
+                          <AvatarFallback className="bg-primary/15 text-[10px]">
+                            {u.username.slice(0, 1).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        {u.username}
+                      </Link>
+                    </UserHoverCard>
                     <FollowButton
                       targetType="user"
                       targetId={u.id}

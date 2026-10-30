@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
-import { emailTokens, getWebDb, users } from "@funwind/db";
+import { accountDeletionRequests, emailTokens, getWebDb, users } from "@funwind/db";
 import type { DbTx } from "@/lib/audit";
 import { generateToken, hashToken } from "./token";
 
@@ -45,6 +45,17 @@ export async function issueEmailTokenInTx(
   if (!user || user.state !== "active" || !user.emailKey) {
     throw new Error("无法为没有有效邮箱的账号签发邮件令牌");
   }
+  const [closure] = await tx
+    .select({ id: accountDeletionRequests.id })
+    .from(accountDeletionRequests)
+    .where(
+      and(
+        eq(accountDeletionRequests.userId, userId),
+        inArray(accountDeletionRequests.status, ["pending", "completed"]),
+      ),
+    )
+    .limit(1);
+  if (closure) throw new Error("注销中的账号不能签发邮件令牌");
   if (expectedEmailKey !== undefined && user.emailKey !== expectedEmailKey) {
     throw new Error("签发邮箱已变更");
   }
@@ -108,6 +119,21 @@ export async function consumeEmailToken(
       .where(eq(users.id, candidate.userId))
       .limit(1)
       .for("update");
+    const [closure] = await tx
+      .select({ id: accountDeletionRequests.id })
+      .from(accountDeletionRequests)
+      .where(
+        and(
+          eq(accountDeletionRequests.userId, candidate.userId),
+          inArray(accountDeletionRequests.status, ["pending", "completed"]),
+        ),
+      )
+      .limit(1);
+    if (closure) {
+      await tx.delete(emailTokens).where(eq(emailTokens.id, id));
+      return null;
+    }
+
     const [row] = await tx
       .select({
         userId: emailTokens.userId,

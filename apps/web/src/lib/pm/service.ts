@@ -17,6 +17,7 @@ import { findActiveGlobalBan, restrictionActive } from "@/lib/authz/restrictions
 import { nowBeijingWallTime } from "@/lib/datetime";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
 import { limitsFor } from "@/lib/limits/load";
+import { publicUserId } from "@/lib/queries/public-identity";
 import { enqueueEventInTx, sweepPending } from "@/lib/events/outbox";
 import { isDuplicateKey } from "@/lib/auth/register";
 
@@ -159,7 +160,7 @@ export async function sendMessage(
           and(
             inArray(userRestrictions.userId, [senderId, recipientId]),
             eq(userRestrictions.scopeId, 0),
-            inArray(userRestrictions.kind, ["ban", "mute"]),
+            eq(userRestrictions.kind, "ban"),
             restrictionActive,
           ),
         )
@@ -305,7 +306,7 @@ export async function conversationMessages(
   page = 1,
   pageSize = PM_MESSAGES_PER_PAGE,
 ): Promise<{
-  items: { id: number; senderId: number; body: string; createdAt: string }[];
+  items: { id: number; senderId: number | null; body: string; createdAt: string }[];
   total: number;
   page: number;
   totalPages: number;
@@ -323,11 +324,12 @@ export async function conversationMessages(
       : await getWebDb()
           .select({
             id: messages.id,
-            senderId: messages.senderId,
+            senderId: publicUserId(users.id, users.state),
             body: messages.body,
             createdAt: messages.createdAt,
           })
           .from(messages)
+          .leftJoin(users, eq(users.id, messages.senderId))
           .where(eq(messages.conversationId, conversationId))
           .orderBy(asc(messages.id))
           .limit(pageSize)

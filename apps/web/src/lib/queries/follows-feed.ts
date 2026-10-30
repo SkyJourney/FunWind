@@ -1,11 +1,12 @@
-import { and, count, desc, eq, inArray, or } from "drizzle-orm";
-import { follows, getWebDb, posts, threads } from "@funwind/db";
+import { and, count, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { follows, getWebDb, posts, threads, users } from "@funwind/db";
 import type { Subject } from "@/lib/authz/types";
 import { THREADS_PER_PAGE, selectList, threadCols, toItem, type HomeFeedItem } from "./threads";
 import { extractFeedMedia } from "./feed-media";
 import { clampPage } from "./paging";
 import { buildViewerScope, visiblePredicate } from "./visibility";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
+import { publicUserDeleted } from "./public-identity";
 
 /**
  * 关注动态（M8）：关注的版块新帖 + 关注用户的发帖，实时从新表推导（旧 fresh 流不迁）。
@@ -15,13 +16,28 @@ import { getAuthzSnapshot } from "@/lib/authz/snapshot";
 export async function followedThreadIds(
   userId: number,
 ): Promise<{ forumIds: number[]; userIds: number[] }> {
-  const rows = await getWebDb()
-    .select({ targetType: follows.targetType, targetId: follows.targetId })
-    .from(follows)
-    .where(eq(follows.userId, userId));
+  const db = getWebDb();
+  const [forums, activeUsers] = await Promise.all([
+    db
+      .select({ targetId: follows.targetId })
+      .from(follows)
+      .where(and(eq(follows.userId, userId), eq(follows.targetType, "forum"))),
+    db
+      .select({ targetId: follows.targetId })
+      .from(follows)
+      .innerJoin(users, eq(users.id, follows.targetId))
+      .where(
+        and(
+          eq(follows.userId, userId),
+          eq(follows.targetType, "user"),
+          eq(users.state, "active"),
+          sql`NOT ${publicUserDeleted(users.id, users.state)}`,
+        ),
+      ),
+  ]);
   return {
-    forumIds: rows.filter((r) => r.targetType === "forum").map((r) => r.targetId),
-    userIds: rows.filter((r) => r.targetType === "user").map((r) => r.targetId),
+    forumIds: forums.map((row) => row.targetId),
+    userIds: activeUsers.map((row) => row.targetId),
   };
 }
 

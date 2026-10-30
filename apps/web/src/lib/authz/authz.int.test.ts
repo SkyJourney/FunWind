@@ -6,6 +6,7 @@
 import "@/modules";
 import { and, eq, sql } from "drizzle-orm";
 import {
+  accountDeletionRequests,
   DEMO,
   auditLog,
   forums,
@@ -269,7 +270,7 @@ describe.skipIf(skipDb)("权限内核 · 真实 MySQL", () => {
       expect((await audits("grant.add")).length).toBe(before + 1);
 
       // 绑定后立即生效
-      await assignUserRole(admin, DEMO.member, "team-media", 0);
+      await assignUserRole(admin, DEMO.member, "team-media", 0, null, "集成测试授予");
       const s = await loadSubject(DEMO.member);
       expect(
         (await checkPermission(s, "forum.read", { forumId: DEMO.restrictedForum })).allowed,
@@ -292,15 +293,19 @@ describe.skipIf(skipDb)("权限内核 · 真实 MySQL", () => {
     });
 
     it("用户角色绑定：隐式角色不可绑；用户须存在；可撤销；均写审计", async () => {
-      await expect(assignUserRole(admin, DEMO.member, "member", 0)).rejects.toThrow(/隐式角色/);
-      await expect(assignUserRole(admin, 987654, "team-media", 0)).rejects.toThrow(/用户不存在/);
-      await expect(assignUserRole(admin, DEMO.member, "team-media", 424242)).rejects.toThrow(
-        /版块不存在/,
+      await expect(assignUserRole(admin, DEMO.member, "member", 0, null, "reason")).rejects.toThrow(
+        /隐式角色/,
+      );
+      await expect(assignUserRole(admin, 987654, "team-media", 0, null, "reason")).rejects.toThrow(
+        /用户不存在/,
       );
       await expect(
-        assignUserRole(admin, DEMO.member, "team-media", 0, "2000-01-01 00:00:00"),
+        assignUserRole(admin, DEMO.member, "team-media", 424242, null, "reason"),
+      ).rejects.toThrow(/版块不存在/);
+      await expect(
+        assignUserRole(admin, DEMO.member, "team-media", 0, "2000-01-01 00:00:00", "reason"),
       ).rejects.toThrow(/未来北京时间/);
-      await revokeUserRole(admin, DEMO.member, "team-media", 0);
+      await revokeUserRole(admin, DEMO.member, "team-media", 0, "集成测试撤销");
       const s = await loadSubject(DEMO.member);
       expect(s.roles.map((r) => r.key)).toEqual(["member"]);
       expect((await audits("user_role.assign")).length).toBe(1);
@@ -311,9 +316,17 @@ describe.skipIf(skipDb)("权限内核 · 真实 MySQL", () => {
       const seen: unknown[] = [];
       const deps = { emitter: async (_n: "role.changed", p: unknown) => void seen.push(p) };
       await createCustomRole(admin, "team-events", "事件测试", "");
-      await assignUserRole(admin, DEMO.member, "team-events", 0, null, deps as never);
-      await revokeUserRole(admin, DEMO.member, "team-events", 0, deps as never);
-      await revokeUserRole(admin, DEMO.member, "team-events", 0, deps as never); // 已不存在
+      await assignUserRole(
+        admin,
+        DEMO.member,
+        "team-events",
+        0,
+        null,
+        "事件测试授予",
+        deps as never,
+      );
+      await revokeUserRole(admin, DEMO.member, "team-events", 0, "事件测试撤销", deps as never);
+      await revokeUserRole(admin, DEMO.member, "team-events", 0, "事件测试撤销", deps as never); // 已不存在
       expect(seen).toEqual([
         {
           userId: DEMO.member,
@@ -337,7 +350,7 @@ describe.skipIf(skipDb)("权限内核 · 真实 MySQL", () => {
     it("deleteCustomRole：内置不可删；自定义角色连带授权与绑定清除，审计记录规模", async () => {
       await expect(deleteCustomRole(admin, "admin")).rejects.toThrow(/内置/);
       await grantRolePermission(admin, "team-media", "forum.report", 0);
-      await assignUserRole(admin, DEMO.xiaoyi, "team-media", 0);
+      await assignUserRole(admin, DEMO.xiaoyi, "team-media", 0, null, "版块权限测试");
       await deleteCustomRole(admin, "team-media");
       const db = getWebDb();
       expect(await db.select().from(roles).where(eq(roles.key, "team-media"))).toHaveLength(0);
@@ -359,13 +372,13 @@ describe.skipIf(skipDb)("权限内核 · 真实 MySQL", () => {
         await grantRolePermission(admin, roleKey, "site.admin", 0);
         await grantRolePermission(admin, roleKey, "admin.roles", 0);
       }
-      await assignUserRole(admin, DEMO.member, roleA, 0);
-      await assignUserRole(admin, DEMO.team, roleB, 0);
-      await revokeUserRole(admin, DEMO.admin, "admin", 0);
+      await assignUserRole(admin, DEMO.member, roleA, 0, null, "管理员测试授予");
+      await assignUserRole(admin, DEMO.team, roleB, 0, null, "管理员测试授予");
+      await revokeUserRole(admin, DEMO.admin, "admin", 0, "并发末位管理员测试");
 
       const results = await Promise.allSettled([
-        revokeUserRole(admin, DEMO.member, roleA, 0),
-        revokeUserRole(admin, DEMO.team, roleB, 0),
+        revokeUserRole(admin, DEMO.member, roleA, 0, "并发撤销测试"),
+        revokeUserRole(admin, DEMO.team, roleB, 0, "并发撤销测试"),
       ]);
       expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
       expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
@@ -376,9 +389,9 @@ describe.skipIf(skipDb)("权限内核 · 真实 MySQL", () => {
       );
       await expect(deleteCustomRole(admin, remainingRole)).rejects.toThrow(/至少保留一位/);
 
-      await assignUserRole(admin, DEMO.admin, "admin", 0);
-      await revokeUserRole(admin, DEMO.member, roleA, 0);
-      await revokeUserRole(admin, DEMO.team, roleB, 0);
+      await assignUserRole(admin, DEMO.admin, "admin", 0, null, "并发测试恢复管理角色");
+      await revokeUserRole(admin, DEMO.member, roleA, 0, "并发测试清理");
+      await revokeUserRole(admin, DEMO.team, roleB, 0, "并发测试清理");
       await deleteCustomRole(admin, roleA);
       await deleteCustomRole(admin, roleB);
     });
@@ -400,7 +413,7 @@ describe.skipIf(skipDb)("权限内核 · 真实 MySQL", () => {
     it("版主 = 链上持有 forum.moderate 授权的角色的持有人；继承标注 viaParent", async () => {
       await createCustomRole(admin, "section-mod", "分区版主", "");
       await grantRolePermission(admin, "section-mod", "forum.moderate", 900); // 演示分区
-      await assignUserRole(admin, DEMO.xiaoyi, "section-mod", 0);
+      await assignUserRole(admin, DEMO.xiaoyi, "section-mod", 0, null, "版主角色测试");
       const direct = await getForumModerators(900);
       expect(direct).toEqual([{ userId: DEMO.xiaoyi, username: "demo_小翼", viaParent: false }]);
       const inherited = await getForumModerators(901);
@@ -411,6 +424,28 @@ describe.skipIf(skipDb)("权限内核 · 真实 MySQL", () => {
       const s = await loadSubject(DEMO.xiaoyi);
       expect((await checkPermission(s, "forum.moderate", { forumId: 901 })).allowed).toBe(true);
       expect(await getModeratedForumIds(s)).toContain(901);
+
+      await getWebDb()
+        .insert(accountDeletionRequests)
+        .values({
+          userId: DEMO.xiaoyi,
+          status: "completed",
+          requestedAt: sql`NOW()`,
+          scheduledAt: sql`NOW()`,
+          completedAt: sql`NOW()`,
+        });
+      try {
+        expect(await getForumModerators(901)).toEqual([]);
+      } finally {
+        await getWebDb()
+          .delete(accountDeletionRequests)
+          .where(
+            and(
+              eq(accountDeletionRequests.userId, DEMO.xiaoyi),
+              eq(accountDeletionRequests.status, "completed"),
+            ),
+          );
+      }
     });
 
     it("角色绑定的作用域也必须覆盖该版块", async () => {
@@ -418,7 +453,7 @@ describe.skipIf(skipDb)("权限内核 · 真实 MySQL", () => {
       await db
         .delete(userRoles)
         .where(and(eq(userRoles.userId, DEMO.xiaoyi), eq(userRoles.roleKey, "section-mod")));
-      await assignUserRole(admin, DEMO.xiaoyi, "section-mod", 904); // 只绑在受限版块
+      await assignUserRole(admin, DEMO.xiaoyi, "section-mod", 904, null, "版主作用域测试"); // 只绑在受限版块
       expect(await getForumModerators(901)).toEqual([]);
       const rows = await db.select({ id: forums.id }).from(forums).where(eq(forums.id, 904));
       expect(rows).toHaveLength(1);
@@ -429,7 +464,9 @@ describe.skipIf(skipDb)("权限内核 · 真实 MySQL", () => {
     it("并发重复绑定同一用户角色：全部成功，只有一行绑定；到期时间以最后写入为准（复查 B5）", async () => {
       await createCustomRole(admin, "team-conc2", "并发绑定", "");
       const results = await Promise.allSettled(
-        Array.from({ length: 10 }, () => assignUserRole(admin, DEMO.xiaoyi, "team-conc2", 0)),
+        Array.from({ length: 10 }, () =>
+          assignUserRole(admin, DEMO.xiaoyi, "team-conc2", 0, null, "并发角色测试"),
+        ),
       );
       expect(
         results

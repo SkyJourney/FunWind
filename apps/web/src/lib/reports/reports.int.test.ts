@@ -9,7 +9,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
-import { dismissReportsBulk, handleReport, listReportPage, submitReport } from "./service";
+import {
+  dismissReportsBulk,
+  handleReport,
+  listReportPage,
+  reportPostTarget,
+  submitReport,
+} from "./service";
 
 let tdb: TempDb;
 let member: Subject;
@@ -36,6 +42,13 @@ describe.skipIf(skipDb)("举报（M9）", () => {
 
     const rows = await db().select().from(reports).where(eq(reports.postId, 900101));
     expect(rows).toHaveLength(2);
+  });
+
+  it("举报确认与提交均要求登录；不存在目标的确认页返回空", async () => {
+    const guest = await loadSubject(null);
+    expect(await reportPostTarget(guest, 900101)).toBeNull();
+    expect(await submitReport(guest, 900101, "游客举报")).toEqual({ ok: false, code: "login" });
+    expect(await reportPostTarget(member, 99999999)).toBeNull();
   });
 
   it("不可见/不存在帖子拒绝；空理由拒绝；全站封禁用户不能举报", async () => {
@@ -68,6 +81,8 @@ describe.skipIf(skipDb)("举报（M9）", () => {
       });
     try {
       const bannedMember = await loadSubject(DEMO.member);
+      expect(await reportPostTarget(bannedMember, 900101)).toBeNull();
+      expect(await reportPostTarget(bannedMember, 900102)).toMatchObject({ threadId: 900002 });
       expect(await submitReport(bannedMember, 900101, "禁入版块不能举报")).toEqual({
         ok: false,
         code: "not_found",

@@ -2,13 +2,11 @@ import { ArrowLeft } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { eq } from "drizzle-orm";
-import { getWebDb, posts, threads } from "@funwind/db";
 import { reportPostAction } from "@/app/actions/reports";
+import { reportPostTarget } from "@/lib/reports/service";
 import { Card, CardContent } from "@/components/ui/card";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getCurrentSubject } from "@/lib/authz/subject";
-import { checkPermission } from "@/lib/authz/service";
 import { postingNoticeText } from "@/lib/posting/compose";
 
 export const dynamic = "force-dynamic";
@@ -31,15 +29,8 @@ export default async function ReportPostPage({ params, searchParams }: Params) {
   const user = await getCurrentUser();
   if (!user) notFound();
   const subject = await getCurrentSubject();
-  if (!(await checkPermission(subject, "forum.report")).allowed) notFound();
-
-  const [row] = await getWebDb()
-    .select({ threadId: posts.threadId, state: posts.state, title: threads.title })
-    .from(posts)
-    .innerJoin(threads, eq(threads.id, posts.threadId))
-    .where(eq(posts.id, pid))
-    .limit(1);
-  if (!row || row.state !== "visible") notFound();
+  const row = await reportPostTarget(subject, pid);
+  if (!row) notFound();
 
   const sp = await searchParams;
 

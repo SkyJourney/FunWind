@@ -63,6 +63,7 @@ describe.skipIf(skipDb)("团队成员服务 · 真实 MySQL", () => {
       userId: DEMO.member,
       roleKey: ROLE_KEY,
       expiresAt: EXPIRY,
+      reason: "集成测试授予团队角色",
     });
     let [role] = await db()
       .select({ scopeId: userRoles.scopeId, expiresAt: userRoles.expiresAt })
@@ -80,6 +81,7 @@ describe.skipIf(skipDb)("团队成员服务 · 真实 MySQL", () => {
       userId: DEMO.member,
       roleKey: ROLE_KEY,
       expiresAt: RENEWED_EXPIRY,
+      reason: "集成测试续期团队角色",
     });
     [role] = await db()
       .select({ scopeId: userRoles.scopeId, expiresAt: userRoles.expiresAt })
@@ -131,17 +133,22 @@ describe.skipIf(skipDb)("团队成员服务 · 真实 MySQL", () => {
         userId: DEMO.team,
         roleKey: ROLE_KEY,
         expiresAt: "2000-01-01 00:00:00",
+        reason: "过期时间测试",
       }),
     ).rejects.toThrow(/未来北京时间/);
-    await expect(assignUserRole(ACTOR, DEMO.team, ROLE_KEY, 0)).rejects.toThrow(/团队成员服务/);
-    await expect(revokeUserRole(ACTOR, DEMO.team, ROLE_KEY, 0)).rejects.toThrow(/团队成员服务/);
+    await expect(assignUserRole(ACTOR, DEMO.team, ROLE_KEY, 0, null, "绕过测试")).rejects.toThrow(
+      /团队成员服务/,
+    );
+    await expect(revokeUserRole(ACTOR, DEMO.team, ROLE_KEY, 0, "绕过测试")).rejects.toThrow(
+      /团队成员服务/,
+    );
     await expect(grantBadgeByAdmin(ACTOR, { userId: DEMO.team, badgeId })).rejects.toThrow(
       /团队成员服务/,
     );
   });
 
   it("撤销同时移除两种身份并通知；重复撤销不产生新事件", async () => {
-    await revokeTeamMembership(ACTOR, DEMO.member, ROLE_KEY);
+    await revokeTeamMembership(ACTOR, DEMO.member, ROLE_KEY, "集成测试收回团队角色");
     expect(
       await db()
         .select()
@@ -158,7 +165,7 @@ describe.skipIf(skipDb)("团队成员服务 · 真实 MySQL", () => {
       .select({ id: eventOutbox.id })
       .from(eventOutbox)
       .where(and(eq(eventOutbox.eventName, "role.changed"), eq(eventOutbox.actorId, DEMO.admin)));
-    await revokeTeamMembership(ACTOR, DEMO.member, ROLE_KEY);
+    await revokeTeamMembership(ACTOR, DEMO.member, ROLE_KEY, "集成测试收回团队角色");
     const after = await db()
       .select({ id: eventOutbox.id })
       .from(eventOutbox)
@@ -199,13 +206,18 @@ describe.skipIf(skipDb)("团队成员服务 · 真实 MySQL", () => {
         { roleKey: ROLE_KEY, permissionKey: "site.admin", scopeId: 0 },
         { roleKey: ROLE_KEY, permissionKey: "admin.roles", scopeId: 0 },
       ]);
-    await assignTeamMembership(ACTOR, { userId, roleKey: ROLE_KEY, expiresAt: null });
+    await assignTeamMembership(ACTOR, {
+      userId,
+      roleKey: ROLE_KEY,
+      expiresAt: null,
+      reason: "末位管理员保护测试",
+    });
 
     try {
-      await revokeUserRole(ACTOR, DEMO.admin, "admin", 0);
-      await expect(revokeTeamMembership(ACTOR, userId, ROLE_KEY)).rejects.toBeInstanceOf(
-        AdminError,
-      );
+      await revokeUserRole(ACTOR, DEMO.admin, "admin", 0, "末位管理员保护测试");
+      await expect(
+        revokeTeamMembership(ACTOR, userId, ROLE_KEY, "末位管理员保护测试"),
+      ).rejects.toBeInstanceOf(AdminError);
       expect(
         await db()
           .select()
@@ -219,8 +231,8 @@ describe.skipIf(skipDb)("团队成员服务 · 真实 MySQL", () => {
           .where(and(eq(userBadges.userId, userId), eq(userBadges.badgeId, badgeId))),
       ).toHaveLength(1);
     } finally {
-      await assignUserRole(ACTOR, DEMO.admin, "admin", 0);
-      await revokeTeamMembership(ACTOR, userId, ROLE_KEY);
+      await assignUserRole(ACTOR, DEMO.admin, "admin", 0, null, "末位管理员保护测试");
+      await revokeTeamMembership(ACTOR, userId, ROLE_KEY, "末位管理员保护测试");
       await db().delete(roleGrants).where(eq(roleGrants.roleKey, ROLE_KEY));
       await db().delete(users).where(eq(users.id, userId));
     }

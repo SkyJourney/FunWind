@@ -400,7 +400,8 @@ export async function assignUserRole(
   userId: number,
   roleKey: string,
   scopeId: number,
-  expiresAt: string | null = null,
+  expiresAt: string | null,
+  reason: string,
   deps: AdminDeps = {},
 ): Promise<void> {
   if (roleKey === "guest" || roleKey === "member") {
@@ -414,6 +415,9 @@ export async function assignUserRole(
   }
   await requireRole(roleKey);
   await requireScope(scopeId);
+  const why = reason.trim();
+  if (!why) throw new AdminError("必须填写授予理由");
+  if (why.length > 255) throw new AdminError("授予理由不能超过 255 个字符");
   const enqueued: EnqueuedEvent[] = [];
   await getWebDb().transaction(async (tx) => {
     enqueued.length = 0;
@@ -454,7 +458,7 @@ export async function assignUserRole(
       action: "user_role.assign",
       targetType: "user",
       targetId: userId,
-      after: { roleKey, scopeId, expiresAt },
+      after: { roleKey, scopeId, expiresAt, reason: why },
       ip: actor.ip,
     });
     enqueued.push(
@@ -474,11 +478,15 @@ export async function revokeUserRole(
   userId: number,
   roleKey: string,
   scopeId: number,
+  reason: string,
   deps: AdminDeps = {},
 ): Promise<void> {
   if (isTeamMembershipRole(roleKey)) {
     throw new AdminError("团队角色必须通过团队成员服务收回");
   }
+  const why = reason.trim();
+  if (!why) throw new AdminError("必须填写撤销理由");
+  if (why.length > 255) throw new AdminError("撤销理由不能超过 255 个字符");
   const enqueued: EnqueuedEvent[] = [];
   await getWebDb().transaction(async (tx) => {
     enqueued.length = 0;
@@ -519,7 +527,8 @@ export async function revokeUserRole(
       action: "user_role.revoke",
       targetType: "user",
       targetId: userId,
-      before: { roleKey, scopeId },
+      before: { roleKey, scopeId, expiresAt: rows[0]?.expiresAt ?? null },
+      after: { reason: why },
       ip: actor.ip,
     });
     enqueued.push(

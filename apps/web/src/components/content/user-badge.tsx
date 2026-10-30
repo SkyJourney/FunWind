@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { UserHoverCard } from "@/components/content/user-hover-card";
 import { avatarKeyOf } from "@/lib/queries/users";
+import { publicRolesOf, type PublicRoleIdentity } from "@/lib/queries/public-identity";
 import { fileUrl } from "@/lib/files";
 import { Slot } from "@/modules/kernel/slot";
 
@@ -24,7 +25,10 @@ export async function UserBadge({
   const gone = deleted || !name;
   const display = gone ? "已注销" : name;
   const initial = gone ? "销" : display.slice(0, 1).toUpperCase();
-  const avatarKey = !gone && uid !== undefined ? await avatarKeyOf(uid) : null;
+  const [avatarKey, publicRoles] =
+    !gone && uid !== undefined
+      ? await Promise.all([avatarKeyOf(uid), publicRolesOf(uid)])
+      : [null, [] as PublicRoleIdentity[]];
 
   const inner = (
     <>
@@ -35,7 +39,20 @@ export async function UserBadge({
         </AvatarFallback>
       </Avatar>
       <span className={gone ? "text-muted-foreground italic" : "font-medium"}>{display}</span>
-      {uid !== undefined && !gone && <Slot name="thread.user-badge" ctx={{ userId: uid }} />}
+      {uid !== undefined && !gone && (
+        <>
+          <Slot name="thread.user-badge" ctx={{ userId: uid }} />
+          {publicRoles.map((role) => (
+            <span
+              key={`${role.key}:${role.scopeId}`}
+              className="rounded bg-primary/10 px-1 py-0.5 text-[10px] font-medium text-primary"
+            >
+              {role.name}
+              {role.scopeId > 0 ? ` · ${role.scopeLabel}` : ""}
+            </span>
+          ))}
+        </>
+      )}
     </>
   );
 

@@ -76,6 +76,8 @@ const snap = buildSnapshot(tree, [
   g("mod", "forum.moderate", 2),
   g("section-mod", "forum.moderate", 1),
   g("global-mod", "forum.moderate"),
+  g("admin", "user.viewIp"),
+  g("site-admin", "site.admin"),
 ]);
 
 const user = (
@@ -131,6 +133,12 @@ describe("admin 短路与角色作用域", () => {
     expect(ok(a, "forum.read", 3)).toBe(true);
     expect(ok(a, "forum.moderate", 5)).toBe(true);
     expect(ok(a, "admin.roles")).toBe(true);
+  });
+
+  it("user.viewIp 不继承 site.admin 短路，必须有独立授权", () => {
+    const siteAdmin = user([role("site-admin")]);
+    expect(ok(siteAdmin, "site.admin")).toBe(true);
+    expect(ok(siteAdmin, "user.viewIp")).toBe(false);
   });
 
   it("版块作用域的 admin 绑定只在该版块子树内生效", () => {
@@ -252,9 +260,12 @@ describe("级联合并（forum.moderate 与其他权限点）", () => {
 describe("用户限制优先于授权", () => {
   const mute = (scopeId = 0): Restriction => ({ kind: "mute", scopeId, endsAt: null });
 
-  it("禁言：写类全部拒绝，读/举报/参与投票不受影响", () => {
+  it("全站禁言拒绝普通写入，但不影响无版块上下文的私信、读取与举报", () => {
     const s = user([], { restrictions: [mute()] });
-    for (const k of WRITE_CLASS_KEYS) expect(ok(s, k), k).toBe(false);
+    for (const k of WRITE_CLASS_KEYS) {
+      if (k !== "pm.send") expect(ok(s, k), k).toBe(false);
+    }
+    expect(ok(s, "pm.send")).toBe(true);
     expect(ok(s, "forum.read", 2)).toBe(true);
     expect(ok(s, "forum.report", 2)).toBe(true);
     expect(ok(s, "vote.participate")).toBe(true);

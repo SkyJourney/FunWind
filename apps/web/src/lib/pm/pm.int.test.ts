@@ -24,7 +24,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
-import { conversationList, otherMemberOf, unreadPmTotal } from "./queries";
+import {
+  conversationList,
+  messagesBefore,
+  otherMemberOf,
+  otherMemberSummaryOf,
+  unreadPmTotal,
+} from "./queries";
 import { openConversation, sendMessage } from "./service";
 
 let tdb: TempDb;
@@ -339,6 +345,86 @@ describe.skipIf(skipDb)("私信（M10）", () => {
       await db()
         .delete(accountDeletionRequests)
         .where(eq(accountDeletionRequests.id, Number(closure.insertId)));
+    }
+  });
+
+  it("全站禁言不影响无版块上下文的私信", async () => {
+    const reason = "m9.6-pm-global-mute";
+    await db()
+      .insert(userRestrictions)
+      .values({
+        userId: DEMO.alice,
+        kind: "mute",
+        scopeId: 0,
+        reason,
+        startsAt: sql`NOW()`,
+        endsAt: null,
+        createdBy: DEMO.admin,
+        createdAt: sql`NOW()`,
+      });
+    try {
+      const mutedAlice = await loadSubject(DEMO.alice);
+      expect(await sendMessage(mutedAlice, DEMO.xiaoyi, "全站禁言仍可发私信")).toMatchObject({
+        ok: true,
+      });
+    } finally {
+      await db()
+        .delete(userRestrictions)
+        .where(and(eq(userRestrictions.userId, DEMO.alice), eq(userRestrictions.reason, reason)));
+    }
+  });
+
+  it("注销对端在会话列表与历史中只投影匿名身份", async () => {
+    const xiaoyi = await loadSubject(DEMO.xiaoyi);
+    const first = await sendMessage(alice, DEMO.xiaoyi, "匿名历史会话");
+    if (!first.ok) throw new Error(first.code);
+    await sendMessage(xiaoyi, DEMO.alice, "对方历史消息");
+    await db().update(users).set({ state: "deleted" }).where(eq(users.id, DEMO.xiaoyi));
+    try {
+      const item = (await conversationList(DEMO.alice)).find(
+        (conversation) => conversation.conversationId === first.conversationId,
+      );
+      expect(item).toMatchObject({
+        otherId: null,
+        otherName: "已注销用户",
+        otherDeleted: true,
+      });
+      expect(await otherMemberSummaryOf(first.conversationId, DEMO.alice)).toEqual({
+        userId: null,
+        displayName: "已注销用户",
+        deleted: true,
+      });
+      const history = await messagesBefore(first.conversationId, null);
+      expect(history.items.find((message) => message.body === "对方历史消息")?.senderId).toBeNull();
+
+      await db().update(users).set({ state: "active" }).where(eq(users.id, DEMO.xiaoyi));
+      await db()
+        .insert(accountDeletionRequests)
+        .values({
+          userId: DEMO.xiaoyi,
+          status: "completed",
+          requestedAt: sql`NOW()`,
+          scheduledAt: sql`NOW()`,
+          completedAt: sql`NOW()`,
+        });
+      const tombstoneItem = (await conversationList(DEMO.alice)).find(
+        (conversation) => conversation.conversationId === first.conversationId,
+      );
+      expect(tombstoneItem).toMatchObject({ otherId: null, otherName: "已注销用户" });
+      const tombstoneHistory = await messagesBefore(first.conversationId, null);
+      expect(
+        tombstoneHistory.items.find((message) => message.body === "对方历史消息")?.senderId,
+      ).toBeNull();
+    } finally {
+      await db()
+        .delete(accountDeletionRequests)
+        .where(
+          and(
+            eq(accountDeletionRequests.userId, DEMO.xiaoyi),
+            eq(accountDeletionRequests.status, "completed"),
+          ),
+        );
+      await db().update(users).set({ state: "active" }).where(eq(users.id, DEMO.xiaoyi));
     }
   });
 

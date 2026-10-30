@@ -151,6 +151,16 @@ export default async function ProfilePage({
                 </>
               ) : null}
             </div>
+            {profile.publicRoles.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {profile.publicRoles.map((role) => (
+                  <Badge key={`${role.key}:${role.scopeId}`} variant="secondary">
+                    {role.name}
+                    {role.scopeId > 0 ? ` · ${role.scopeLabel}` : ""}
+                  </Badge>
+                ))}
+              </div>
+            )}
             <p className="mt-1 text-xs text-muted-foreground">
               注册于 {profile.createdAt} · 主题 {profile.threadCount} · 帖子 {profile.postCount} ·
               精华 {profile.featuredCount} · 粉丝 {profile.followerCount} · {profile.pointsName}{" "}

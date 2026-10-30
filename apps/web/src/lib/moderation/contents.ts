@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { forums, getWebDb, posts, threads, users } from "@funwind/db";
+import { publicUsername } from "@/lib/queries/public-identity";
 
 /**
  * 内容管理查询（M9.5 §9.2-A）：后台跨主题/回帖的**定位**能力——
@@ -81,7 +82,7 @@ export async function listContentsPage(
           title: threads.title,
           excerpt: sql<string | null>`NULL`,
           authorId: threads.authorId,
-          authorName: users.username,
+          authorName: publicUsername(users.username, users.state, users.id),
           authorBanned:
             sql<boolean>`EXISTS (SELECT 1 FROM user_restrictions ur WHERE ur.user_id = ${threads.authorId}
               AND ur.kind = 'ban' AND ur.scope_id = 0 AND ur.starts_at <= NOW()
@@ -102,7 +103,7 @@ export async function listContentsPage(
           title: threads.title,
           excerpt: sql<string | null>`SUBSTRING(${posts.bodyMd}, 1, 80)`,
           authorId: posts.authorId,
-          authorName: users.username,
+          authorName: publicUsername(users.username, users.state, users.id),
           authorBanned:
             sql<boolean>`EXISTS (SELECT 1 FROM user_restrictions ur WHERE ur.user_id = ${posts.authorId}
               AND ur.kind = 'ban' AND ur.scope_id = 0 AND ur.starts_at <= NOW()
