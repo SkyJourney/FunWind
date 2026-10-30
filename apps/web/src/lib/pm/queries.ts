@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { conversations, conversationMembers, getWebDb, messages, users } from "@funwind/db";
 import { publicUserDeleted, publicUserId, publicUsername } from "@/lib/queries/public-identity";
 
@@ -99,7 +99,7 @@ async function loadConversations(
       and(
         inArray(messages.conversationId, convIds),
         sql`(${conversationMembers.lastReadMessageId} IS NULL OR ${messages.id} > ${conversationMembers.lastReadMessageId})`,
-        sql`${messages.senderId} <> ${userId}`,
+        or(isNull(messages.senderId), ne(messages.senderId, userId)),
       ),
     )
     .groupBy(messages.conversationId);
@@ -207,7 +207,7 @@ export async function unreadPmTotal(userId: number): Promise<number> {
     .where(
       and(
         sql`(${conversationMembers.lastReadMessageId} IS NULL OR ${messages.id} > ${conversationMembers.lastReadMessageId})`,
-        sql`${messages.senderId} <> ${userId}`,
+        or(isNull(messages.senderId), ne(messages.senderId, userId)),
       ),
     );
   return Number(row.n);

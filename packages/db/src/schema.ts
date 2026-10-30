@@ -200,6 +200,11 @@ export const accountDeletionRequests = mysqlTable(
     scheduledAt: dt("scheduled_at").notNull(),
     cancelledAt: dt("cancelled_at"),
     completedAt: dt("completed_at"),
+    verificationMethod: mysqlEnum("verification_method", ["password", "verified_email"])
+      .notNull()
+      .default("password"),
+    accessTokenHash: varchar("access_token_hash", { length: 64 }),
+    accessExpiresAt: dt("access_expires_at"),
     /** 仅存受控错误码，不写入原始异常或可能含 PII 的报错文本 */
     attemptCount: int("attempt_count", { unsigned: true }).notNull().default(0),
     lastAttemptAt: dt("last_attempt_at"),
@@ -209,6 +214,47 @@ export const accountDeletionRequests = mysqlTable(
     primaryKey({ columns: [t.id] }),
     index("idx_adr_user_status").on(t.userId, t.status),
     index("idx_adr_status_scheduled").on(t.status, t.scheduledAt),
+  ],
+);
+
+/** 注销申请/受限状态再认证令牌；仅存不可逆 token 与签发邮箱快照。 */
+export const accountDeletionTokens = mysqlTable(
+  "account_deletion_tokens",
+  {
+    id: varchar("id", { length: 64 }).notNull(),
+    userId: int("user_id", { unsigned: true }).notNull(),
+    purpose: mysqlEnum("purpose", ["request", "access"]).notNull(),
+    emailKeySnapshot: varchar("email_key_snapshot", { length: 64 }).notNull(),
+    createdAt: dt("created_at").notNull(),
+    expiresAt: dt("expires_at").notNull(),
+    usedAt: dt("used_at"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    index("idx_adt_user_purpose").on(t.userId, t.purpose),
+    index("idx_adt_expires").on(t.expiresAt),
+  ],
+);
+
+/** 本人对账号限制或注销申请发起复核；处理历史不依赖仍生效的限制行。 */
+export const userAppeals = mysqlTable(
+  "user_appeals",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    userId: int("user_id", { unsigned: true }).notNull(),
+    targetType: mysqlEnum("target_type", ["restriction", "account_deletion"]).notNull(),
+    targetId: int("target_id", { unsigned: true }).notNull(),
+    reason: varchar("reason", { length: 2000 }).notNull(),
+    status: mysqlEnum("status", ["pending", "approved", "rejected"]).notNull().default("pending"),
+    handledBy: int("handled_by", { unsigned: true }),
+    handledAt: dt("handled_at"),
+    result: varchar("result", { length: 1000 }),
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    index("idx_user_appeals_user_status").on(t.userId, t.status, t.createdAt),
+    index("idx_user_appeals_target").on(t.targetType, t.targetId, t.status),
   ],
 );
 
@@ -619,7 +665,7 @@ export const messages = mysqlTable(
   {
     id: bigint("id", { mode: "number", unsigned: true }).notNull().autoincrement(),
     conversationId: int("conversation_id", { unsigned: true }).notNull(),
-    senderId: int("sender_id", { unsigned: true }).notNull(),
+    senderId: int("sender_id", { unsigned: true }),
     body: text("body").notNull(),
     createdAt: dt("created_at").notNull(),
   },

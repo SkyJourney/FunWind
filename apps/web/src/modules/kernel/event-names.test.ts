@@ -3,9 +3,9 @@ import { EVENT_NAMES, isEventName, validateEventPayload } from "./event-names";
 import type { EventPayloads } from "./types";
 
 describe("EVENT_NAMES / isEventName", () => {
-  it("清单完整（25 事件，与 docs/MODULES.md 一致）", () => {
-    expect(EVENT_NAMES).toHaveLength(25);
-    expect(new Set(EVENT_NAMES).size).toBe(25);
+  it("清单完整（29 事件，与 docs/MODULES.md 一致）", () => {
+    expect(EVENT_NAMES).toHaveLength(29);
+    expect(new Set(EVENT_NAMES).size).toBe(29);
     expect(EVENT_NAMES).toContain("points.changed");
     expect(EVENT_NAMES).not.toContain("credit.changed");
     expect(EVENT_NAMES).not.toContain("medal.awarded");

@@ -16,6 +16,7 @@
     "perf:lcp": "tsx scripts/lcp.ts",
     "perf:posting": "tsx scripts/perf-posting.ts",
     "outbox:drain": "tsx scripts/outbox-drain.ts",
+    "account-deletion:drain": "tsx scripts/account-deletion-cron.mts",
     "notify:storm": "tsx scripts/notify-storm.ts",
     "verify:render": "tsx scripts/verify-render.ts",
     "verify:fidelity": "tsx scripts/verify-fidelity.ts"

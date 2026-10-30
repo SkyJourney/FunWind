@@ -160,7 +160,7 @@ describe.skipIf(skipDb)("徽章授予（M7）", () => {
         completedAt: sql`NOW()`,
       });
     try {
-      const grant = (await recentBadgeGrants(100)).find((row) => row.badgeName === "测试徽章");
+      const grant = (await recentBadgeGrants(100)).find((row) => row.badgeName === "注销匿名历史");
       expect(grant).toMatchObject({ userId: null, username: "已注销用户" });
     } finally {
       await db()

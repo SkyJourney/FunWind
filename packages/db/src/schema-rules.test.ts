@@ -12,8 +12,8 @@ import * as schema from "./schema.js";
 import { checkSchemaRules, collectTables, NULLABLE_UNIQUE_ALLOWLIST } from "./schema-rules.js";
 
 describe("schema 结构规则（真实 schema）", () => {
-  it("共 49 张表", () => {
-    expect(collectTables(schema)).toHaveLength(49);
+  it("共 51 张表", () => {
+    expect(collectTables(schema)).toHaveLength(51);
   });
 
   it("运行时 schema 没有任何旧站痕迹（无 legacy_* / migration_* / migrated 枚举）", () => {

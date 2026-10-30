@@ -43,6 +43,11 @@ export interface StoredFile {
 
 export type StoreResult = { ok: true; file: StoredFile } | { ok: false; code: "quota_exceeded" };
 
+/** 注销时清除个人上传配额/归属记录；内容引用的文件与附件不在此删除。 */
+export async function deleteUserUploadHistoryInTx(tx: DbExecutor, userId: number): Promise<void> {
+  await tx.delete(fileUploads).where(eq(fileUploads.userId, userId));
+}
+
 export function sha256Hex(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }

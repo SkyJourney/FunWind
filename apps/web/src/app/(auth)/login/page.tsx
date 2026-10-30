@@ -26,6 +26,14 @@ export default async function LoginPage({
           <Link className="text-primary hover:underline" href="/forgot">
             忘记密码 / 认领老账号
           </Link>
+          {" · "}
+          <Link className="text-primary hover:underline" href="/appeal">
+            账号申诉
+          </Link>
+          {" · "}
+          <Link className="text-primary hover:underline" href="/closure">
+            注销申请
+          </Link>
         </>
       }
     >

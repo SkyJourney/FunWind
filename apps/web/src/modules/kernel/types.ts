@@ -117,6 +117,19 @@ export interface EventPayloads {
   "gate.unlocked": { gateId: number; userId: number; authorId: number; price: number };
   "badge.awarded": { userId: number; badgeId: number };
   "badge.revoked": { userId: number; badgeId: number };
+  "account.deletion.requested": { userId: number; requestId: number; scheduledAt: string };
+  "account.deletion.cancelled": { userId: number; requestId: number };
+  "account.appeal.submitted": {
+    userId: number;
+    appealId: number;
+    targetType: "restriction" | "account_deletion";
+    targetId: number;
+  };
+  "account.appeal.resolved": {
+    userId: number;
+    appealId: number;
+    status: "approved" | "rejected";
+  };
   "checkin.done": { userId: number; streak: number };
 }
 

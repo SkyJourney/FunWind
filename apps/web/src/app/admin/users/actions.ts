@@ -11,6 +11,7 @@ import {
   revokeUserSessionByAdmin,
 } from "@/lib/authz/restrictions-admin";
 import { assignUserRole, revokeUserRole } from "@/lib/authz/admin";
+import { AppealError, resolveUserAppeal } from "@/lib/authz/appeals";
 import { isTeamMembershipRole } from "@/lib/authz/team-role-mapping";
 import { assignTeamMembership, revokeTeamMembership } from "@/lib/authz/team-membership";
 
@@ -186,5 +187,34 @@ export const revokeUserSessionAction = defineAction({
     if (!result.ok) redirect(`${back}?error=${encodeURIComponent("会话已不存在或已被吊销")}`);
     revalidatePath(back);
     redirect(`${back}?session=revoked`);
+  },
+});
+
+export const resolveUserAppealAction = defineAction({
+  name: "admin.user_appeal.resolve",
+  auth: { admin: "admin.users" },
+  input: z.object({
+    userId: z.coerce.number().int().positive(),
+    appealId: z.coerce.number().int().positive(),
+    status: z.enum(["approved", "rejected"]),
+    result: z.string().trim().min(1).max(1000),
+  }),
+  async run(ctx, input) {
+    const back = `/admin/users/${input.userId}`;
+    try {
+      await resolveUserAppeal(
+        actor(ctx.userId, ctx.ip),
+        input.appealId,
+        input.status,
+        input.result,
+      );
+    } catch (error) {
+      if (error instanceof AppealError) {
+        redirect(`${back}?error=${encodeURIComponent("申诉已处理或不存在，请刷新页面")}`);
+      }
+      throw error;
+    }
+    revalidatePath(back);
+    redirect(`${back}?appeal=resolved`);
   },
 });

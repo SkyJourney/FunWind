@@ -14,6 +14,7 @@ import type { ConfigActor } from "@/lib/audit";
 import { writeAudit } from "@/lib/audit";
 import { nowBeijingWallTime, parseDbDateTime } from "@/lib/datetime";
 import { restrictionActive } from "@/lib/authz/restrictions";
+import { listUserAppeals } from "@/lib/authz/appeals";
 import {
   hasOtherEffectiveSiteAdmin,
   isEffectiveSiteAdmin,
@@ -559,6 +560,17 @@ export async function adminUserDetail(
     beforeJson: unknown;
     afterJson: unknown;
   }[];
+  appeals: {
+    id: number;
+    targetType: "restriction" | "account_deletion";
+    targetId: number;
+    reason: string;
+    status: "pending" | "approved" | "rejected";
+    handledBy: number | null;
+    handledAt: string | null;
+    result: string | null;
+    createdAt: string;
+  }[];
 } | null> {
   const [user] = await getWebDb()
     .select({
@@ -599,7 +611,7 @@ export async function adminUserDetail(
     .limit(1);
   if (!user) return null;
 
-  const [roles, restrictions, sessionRows, closureRows, auditRows] = await Promise.all([
+  const [roles, restrictions, sessionRows, closureRows, auditRows, appealRows] = await Promise.all([
     getWebDb()
       .select({
         roleKey: userRoles.roleKey,
@@ -663,6 +675,7 @@ export async function adminUserDetail(
       .where(and(eq(auditLog.targetType, "user"), eq(auditLog.targetId, String(userId))))
       .orderBy(desc(auditLog.id))
       .limit(20),
+    listUserAppeals(userId),
   ]);
 
   return {
@@ -672,5 +685,6 @@ export async function adminUserDetail(
     restrictions,
     sessions: sessionRows,
     audit: auditRows,
+    appeals: appealRows,
   };
 }

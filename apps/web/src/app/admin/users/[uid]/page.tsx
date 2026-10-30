@@ -21,6 +21,7 @@ import {
   liftRestrictionAction,
   revokeRoleAction,
   revokeUserSessionAction,
+  resolveUserAppealAction,
 } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -425,6 +426,61 @@ export default async function AdminUserDetailPage({ params, searchParams }: Para
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>申诉与复核（{detail.appeals.length}）</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ul className="space-y-3">
+            {detail.appeals.map((appeal) => (
+              <li key={appeal.id} className="rounded-lg border p-3 text-sm">
+                <p className="text-xs text-muted-foreground">
+                  {fmtDateTime(appeal.createdAt)} ·{" "}
+                  {appeal.targetType === "restriction" ? "限制" : "注销申请"} #{appeal.targetId} ·{" "}
+                  {appeal.status}
+                </p>
+                <p className="mt-1 whitespace-pre-wrap">{appeal.reason}</p>
+                {appeal.result && (
+                  <p className="mt-1 text-muted-foreground">处理结果：{appeal.result}</p>
+                )}
+                {appeal.status === "pending" && !lifecycleReadOnly && (
+                  <form action={resolveUserAppealAction} className="mt-3 flex flex-wrap gap-2">
+                    <input type="hidden" name="userId" value={detail.id} />
+                    <input type="hidden" name="appealId" value={appeal.id} />
+                    <select
+                      name="status"
+                      aria-label="申诉处理决定"
+                      className="rounded-lg border bg-background px-2 py-1"
+                    >
+                      <option value="approved">通过</option>
+                      <option value="rejected">驳回</option>
+                    </select>
+                    <input
+                      name="result"
+                      required
+                      maxLength={1000}
+                      placeholder="处理结果（必填）"
+                      className="min-w-48 flex-1 rounded-lg border bg-background px-2.5 py-1"
+                    />
+                    <SubmitButton pendingText="处理中…" className="rounded-lg border px-3 py-1">
+                      保存结果
+                    </SubmitButton>
+                  </form>
+                )}
+                {appeal.status === "pending" && lifecycleReadOnly && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    账号已注销，该申诉记录为只读历史。
+                  </p>
+                )}
+              </li>
+            ))}
+            {detail.appeals.length === 0 && (
+              <li className="text-sm text-muted-foreground">暂无申诉记录</li>
+            )}
+          </ul>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

@@ -17,9 +17,9 @@
 7. **扩展点前置抽象**：积分渠道、门控解锁条件、通知类型与投递渠道，均为模块内核的注册边界；新增能力 = 新模块注册。
 8. **内容只有 Markdown**：不产生也不存储内联样式（见 §6）。
 
-## 2. 表清单（49 张）
+## 2. 表清单（51 张）
 
-### 身份（9）
+### 身份（10）
 
 | 表 | 要点 |
 |----|------|
@@ -28,7 +28,8 @@
 | `user_stats` | 可重算的计数缓存：主题/帖子/精华/粉丝数、最后发帖时间 |
 | `user_restrictions` | `kind(ban\|forum_ban\|mute\|no_avatar\|no_signature)`、`scope_id`、起止时间、理由、操作者；`ban` 全站，`forum_ban` 按板块子树禁入 |
 | `sessions`、`email_tokens`、`invite_codes`、`site_settings` | 认证与站点配置；`email_tokens.email_key_snapshot` 绑定令牌签发地址 |
-| `account_deletion_requests` | 注销申请历史与状态：`pending/cancelled/completed`；完成记录作为真实账号注销 tombstone，并支持 30 天待完成任务重试 |
+| `account_deletion_requests` | 注销申请历史与状态：`pending/cancelled/completed`；保存 30 天截止时间、验证方式、受限访问令牌摘要和幂等重试错误码；完成记录作为真实账号注销 tombstone |
+| `account_deletion_tokens` | 注销申请与受限状态页的一次性邮箱再认证令牌；保存 SHA-256 token 与签发邮箱快照 |
 
 ### 版块（2）
 
@@ -37,7 +38,7 @@
 | `forums` | 邻接表 `parent_id` + 物化路径 `path`/`depth`、`kind(section\|forum)`、`name`、`description`、`icon_key`（板块图，M9.5 schema v2.4：内容寻址 storage key 走 /files/<key>，NULL=无图）、`sort_order`；策略三件套 `read_policy`（inherit\|public\|members\|restricted）、`write_policy`（inherit\|members\|restricted）、`review_policy`（inherit\|none\|threads\|all）；`is_listed`、`is_archived`；可重算缓存 `thread_count`/`post_count`/`last_post_*` |
 | `forum_prefixes` | 主题前缀 |
 
-### 内容与治理（10）
+### 内容与治理（11）
 
 | 表 | 要点 |
 |----|------|
@@ -47,6 +48,7 @@
 | `gate_unlocks` | `(gate_id, user_id)` 主键、`price_paid`、`author_income`、`ledger_id`、`unlocked_at` |
 | `content_reviews` | 审核历史：`post_id`、`reviewer_id`、`decision(approved\|rejected\|disabled)`、`note`、`created_at` |
 | `reports` | 内容举报：目标帖子、举报人、原因、状态、处理人和处理时间 |
+| `user_appeals` | 本人对有效限制/注销申请发起的人工复核记录；状态、处理人、结果与目标保持独立历史 |
 | `files` | **文件注册表**：`sha256`（唯一）、`storage_key`（由哈希派生）、`size_bytes`、`mime`、`width`、`height`、`created_at` |
 | `attachments` | 帖子的下载附件：`post_id`、`gate_id`（可空，NULL=公开；归属门控，见 `ATTACHMENT-GATES.md`）、`file_id`、`uploader_id`、`original_name`、`downloads`、`created_at` |
 | `tags`、`thread_tags` | 主题标签 |
@@ -54,7 +56,7 @@
 ### 互动（8）
 
 `reactions`、`follows`（user\|forum）、`polls`、`poll_options`、`poll_votes`、
-`conversations`（单聊，`pair_key` 唯一）、`conversation_members`（含 `last_read_message_id`）、`messages`。
+`conversations`（单聊，`pair_key` 唯一）、`conversation_members`（含 `last_read_message_id`）、`messages`（注销完成后历史发送者 `sender_id` 置空）。
 
 ### 通知（4）——详见 [NOTIFICATIONS.md](NOTIFICATIONS.md)
 

@@ -96,7 +96,7 @@ export async function listPmMessagesPage(filters: PmPageFilters): Promise<{
   items: {
     id: number;
     conversationId: number;
-    senderId: number;
+    senderId: number | null;
     body: string;
     createdAt: string;
   }[];

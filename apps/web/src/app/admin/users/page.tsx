@@ -134,7 +134,12 @@ export default async function AdminUsersPage({ searchParams }: Params) {
             ))}
           </select>
         </AdminFilterBar>
-        <p className="text-xs text-muted-foreground">共 {total} 人</p>
+        <div className="flex items-center gap-3">
+          <Link href="/admin/appeals" className="text-xs text-primary hover:underline">
+            申诉复核
+          </Link>
+          <p className="text-xs text-muted-foreground">共 {total} 人</p>
+        </div>
       </div>
 
       {items.length === 0 ? (

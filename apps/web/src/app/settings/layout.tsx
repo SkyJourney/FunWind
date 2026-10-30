@@ -12,6 +12,7 @@ const NAV = [
   { href: "/settings/pm", label: "私信偏好" },
   { href: "/settings/appearance", label: "外观" },
   { href: "/settings/avatar", label: "头像" },
+  { href: "/settings/delete-account", label: "注销账号" },
 ];
 
 /** 设置中心壳（M10.6c）：登录可见；子页各自做业务校验。 */

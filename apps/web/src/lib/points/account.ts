@@ -36,3 +36,8 @@ export async function lockAccounts(
     out.set(id, await lockAccount(tx, id));
   return out;
 }
+
+/** 注销时清除当前余额缓存；不可变积分台账由调用方保留。 */
+export async function deletePointAccountInTx(tx: DbTx, userId: number): Promise<void> {
+  await tx.delete(pointAccounts).where(eq(pointAccounts.userId, userId));
+}

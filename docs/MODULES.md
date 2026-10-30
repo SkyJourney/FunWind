@@ -31,13 +31,13 @@ export const myModule = defineModule({
 —— **启用/停用运行中模块 = `pnpm --filter @funwind/web modules:toggle <id> <on|off>`**（module_state 表；
 M9 后由管理后台管理）。
 
-## 事件清单（23 个；M5.5 v2.1 定稿，M6.1 新增 post.edited / post.deleted）
+## 事件清单（29 个；M5.5 建立基线，后续里程碑持续扩充）
 
 > M5.5 把注册边界由六类扩为十类：新增 `pointChannels`（[POINTS.md](POINTS.md)）、`gateConditions`、
 > `notificationTypes`、`notificationChannels`（[NOTIFICATIONS.md](NOTIFICATIONS.md)）。**M6.1 删除了 `gateConditions`**（它从未有过消费者，求值器写死 `points` / `reply`，见 [GATES.md](GATES.md) §3），现为**九类**。
-> **已落地**（M5.5 S4-5，`kernel/types.ts` 为准）：23 个事件与边界的类型、注册期校验、保留项均已实现（M6.1 起为九类边界）。
+> **当前已落地**（`kernel/types.ts` 为唯一事实源）：29 个事件与边界的类型、注册期校验及保留项均已实现（M6.1 起为九类边界）。
 > 当前有真实派发者的事件：`user.logged_in`、`user.registered`（认证 Server Action）、`role.changed`（授权管理）、`points.changed`（积分核心）、
-> `gate.unlocked`（门控购买）；其余为契约，由各自里程碑接线。
+> `gate.unlocked`（门控购买）、`account.deletion.requested/cancelled` 与 `account.appeal.submitted/resolved`（M9.6 注销与申诉服务）；其余由各自里程碑接线。
 > 注册期校验（启动即暴露，非法声明让应用起不来）：积分渠道键须形如 `earn.xxx / spend.xxx / adjust.xxx` 且方向与前缀一致、全站唯一、不得与内置渠道
 > （`opening` / `spend.gate_unlock` / `earn.gate_sale`）冲突；
 > 通知类型键为命名空间形态且全站唯一、分类限 `interaction|message|moderation|account`；通知渠道键唯一，`in_app` 为保留键。
@@ -57,20 +57,24 @@ M9 后由管理后台管理）。
 | `thread.deleted` | `{ threadId, postId, forumId, authorId, operatorId, byModerator }` | M6 删除主题（M6.1 第 5 步） |
 | `post.deleted` | `{ postId, threadId, forumId, authorId, operatorId, byModerator }` | M6 删除回帖（M6.1 第 5 步） |
 | `content.submitted` | `{ postId, threadId, authorId, forumId, isThread }` | M6 待审内容（版块需审核时只发它；审核通过才发 thread.created / replied） |
-| `content.moderated` | `{ postId, operatorId, action: approve\|reject\|remove\|hide\|restore, reason? }` | M9 审核/版主操作 |
+| `content.moderated` | `{ postId, operatorId, action: approve\|reject\|remove\|hide\|restore\|disable, reason? }` | M9 审核/版主操作 |
 | `post.mentioned` | `{ postId, authorId, mentionedUserId }` | M6 保存时解析 @ |
 | `reaction.added` | `{ userId, postId, kind }` | M8 点赞 |
 | `poll.voted` | `{ userId, pollId, optionIds }` | M10 投票（改票=最后一次的选项集；仅审计无消费者） |
 | `message.sent` | `{ conversationId, messageId, senderId, recipientId }` | M10 私信 |
 | `attachment.uploaded` | `{ attachmentId, fileId, uploaderId }` | M6.5c 已接线：保存事务提交后，为每条新建的下载附件各派发一次；**M7 起经事务性 outbox**（与 thread.created/replied 同，见语义与边界 §8），载荷不含文件名与正文 |
 | `restriction.changed` | `{ userId, kind, action: created\|lifted, operatorId, reason?, endsAt? }` | M9 限制管理 |
-| `role.changed` | `{ userId, roleKey, scopeId, action: granted\|revoked, operatorId }` | M9 角色管理 |
+| `role.changed` | `{ userId, roleKey, scopeId, action: granted\|revoked, operatorId, expiresAt }` | M9 角色管理 |
 | `announcement.published` | `{ announcementId, createdBy }` | M9 公告管理 |
 | `post.mentioned` 派发 | M8 接线：正文 `@用户名` 解析（归一化键精确匹配，失败按普通文本），发帖/回帖/编辑三处经事务性 outbox |
 | `points.changed` | `{ userId, channel, delta }` | M5.5 积分核心 `applyPoints` |
 | `gate.unlocked` | `{ gateId, userId, authorId, price }` | M5.5 `unlockGate`（M6 交互） |
 | `badge.awarded` | `{ userId, badgeId }` | M7 徽章（原 `medal.awarded`） |
 | `badge.revoked` | `{ userId, badgeId }` | M9.5 徽章收回 |
+| `account.deletion.requested` | `{ userId, requestId, scheduledAt }` | M9.6 注销申请（事务性 outbox） |
+| `account.deletion.cancelled` | `{ userId, requestId }` | M9.6 撤销注销申请（新会话仍受账号级限制门控） |
+| `account.appeal.submitted` | `{ userId, appealId, targetType, targetId }` | M9.6 本人申诉登记 |
+| `account.appeal.resolved` | `{ userId, appealId, status }` | M9.6 人工复核结果（结果正文从 appeal 记录读取，不放入事件快照） |
 | `checkin.done` | `{ userId, streak }` | M7 签到 |
 
 ## 槽位清单（M2 启用 home.*；页面级随页面建设扩充）
