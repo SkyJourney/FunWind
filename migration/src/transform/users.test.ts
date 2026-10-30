@@ -228,8 +228,8 @@ describe("filterCompletedAccountDeletions", () => {
   it("不把已完成注销用户的邮箱、用户名等信息写入迁移待办", () => {
     const notes = {
       usernameCollisions: [{ uid: 1, from: "Old", to: "Old_1" }],
-      invalidEmails: [{ uid: 2, email: "former@example.test" }],
-      duplicateEmails: [{ email: "shared@example.test", keptUid: 1, clearedUids: [2] }],
+      invalidEmails: [{ uid: 2, email: "former@example.com" }],
+      duplicateEmails: [{ email: "shared@example.com", keptUid: 1, clearedUids: [2] }],
       createdAtRepaired: [{ uid: 2, to: "2010-01-01 00:00:00", source: "fallback" as const }],
       emptyUsernames: [2],
       avatars: 1,
