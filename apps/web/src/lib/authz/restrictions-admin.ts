@@ -1,8 +1,23 @@
-import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
-import { getWebDb, pointAccounts, sessions, userRestrictions, userRoles, users } from "@funwind/db";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import {
+  accountDeletionRequests,
+  forums,
+  getWebDb,
+  pointAccounts,
+  sessions,
+  userRestrictions,
+  userRoles,
+  users,
+} from "@funwind/db";
 import type { ConfigActor } from "@/lib/audit";
 import { writeAudit } from "@/lib/audit";
-import { nowBeijingWallTime } from "@/lib/datetime";
+import { nowBeijingWallTime, parseDbDateTime } from "@/lib/datetime";
+import { restrictionActive } from "@/lib/authz/restrictions";
+import {
+  hasOtherEffectiveSiteAdmin,
+  isEffectiveSiteAdmin,
+  lockSiteAdminInvariant,
+} from "@/lib/authz/site-admin-invariant";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
 import {
   dispatchOutboxRows,
@@ -21,11 +36,42 @@ export type RestrictionKind = "ban" | "forum_ban" | "mute" | "no_avatar" | "no_s
 
 export type RestrictionResult =
   | { ok: true }
-  | { ok: false; code: "not_found" | "bad_kind" | "reason_required" | "already" | "bad_scope" };
+  | {
+      ok: false;
+      code:
+        | "not_found"
+        | "bad_kind"
+        | "reason_required"
+        | "reason_too_long"
+        | "already"
+        | "bad_scope"
+        | "bad_ends_at"
+        | "bad_state"
+        | "last_admin";
+    };
 
-const KINDS: readonly RestrictionKind[] = ["ban", "mute", "no_avatar", "no_signature"];
+const KINDS: readonly RestrictionKind[] = ["ban", "forum_ban", "mute", "no_avatar", "no_signature"];
 
-/** 创建限制（可带结束时间；endsAt=null 永久）。同一 kind 的有效行已存在 → already（先解除再建新的） */
+function isFutureBeijingDateTime(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return false;
+  const [year, month, day, hour, minute, second] = match.slice(1).map(Number);
+  const wall = new Date(Date.UTC(year!, month! - 1, day!, hour!, minute!, second!));
+  if (
+    wall.getUTCFullYear() !== year ||
+    wall.getUTCMonth() !== month! - 1 ||
+    wall.getUTCDate() !== day ||
+    wall.getUTCHours() !== hour ||
+    wall.getUTCMinutes() !== minute ||
+    wall.getUTCSeconds() !== second
+  ) {
+    return false;
+  }
+  const instant = parseDbDateTime(value).getTime();
+  return Number.isFinite(instant) && instant > Date.now();
+}
+
+/** 创建限制并在同一事务内记录审计/通知；ban 同时吊销全部设备 session。 */
 export async function createRestriction(
   admin: ConfigActor & { userId: number },
   input: { userId: number; kind: string; reason: string; endsAt: string | null; scopeId?: number },
@@ -34,18 +80,56 @@ export async function createRestriction(
   const kind = input.kind as RestrictionKind;
   const reason = input.reason.trim();
   if (!reason) return { ok: false, code: "reason_required" };
+  if (reason.length > 255) return { ok: false, code: "reason_too_long" };
   const scopeId = input.scopeId ?? 0;
   if (!Number.isInteger(scopeId) || scopeId < 0) return { ok: false, code: "bad_scope" };
+  if (
+    ((kind === "ban" || kind === "no_avatar" || kind === "no_signature") && scopeId !== 0) ||
+    (kind === "forum_ban" && scopeId === 0)
+  ) {
+    return { ok: false, code: "bad_scope" };
+  }
+  const rawEndsAt = input.endsAt?.trim() ?? "";
+  const endsAt = rawEndsAt === "" ? null : rawEndsAt;
+  if (endsAt !== null && !isFutureBeijingDateTime(endsAt)) {
+    return { ok: false, code: "bad_ends_at" };
+  }
 
   const enqueued: EnqueuedEvent[] = [];
   const failure = await withDeadlockRetry(() =>
     getWebDb().transaction(async (tx): Promise<RestrictionResult | null> => {
+      const globalBan = kind === "ban" && scopeId === 0;
+      if (globalBan) await lockSiteAdminInvariant(tx);
+
       const [user] = await tx
-        .select({ id: users.id })
+        .select({ id: users.id, state: users.state })
         .from(users)
         .where(eq(users.id, input.userId))
-        .limit(1);
+        .limit(1)
+        .for("update");
       if (!user) return { ok: false, code: "not_found" };
+      if (user.state !== "active") return { ok: false, code: "bad_state" };
+
+      const [closure] = await tx
+        .select({ id: accountDeletionRequests.id })
+        .from(accountDeletionRequests)
+        .where(
+          and(
+            eq(accountDeletionRequests.userId, input.userId),
+            inArray(accountDeletionRequests.status, ["pending", "completed"]),
+          ),
+        )
+        .limit(1);
+      if (closure) return { ok: false, code: "bad_state" };
+
+      if (scopeId > 0) {
+        const [scope] = await tx
+          .select({ id: forums.id })
+          .from(forums)
+          .where(eq(forums.id, scopeId))
+          .limit(1);
+        if (!scope) return { ok: false, code: "bad_scope" };
+      }
 
       const [active] = await tx
         .select({ id: userRestrictions.id })
@@ -55,23 +139,35 @@ export async function createRestriction(
             eq(userRestrictions.userId, input.userId),
             eq(userRestrictions.kind, kind),
             eq(userRestrictions.scopeId, scopeId),
-            or(isNull(userRestrictions.endsAt), sql`${userRestrictions.endsAt} > NOW()`),
+            restrictionActive,
           ),
         )
         .limit(1);
-      if (active) return { ok: false, code: "already" };
+      if (active) {
+        if (globalBan) await tx.delete(sessions).where(eq(sessions.userId, input.userId));
+        return { ok: false, code: "already" };
+      }
 
-      const endsAt = input.endsAt && input.endsAt !== "" ? input.endsAt : null;
+      if (
+        globalBan &&
+        (await isEffectiveSiteAdmin(tx, input.userId)) &&
+        !(await hasOtherEffectiveSiteAdmin(tx, input.userId))
+      ) {
+        return { ok: false, code: "last_admin" };
+      }
+
+      const now = nowBeijingWallTime();
       await tx.insert(userRestrictions).values({
         userId: input.userId,
         kind,
         scopeId,
         reason,
-        startsAt: nowBeijingWallTime(),
+        startsAt: now,
         endsAt,
         createdBy: admin.userId,
-        createdAt: nowBeijingWallTime(),
+        createdAt: now,
       });
+      if (globalBan) await tx.delete(sessions).where(eq(sessions.userId, input.userId));
       await writeAudit(tx, {
         actorId: admin.userId,
         action: "restriction.create",
@@ -341,10 +437,7 @@ export async function adminUserDetail(userId: number): Promise<{
         reason: userRestrictions.reason,
         startsAt: userRestrictions.startsAt,
         endsAt: userRestrictions.endsAt,
-        active:
-          sql<boolean>`(${userRestrictions.endsAt} IS NULL OR ${userRestrictions.endsAt} > NOW())`.mapWith(
-            Boolean,
-          ),
+        active: restrictionActive.mapWith(Boolean),
       })
       .from(userRestrictions)
       .where(eq(userRestrictions.userId, userId))

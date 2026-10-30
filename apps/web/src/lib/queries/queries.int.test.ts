@@ -15,6 +15,7 @@ import {
   siteSettings,
   threads,
   userProfiles,
+  userRestrictions,
   users,
 } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -33,7 +34,7 @@ import {
   getThreadView,
   listThreads,
 } from "./threads";
-import { getProfile, getUserReplies, getUserThreads } from "./users";
+import { avatarKeyOf, getProfile, getUserReplies, getUserThreads } from "./users";
 import { buildViewerScope, visiblePredicate } from "./visibility";
 
 let tdb: TempDb;
@@ -397,8 +398,8 @@ describe.skipIf(skipDb)("查询层 · 真实 MySQL", () => {
       expect(p?.username).toBe("demo_alice");
       expect(p?.signatureMd).toBe("签名");
       expect(p?.pointsName).toBe("积分");
-      expect(p?.ban).toBeNull();
-      expect((await getProfile(DEMO.banned))?.ban?.reason).toBe("E2E 封禁夹具");
+      expect(p?.ban).toBe(false);
+      expect((await getProfile(DEMO.banned))?.ban).toBe(true);
     });
 
     it("积分显示名取站点设置；头像经 files 取存储键", async () => {
@@ -420,6 +421,47 @@ describe.skipIf(skipDb)("查询层 · 真实 MySQL", () => {
         .set({ avatarFileId: Number(insertId) })
         .where(eq(userProfiles.userId, DEMO.alice));
       expect((await getProfile(DEMO.alice))?.avatarKey).toBe(`bb/bb/${"b".repeat(64)}.png`);
+    });
+
+    it("生效的头像与签名限制临时隐藏已有资料，解除后投影恢复", async () => {
+      const reason = "m9.6-profile-restriction-projection";
+      await db()
+        .insert(userRestrictions)
+        .values([
+          {
+            userId: DEMO.alice,
+            kind: "no_avatar",
+            scopeId: 0,
+            reason,
+            startsAt: sql`NOW()`,
+            endsAt: null,
+            createdBy: DEMO.admin,
+            createdAt: sql`NOW()`,
+          },
+          {
+            userId: DEMO.alice,
+            kind: "no_signature",
+            scopeId: 0,
+            reason,
+            startsAt: sql`NOW()`,
+            endsAt: null,
+            createdBy: DEMO.admin,
+            createdAt: sql`NOW()`,
+          },
+        ]);
+      try {
+        const profile = await getProfile(DEMO.alice, guest);
+        expect(profile).toMatchObject({ avatarKey: null, signatureMd: null });
+        expect(await avatarKeyOf(DEMO.alice)).toBeNull();
+      } finally {
+        await db()
+          .delete(userRestrictions)
+          .where(and(eq(userRestrictions.userId, DEMO.alice), eq(userRestrictions.reason, reason)));
+      }
+
+      const restored = await getProfile(DEMO.alice, guest);
+      expect(restored?.avatarKey).toBe(`bb/bb/${"b".repeat(64)}.png`);
+      expect(restored?.signatureMd).toBe("签名");
     });
 
     it("已注销账号与不存在的用户 → null（占位账号不开页面）", async () => {

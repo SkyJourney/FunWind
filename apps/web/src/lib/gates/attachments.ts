@@ -1,5 +1,15 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { attachments, fileUploads, files, getWebDb, postGates, posts, threads } from "@funwind/db";
+import {
+  attachments,
+  fileUploads,
+  files,
+  getWebDb,
+  postGates,
+  posts,
+  threads,
+  userProfiles,
+  userRestrictions,
+} from "@funwind/db";
 import { checkPermission } from "@/lib/authz/service";
 import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
@@ -7,6 +17,7 @@ import type { DbExecutor, DbTx } from "@/lib/audit";
 import { extractFileRefs } from "@funwind/content";
 import { MAX_ATTACHMENTS_PER_POST, MAX_INLINE_REFS_PER_POST } from "@/lib/uploads/types";
 import { sanitizeOriginalName } from "@/lib/uploads/policy";
+import { restrictionActive } from "@/lib/authz/restrictions";
 import { buildViewerScope, visiblePredicate } from "@/lib/queries/visibility";
 import { openGateIds } from "./service";
 
@@ -114,7 +125,7 @@ export async function listAttachments(
 
 /** /files 对某个文件的放行结论 */
 export type FileGrant =
-  /** 图片公开快路径（长缓存）：没有任何附件行，或存在一条未绑门控、所在帖子对游客可见的引用 */
+  /** 图片公开快路径（长缓存）：没有附件行且不是受限头像，或存在游客和当前观众都可见的未门控引用 */
   | { kind: "public" }
   /**
    * 经某条附件行放行，响应只能是私有的（不进共享缓存）。
@@ -126,7 +137,7 @@ export type FileGrant =
  * 解析观众对某个文件的访问权（/files 用）。无权 → null（调用方一律 404）。
  *
  * 规则（docs/ATTACHMENT-GATES.md §5，M6.4 修订）：
- *  · 图片：没有任何附件行 → 公开；存在一条 gate_id 为空、且所在帖子对**游客**可见的引用 → 公开（长缓存，不论 kind）；
+ *  · 图片：没有附件行时公开，但当前被 no_avatar 限制的纯头像除外；有附件行时，只有存在未门控且同时对游客与当前观众可见的引用才走公开快路径（长缓存）；
  *    否则必须经某条附件行放行，放行的图片响应一律私有（它依赖于观众能看到哪些帖子）。
  *    图片本身不要求 attachment.download。
  *  · 非图片：必须经某条附件行放行——所在帖子与主题对观众可见、版块持有 attachment.download。
@@ -138,13 +149,29 @@ export async function resolveFileGrant(
   file: { id: number; isImage: boolean },
 ): Promise<FileGrant | null> {
   const db = getWebDb();
+  const scope = await buildViewerScope(viewer);
   if (file.isImage) {
     const [anyRef] = await db
       .select({ id: attachments.id })
       .from(attachments)
       .where(eq(attachments.fileId, file.id))
       .limit(1);
-    if (!anyRef) return { kind: "public" };
+    if (!anyRef) {
+      const [restrictedAvatar] = await db
+        .select({ id: userProfiles.userId })
+        .from(userProfiles)
+        .innerJoin(userRestrictions, eq(userRestrictions.userId, userProfiles.userId))
+        .where(
+          and(
+            eq(userProfiles.avatarFileId, file.id),
+            eq(userRestrictions.kind, "no_avatar"),
+            eq(userRestrictions.scopeId, 0),
+            restrictionActive,
+          ),
+        )
+        .limit(1);
+      return restrictedAvatar ? null : { kind: "public" };
+    }
 
     const guestScope = await buildViewerScope(await loadSubject(null));
     const [publicRef] = await db
@@ -164,13 +191,20 @@ export async function resolveFileGrant(
             { forumId: threads.forumId, state: posts.state, authorId: posts.authorId },
             guestScope,
           ),
+          visiblePredicate(
+            { forumId: threads.forumId, state: threads.state, authorId: threads.authorId },
+            scope,
+          ),
+          visiblePredicate(
+            { forumId: threads.forumId, state: posts.state, authorId: posts.authorId },
+            scope,
+          ),
         ),
       )
       .limit(1);
     if (publicRef) return { kind: "public" };
   }
 
-  const scope = await buildViewerScope(viewer);
   const candidates = await db
     .select({
       attachmentId: attachments.id,

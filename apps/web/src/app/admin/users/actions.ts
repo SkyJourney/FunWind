@@ -16,8 +16,9 @@ function actor(userId: number | null, ip: string | null) {
 
 const createInput = z.object({
   userId: z.coerce.number().int().positive(),
-  kind: z.enum(["ban", "mute", "no_avatar", "no_signature"]),
-  reason: z.string().max(500).default(""),
+  kind: z.enum(["ban", "forum_ban", "mute", "no_avatar", "no_signature"]),
+  scopeId: z.coerce.number().int().min(0).default(0),
+  reason: z.string().max(255).default(""),
   /** 空 = 永久；格式 YYYY-MM-DD HH:MM（datetime-local） */
   endsAt: z.string().max(32).default(""),
 });
@@ -30,6 +31,7 @@ export const createRestrictionAction = defineAction({
     const r = await createRestriction(actor(ctx.userId, ctx.ip), {
       userId: input.userId,
       kind: input.kind,
+      scopeId: input.scopeId,
       reason: input.reason,
       endsAt,
     });
@@ -37,10 +39,20 @@ export const createRestrictionAction = defineAction({
     if (!r.ok) {
       const msg =
         r.code === "already"
-          ? "该类型的限制已在生效中（先解除再新建）"
+          ? "该类型和作用域的限制已在生效中（先解除再新建）"
           : r.code === "reason_required"
             ? "必须填写理由"
-            : "用户不存在";
+            : r.code === "reason_too_long"
+              ? "理由不能超过 255 个字符"
+              : r.code === "bad_ends_at"
+                ? "结束时间必须是有效的未来时间"
+                : r.code === "bad_scope"
+                  ? "限制类型与作用域不匹配，或版块不存在"
+                  : r.code === "bad_state"
+                    ? "不能对注销中或已注销账号施加限制"
+                    : r.code === "last_admin"
+                      ? "不能封禁最后一位有效站点管理员"
+                      : "用户不存在";
       redirect(`${back}?error=${encodeURIComponent(msg)}`);
     }
     revalidatePath(back);

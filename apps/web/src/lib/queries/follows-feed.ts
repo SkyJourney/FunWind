@@ -48,17 +48,18 @@ export async function getFollowFeed(
   const { forumIds, userIds } = await followedThreadIds(viewer.userId);
   const [scope, { tree }] = await Promise.all([buildViewerScope(viewer), getAuthzSnapshot()]);
   const listed = scope.readable.filter((id) => tree.get(id)?.isListed);
+  const visibleForumIds = forumIds.filter((id) => listed.includes(id));
 
   const empty = {
     items: [] as HomeFeedItem[],
     total: 0,
     page: 1,
     totalPages: 1,
-    forumCount: forumIds.length,
+    forumCount: visibleForumIds.length,
     userCount: userIds.length,
   };
-  // 类型筛选（M10.6d，线稿①）：forum = 仅关注版块的新帖；user = 仅关注用户的发帖
-  const matchForumIds = type === "user" ? [] : forumIds;
+  // 类型筛选（M10.6d，线稿①）：forum = 仅关注且当前可读版块的新帖；user = 仅关注用户的发帖
+  const matchForumIds = type === "user" ? [] : visibleForumIds;
   const matchUserIds = type === "forum" ? [] : userIds;
   if (matchForumIds.length === 0 && matchUserIds.length === 0) return empty;
 
@@ -66,8 +67,7 @@ export async function getFollowFeed(
   const forumMatch = matchForumIds.length > 0 ? inArray(threads.forumId, matchForumIds) : undefined;
   const userMatch = matchUserIds.length > 0 ? inArray(threads.authorId, matchUserIds) : undefined;
   const listedFilter = listed.length > 0 ? inArray(threads.forumId, listed) : undefined;
-  if (listedFilter === undefined)
-    return { ...empty, forumCount: forumIds.length, userCount: userIds.length };
+  if (listedFilter === undefined) return empty;
 
   const where = and(visiblePredicate(threadCols, scope), listedFilter, or(forumMatch, userMatch))!;
 
@@ -114,7 +114,7 @@ export async function getFollowFeed(
     total,
     page,
     totalPages,
-    forumCount: forumIds.length,
+    forumCount: visibleForumIds.length,
     userCount: userIds.length,
   };
 }

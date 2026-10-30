@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { openConversation } from "@/lib/pm/service";
 import { messagesBefore, otherMemberOf, sentTodayCount } from "@/lib/pm/queries";
 import { getCurrentSubject } from "@/lib/authz/subject";
+import { findActiveGlobalBan } from "@/lib/authz/restrictions";
 import { limitsFor } from "@/lib/limits/load";
 import { sendMessageAction } from "@/app/actions/pm";
 import { Card, CardContent } from "@/components/ui/card";
@@ -53,6 +54,7 @@ export default async function ConversationPage({
     sentTodayCount(user.id),
     limitsFor(subject),
   ]);
+  const otherBanned = otherId !== null && (await findActiveGlobalBan(otherId)) !== null;
   const messages = batch.items;
   const perDay = limits.pmPerDay ?? 0;
   const remaining = perDay > 0 ? Math.max(0, perDay - sentToday) : null;
@@ -125,8 +127,12 @@ export default async function ConversationPage({
         </Card>
       </div>
 
+      {otherId !== null && otherBanned && (
+        <p className="py-3 text-center text-sm text-muted-foreground">该对话暂时只读。</p>
+      )}
+
       {/* 输入区（吸底） */}
-      {otherId !== null && (
+      {otherId !== null && !otherBanned && (
         <div className="sticky bottom-16 -mx-4 border-t bg-background/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 md:bottom-0">
           {remaining !== null && (
             <p

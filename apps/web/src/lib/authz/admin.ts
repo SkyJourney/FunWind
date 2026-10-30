@@ -1,6 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import {
   PERMISSION_DEFINITIONS,
+  accountDeletionRequests,
   getWebDb,
   roleGrants,
   roles,
@@ -13,6 +14,12 @@ import { emit } from "@/modules/kernel/bus";
 import type { EventPayloads } from "@/modules/kernel/types";
 import { sql } from "drizzle-orm";
 import { getAuthzSnapshot, invalidateAuthzSnapshot } from "./snapshot";
+import {
+  assertEffectiveSiteAdminRemains,
+  lockSiteAdminInvariant,
+  SiteAdminInvariantError,
+  type AuthzTransaction,
+} from "./site-admin-invariant";
 
 /**
  * 授权管理（/admin 最小版；完整后台归 M9）。
@@ -58,6 +65,15 @@ const PRIVILEGED = (key: string) =>
   key.startsWith("admin.");
 /** 防自锁：admin 的这两个全局授权不可撤销，否则后台无人能再进入 */
 const ADMIN_LOCKED = new Set(["site.admin", "admin.roles"]);
+
+async function assertSiteAdminRemains(tx: AuthzTransaction): Promise<void> {
+  try {
+    await assertEffectiveSiteAdminRemains(tx);
+  } catch (error) {
+    if (error instanceof SiteAdminInvariantError) throw new AdminError(error.message);
+    throw error;
+  }
+}
 
 async function requireRole(key: string): Promise<{ key: string; kind: string }> {
   const rows = await getWebDb()
@@ -142,6 +158,7 @@ export async function grantRolePermission(
   }
 
   await getWebDb().transaction(async (tx) => {
+    await lockSiteAdminInvariant(tx);
     // 幂等：先查后插在并发（双击 / 重复提交）下两边都看不到对方，第二个 INSERT 会撞唯一键抛原始错误（复查 B5）。
     // 改为 INSERT IGNORE，用 affectedRows 判断是否真的写入了——已存在则不重复写、不重复审计
     const [res] = (await tx
@@ -172,6 +189,7 @@ export async function revokeRolePermission(
     throw new AdminError(`不可撤销 admin 的 ${permissionKey}（防止后台被锁死）`);
   }
   await getWebDb().transaction(async (tx) => {
+    await lockSiteAdminInvariant(tx);
     const rows = await tx
       .select({ id: roleGrants.id })
       .from(roleGrants)
@@ -189,6 +207,9 @@ export async function revokeRolePermission(
         rows.map((r) => r.id),
       ),
     );
+    if (scopeId === 0 && (permissionKey === "site.admin" || permissionKey === "admin.roles")) {
+      await assertSiteAdminRemains(tx);
+    }
     await writeAudit(tx, {
       actorId: actor.userId,
       action: "grant.revoke",
@@ -236,11 +257,18 @@ export async function deleteCustomRole(actor: AdminActor, key: string): Promise<
   const role = await requireRole(key);
   if (role.kind === "builtin" || BUILTIN_ROLES.has(key)) throw new AdminError("内置角色不可删除");
   await getWebDb().transaction(async (tx) => {
+    await lockSiteAdminInvariant(tx);
     const grants = await tx.select().from(roleGrants).where(eq(roleGrants.roleKey, key));
     const holders = await tx.select().from(userRoles).where(eq(userRoles.roleKey, key));
+    const removesAdminGrant = grants.some(
+      (grant) =>
+        grant.scopeId === 0 &&
+        (grant.permissionKey === "site.admin" || grant.permissionKey === "admin.roles"),
+    );
     await tx.delete(roleGrants).where(eq(roleGrants.roleKey, key));
     await tx.delete(userRoles).where(eq(userRoles.roleKey, key));
     await tx.delete(roles).where(eq(roles.key, key));
+    if (removesAdminGrant) await assertSiteAdminRemains(tx);
     await writeAudit(tx, {
       actorId: actor.userId,
       action: "role.delete",
@@ -268,15 +296,28 @@ export async function assignUserRole(
   }
   await requireRole(roleKey);
   await requireScope(scopeId);
-  const target = await getWebDb()
-    .select({ id: users.id, state: users.state })
-    .from(users)
-    .where(eq(users.id, userId))
-    .limit(1);
-  if (!target[0] || target[0].state !== "active")
-    throw new AdminError(`用户不存在或已注销: ${userId}`);
-
   await getWebDb().transaction(async (tx) => {
+    await lockSiteAdminInvariant(tx);
+    const [target] = await tx
+      .select({ id: users.id, state: users.state })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1)
+      .for("update");
+    if (!target || target.state !== "active") {
+      throw new AdminError(`用户不存在或已注销: ${userId}`);
+    }
+    const [closure] = await tx
+      .select({ id: accountDeletionRequests.id })
+      .from(accountDeletionRequests)
+      .where(
+        and(
+          eq(accountDeletionRequests.userId, userId),
+          inArray(accountDeletionRequests.status, ["pending", "completed"]),
+        ),
+      )
+      .limit(1);
+    if (closure) throw new AdminError(`用户正在注销或已注销: ${userId}`);
     // upsert：已存在则只更新到期时间。先查后插/改在并发下会撞 uq_ur_assignment 抛原始错误（复查 B5，同 grantRolePermission）
     await tx
       .insert(userRoles)
@@ -316,6 +357,7 @@ export async function revokeUserRole(
 ): Promise<void> {
   let removed = false;
   await getWebDb().transaction(async (tx) => {
+    await lockSiteAdminInvariant(tx);
     const rows = await tx
       .select({ id: userRoles.id })
       .from(userRoles)
@@ -327,12 +369,26 @@ export async function revokeUserRole(
         ),
       );
     if (rows.length === 0) return;
+    const adminGrants =
+      scopeId === 0
+        ? await tx
+            .select({ id: roleGrants.id })
+            .from(roleGrants)
+            .where(
+              and(
+                eq(roleGrants.roleKey, roleKey),
+                eq(roleGrants.scopeId, 0),
+                inArray(roleGrants.permissionKey, ["site.admin", "admin.roles"]),
+              ),
+            )
+        : [];
     await tx.delete(userRoles).where(
       inArray(
         userRoles.id,
         rows.map((r) => r.id),
       ),
     );
+    if (adminGrants.length > 0) await assertSiteAdminRemains(tx);
     await writeAudit(tx, {
       actorId: actor.userId,
       action: "user_role.revoke",

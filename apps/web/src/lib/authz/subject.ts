@@ -1,6 +1,6 @@
 import { cache } from "react";
-import { and, eq, isNull, or, sql } from "drizzle-orm";
-import { getWebDb, userRestrictions, userRoles, users } from "@funwind/db";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { accountDeletionRequests, getWebDb, userRestrictions, userRoles, users } from "@funwind/db";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getRegisterMode } from "@/lib/auth/settings";
 import { restrictionActive } from "./restrictions";
@@ -17,11 +17,17 @@ export async function loadSubject(userId: number | null): Promise<Subject> {
   if (userId === null) return { ...GUEST_SUBJECT, registerMode };
 
   const db = getWebDb();
-  const [userRows, roleRows, restrictionRows] = await Promise.all([
+  const [userRows, roleRows, restrictionRows, closureRows] = await Promise.all([
     db
       .select({ emailVerifiedAt: users.emailVerifiedAt })
       .from(users)
-      .where(and(eq(users.id, userId), eq(users.state, "active")))
+      .where(
+        and(
+          eq(users.id, userId),
+          eq(users.state, "active"),
+          eq(users.legacyPasswordPending, false),
+        ),
+      )
       .limit(1),
     db
       .select({ key: userRoles.roleKey, scopeId: userRoles.scopeId })
@@ -40,10 +46,20 @@ export async function loadSubject(userId: number | null): Promise<Subject> {
       })
       .from(userRestrictions)
       .where(and(eq(userRestrictions.userId, userId), restrictionActive)),
+    db
+      .select({ id: accountDeletionRequests.id })
+      .from(accountDeletionRequests)
+      .where(
+        and(
+          eq(accountDeletionRequests.userId, userId),
+          inArray(accountDeletionRequests.status, ["pending", "completed"]),
+        ),
+      )
+      .limit(1),
   ]);
 
   const user = userRows[0];
-  if (!user) return { ...GUEST_SUBJECT, registerMode };
+  if (!user || closureRows.length > 0) return { ...GUEST_SUBJECT, registerMode };
 
   return {
     userId,

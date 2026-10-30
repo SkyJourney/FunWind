@@ -49,9 +49,9 @@ export default async function ProfilePage({
   const uid = parseUid((await params).uid);
   if (!uid) notFound();
   // 不存在或已注销（含迁移生成的“已注销用户”占位账号）→ 404，占位账号不开个人页
-  const profile = await getProfile(uid);
+  const [viewer, viewerSubject] = await Promise.all([getCurrentUser(), getCurrentSubject()]);
+  const profile = await getProfile(uid, viewerSubject);
   if (!profile) notFound();
-  const viewer = await getCurrentUser();
   const sp = await searchParams;
   const tab = sp.tab === "replies" ? "replies" : "threads";
   const page = Math.max(1, Math.trunc(Number(sp.page)) || 1);
@@ -72,7 +72,6 @@ export default async function ProfilePage({
       ? await isFollowing(uid, "user", viewer.id)
       : false;
 
-  const viewerSubject = await getCurrentSubject();
   const threads = tab === "threads" ? await getUserThreads(viewerSubject, uid, page) : null;
   const replies = tab === "replies" ? await getUserReplies(viewerSubject, uid, page) : null;
   const content = tab === "threads" ? threads : replies;
@@ -127,7 +126,11 @@ export default async function ProfilePage({
                     following={following}
                     back={`/u/${uid}`}
                   />
-                  {pmPolicy === "off" ? (
+                  {profile.ban ? (
+                    <span className="inline-flex items-center gap-1 rounded-lg border border-dashed px-3 py-1 text-sm text-muted-foreground/70">
+                      <MessageSquareOff className="size-3.5" aria-hidden /> 暂不能接收新私信
+                    </span>
+                  ) : pmPolicy === "off" ? (
                     <span className="inline-flex items-center gap-1 rounded-lg border border-dashed px-3 py-1 text-sm text-muted-foreground/70">
                       <MessageSquareOff className="size-3.5" aria-hidden /> 已关闭私信
                     </span>
@@ -153,12 +156,6 @@ export default async function ProfilePage({
               精华 {profile.featuredCount} · 粉丝 {profile.followerCount} · {profile.pointsName}{" "}
               {profile.points}
             </p>
-            {profile.ban && (
-              <p className="mt-2 text-sm text-destructive">
-                封禁中{profile.ban.endsAt ? `（至 ${profile.ban.endsAt}）` : "（永久）"}
-                {profile.ban.reason ? `：${profile.ban.reason}` : ""}
-              </p>
-            )}
           </div>
         </CardContent>
       </Card>

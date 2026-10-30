@@ -75,6 +75,7 @@ const snap = buildSnapshot(tree, [
   g("reader", "forum.read"), // 全局读授权：对 restricted 版块不算数
   g("mod", "forum.moderate", 2),
   g("section-mod", "forum.moderate", 1),
+  g("global-mod", "forum.moderate"),
 ]);
 
 const user = (
@@ -234,6 +235,13 @@ describe("级联合并（forum.moderate 与其他权限点）", () => {
     expect(ok(m, "forum.moderate", 7)).toBe(false);
   });
 
+  it("全局版主不能借管理权限读取 restricted 内容；管理需要同时可读", () => {
+    const globalModerator = user([role("global-mod")]);
+    expect(ok(globalModerator, "forum.moderate", 2)).toBe(true);
+    expect(ok(globalModerator, "forum.moderate", 3)).toBe(false);
+    expect(ok(user([role("section-mod")]), "forum.moderate", 3)).toBe(true);
+  });
+
   it("全局授权作基线（member 的 forum.report 在任何版块有效）", () => {
     expect(ok(user(), "forum.report", 2)).toBe(true);
     expect(ok(GUEST_SUBJECT, "forum.report", 2)).toBe(false);
@@ -265,13 +273,24 @@ describe("用户限制优先于授权", () => {
     expect(ok(s, "pm.send")).toBe(true); // 站点级动作不受版块禁言影响
   });
 
-  it("封禁同样拦写类", () => {
-    const s = user([], { restrictions: [{ kind: "ban", scopeId: 0, endsAt: null }] });
-    expect(ok(s, "forum.write", 2)).toBe(false);
-    expect(ok(s, "pm.send")).toBe(false);
+  it("全站封禁拒绝所有登录主体权限；论坛禁入按板块及子树拦读写", () => {
+    const banned = user([role("admin")], {
+      restrictions: [{ kind: "ban", scopeId: 0, endsAt: null }],
+    });
+    expect(ok(banned, "forum.read", 2)).toBe(false);
+    expect(ok(banned, "site.admin")).toBe(false);
+
+    const forumBanned = user([role("admin")], {
+      restrictions: [{ kind: "forum_ban", scopeId: 3, endsAt: null }],
+    });
+    expect(ok(forumBanned, "forum.read", 3)).toBe(false);
+    expect(ok(forumBanned, "forum.write", 5)).toBe(false);
+    expect(ok(forumBanned, "forum.report", 3)).toBe(false);
+    expect(ok(forumBanned, "forum.read", 2)).toBe(true);
+    expect(ok(forumBanned, "pm.send")).toBe(true);
   });
 
-  it("no_signature 只拦 sign.use；no_avatar 不影响任何权限点", () => {
+  it("no_signature 拦 sign.use；no_avatar 由资料投影/上传服务处理", () => {
     const sig = user([], { restrictions: [{ kind: "no_signature", scopeId: 0, endsAt: null }] });
     expect(ok(sig, "sign.use")).toBe(false);
     expect(ok(sig, "forum.write", 2)).toBe(true);
@@ -280,9 +299,15 @@ describe("用户限制优先于授权", () => {
     expect(ok(av, "forum.write", 2)).toBe(true);
   });
 
-  it("admin 不受限制约束（短路在先）", () => {
-    const s = user([role("admin")], { restrictions: [mute()] });
-    expect(ok(s, "forum.write", 2)).toBe(true);
+  it("管理员不绕过禁言、签名限制或未验证邮箱写权限门", () => {
+    const mutedAdmin = user([role("admin")], { restrictions: [mute()] });
+    expect(ok(mutedAdmin, "forum.write", 2)).toBe(false);
+    const unsignedAdmin = user([role("admin")], {
+      restrictions: [{ kind: "no_signature", scopeId: 0, endsAt: null }],
+    });
+    expect(ok(unsignedAdmin, "sign.use")).toBe(false);
+    const unverifiedAdmin = user([role("admin")], { emailVerified: false, registerMode: "open" });
+    expect(ok(unverifiedAdmin, "forum.write", 2)).toBe(false);
   });
 });
 

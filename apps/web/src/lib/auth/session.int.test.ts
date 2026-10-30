@@ -189,6 +189,27 @@ describe.skipIf(skipDb)("会话 · 真实 MySQL", () => {
       await db().delete(sessions).where(eq(sessions.userId, DEMO.xiaoyi));
     });
 
+    it("未在封禁期间读取的旧会话，在全站 ban 到期后也不会复活", async () => {
+      await createSession(DEMO.member);
+      await db().execute(
+        sql`UPDATE sessions SET created_at = NOW() - INTERVAL 1 HOUR WHERE user_id = ${DEMO.member}`,
+      );
+      await db()
+        .insert(userRestrictions)
+        .values({
+          userId: DEMO.member,
+          kind: "ban",
+          scopeId: 0,
+          reason: "历史封禁",
+          startsAt: sql`NOW() - INTERVAL 30 MINUTE`,
+          endsAt: sql`NOW() - INTERVAL 10 MINUTE`,
+          createdAt: sql`NOW() - INTERVAL 30 MINUTE`,
+        });
+
+      expect(await getCurrentUser()).toBeNull();
+      expect(await rows(DEMO.member)).toHaveLength(0);
+    });
+
     it("全站封禁生效 → 会话失效；封禁到期或仅版块级禁言 → 仍有效", async () => {
       await expect(createSession(DEMO.banned)).rejects.toBeInstanceOf(SessionCreationError);
       await insertExistingSession(DEMO.banned); // 模拟封禁前已经建立的 session

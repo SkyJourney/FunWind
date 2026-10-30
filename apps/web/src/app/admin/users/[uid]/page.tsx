@@ -34,7 +34,8 @@ type Params = {
 };
 
 const KIND_LABELS: Record<string, string> = {
-  ban: "封禁",
+  ban: "全站封禁",
+  forum_ban: "板块禁入",
   mute: "禁言",
   no_avatar: "禁头像",
   no_signature: "禁签名",
@@ -124,13 +125,23 @@ export default async function AdminUserDetailPage({ params, searchParams }: Para
                     </option>
                   ))}
                 </select>
+                <ForumSelect
+                  name="scopeId"
+                  label="限制范围"
+                  defaultValue={0}
+                  globalLabel="全站"
+                  className="rounded-lg border bg-background px-2.5 py-1.5 text-sm"
+                />
                 <input
                   type="datetime-local"
                   name="endsAt"
-                  aria-label="结束时间（空为永久）"
+                  aria-label="结束时间（北京时间，空为永久）"
                   className="rounded-lg border bg-background px-2.5 py-1.5 text-sm"
                 />
               </div>
+              <p className="text-xs text-muted-foreground">
+                全站封禁和头像/签名限制只能选全站；板块禁入作用于所选板块及子树，禁言可选全站或板块。结束时间按北京时间输入。
+              </p>
               <input
                 name="reason"
                 required
@@ -154,6 +165,7 @@ export default async function AdminUserDetailPage({ params, searchParams }: Para
                   <li key={r.id} className="text-sm">
                     <p>
                       <span className="font-medium">{KIND_LABELS[r.kind] ?? r.kind}</span>（
+                      {r.scopeId === 0 ? "全站" : `板块 ${r.scopeId} 及子树`}，
                       {fmtDateTime(r.startsAt)} ~ {r.endsAt ? fmtDateTime(r.endsAt) : "永久"}）：
                       {r.reason}
                       {!r.active && (

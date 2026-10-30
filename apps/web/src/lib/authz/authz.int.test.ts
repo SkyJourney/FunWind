@@ -300,6 +300,38 @@ describe.skipIf(skipDb)("权限内核 · 真实 MySQL", () => {
       expect(log?.beforeJson).toEqual({ grants: 1, holders: 1 });
     });
 
+    it("并发撤销绑定、撤权与删角色都不能移除最后一位有效管理员", async () => {
+      const roleA = "m96-site-admin-a";
+      const roleB = "m96-site-admin-b";
+      for (const roleKey of [roleA, roleB]) {
+        await createCustomRole(admin, roleKey, roleKey, "last-admin guard");
+        await grantRolePermission(admin, roleKey, "site.admin", 0);
+        await grantRolePermission(admin, roleKey, "admin.roles", 0);
+      }
+      await assignUserRole(admin, DEMO.member, roleA, 0);
+      await assignUserRole(admin, DEMO.team, roleB, 0);
+      await revokeUserRole(admin, DEMO.admin, "admin", 0);
+
+      const results = await Promise.allSettled([
+        revokeUserRole(admin, DEMO.member, roleA, 0),
+        revokeUserRole(admin, DEMO.team, roleB, 0),
+      ]);
+      expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+      const remainingRole = results[0]?.status === "fulfilled" ? roleB : roleA;
+
+      await expect(revokeRolePermission(admin, remainingRole, "site.admin", 0)).rejects.toThrow(
+        /至少保留一位/,
+      );
+      await expect(deleteCustomRole(admin, remainingRole)).rejects.toThrow(/至少保留一位/);
+
+      await assignUserRole(admin, DEMO.admin, "admin", 0);
+      await revokeUserRole(admin, DEMO.member, roleA, 0);
+      await revokeUserRole(admin, DEMO.team, roleB, 0);
+      await deleteCustomRole(admin, roleA);
+      await deleteCustomRole(admin, roleB);
+    });
+
     it("每个管理动作的审计行都带 actor / 时间；失败的动作不留审计", async () => {
       const all = await audits();
       expect(all.length).toBeGreaterThan(0);

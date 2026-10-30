@@ -78,7 +78,8 @@ export async function getDirectory(viewer: Subject): Promise<Directory> {
         .filter((c) => c.kind === "forum" && shown(c))
         .map(card);
       if (cards.length > 0) {
-        groups.push({ section: { id: root.id, name: root.name }, forums: cards });
+        if (shown(root)) groups.push({ section: { id: root.id, name: root.name }, forums: cards });
+        else loose.push(...cards);
       }
     } else if (shown(root)) {
       loose.push(card(root));

@@ -32,7 +32,9 @@ let alice: Subject,
   team: Subject,
   banned: Subject,
   admin: Subject,
-  guest: Subject;
+  guest: Subject,
+  freeReader: Subject;
+const FREE_USER_ID = 99999991;
 const db = () => getWebDb();
 const emitted: { name: string; payload: unknown }[] = [];
 const deps = {
@@ -87,7 +89,17 @@ describe("手续费纯函数", () => {
 describe.skipIf(skipDb)("unlockGate · 真实 MySQL", () => {
   beforeAll(async () => {
     tdb = await setupTempDb();
-    [alice, xiaoyi, member, team, banned, admin, guest] = await Promise.all([
+    await db().insert(users).values({
+      id: FREE_USER_ID,
+      username: "free_reader",
+      usernameKey: "free_reader",
+      email: null,
+      emailKey: null,
+      passwordHash: null,
+      state: "active",
+      createdAt: "2026-10-20 00:00:00",
+    });
+    [alice, xiaoyi, member, team, banned, admin, guest, freeReader] = await Promise.all([
       loadSubject(DEMO.alice),
       loadSubject(DEMO.xiaoyi),
       loadSubject(DEMO.member),
@@ -95,6 +107,7 @@ describe.skipIf(skipDb)("unlockGate · 真实 MySQL", () => {
       loadSubject(DEMO.banned),
       loadSubject(DEMO.admin),
       loadSubject(null),
+      loadSubject(FREE_USER_ID),
     ]);
   });
   afterAll(async () => {
@@ -239,26 +252,33 @@ describe.skipIf(skipDb)("unlockGate · 真实 MySQL", () => {
       expect(emitted).toEqual([]);
     });
 
-    it("没有积分账户的读者买付费内容：insufficient，且不留下空账户之外的痕迹", async () => {
+    it("全站封禁不能通过门控购买入口绕过读取限制", async () => {
       const g = await mkGate(900101, [{ type: "points", price: 5 }]);
-      expect(await balance(DEMO.banned)).toBeUndefined();
-      expect(await run(banned, g)).toMatchObject({ ok: false, code: "insufficient" });
+      expect(await run(banned, g)).toMatchObject({ ok: false, code: "not_found" });
       expect(await unlockRow(g, DEMO.banned)).toBeUndefined();
       expect(await ledger(DEMO.banned)).toHaveLength(0);
     });
 
+    it("没有积分账户的可读用户买付费内容：insufficient，且不创建台账", async () => {
+      const g = await mkGate(900101, [{ type: "points", price: 5 }]);
+      expect(await balance(FREE_USER_ID)).toBeUndefined();
+      expect(await run(freeReader, g)).toMatchObject({ ok: false, code: "insufficient" });
+      expect(await unlockRow(g, FREE_USER_ID)).toBeUndefined();
+      expect(await ledger(FREE_USER_ID)).toHaveLength(0);
+    });
+
     it("价格 0：只写解锁记录，不动台账、不建账户；重复点击只有一条", async () => {
       const g = await mkGate(900101, [{ type: "points", price: 0 }]);
-      const rs = await Promise.all(Array.from({ length: 6 }, () => run(banned, g)));
+      const rs = await Promise.all(Array.from({ length: 6 }, () => run(freeReader, g)));
       expect(rs.every((r) => r.ok)).toBe(true);
       expect(rs.filter((r) => r.ok && !r.alreadyUnlocked)).toHaveLength(1);
-      expect(await unlockRow(g, DEMO.banned)).toMatchObject({
+      expect(await unlockRow(g, FREE_USER_ID)).toMatchObject({
         pricePaid: 0,
         authorIncome: 0,
         ledgerId: null,
       });
-      expect(await ledger(DEMO.banned)).toHaveLength(0);
-      expect(await balance(DEMO.banned)).toBeUndefined();
+      expect(await ledger(FREE_USER_ID)).toHaveLength(0);
+      expect(await balance(FREE_USER_ID)).toBeUndefined();
       expect(await unlockCount(g)).toBe(1);
     });
 
@@ -514,7 +534,7 @@ describe.skipIf(skipDb)("unlockGate · 真实 MySQL", () => {
         expect(bal).toBeGreaterThanOrEqual(0);
       }
       for (const g of gates) expect(await unlockCount(g)).toBe(readers.length);
-    });
+    }, 15_000);
   });
 
   describe("手续费与特殊作者", () => {

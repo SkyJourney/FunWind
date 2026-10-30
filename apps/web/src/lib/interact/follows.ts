@@ -4,6 +4,8 @@ import { nowBeijingWallTime } from "@/lib/datetime";
 import type { DbTx } from "@/lib/audit";
 import { enqueueEventInTx, sweepPending } from "@/lib/events/outbox";
 import { isDuplicateKey } from "@/lib/auth/register";
+import { checkPermission } from "@/lib/authz/service";
+import { loadSubject } from "@/lib/authz/subject";
 
 /**
  * 关注（M8）：用户与版块同一张表（target_type 区分），主键天然防重；toggle 在事务内
@@ -38,6 +40,16 @@ export async function toggleFollow(
   targetId: number,
 ): Promise<ToggleFollowResult> {
   if (targetType === "user" && userId === targetId) {
+    return { ok: false, code: "not_found" };
+  }
+  const viewer = await loadSubject(userId);
+  if (viewer.userId === null || !(await checkPermission(viewer, "site.visit")).allowed) {
+    return { ok: false, code: "not_found" };
+  }
+  if (
+    targetType === "forum" &&
+    !(await checkPermission(viewer, "forum.read", { forumId: targetId })).allowed
+  ) {
     return { ok: false, code: "not_found" };
   }
   const db = getWebDb();

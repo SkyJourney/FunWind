@@ -1,5 +1,8 @@
-import { eq, inArray } from "drizzle-orm";
-import { files, forums, getWebDb, userProfiles, users } from "@funwind/db";
+import { eq, inArray, sql } from "drizzle-orm";
+import { files, forums, getWebDb, userProfiles, userRestrictions, users } from "@funwind/db";
+import { restrictionActive } from "@/lib/authz/restrictions";
+import { checkPermission, getReadableForumIds } from "@/lib/authz/service";
+import { loadSubject } from "@/lib/authz/subject";
 
 /**
  * 关注列表（M10.6d 站长反馈：关注动态页缺「关注了什么」管理区）：
@@ -24,14 +27,20 @@ export async function followedLists(
   userIds: readonly number[],
 ): Promise<{ forums: FollowedForumItem[]; users: FollowedUserItem[] }> {
   const db = getWebDb();
+  const viewer = await loadSubject(userId);
+  if (viewer.userId === null || !(await checkPermission(viewer, "site.visit")).allowed) {
+    return { forums: [], users: [] };
+  }
+  const readable = new Set(await getReadableForumIds(viewer));
+  const visibleForumIds = forumIds.filter((id) => readable.has(id));
 
-  const forumRows = forumIds.length
+  const forumRows = visibleForumIds.length
     ? await db
         .select({ id: forums.id, name: forums.name, threadCount: forums.threadCount })
         .from(forums)
-        .where(inArray(forums.id, [...forumIds]))
+        .where(inArray(forums.id, visibleForumIds))
     : [];
-  const order = new Map(forumIds.map((id, i) => [id, i]));
+  const order = new Map(visibleForumIds.map((id, i) => [id, i]));
   const forumItems = forumRows
     .map((r) => ({ ...r, threadCount: r.threadCount ?? 0 }))
     .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
@@ -41,7 +50,13 @@ export async function followedLists(
         .select({
           id: users.id,
           username: users.username,
-          avatarKey: files.storageKey,
+          avatarKey: sql<string | null>`CASE WHEN EXISTS (
+            SELECT 1 FROM ${userRestrictions}
+             WHERE ${userRestrictions.userId} = ${users.id}
+               AND ${userRestrictions.kind} = 'no_avatar'
+               AND ${userRestrictions.scopeId} = 0
+               AND ${restrictionActive}
+          ) THEN NULL ELSE ${files.storageKey} END`,
         })
         .from(users)
         .leftJoin(userProfiles, eq(userProfiles.userId, users.id))

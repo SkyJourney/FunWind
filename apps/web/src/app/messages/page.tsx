@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { MessageSquareOff } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/session";
+import { findActiveGlobalBan } from "@/lib/authz/restrictions";
 import { conversationPage } from "@/lib/pm/queries";
 import { sendMessageAction } from "@/app/actions/pm";
 import { Card, CardContent } from "@/components/ui/card";
@@ -28,6 +29,7 @@ export default async function MessagesPage({
   const page = Math.max(1, Math.trunc(Number(sp.page)) || 1);
   const { items: list, hasMore } = await conversationPage(user.id, page);
   const to = sp.to !== undefined && /^\d+$/.test(sp.to) ? Number(sp.to) : null;
+  const targetBanned = to !== null && (await findActiveGlobalBan(to)) !== null;
 
   return (
     <main className="mx-auto max-w-2xl space-y-4 px-4 py-8 sm:px-6">
@@ -63,7 +65,13 @@ export default async function MessagesPage({
         </p>
       )}
 
-      {to !== null && to !== user.id && (
+      {to !== null && to !== user.id && targetBanned && (
+        <p className="rounded-lg border border-dashed px-3 py-2 text-sm text-muted-foreground">
+          对方暂时无法接收新私信。
+        </p>
+      )}
+
+      {to !== null && to !== user.id && !targetBanned && (
         <Card>
           <CardContent className="pt-6">
             <h2 className="mb-2 text-sm font-semibold">发起新会话</h2>

@@ -5,6 +5,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { FollowButton } from "@/components/interact/follow-button";
 import { isFollowing } from "@/lib/interact/follows";
 import { getCurrentUser } from "@/lib/auth/session";
+import { getCurrentSubject } from "@/lib/authz/subject";
 import { getProfile } from "@/lib/queries/users";
 import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { getWebDb, roles, userRoles } from "@funwind/db";
@@ -32,9 +33,9 @@ export async function UserHoverCard({
   if (gone || uid === undefined) {
     return <span className="contents">{children}</span>;
   }
-  const [profile, viewer, customRoles] = await Promise.all([
-    getProfile(uid),
+  const [viewer, viewerSubject, customRoles] = await Promise.all([
     getCurrentUser(),
+    getCurrentSubject(),
     // 特殊组展示（M10.6d 站长反馈：字幕组等团队身份应在名片可见）：
     // 只取 custom 角色（team-*），builtin（admin/member/guest）不上名片
     getWebDb()
@@ -50,6 +51,7 @@ export async function UserHoverCard({
       )
       .limit(3),
   ]);
+  const profile = await getProfile(uid, viewerSubject);
   if (!profile) return <span className="contents">{children}</span>;
   const isSelf = viewer?.id === uid;
   const following = viewer && !isSelf ? await isFollowing(viewer.id, "user", uid) : false;
@@ -58,7 +60,8 @@ export async function UserHoverCard({
       ? await isFollowing(uid, "user", viewer.id)
       : false;
   const pmAllowed =
-    isSelf || profile.pmPolicy === "all" || (profile.pmPolicy === "following" && pmBack);
+    !profile.ban &&
+    (isSelf || profile.pmPolicy === "all" || (profile.pmPolicy === "following" && pmBack));
 
   const card = (
     <div className="w-64 space-y-2.5 p-3">
@@ -109,7 +112,11 @@ export async function UserHoverCard({
           ) : (
             <span className="flex-1 rounded-lg border border-dashed px-2 py-1 text-center text-xs text-muted-foreground/80">
               <MessageSquareOff className="mr-0.5 inline size-3.5" aria-hidden />
-              {profile.pmPolicy === "off" ? "已关闭私信" : "仅关注者可私信"}
+              {profile.ban
+                ? "暂不能接收新私信"
+                : profile.pmPolicy === "off"
+                  ? "已关闭私信"
+                  : "仅关注者可私信"}
             </span>
           )}
         </div>

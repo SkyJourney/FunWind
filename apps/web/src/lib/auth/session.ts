@@ -2,7 +2,7 @@ import { cache } from "react";
 import { cookies } from "next/headers";
 import { and, eq, gt, inArray, ne, sql } from "drizzle-orm";
 import { accountDeletionRequests, getWebDb, sessions, userRestrictions, users } from "@funwind/db";
-import { findActiveGlobalBan, restrictionActive } from "@/lib/authz/restrictions";
+import { restrictionActive } from "@/lib/authz/restrictions";
 import { generateToken, hashToken } from "./token";
 
 /**
@@ -54,6 +54,7 @@ async function readCurrentSessionUser(
   const rows = await db
     .select({
       userId: sessions.userId,
+      createdAt: sessions.createdAt,
       username: users.username,
       email: users.email,
       passwordHash: users.passwordHash,
@@ -86,7 +87,23 @@ async function readCurrentSessionUser(
     .limit(1);
   if (closure) return null;
 
-  if (await findActiveGlobalBan(row.userId)) return null;
+  const [banOverlap] = await db
+    .select({ id: userRestrictions.id })
+    .from(userRestrictions)
+    .where(
+      and(
+        eq(userRestrictions.userId, row.userId),
+        eq(userRestrictions.kind, "ban"),
+        eq(userRestrictions.scopeId, 0),
+        sql`${userRestrictions.startsAt} <= NOW()`,
+        sql`(${userRestrictions.endsAt} IS NULL OR ${userRestrictions.endsAt} >= ${row.createdAt})`,
+      ),
+    )
+    .limit(1);
+  if (banOverlap) {
+    await db.delete(sessions).where(eq(sessions.id, hashToken(token)));
+    return null;
+  }
 
   // 记录最近活跃时间（每小时至多写一次，避免写放大），不延长绝对过期时间。
   await db

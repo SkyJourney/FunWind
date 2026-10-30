@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { getWebDb, notificationPreferences, userProfiles, users } from "@funwind/db";
 import { defineAction } from "@/lib/actions/define-action";
+import { checkPermission } from "@/lib/authz/service";
 import { getCurrentUser, getPasswordChangeUser } from "@/lib/auth/session";
 import { hashPassword, verifyLegacyPassword, verifyPassword } from "@/lib/auth/password";
 import { isValidEmail } from "@/lib/auth/email";
@@ -178,13 +179,18 @@ export const updateProfileAction = defineAction({
     if (birthday !== "" && !/^\d{4}-\d{2}-\d{2}$/.test(birthday)) {
       redirect(errHop("profile", "生日格式应为 YYYY-MM-DD"));
     }
+    const canUseSignature = (await checkPermission(ctx.subject, "sign.use")).allowed;
+    const signature = input.signature.trim();
+    if (!canUseSignature && signature !== "") {
+      redirect(errHop("profile", "签名档当前受限，原内容将在限制解除后恢复"));
+    }
     const values = {
       bio: input.bio.trim() === "" ? null : input.bio.trim(),
       location: input.location.trim(),
       website,
       gender: input.gender,
       birthday: birthday === "" ? null : birthday,
-      signatureMd: input.signature.trim() === "" ? null : input.signature.trim(),
+      ...(canUseSignature ? { signatureMd: signature === "" ? null : signature } : {}),
     };
     await getWebDb()
       .insert(userProfiles)

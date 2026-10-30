@@ -4,6 +4,8 @@ import type { DbTx } from "@/lib/audit";
 import { enqueueEventInTx, sweepPending } from "@/lib/events/outbox";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import { isDuplicateKey } from "@/lib/auth/register";
+import { checkPermission } from "@/lib/authz/service";
+import { loadSubject } from "@/lib/authz/subject";
 
 /**
  * 点赞（M8）：reactions 主键 (user_id, post_id, kind) 天然防重；toggle 在一个事务内完成
@@ -15,20 +17,15 @@ import { isDuplicateKey } from "@/lib/auth/register";
 export type ToggleLikeResult =
   { ok: true; liked: boolean; likeCount: number } | { ok: false; code: "not_found" };
 
-/** 事务内：帖子与主题必须双双 visible（点赞是对可见内容的互动） */
+/** 事务内：帖子与主题必须 visible；返回版块用于执行 viewer 的 forum.read/禁入门。 */
 async function visiblePostOrNull(tx: DbTx, postId: number) {
   const [row] = await tx
-    .select({ threadId: posts.threadId, state: posts.state })
+    .select({ postState: posts.state, threadState: threads.state, forumId: threads.forumId })
     .from(posts)
+    .innerJoin(threads, eq(threads.id, posts.threadId))
     .where(eq(posts.id, postId))
     .limit(1);
-  if (!row || row.state !== "visible") return null;
-  const [t] = await tx
-    .select({ state: threads.state })
-    .from(threads)
-    .where(eq(threads.id, row.threadId))
-    .limit(1);
-  if (!t || t.state !== "visible") return null;
+  if (!row || row.postState !== "visible" || row.threadState !== "visible") return null;
   return row;
 }
 
@@ -43,11 +40,16 @@ async function likeCountOf(postId: number): Promise<number> {
 
 /** 点赞/取消（toggle）。成功返回最新计数；帖子不存在或不可见返回 not_found */
 export async function toggleLike(userId: number, postId: number): Promise<ToggleLikeResult> {
+  const viewer = await loadSubject(userId);
+  if (viewer.userId === null) return { ok: false, code: "not_found" };
   const db = getWebDb();
 
   const race = await db.transaction(async (tx): Promise<{ race: boolean } | null> => {
     const target = await visiblePostOrNull(tx, postId);
     if (!target) return null;
+    if (!(await checkPermission(viewer, "forum.read", { forumId: target.forumId })).allowed) {
+      return null;
+    }
 
     const [existing] = await tx
       .select({ userId: reactions.userId })
