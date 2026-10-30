@@ -43,6 +43,15 @@ test("双轨：旧密码登录 → 强制换密 → 旧密码失效 → 新密�
   await page.goto("/boards");
   await page.waitForURL("**/settings/password?force=1");
 
+  // 清除快速跳转 cookie 也不能恢复普通登录态；API 按数据库状态拒绝，密码页仍可达
+  await page.context().clearCookies({ name: "fw_must_change" });
+  const privateApiStatus = await page.evaluate(async () => {
+    return (await fetch("/api/stream/conversations", { cache: "no-store" })).status;
+  });
+  expect(privateApiStatus).toBe(401);
+  await page.goto("/settings/password?force=1");
+  await expect(page.getByText(/旧论坛密码/)).toBeVisible();
+
   await page.getByLabel("新密码（至少 8 位）", { exact: true }).fill(NEW_PASSWORD);
   await page.getByLabel("确认新密码").fill(NEW_PASSWORD);
   const resp = page.waitForResponse(

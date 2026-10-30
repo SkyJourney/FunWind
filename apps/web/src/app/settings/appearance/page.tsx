@@ -1,10 +1,16 @@
+import { redirect } from "next/navigation";
 import { ThemeSwitcher } from "@/components/theme-switcher";
+import { getCurrentUser, getPasswordChangeUser } from "@/lib/auth/session";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "外观" };
 
 /** 外观（M10.6d 站长反馈：从 /me 收进设置中心页签；移动端此前不可达）。 */
-export default function AppearanceSettingsPage() {
+export default async function AppearanceSettingsPage() {
+  if (!(await getCurrentUser())) {
+    if (await getPasswordChangeUser()) redirect("/settings/password?force=1");
+    redirect("/login");
+  }
   return (
     <div className="space-y-4">
       <section className="rounded-xl border bg-card p-4">

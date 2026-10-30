@@ -33,7 +33,9 @@ export function middleware(req: NextRequest) {
   }
 
   if (req.cookies.get(MUST_CHANGE_COOKIE)?.value !== "1") return NextResponse.next();
-  if (req.nextUrl.pathname.startsWith(CHANGE_PATH)) return NextResponse.next();
+  if (req.nextUrl.pathname.startsWith(CHANGE_PATH) || req.nextUrl.pathname.startsWith("/login")) {
+    return NextResponse.next();
+  }
   const url = req.nextUrl.clone();
   url.pathname = CHANGE_PATH;
   url.search = "?force=1";

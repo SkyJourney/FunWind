@@ -4,7 +4,14 @@
  * 覆盖：令牌只存哈希、读取条件（过期/已注销/封禁）、活跃时间记录与 30 天绝对过期、登录轮换、登出与全部吊销。
  */
 import { eq, sql } from "drizzle-orm";
-import { DEMO, getWebDb, sessions, userRestrictions, users } from "@funwind/db";
+import {
+  accountDeletionRequests,
+  DEMO,
+  getWebDb,
+  sessions,
+  userRestrictions,
+  users,
+} from "@funwind/db";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 
@@ -20,18 +27,40 @@ vi.mock("next/headers", () => ({
 }));
 
 import { getCurrentSubject } from "@/lib/authz/subject";
-import { hashToken } from "./token";
+import { generateToken, hashToken } from "./token";
 import {
+  MUST_CHANGE_COOKIE,
   SESSION_COOKIE,
+  SessionCreationError,
+  createLegacyPasswordChangeSession,
   createSession,
   destroyCurrentSession,
   getCurrentUser,
+  getPasswordChangeUser,
   revokeAllForUser,
+  revokeOtherSessions,
 } from "./session";
 
 let tdb: TempDb;
 const db = () => getWebDb();
 const rows = (userId: number) => db().select().from(sessions).where(eq(sessions.userId, userId));
+
+async function insertExistingSession(userId: number) {
+  const token = generateToken();
+  await db()
+    .insert(sessions)
+    .values({
+      id: hashToken(token),
+      userId,
+      createdAt: sql`NOW()`,
+      expiresAt: sql`NOW() + INTERVAL 1 DAY`,
+      lastSeenAt: sql`NOW()`,
+      ip: null,
+      userAgent: null,
+    });
+  jar.set(SESSION_COOKIE, { value: token });
+  return token;
+}
 
 describe.skipIf(skipDb)("会话 · 真实 MySQL", () => {
   beforeAll(async () => {
@@ -40,7 +69,10 @@ describe.skipIf(skipDb)("会话 · 真实 MySQL", () => {
   afterAll(async () => {
     await tdb?.teardown();
   });
-  beforeEach(() => jar.clear());
+  beforeEach(async () => {
+    jar.clear();
+    await db().delete(sessions);
+  });
 
   describe("createSession", () => {
     it("库里只存令牌的 SHA-256；cookie 里是明文令牌，httpOnly + lax，带 IP / UA", async () => {
@@ -86,6 +118,46 @@ describe.skipIf(skipDb)("会话 · 真实 MySQL", () => {
       expect((await getCurrentUser())?.passwordHashIsSet).toBe(false);
     });
 
+    it("旧密码待换新只开放专用会话；数据库标记清除后同一 session 才转为普通登录态", async () => {
+      await db()
+        .update(users)
+        .set({ legacyPasswordPending: true, legacyPasswordHash: "test-legacy" })
+        .where(eq(users.id, DEMO.member));
+      await expect(createSession(DEMO.member)).rejects.toMatchObject({
+        code: "password_change_required",
+      });
+
+      await createLegacyPasswordChangeSession(DEMO.member);
+      expect(await getCurrentUser()).toBeNull();
+      expect(await getCurrentSubject()).toMatchObject({ userId: null });
+      expect(await getPasswordChangeUser()).toMatchObject({ id: DEMO.member });
+
+      await db()
+        .update(users)
+        .set({ legacyPasswordPending: false, legacyPasswordHash: null })
+        .where(eq(users.id, DEMO.member));
+      expect(await getCurrentUser()).toMatchObject({ id: DEMO.member });
+      await db().delete(sessions).where(eq(sessions.userId, DEMO.member));
+    });
+
+    it("注销申请中使普通会话失效，并禁止建立新会话", async () => {
+      await createSession(DEMO.team);
+      await db()
+        .insert(accountDeletionRequests)
+        .values({
+          userId: DEMO.team,
+          status: "pending",
+          requestedAt: sql`NOW()`,
+          scheduledAt: sql`NOW() + INTERVAL 30 DAY`,
+        });
+      expect(await getCurrentUser()).toBeNull();
+      await expect(createSession(DEMO.team)).rejects.toMatchObject({ code: "account_closing" });
+      await db()
+        .delete(accountDeletionRequests)
+        .where(eq(accountDeletionRequests.userId, DEMO.team));
+      await db().delete(sessions).where(eq(sessions.userId, DEMO.team));
+    });
+
     it("会话过期 → null", async () => {
       await createSession(DEMO.team);
       await db().execute(
@@ -94,16 +166,32 @@ describe.skipIf(skipDb)("会话 · 真实 MySQL", () => {
       expect(await getCurrentUser()).toBeNull();
     });
 
-    it("账号已注销（state=deleted）→ 会话立即失效", async () => {
+    it("已注销 tombstone 使所有旧会话永久失效，即使 state 被误恢复也不能复活", async () => {
       await createSession(DEMO.xiaoyi);
       expect(await getCurrentUser()).not.toBeNull();
       await db().update(users).set({ state: "deleted" }).where(eq(users.id, DEMO.xiaoyi));
+      await db()
+        .insert(accountDeletionRequests)
+        .values({
+          userId: DEMO.xiaoyi,
+          status: "completed",
+          requestedAt: sql`NOW()`,
+          scheduledAt: sql`NOW()`,
+          completedAt: sql`NOW()`,
+        });
       expect(await getCurrentUser()).toBeNull();
       await db().update(users).set({ state: "active" }).where(eq(users.id, DEMO.xiaoyi));
+      expect(await getCurrentUser()).toBeNull();
+      await expect(createSession(DEMO.xiaoyi)).rejects.toMatchObject({ code: "account_closing" });
+      await db()
+        .delete(accountDeletionRequests)
+        .where(eq(accountDeletionRequests.userId, DEMO.xiaoyi));
+      await db().delete(sessions).where(eq(sessions.userId, DEMO.xiaoyi));
     });
 
     it("全站封禁生效 → 会话失效；封禁到期或仅版块级禁言 → 仍有效", async () => {
-      await createSession(DEMO.banned); // 夹具里该用户有永久全站封禁
+      await expect(createSession(DEMO.banned)).rejects.toBeInstanceOf(SessionCreationError);
+      await insertExistingSession(DEMO.banned); // 模拟封禁前已经建立的 session
       expect(await getCurrentUser()).toBeNull();
 
       jar.clear();
@@ -176,13 +264,22 @@ describe.skipIf(skipDb)("会话 · 真实 MySQL", () => {
   });
 
   describe("登出与吊销", () => {
-    it("destroyCurrentSession：删库中会话行并清 cookie；无 cookie 时安全空操作", async () => {
+    it("destroyCurrentSession：只删当前设备会话并清快门 cookie，不影响其他设备", async () => {
       await destroyCurrentSession(); // 无 cookie：不抛
       await createSession(DEMO.alice);
-      const id = hashToken(jar.get(SESSION_COOKIE)!.value);
+      const otherToken = jar.get(SESSION_COOKIE)!.value;
+      await createSession(DEMO.alice);
+      const currentToken = jar.get(SESSION_COOKIE)!.value;
+      const currentId = hashToken(currentToken);
+      jar.set(MUST_CHANGE_COOKIE, { value: "1" });
+
       await destroyCurrentSession();
       expect(jar.has(SESSION_COOKIE)).toBe(false);
-      expect(await db().select().from(sessions).where(eq(sessions.id, id))).toHaveLength(0);
+      expect(jar.has(MUST_CHANGE_COOKIE)).toBe(false);
+      expect(await db().select().from(sessions).where(eq(sessions.id, currentId))).toHaveLength(0);
+      expect(await rows(DEMO.alice)).toHaveLength(1);
+      jar.set(SESSION_COOKIE, { value: otherToken });
+      expect((await getCurrentUser())?.id).toBe(DEMO.alice);
     });
 
     it("revokeAllForUser：该用户全部会话立即失效，不影响他人", async () => {
@@ -196,6 +293,25 @@ describe.skipIf(skipDb)("会话 · 真实 MySQL", () => {
       expect(await rows(DEMO.admin)).toHaveLength(0);
       jar.set(SESSION_COOKIE, { value: adminToken });
       expect(await getCurrentUser()).toBeNull();
+      jar.set(SESSION_COOKIE, { value: teamToken });
+      expect((await getCurrentUser())?.id).toBe(DEMO.team);
+    });
+
+    it("revokeOtherSessions：保留当前设备并撤销同账号其他 session", async () => {
+      await createSession(DEMO.admin);
+      const otherToken = jar.get(SESSION_COOKIE)!.value;
+      await createSession(DEMO.admin);
+      const currentToken = jar.get(SESSION_COOKIE)!.value;
+      await createSession(DEMO.team);
+      const teamToken = jar.get(SESSION_COOKIE)!.value;
+      jar.set(SESSION_COOKIE, { value: currentToken });
+
+      await revokeOtherSessions(DEMO.admin);
+      expect(await rows(DEMO.admin)).toHaveLength(1);
+      jar.set(SESSION_COOKIE, { value: otherToken });
+      expect(await getCurrentUser()).toBeNull();
+      jar.set(SESSION_COOKIE, { value: currentToken });
+      expect((await getCurrentUser())?.id).toBe(DEMO.admin);
       jar.set(SESSION_COOKIE, { value: teamToken });
       expect((await getCurrentUser())?.id).toBe(DEMO.team);
     });

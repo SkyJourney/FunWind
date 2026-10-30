@@ -7,7 +7,7 @@ import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { getWebDb, notificationPreferences, userProfiles, users } from "@funwind/db";
 import { defineAction } from "@/lib/actions/define-action";
-import { getCurrentUser } from "@/lib/auth/session";
+import { getCurrentUser, getPasswordChangeUser } from "@/lib/auth/session";
 import { hashPassword, verifyLegacyPassword, verifyPassword } from "@/lib/auth/password";
 import { isValidEmail } from "@/lib/auth/email";
 import { MUST_CHANGE_COOKIE, revokeOtherSessions } from "@/lib/auth/session";
@@ -31,10 +31,11 @@ const text = (max: number) => z.string().max(max).default("");
 const errHop = (page: string, code: string) =>
   `/settings/${page}?error=${encodeURIComponent(code)}`;
 
-/** 当前密码校验规则：有 argon2 哈希 → 必验；双轨待换密 → 免验（旧哈希即钥匙，已验过） */
+/** 当前密码校验规则：有 argon2 哈希必验；旧哈希免验只允许专用的强制换密 session。 */
 async function requireCurrentOk(
   userId: number,
   current: string,
+  allowLegacyPasswordBypass = false,
 ): Promise<{ ok: true } | { ok: false; code: string }> {
   const [row] = await getWebDb()
     .select({
@@ -47,9 +48,15 @@ async function requireCurrentOk(
     .limit(1);
   if (!row) return { ok: false, code: "账号不存在" };
   if (row.legacyPending) {
-    if (row.legacyPasswordHash !== null && !verifyLegacyPassword(row.legacyPasswordHash, current)) {
-      // 强制态不强制重输旧密，但若填了必须对——防离开键盘被改
-      if (current !== "") return { ok: false, code: "当前密码不正确" };
+    if (!allowLegacyPasswordBypass) {
+      return { ok: false, code: "请重新使用旧密码登录并完成强制换密" };
+    }
+    if (
+      row.legacyPasswordHash !== null &&
+      current !== "" &&
+      !verifyLegacyPassword(row.legacyPasswordHash, current)
+    ) {
+      return { ok: false, code: "当前密码不正确" };
     }
     return { ok: true };
   }
@@ -63,22 +70,22 @@ async function requireCurrentOk(
 
 export const updatePasswordAction = defineAction({
   name: "settings.password",
-  auth: "user",
+  auth: "password",
   input: z.object({
     current: text(PASSWORD_MAX),
     password: z.string().min(1).max(PASSWORD_MAX),
     confirm: z.string().min(1).max(PASSWORD_MAX),
   }),
   async run(ctx, input) {
-    const user = await getCurrentUser();
-    if (!user) redirect("/login");
+    const user = ctx.passwordChangeOnly ? await getPasswordChangeUser() : await getCurrentUser();
+    if (!user || user.id !== ctx.userId) redirect("/login");
     if (input.password.length < 8) {
       redirect(errHop("password", "新密码至少 8 位"));
     }
     if (input.password !== input.confirm) {
       redirect(errHop("password", "两次输入的新密码不一致"));
     }
-    const cur = await requireCurrentOk(ctx.userId!, input.current);
+    const cur = await requireCurrentOk(ctx.userId!, input.current, ctx.passwordChangeOnly);
     if (!cur.ok) redirect(errHop("password", cur.code));
 
     await getWebDb()

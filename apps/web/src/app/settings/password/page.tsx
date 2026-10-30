@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm";
-import { getWebDb, users } from "@funwind/db";
-import { getCurrentUser } from "@/lib/auth/session";
+import { getCurrentUser, getPasswordChangeUser } from "@/lib/auth/session";
+import { LogoutForm } from "@/components/auth/logout-form";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { logoutAction } from "@/app/actions/auth";
 import { updatePasswordAction } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -12,30 +12,34 @@ const inputCls =
 
 /**
  * 改密码（M10.6c）：双轨强制换密与日常改密同一入口。
- * forced（?force=1 或账号 pending）= 免输当前密码（旧哈希已在登录时验过），页面常驻警示。
+ * 仅数据库标记为 legacy pending 的受限 session 免输当前密码；URL 参数不能放宽验证。
  */
 export default async function PasswordSettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ force?: string; saved?: string; error?: string }>;
+  searchParams: Promise<{ saved?: string; error?: string }>;
 }) {
-  const user = await getCurrentUser();
+  const normalUser = await getCurrentUser();
+  const passwordChangeUser = normalUser ? null : await getPasswordChangeUser();
+  const user = normalUser ?? passwordChangeUser;
   if (!user) return null;
-  const [row] = await getWebDb()
-    .select({ legacyPending: users.legacyPasswordPending })
-    .from(users)
-    .where(eq(users.id, user.id))
-    .limit(1);
   const sp = await searchParams;
-  const forced = sp.force === "1" || row?.legacyPending === true;
+  const forced = passwordChangeUser !== null;
 
   return (
     <div className="space-y-4">
       {forced && (
-        <p className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
-          你正在使用旧论坛密码登录。请设置新密码：完成后旧密码立即失效，全部其他设备将被退出。
-          在此期间无法访问站内其他页面。
-        </p>
+        <div className="space-y-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
+          <p>
+            你正在使用旧论坛密码登录。请设置新密码：完成后旧密码立即失效，全部其他设备将被退出。
+            在此期间无法访问站内其他页面。
+          </p>
+          <LogoutForm action={logoutAction}>
+            <button type="submit" className="underline underline-offset-2">
+              暂不修改，退出登录
+            </button>
+          </LogoutForm>
+        </div>
       )}
       {sp.saved === "1" && (
         <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">

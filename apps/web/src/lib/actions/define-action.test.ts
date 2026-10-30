@@ -39,6 +39,7 @@ function setup(over: Partial<ActionDeps> = {}) {
       calls.push("getSubject");
       return MEMBER;
     },
+    getPasswordChangeUserId: async () => null,
     getIp: async () => {
       calls.push("getIp");
       return "203.0.113.9";
@@ -80,10 +81,53 @@ describe("鉴权", () => {
     });
     expect(runA).not.toHaveBeenCalled();
 
+    const forced = setup({
+      getSubject: async () => GUEST_SUBJECT,
+      getPasswordChangeUserId: async () => 42,
+    });
+    const forcedRun = vi.fn(async () => undefined);
+    expect(
+      await outcome(forced.define({ name: "t", auth: "user", run: forcedRun })(form())),
+    ).toEqual({ kind: "redirect", to: "/settings/password?force=1" });
+    expect(forcedRun).not.toHaveBeenCalled();
+
     const member = setup();
     const runB = vi.fn(async () => undefined);
     await member.define({ name: "t", auth: "user", run: runB })(form());
     expect(((runB.mock.calls[0] as unknown[])[0] as { userId: number }).userId).toBe(7);
+  });
+
+  it("password：普通登录用户或旧密码待换密受限会话可执行，游客不可执行", async () => {
+    const member = setup();
+    const normalRun = vi.fn(async () => undefined);
+    await member.define({ name: "t", auth: "password", run: normalRun })(form());
+    expect(normalRun).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 7, passwordChangeOnly: false }),
+      undefined,
+      expect.any(FormData),
+    );
+
+    const restricted = setup({
+      getSubject: async () => GUEST_SUBJECT,
+      getPasswordChangeUserId: async () => 42,
+    });
+    const restrictedRun = vi.fn(async () => undefined);
+    await restricted.define({ name: "t", auth: "password", run: restrictedRun })(form());
+    expect(restrictedRun).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 42, passwordChangeOnly: true, subject: GUEST_SUBJECT }),
+      undefined,
+      expect.any(FormData),
+    );
+
+    const guest = setup({ getSubject: async () => GUEST_SUBJECT });
+    const guestRun = vi.fn(async () => undefined);
+    expect(
+      await outcome(guest.define({ name: "t", auth: "password", run: guestRun })(form())),
+    ).toEqual({
+      kind: "redirect",
+      to: "/login",
+    });
+    expect(guestRun).not.toHaveBeenCalled();
   });
 
   it("admin：requireAdmin 是第一个异步依赖，先于取主体、取 IP 与读取表单（先鉴权，后取数）", async () => {
