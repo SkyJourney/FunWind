@@ -210,6 +210,25 @@ describe.skipIf(skipDb)("会话 · 真实 MySQL", () => {
       expect(await rows(DEMO.member)).toHaveLength(0);
     });
 
+    it("新会话创建时恰好处于全站 ban 结束时刻，不视为封禁期间旧会话", async () => {
+      const endsAt = "2000-02-01 00:00:00";
+      await db().insert(userRestrictions).values({
+        userId: DEMO.xiaoyi,
+        kind: "ban",
+        scopeId: 0,
+        reason: "结束边界回归",
+        startsAt: "2000-01-01 00:00:00",
+        endsAt,
+        createdAt: "2000-01-01 00:00:00",
+      });
+      await createSession(DEMO.xiaoyi);
+      await db()
+        .update(sessions)
+        .set({ createdAt: endsAt })
+        .where(eq(sessions.userId, DEMO.xiaoyi));
+      expect(await getCurrentUser()).toMatchObject({ id: DEMO.xiaoyi });
+    });
+
     it("全站封禁生效 → 会话失效；封禁到期或仅版块级禁言 → 仍有效", async () => {
       await expect(createSession(DEMO.banned)).rejects.toBeInstanceOf(SessionCreationError);
       await insertExistingSession(DEMO.banned); // 模拟封禁前已经建立的 session

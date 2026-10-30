@@ -95,7 +95,7 @@ test("邮件组：测试邮件进 Mailpit；always 策略下邀请注册也收�
     .toBe(true);
 
   // 验证策略切到 always
-  await admin.getByLabel("一律验证").check();
+  await admin.getByRole("radio", { name: /所有新账号验证/ }).check();
   await admin.getByRole("button", { name: "保存验证策略" }).click();
   await admin.waitForURL("**/admin/settings?saved=email_verification");
   await expect(admin.getByText("邮箱验证策略已保存")).toBeVisible();
@@ -148,7 +148,7 @@ test("邮件组：测试邮件进 Mailpit；always 策略下邀请注册也收�
   await loginAs(adminCtx2, USERS.admin);
   const admin2 = await adminCtx2.newPage();
   await admin2.goto("/admin/settings");
-  await admin2.getByLabel("仅开放注册验证（默认）").check();
+  await admin2.getByRole("radio", { name: /开放注册新账号验证/ }).check();
   await admin2.getByRole("button", { name: "保存验证策略" }).click();
   await admin2.waitForURL("**/admin/settings?saved=email_verification");
   await adminCtx2.close();

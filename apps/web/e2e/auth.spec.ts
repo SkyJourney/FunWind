@@ -185,10 +185,15 @@ test.describe("M4 · 用户与认证", () => {
       withE2eDb((q) =>
         q.query<{ used_at: string | null }>("SELECT used_at FROM email_tokens WHERE id = ?", [id]),
       );
+    const [verifyUser] = await withE2eDb((q) =>
+      q.query<{ email_key: string | null }>("SELECT email_key FROM users WHERE id = ?", [90001]),
+    );
+    expect(verifyUser?.email_key).toBeTruthy();
+    const emailSnapshot = createHash("sha256").update(verifyUser!.email_key!).digest("hex");
     await withE2eDb((q) =>
       q.exec(
-        "INSERT INTO email_tokens (id, purpose, user_id, created_at, expires_at) VALUES (?, 'verify', 90002, NOW(), NOW() + INTERVAL 1 DAY)",
-        [id],
+        "INSERT INTO email_tokens (id, purpose, user_id, email_key_snapshot, created_at, expires_at) VALUES (?, 'verify', 90001, ?, NOW(), NOW() + INTERVAL 1 DAY)",
+        [id, emailSnapshot],
       ),
     );
     try {
@@ -202,7 +207,7 @@ test.describe("M4 · 用户与认证", () => {
 
       await page.goto(`/verify/${token}`);
       await page.getByRole("button", { name: "确认验证邮箱" }).click();
-      await expect(page.getByText("邮箱验证完成")).toBeVisible();
+      await expect(page.getByText("邮箱验证完成，请登录")).toBeVisible();
       expect((await usedAt())[0]!.used_at).not.toBeNull();
 
       // 对照：已消费的令牌再点按钮是无效链接

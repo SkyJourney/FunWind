@@ -108,7 +108,7 @@ async function readCurrentSessionUser(
         eq(userRestrictions.kind, "ban"),
         eq(userRestrictions.scopeId, 0),
         sql`${userRestrictions.startsAt} <= NOW()`,
-        sql`(${userRestrictions.endsAt} IS NULL OR ${userRestrictions.endsAt} >= ${row.createdAt})`,
+        sql`(${userRestrictions.endsAt} IS NULL OR ${userRestrictions.endsAt} > ${row.createdAt})`,
       ),
     )
     .limit(1);

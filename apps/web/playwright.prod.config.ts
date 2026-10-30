@@ -45,7 +45,7 @@ export default defineConfig({
     env: {
       NEW_DB_NAME: "qysub_next_e2e",
       // 独立产物目录：生产构建不再覆盖 dev 的 .next
-      NEXT_DIST_DIR: ".next-e2e-prod",
+      NEXT_DIST_DIR: process.env.NEXT_DIST_DIR ?? ".next-e2e-prod",
       // 生产环境必须显式声明可信代理层数（0 = 直连无代理），漏配会在取 IP 时报错
       TRUSTED_PROXY_HOPS: "0",
     },

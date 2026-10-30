@@ -34,7 +34,11 @@
     ".next-e2e-prod/types/**/*.ts",
     ".next-e2e-prod/dev/types/**/*.ts",
     ".next-size/types/**/*.ts",
-    ".next-size/dev/types/**/*.ts"
+    ".next-size/dev/types/**/*.ts",
+    ".next-e2e-step7-prod/types/**/*.ts",
+    ".next-e2e-step7-prod/dev/types/**/*.ts",
+    ".next-e2e-step7-dev/types/**/*.ts",
+    ".next-e2e-step7-dev/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

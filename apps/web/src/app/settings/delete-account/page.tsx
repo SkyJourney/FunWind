@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth/session";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import {
   requestAccountDeletionWithPasswordAction,
@@ -23,7 +23,7 @@ export default async function DeleteAccountPage({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>申请注销账号</CardTitle>
+        <h2 className="text-lg leading-none font-semibold">申请注销账号</h2>
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
         <div className="space-y-2 text-muted-foreground">

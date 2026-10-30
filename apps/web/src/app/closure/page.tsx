@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { getClosureAccess } from "@/lib/auth/session";
 import {
@@ -24,7 +25,7 @@ export default async function ClosurePage({
       <main className="mx-auto max-w-xl space-y-4 px-4 py-10">
         <Card>
           <CardHeader>
-            <CardTitle>验证注销申请</CardTitle>
+            <h1 className="text-lg leading-none font-semibold">验证注销申请</h1>
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
             <p className="text-muted-foreground">
@@ -139,7 +140,9 @@ export default async function ClosurePage({
     <main className="mx-auto max-w-xl space-y-4 px-4 py-10">
       <Card>
         <CardHeader>
-          <CardTitle>{access.status === "completed" ? "注销已完成" : "注销申请状态"}</CardTitle>
+          <h1 className="text-lg leading-none font-semibold">
+            {access.status === "completed" ? "注销已完成" : "注销申请状态"}
+          </h1>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
           {access.status === "completed" ? (
@@ -161,12 +164,14 @@ export default async function ClosurePage({
               </p>
               {access.canCancel ? (
                 <form action={cancelAccountDeletionAction}>
-                  <SubmitButton
+                  <ConfirmSubmit
+                    title="撤销注销申请"
+                    description="确认撤销？系统会吊销注销专用访问并创建新会话；既有会话不会恢复，账号仍受其它有效限制约束。"
                     pendingText="撤销中…"
                     className="rounded-lg border border-destructive px-4 py-2 text-destructive"
                   >
                     撤销注销申请
-                  </SubmitButton>
+                  </ConfirmSubmit>
                 </form>
               ) : (
                 <p

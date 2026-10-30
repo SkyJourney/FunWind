@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth/session";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { submitAppealAction } from "./actions";
 
@@ -18,7 +18,7 @@ export default async function AppealPage({
     <main className="mx-auto max-w-xl space-y-4 px-4 py-10">
       <Card>
         <CardHeader>
-          <CardTitle>账号申诉</CardTitle>
+          <h1 className="text-lg leading-none font-semibold">账号申诉</h1>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
           <p className="text-muted-foreground">

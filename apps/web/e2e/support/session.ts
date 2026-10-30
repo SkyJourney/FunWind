@@ -11,7 +11,7 @@ export async function loginAs(
   context: BrowserContext,
   userId: number,
   baseHost = "127.0.0.1",
-): Promise<void> {
+): Promise<string> {
   const token = randomBytes(32).toString("base64url");
   await withE2eDb((q) =>
     q.exec(
@@ -29,6 +29,7 @@ export async function loginAs(
       sameSite: "Lax",
     },
   ]);
+  return token;
 }
 
 /** 演示夹具里的用户 id（与 packages/db 的 DEMO 常量一致） */

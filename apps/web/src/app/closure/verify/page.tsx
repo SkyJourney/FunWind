@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { consumeClosureEmailTokenAction } from "../actions";
 
@@ -18,7 +18,7 @@ export default async function ClosureVerifyPage({
     <main className="mx-auto max-w-xl px-4 py-10">
       <Card>
         <CardHeader>
-          <CardTitle>确认账号安全操作</CardTitle>
+          <h1 className="text-lg leading-none font-semibold">确认账号安全操作</h1>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
           <p className="text-muted-foreground">

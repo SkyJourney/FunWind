@@ -51,7 +51,7 @@ export default defineConfig({
       NEW_DB_NAME: "qysub_next_e2e",
       FUNWIND_DEBUG_DB: "1",
       // 独立产物目录：不与 dev（.next）抢 Next 16 的目录锁，E2E 与用户 dev 服务可同时运行
-      NEXT_DIST_DIR: ".next-e2e",
+      NEXT_DIST_DIR: process.env.NEXT_DIST_DIR ?? ".next-e2e",
     },
   },
 });
