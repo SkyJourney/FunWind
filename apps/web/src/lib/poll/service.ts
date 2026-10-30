@@ -1,7 +1,8 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import { getWebDb, polls, pollOptions, pollVotes } from "@funwind/db";
+import { getWebDb, polls, pollOptions, pollVotes, posts, threads } from "@funwind/db";
+import { getAuthzSnapshot } from "@/lib/authz/snapshot";
+import { contentVisibleTo, evaluate } from "@/lib/authz/evaluator";
 import type { Subject } from "@/lib/authz/types";
-import { checkPermission } from "@/lib/authz/service";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
 import {
@@ -53,8 +54,42 @@ export function isClosed(endsAt: string | null, now = nowBeijingWallTime()): boo
 /** 详情页投票视图（当前用户视角；未登录按 guest——只读结果 always 的才显示计数） */
 export async function getPollView(viewer: Subject, threadId: number): Promise<PollView | null> {
   const db = getWebDb();
-  const [poll] = await db.select().from(polls).where(eq(polls.threadId, threadId)).limit(1);
+  const [poll] = await db
+    .select({
+      id: polls.id,
+      threadId: polls.threadId,
+      optionLimit: polls.optionLimit,
+      endsAt: polls.endsAt,
+      voterCount: polls.voterCount,
+      resultVisibility: polls.resultVisibility,
+      forumId: threads.forumId,
+      threadState: threads.state,
+      threadAuthorId: threads.authorId,
+      firstPostState: posts.state,
+      firstPostAuthorId: posts.authorId,
+    })
+    .from(polls)
+    .innerJoin(threads, eq(threads.id, polls.threadId))
+    .innerJoin(posts, eq(posts.id, threads.firstPostId))
+    .where(eq(polls.threadId, threadId))
+    .limit(1);
   if (!poll) return null;
+  const snapshot = await getAuthzSnapshot();
+  if (!evaluate(viewer, "forum.read", { forumId: poll.forumId }, snapshot).allowed) return null;
+  if (
+    !contentVisibleTo(
+      viewer,
+      { state: poll.threadState, authorId: poll.threadAuthorId, forumId: poll.forumId },
+      snapshot,
+    ) ||
+    !contentVisibleTo(
+      viewer,
+      { state: poll.firstPostState, authorId: poll.firstPostAuthorId, forumId: poll.forumId },
+      snapshot,
+    )
+  ) {
+    return null;
+  }
   const options = await db
     .select({ id: pollOptions.id, content: pollOptions.content, voteCount: pollOptions.voteCount })
     .from(pollOptions)
@@ -107,9 +142,6 @@ export async function vote(
 ): Promise<VoteResult> {
   if (viewer.userId === null) return { ok: false, code: "login", message: "请先登录" };
   const userId = viewer.userId;
-  if (!(await checkPermission(viewer, "vote.participate")).allowed) {
-    return { ok: false, code: "forbidden", message: "你没有参与投票的权限" };
-  }
   const wanted = [...new Set(optionIds)];
   if (wanted.length === 0) return { ok: false, code: "option_invalid", message: "请选择至少一项" };
 
@@ -120,11 +152,41 @@ export async function vote(
       // 每次尝试都从空开始（与 posting 同纪律）
       enqueued = [];
       const [poll] = await tx
-        .select({ id: polls.id, optionLimit: polls.optionLimit, endsAt: polls.endsAt })
+        .select({
+          id: polls.id,
+          optionLimit: polls.optionLimit,
+          endsAt: polls.endsAt,
+          forumId: threads.forumId,
+          threadState: threads.state,
+          threadAuthorId: threads.authorId,
+          firstPostState: posts.state,
+          firstPostAuthorId: posts.authorId,
+        })
         .from(polls)
+        .innerJoin(threads, eq(threads.id, polls.threadId))
+        .innerJoin(posts, eq(posts.id, threads.firstPostId))
         .where(eq(polls.threadId, threadId))
         .limit(1);
       if (!poll) return { ok: false, code: "not_found", message: "投票不存在" };
+      const snapshot = await getAuthzSnapshot();
+      if (
+        !evaluate(viewer, "forum.read", { forumId: poll.forumId }, snapshot).allowed ||
+        !contentVisibleTo(
+          viewer,
+          { state: poll.threadState, authorId: poll.threadAuthorId, forumId: poll.forumId },
+          snapshot,
+        ) ||
+        !contentVisibleTo(
+          viewer,
+          { state: poll.firstPostState, authorId: poll.firstPostAuthorId, forumId: poll.forumId },
+          snapshot,
+        )
+      ) {
+        return { ok: false, code: "not_found", message: "投票不存在" };
+      }
+      if (!evaluate(viewer, "vote.participate", { forumId: poll.forumId }, snapshot).allowed) {
+        return { ok: false, code: "forbidden", message: "你没有参与投票的权限" };
+      }
       if (isClosed(poll.endsAt)) return { ok: false, code: "closed", message: "投票已截止" };
       if (wanted.length > poll.optionLimit) {
         return { ok: false, code: "option_limit", message: `最多可选 ${poll.optionLimit} 项` };

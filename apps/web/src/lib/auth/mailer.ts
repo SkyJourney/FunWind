@@ -83,6 +83,26 @@ export function verifyEmailMail(link: string, siteName: string = SITE_NAME): Mai
   };
 }
 
+export function accountDeletionVerificationMail(
+  link: string,
+  purpose: "request" | "access",
+  siteName: string = SITE_NAME,
+): MailMessage {
+  const isRequest = purpose === "request";
+  const title = isRequest ? "确认注销申请" : "重新验证注销申请";
+  return {
+    subject: `${title} · ${siteName}`,
+    html: layout(
+      title,
+      isRequest
+        ? "<p>你正在申请注销账号。确认后将进入 30 天冷静期；此链接 1 小时内有效且仅可使用一次。</p>"
+        : "<p>你请求查看或撤销账号注销申请。验证后仅可访问注销状态页；此链接 1 小时内有效且仅可使用一次。</p>",
+      { href: link, label: isRequest ? "确认注销申请" : "查看注销状态" },
+      siteName,
+    ),
+  };
+}
+
 /** 后台「发送测试邮件」（M10.6 收尾）：验证 SMTP 发信链路；收件人 = 当前管理员。 */
 export function testMail(siteName: string = SITE_NAME): MailMessage {
   return {
@@ -141,6 +161,7 @@ export function emailChangedConfirmMail(siteName: string = SITE_NAME): MailMessa
 
 const RESTRICTION_LABEL = {
   ban: "封禁",
+  forum_ban: "板块禁入",
   mute: "禁言",
   no_avatar: "禁用头像",
   no_signature: "禁用签名",
@@ -169,6 +190,23 @@ export function restrictionMail(
   return {
     subject: `${title} · ${siteName}`,
     html: layout(title, body, undefined, siteName),
+  };
+}
+
+export function appealResultMail(
+  status: "approved" | "rejected",
+  result: string,
+  siteName: string = SITE_NAME,
+): MailMessage {
+  const title = status === "approved" ? "申诉已通过" : "申诉已处理";
+  return {
+    subject: `${title} · ${siteName}`,
+    html: layout(
+      title,
+      `<p>${status === "approved" ? "站点已通过你的申诉。" : "站点已处理你的申诉。"}</p><p>处理结果：${esc(result)}</p>`,
+      undefined,
+      siteName,
+    ),
   };
 }
 

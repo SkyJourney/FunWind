@@ -4,7 +4,7 @@
  * 结果可见性（after_vote 未投隐藏计数）、计数与 voterCount 同步、poll.voted 经 outbox。
  */
 import "@/modules";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   DEMO,
   eventOutbox,
@@ -13,6 +13,7 @@ import {
   polls,
   pollVotes,
   siteSettings,
+  userRestrictions,
 } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadSubject } from "@/lib/authz/subject";
@@ -181,6 +182,7 @@ describe.skipIf(skipDb)("投票（M10）", () => {
       roles: [],
       restrictions: [],
       emailVerified: false,
+      emailVerificationRequired: false,
       registerMode: "invite",
     };
     const live = await makePoll(alice);
@@ -197,6 +199,7 @@ describe.skipIf(skipDb)("投票（M10）", () => {
       roles: [],
       restrictions: [],
       emailVerified: false,
+      emailVerificationRequired: false,
       registerMode: "invite",
     };
     const hidden = await getPollView(guest, threadId);
@@ -253,6 +256,7 @@ describe.skipIf(skipDb)("投票（M10）", () => {
       roles: [],
       restrictions: [],
       emailVerified: false,
+      emailVerificationRequired: false,
       registerMode: "invite",
     };
     // 游客在 always 下看得到计数（初始 0）
@@ -295,5 +299,37 @@ describe.skipIf(skipDb)("投票（M10）", () => {
     expect(isClosed(null)).toBe(false);
     expect(isClosed("2020-01-01 00:00:00")).toBe(true);
     expect(isClosed("2099-01-01 00:00:00")).toBe(false);
+  });
+
+  it("forum_ban 下无法读取投票或直接提交选项", async () => {
+    const { threadId, pollId, optionIds } = await makePoll(alice);
+    const reason = "m9.6-poll-forum-ban";
+    await db()
+      .insert(userRestrictions)
+      .values({
+        userId: DEMO.team,
+        kind: "forum_ban",
+        scopeId: 901,
+        reason,
+        startsAt: sql`NOW()`,
+        endsAt: null,
+        createdBy: DEMO.admin,
+        createdAt: sql`NOW()`,
+      });
+    try {
+      const bannedTeam = await loadSubject(DEMO.team);
+      expect(await getPollView(bannedTeam, threadId)).toBeNull();
+      expect(await vote(bannedTeam, threadId, [optionIds[0]!])).toMatchObject({
+        ok: false,
+        code: "not_found",
+      });
+      expect(await db().select().from(pollVotes).where(eq(pollVotes.pollId, pollId))).toHaveLength(
+        0,
+      );
+    } finally {
+      await db()
+        .delete(userRestrictions)
+        .where(and(eq(userRestrictions.userId, DEMO.team), eq(userRestrictions.reason, reason)));
+    }
   });
 });

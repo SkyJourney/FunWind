@@ -26,7 +26,7 @@ flowchart LR
 | **互动** `interaction` | 回复、@提及、点赞、关注、付费内容被购买 | `notifications` |
 | **私信** `message` | 新私信（聚合指针，不复制正文） | 会话模型 + `notifications` 指针 |
 | **审核与管理** `moderation` | 内容审核结果、删除/屏蔽/关闭/移动/加精、限制与解除、角色变更 | `notifications` |
-| **账号与安全** `account` | 密码变更、积分被调整、获得徽章、欢迎与召回提示 | `notifications` |
+| **账号与安全** `account` | 密码变更、注销申请/撤销、申诉结果、积分调整、徽章、欢迎与召回提示 | `notifications` |
 | **公告** | 站点广播公告 | `announcements` + `announcement_reads`，读取时合并 |
 
 「全部」Tab = 以上五类按时间合并。公告不逐人写行（全站广播给一万人各写一行没有必要），但在用户看来它就在通知中心里，计入统一未读数。
@@ -106,6 +106,10 @@ flowchart LR
 | `security.password_changed` | 密码被修改或重置 | 当事人 | 否 |
 | `points.adjusted` | 管理员手工调整积分 | 当事人 | 否 |
 | `badge.awarded` | 获得徽章 | 当事人 | 是 |
+| `account.deletion_requested` | 注销申请及计划完成时间 | 当事人（通过注销专用状态页查看） | 否 |
+| `account.deletion_cancelled` | 注销申请已撤销，旧会话已失效 | 当事人 | 否 |
+| `account.appeal_submitted` | 申诉已登记 | 当事人 | 否 |
+| `account.appeal_resolved` | 人工复核结果 | 当事人 | 否 |
 | `system.welcome` / `system.claim_reminder` | 首次登录欢迎 / 老账号认领提示 | 当事人 | 是 |
 
 ## 5. 内核注册边界

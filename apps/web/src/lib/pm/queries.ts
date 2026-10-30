@@ -1,9 +1,10 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { conversations, conversationMembers, getWebDb, messages, users } from "@funwind/db";
+import { publicUserDeleted, publicUserId, publicUsername } from "@/lib/queries/public-identity";
 
 export interface ConversationItem {
   conversationId: number;
-  otherId: number;
+  otherId: number | null;
   otherName: string | null;
   otherDeleted: boolean;
   lastMessageAt: string | null;
@@ -70,8 +71,8 @@ async function loadConversations(
   const others = await getWebDb()
     .select({
       conversationId: conversationMembers.conversationId,
-      userId: conversationMembers.userId,
-      username: users.username,
+      userId: publicUserId(users.id, users.state),
+      username: publicUsername(users.username, users.state, users.id),
       state: users.state,
     })
     .from(conversationMembers)
@@ -98,7 +99,7 @@ async function loadConversations(
       and(
         inArray(messages.conversationId, convIds),
         sql`(${conversationMembers.lastReadMessageId} IS NULL OR ${messages.id} > ${conversationMembers.lastReadMessageId})`,
-        sql`${messages.senderId} <> ${userId}`,
+        or(isNull(messages.senderId), ne(messages.senderId, userId)),
       ),
     )
     .groupBy(messages.conversationId);
@@ -129,9 +130,9 @@ async function loadConversations(
     const latest = latestByConv.get(r.conversationId);
     return {
       conversationId: r.conversationId,
-      otherId: other?.userId ?? 0,
+      otherId: other === undefined ? 0 : other.userId,
       otherName: other?.username ?? null,
-      otherDeleted: other?.state === "deleted",
+      otherDeleted: other?.userId === null,
       lastMessageAt: r.lastMessageAt,
       unread: unreadByConv.get(r.conversationId) ?? 0,
       preview:
@@ -151,8 +152,33 @@ export async function otherMemberOf(
   userId: number,
 ): Promise<number | null> {
   const [row] = await getWebDb()
-    .select({ userId: conversationMembers.userId })
+    .select({ userId: publicUserId(users.id, users.state) })
     .from(conversationMembers)
+    .innerJoin(users, eq(users.id, conversationMembers.userId))
+    .where(
+      and(
+        eq(conversationMembers.conversationId, conversationId),
+        sql`${conversationMembers.userId} <> ${userId}`,
+        eq(users.state, "active"),
+        sql`NOT ${publicUserDeleted(users.id, users.state)}`,
+      ),
+    )
+    .limit(1);
+  return row?.userId ?? null;
+}
+
+export async function otherMemberSummaryOf(
+  conversationId: number,
+  userId: number,
+): Promise<{ userId: number | null; displayName: string; deleted: boolean } | null> {
+  const [row] = await getWebDb()
+    .select({
+      userId: publicUserId(users.id, users.state),
+      username: publicUsername(users.username, users.state, users.id),
+      deleted: publicUserDeleted(users.id, users.state).mapWith(Boolean),
+    })
+    .from(conversationMembers)
+    .innerJoin(users, eq(users.id, conversationMembers.userId))
     .where(
       and(
         eq(conversationMembers.conversationId, conversationId),
@@ -160,7 +186,9 @@ export async function otherMemberOf(
       ),
     )
     .limit(1);
-  return row?.userId ?? null;
+  if (!row) return null;
+  if (row.deleted) return { userId: null, displayName: "已注销用户", deleted: true };
+  return { userId: row.userId, displayName: row.username ?? "未知用户", deleted: false };
 }
 
 /** 全站未读私信总数（顶栏/底部导航角标）：与 conversationList 的未读口径一致（指针之后的对方消息）。 */
@@ -179,7 +207,7 @@ export async function unreadPmTotal(userId: number): Promise<number> {
     .where(
       and(
         sql`(${conversationMembers.lastReadMessageId} IS NULL OR ${messages.id} > ${conversationMembers.lastReadMessageId})`,
-        sql`${messages.senderId} <> ${userId}`,
+        or(isNull(messages.senderId), ne(messages.senderId, userId)),
       ),
     );
   return Number(row.n);
@@ -199,7 +227,7 @@ export const CHAT_BATCH = 30;
 
 export interface ChatMessage {
   id: number;
-  senderId: number;
+  senderId: number | null;
   body: string;
   createdAt: string;
 }
@@ -235,11 +263,12 @@ export async function messagesBefore(
   const rows = await getWebDb()
     .select({
       id: messages.id,
-      senderId: messages.senderId,
+      senderId: publicUserId(users.id, users.state),
       body: messages.body,
       createdAt: messages.createdAt,
     })
     .from(messages)
+    .leftJoin(users, eq(users.id, messages.senderId))
     .where(
       and(
         eq(messages.conversationId, conversationId),

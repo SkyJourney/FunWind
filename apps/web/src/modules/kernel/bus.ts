@@ -68,6 +68,10 @@ const ACTOR_FIELD_BY_EVENT: Record<EventName, string | null> = {
   "gate.unlocked": "userId",
   "badge.awarded": "userId",
   "badge.revoked": "userId",
+  "account.deletion.requested": "userId",
+  "account.deletion.cancelled": "userId",
+  "account.appeal.submitted": "userId",
+  "account.appeal.resolved": "userId",
   "checkin.done": "userId",
 };
 

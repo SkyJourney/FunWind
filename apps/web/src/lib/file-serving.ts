@@ -13,8 +13,8 @@ import { ensureThumb, isThumbable } from "@/lib/uploads/thumbnail";
  * /files/<storage_key> 的请求处理（docs/DESIGN-MODEL.md §5）。路由文件只做薄薄一层，逻辑在这里以便脱离 Next 做集成测试。
  *
  * 鉴权（附件部分的判定集中在 lib/gates/attachments.ts，硬约定 3d）：
- *   · 图片类（头像、正文图片、徽章图）公开——storage_key 由内容哈希派生、不可枚举（能力 URL）。
- *     例外：文件的所有附件引用都绑定了门控时，图片也要经门控放行，且响应 private / no-store。
+ *   · 图片类（头像、正文图片、徽章图）以内容哈希 key 作为公开资源；纯头像在 no_avatar 生效时拒绝，正文图片的公开快路径还要求当前主体可读其公开引用。
+ *     文件的所有附件引用都绑定了门控时，图片也要经门控放行，且响应 private / no-store；已经送达客户端的公开缓存无法远程撤回。
  *   · 非图片附件：经 attachments 反查所属帖子，要求「帖子对观众可见」「该版块持有 attachment.download」，
  *     附件绑定了门控的还要求该门控对观众开放。同一文件可能被多个帖子引用（按哈希去重），任意一处放行即可。
  *   · 一切拒绝都是 404（硬约定 7），不暴露文件是否存在。

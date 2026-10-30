@@ -1,6 +1,6 @@
-import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, notExists, or, sql } from "drizzle-orm";
 import { cache } from "react";
-import { badges, files, getWebDb, userBadges, users } from "@funwind/db";
+import { accountDeletionRequests, badges, files, getWebDb, userBadges, users } from "@funwind/db";
 import type { ConfigActor } from "@/lib/audit";
 import { writeAudit } from "@/lib/audit";
 import { nowBeijingWallTime } from "@/lib/datetime";
@@ -13,6 +13,7 @@ import {
 import { AdminError } from "@/lib/authz/admin";
 import { isDuplicateKey } from "@/lib/auth/register";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
+import { publicUserId, publicUsername } from "@/lib/queries/public-identity";
 
 /**
  * 荣誉徽章（M7）：badges / user_badges 展示 + 后台手动授予。纯装饰、零权限语义（docs/MODULES.md）。
@@ -33,7 +34,8 @@ export interface UserBadgeView {
 
 /** 某用户的可见徽章（启用中的徽章、未过期）。请求级缓存：同一作者在一页楼层里只查一次 */
 export const userBadgesOf = cache(async (userId: number): Promise<UserBadgeView[]> => {
-  const rows = await getWebDb()
+  const db = getWebDb();
+  const rows = await db
     .select({
       badgeId: badges.id,
       key: badges.key,
@@ -45,10 +47,23 @@ export const userBadgesOf = cache(async (userId: number): Promise<UserBadgeView[
     })
     .from(userBadges)
     .innerJoin(badges, eq(badges.id, userBadges.badgeId))
+    .innerJoin(users, eq(users.id, userBadges.userId))
     .leftJoin(files, eq(files.id, badges.iconFileId))
     .where(
       and(
         eq(userBadges.userId, userId),
+        eq(users.state, "active"),
+        notExists(
+          db
+            .select({ id: accountDeletionRequests.id })
+            .from(accountDeletionRequests)
+            .where(
+              and(
+                eq(accountDeletionRequests.userId, users.id),
+                eq(accountDeletionRequests.status, "completed"),
+              ),
+            ),
+        ),
         eq(badges.isActive, true),
         or(isNull(userBadges.expiresAt), sql`${userBadges.expiresAt} > NOW()`),
       ),
@@ -69,8 +84,8 @@ export async function badgeDictionary() {
       isActive: badges.isActive,
     })
     .from(badges)
-    .where(eq(badges.isActive, true))
-    .orderBy(asc(badges.kind), asc(badges.sortOrder), asc(badges.id));
+    .where(and(eq(badges.isActive, true), eq(badges.kind, "honor")))
+    .orderBy(asc(badges.sortOrder), asc(badges.id));
 }
 
 export interface GrantBadgeRequest {
@@ -96,13 +111,30 @@ export async function grantBadgeByAdmin(
           .where(and(eq(users.id, req.userId), eq(users.state, "active")))
           .limit(1);
         if (!holder_user) throw new AdminError("目标用户不存在或已注销");
+        const [closure] = await tx
+          .select({ id: accountDeletionRequests.id })
+          .from(accountDeletionRequests)
+          .where(
+            and(
+              eq(accountDeletionRequests.userId, req.userId),
+              inArray(accountDeletionRequests.status, ["pending", "completed"]),
+            ),
+          )
+          .limit(1);
+        if (closure) throw new AdminError("不能给注销中或已注销账号授予徽章");
 
         const [badge] = await tx
-          .select({ id: badges.id, name: badges.name, isActive: badges.isActive })
+          .select({
+            id: badges.id,
+            name: badges.name,
+            kind: badges.kind,
+            isActive: badges.isActive,
+          })
           .from(badges)
           .where(eq(badges.id, req.badgeId))
           .limit(1);
         if (!badge || !badge.isActive) throw new AdminError("徽章不存在或已停用");
+        if (badge.kind === "team") throw new AdminError("团队徽章必须通过团队成员服务授予");
 
         const [holder] = await tx
           .select({ userId: userBadges.userId })
@@ -160,10 +192,11 @@ export async function revokeBadgeByAdmin(
       if (!holder) throw new AdminError("该用户未持有此徽章");
 
       const [badge] = await tx
-        .select({ name: badges.name })
+        .select({ name: badges.name, kind: badges.kind })
         .from(badges)
         .where(eq(badges.id, req.badgeId))
         .limit(1);
+      if (badge?.kind === "team") throw new AdminError("团队徽章必须通过团队成员服务收回");
 
       await tx
         .delete(userBadges)
@@ -194,11 +227,13 @@ export async function revokeBadgeByAdmin(
 /** 最近授予/收回记录（M9.5）：user_badges 按 granted 时间倒序，供后台核对（不含操作者——审计有） */
 export async function recentBadgeGrants(
   limit = 10,
-): Promise<{ userId: number; username: string | null; badgeName: string; awardedAt: string }[]> {
+): Promise<
+  { userId: number | null; username: string | null; badgeName: string; awardedAt: string }[]
+> {
   return getWebDb()
     .select({
-      userId: userBadges.userId,
-      username: users.username,
+      userId: publicUserId(users.id, users.state),
+      username: publicUsername(users.username, users.state, users.id),
       badgeName: badges.name,
       awardedAt: userBadges.awardedAt,
     })

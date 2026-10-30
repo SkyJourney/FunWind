@@ -2,8 +2,8 @@
 /** 关注列表查询（M10.6d）：板块/用户两列表、按传入顺序排序、无头像回 null。 */
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
-import { follows, getWebDb } from "@funwind/db";
+import { and, eq } from "drizzle-orm";
+import { DEMO, follows, getWebDb, users } from "@funwind/db";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { followedLists } from "./followed-lists";
 
@@ -41,6 +41,24 @@ describe.skipIf(skipDb)("关注列表查询（followed-lists）", () => {
     expect(fItems[0]?.threadCount).toBeGreaterThanOrEqual(0);
     expect(uItems.map((u) => u.id)).toEqual([90004, 90001]);
     expect(uItems[0]?.username).toBe("demo_admin");
+  });
+
+  it("注销目标在关系列表投影中匿名隐藏", async () => {
+    const db = getWebDb();
+    await db
+      .insert(follows)
+      .values({ userId: 90005, targetType: "user", targetId: DEMO.xiaoyi, createdAt: sql`NOW()` })
+      .onDuplicateKeyUpdate({ set: { userId: 90005 } });
+    await db.update(users).set({ state: "deleted" }).where(eq(users.id, DEMO.xiaoyi));
+    try {
+      const result = await followedLists(90005, [], [DEMO.xiaoyi]);
+      expect(result.users).toEqual([]);
+    } finally {
+      await db.update(users).set({ state: "active" }).where(eq(users.id, DEMO.xiaoyi));
+      await db
+        .delete(follows)
+        .where(and(eq(follows.userId, 90005), eq(follows.targetId, DEMO.xiaoyi)));
+    }
   });
 
   it("空集合 → 两空列表", async () => {

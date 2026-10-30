@@ -1,7 +1,7 @@
 // @vitest-environment node
 /** 关注动态聚合（M8）集成测试：口径（可见+上目录）、空关注短路、分页 */
 import { eq } from "drizzle-orm";
-import { follows, getWebDb } from "@funwind/db";
+import { DEMO, follows, getWebDb, users } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
@@ -15,6 +15,7 @@ const guest: Subject = {
   roles: [{ key: "guest", scopeId: 0 }],
   restrictions: [],
   emailVerified: false,
+  emailVerificationRequired: false,
   registerMode: "invite",
 };
 const db = () => getWebDb();
@@ -73,6 +74,20 @@ describe.skipIf(skipDb)("关注动态（/follows）", () => {
     const ids = await followedThreadIds(team.userId!);
     expect(ids).toEqual({ forumIds: [901], userIds: [90001] });
     await setFollows(team.userId!, []);
+  });
+
+  it("删除目标从关注动态计数与用户动态中匿名隐藏", async () => {
+    await setFollows(team.userId!, [{ type: "user", id: DEMO.xiaoyi }]);
+    await db().update(users).set({ state: "deleted" }).where(eq(users.id, DEMO.xiaoyi));
+    try {
+      expect(await followedThreadIds(team.userId!)).toEqual({ forumIds: [], userIds: [] });
+      const feed = await getFollowFeed(team, 1);
+      expect(feed.userCount).toBe(0);
+      expect(feed.items).toEqual([]);
+    } finally {
+      await db().update(users).set({ state: "active" }).where(eq(users.id, DEMO.xiaoyi));
+      await setFollows(team.userId!, []);
+    }
   });
 
   it("分页：page 收束且两页不重叠", async () => {

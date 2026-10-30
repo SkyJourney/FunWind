@@ -33,7 +33,14 @@ describe("事件清单一致性", () => {
       ["restriction.changed", { userId: 1, kind: "mute", action: "created", operatorId: 9 }, 9],
       [
         "role.changed",
-        { userId: 1, roleKey: "x", scopeId: 0, action: "granted", operatorId: 10 },
+        {
+          userId: 1,
+          roleKey: "x",
+          scopeId: 0,
+          action: "granted",
+          operatorId: 10,
+          expiresAt: null,
+        },
         10,
       ],
       ["announcement.published", { announcementId: 1, createdBy: 11 }, 11],

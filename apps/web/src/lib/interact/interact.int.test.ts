@@ -3,7 +3,16 @@
  * 互动写路径集成测试（M8 S2）：点赞/关注 toggle 与计数同步、标签解析与替换、outbox 事件行。
  */
 import { and, eq, sql } from "drizzle-orm";
-import { follows, getWebDb, posts, reactions, siteSettings, userStats } from "@funwind/db";
+import {
+  DEMO,
+  follows,
+  getWebDb,
+  posts,
+  reactions,
+  siteSettings,
+  userRestrictions,
+  userStats,
+} from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadSubject } from "@/lib/authz/subject";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
@@ -157,6 +166,32 @@ describe.skipIf(skipDb)("关注（follows）", () => {
     expect((await followedTargetIds(TEAM_ID, "forum", [901, 902])).has(901)).toBe(true);
     expect(await followedTargetIds(TEAM_ID, "user", [90001])).toEqual(new Set());
     await toggleFollow(TEAM_ID, "forum", 901); // 还原
+  });
+
+  it("forum_ban 阻止在被禁板块点赞或关注，板块外关注仍可用", async () => {
+    const reason = "m9.6-interaction-forum-ban";
+    await db()
+      .insert(userRestrictions)
+      .values({
+        userId: TEAM_ID,
+        kind: "forum_ban",
+        scopeId: 901,
+        reason,
+        startsAt: sql`NOW()`,
+        endsAt: null,
+        createdBy: DEMO.admin,
+        createdAt: sql`NOW()`,
+      });
+    try {
+      expect(await toggleLike(TEAM_ID, 900104)).toEqual({ ok: false, code: "not_found" });
+      expect(await toggleFollow(TEAM_ID, "forum", 901)).toEqual({ ok: false, code: "not_found" });
+      expect(await toggleFollow(TEAM_ID, "forum", 902)).toMatchObject({ ok: true });
+      expect(await toggleFollow(TEAM_ID, "forum", 902)).toMatchObject({ ok: true });
+    } finally {
+      await db()
+        .delete(userRestrictions)
+        .where(and(eq(userRestrictions.userId, TEAM_ID), eq(userRestrictions.reason, reason)));
+    }
   });
 });
 

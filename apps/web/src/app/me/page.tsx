@@ -43,7 +43,7 @@ export default async function MePage() {
   if (!user) redirect("/login");
   const viewer = await getCurrentSubject();
   const [profile, pmUnread, notifUnread, threads, showAdmin] = await Promise.all([
-    getProfile(user.id),
+    getProfile(user.id, viewer),
     unreadPmTotal(user.id),
     unreadSummary(user.id),
     getUserThreads(viewer, user.id, 1),

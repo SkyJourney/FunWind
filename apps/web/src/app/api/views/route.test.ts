@@ -22,6 +22,7 @@ beforeEach(() => {
     roles: [],
     restrictions: [],
     emailVerified: false,
+    emailVerificationRequired: false,
     registerMode: "invite",
   });
 });
@@ -62,6 +63,7 @@ describe("POST /api/views", () => {
         roles: [{ key: "member", scopeId: 0 }],
         restrictions: [],
         emailVerified: true,
+        emailVerificationRequired: false,
         registerMode: "invite",
       });
       for (let i = 0; i < 120; i++) {

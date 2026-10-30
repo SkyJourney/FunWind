@@ -5,9 +5,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { FollowButton } from "@/components/interact/follow-button";
 import { isFollowing } from "@/lib/interact/follows";
 import { getCurrentUser } from "@/lib/auth/session";
+import { getCurrentSubject } from "@/lib/authz/subject";
 import { getProfile } from "@/lib/queries/users";
-import { and, eq, isNull, or, sql } from "drizzle-orm";
-import { getWebDb, roles, userRoles } from "@funwind/db";
 import { fileUrl } from "@/lib/files";
 
 /**
@@ -32,24 +31,8 @@ export async function UserHoverCard({
   if (gone || uid === undefined) {
     return <span className="contents">{children}</span>;
   }
-  const [profile, viewer, customRoles] = await Promise.all([
-    getProfile(uid),
-    getCurrentUser(),
-    // 特殊组展示（M10.6d 站长反馈：字幕组等团队身份应在名片可见）：
-    // 只取 custom 角色（team-*），builtin（admin/member/guest）不上名片
-    getWebDb()
-      .select({ name: roles.name })
-      .from(userRoles)
-      .innerJoin(roles, eq(roles.key, userRoles.roleKey))
-      .where(
-        and(
-          eq(userRoles.userId, uid),
-          eq(roles.kind, "custom"),
-          or(isNull(userRoles.expiresAt), sql`${userRoles.expiresAt} > NOW()`),
-        ),
-      )
-      .limit(3),
-  ]);
+  const [viewer, viewerSubject] = await Promise.all([getCurrentUser(), getCurrentSubject()]);
+  const profile = await getProfile(uid, viewerSubject);
   if (!profile) return <span className="contents">{children}</span>;
   const isSelf = viewer?.id === uid;
   const following = viewer && !isSelf ? await isFollowing(viewer.id, "user", uid) : false;
@@ -58,7 +41,8 @@ export async function UserHoverCard({
       ? await isFollowing(uid, "user", viewer.id)
       : false;
   const pmAllowed =
-    isSelf || profile.pmPolicy === "all" || (profile.pmPolicy === "following" && pmBack);
+    !profile.ban &&
+    (isSelf || profile.pmPolicy === "all" || (profile.pmPolicy === "following" && pmBack));
 
   const card = (
     <div className="w-64 space-y-2.5 p-3">
@@ -74,14 +58,14 @@ export async function UserHoverCard({
           <p className="text-xs text-muted-foreground">注册于 {profile.createdAt.slice(0, 10)}</p>
         </div>
       </div>
-      {customRoles.length > 0 && (
+      {profile.publicRoles.length > 0 && (
         <div className="flex flex-wrap gap-1">
-          {customRoles.map((r) => (
+          {profile.publicRoles.map((role) => (
             <span
-              key={r.name}
+              key={`${role.key}:${role.scopeId}`}
               className="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary"
             >
-              {r.name}
+              {role.scopeId === 0 ? role.name : `${role.name} · ${role.scopeLabel}`}
             </span>
           ))}
         </div>
@@ -109,7 +93,11 @@ export async function UserHoverCard({
           ) : (
             <span className="flex-1 rounded-lg border border-dashed px-2 py-1 text-center text-xs text-muted-foreground/80">
               <MessageSquareOff className="mr-0.5 inline size-3.5" aria-hidden />
-              {profile.pmPolicy === "off" ? "已关闭私信" : "仅关注者可私信"}
+              {profile.ban
+                ? "暂不能接收新私信"
+                : profile.pmPolicy === "off"
+                  ? "已关闭私信"
+                  : "仅关注者可私信"}
             </span>
           )}
         </div>

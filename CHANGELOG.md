@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+### Added（M9.6：用户治理体系）
+
+设计与进度见 [docs/milestones/M9.6-user-governance.md](docs/milestones/M9.6-user-governance.md)。
+
+- **账号生命周期与申诉**：新增 30 天自助注销申请、密码/邮箱再确认、受限状态查看与撤销、到期匿名化及人工申诉/复核；旧 session 不因撤销申请或解封而复活。
+- **限制与身份治理**：统一全站封禁、板块禁入、禁言和头像/签名限制；封禁理由对公众脱敏；邮箱验证令牌绑定签发邮箱；团队角色与徽章原子同步、公开身份按显式范围投影，并保护最后一位有效站点管理员。
+- **Step 7 自动门禁实测（2026-10-29）**：生产 Playwright 347 项与 dev-only 8 项全绿；`pnpm verify:all` 全绿（Web 1,862、DB 66、content 55、migration 269，覆盖率语句 92.57%、分支 85.05%、函数 95.18%、行 95.56%）；临时库迁移重跑确认 completed tombstone 不复活、引用占位账号可重建。随后 PR #1 的 GitHub Actions run `41085199149` 中 `verify` 与 `e2e` 均通过。桌面/平板/手机目视验收仍被当前浏览器截图表面初始化超时阻塞，因此 M9.6 仍处于 Step 7 实施中。
+
 ### Added（M9.5：后台管理体验专项 + 内容治理体系 + 板块图）
 
 设计与进度见 [docs/milestones/M9.5-admin-ux.md](docs/milestones/M9.5-admin-ux.md)。

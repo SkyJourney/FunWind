@@ -168,11 +168,13 @@ export default async function AdminBadgesPage({
             <ul className="divide-y text-sm">
               {recent.map((r) => (
                 <li
-                  key={`${r.userId}:${r.badgeName}:${r.awardedAt}`}
+                  key={`${r.userId ?? "deleted"}:${r.badgeName}:${r.awardedAt}`}
                   className="flex items-center justify-between gap-3 py-2"
                 >
                   <span>
-                    <span className="font-medium">{r.username ?? `uid ${r.userId}`}</span>
+                    <span className="font-medium">
+                      {r.username ?? (r.userId === null ? "已注销用户" : `uid ${r.userId}`)}
+                    </span>
                     <span className="ml-2 text-muted-foreground">{r.badgeName}</span>
                   </span>
                   <span className="text-xs text-muted-foreground">{fmtDateTime(r.awardedAt)}</span>

@@ -219,6 +219,34 @@ export function transformUsers(
   return { users, profiles, notes };
 }
 
+export function filterCompletedAccountDeletions(
+  users: UserRow[],
+  profiles: ProfileRow[],
+  completedUserIds: ReadonlySet<number>,
+): { users: UserRow[]; profiles: ProfileRow[]; skipped: number } {
+  const keptUsers = users.filter((user) => !completedUserIds.has(user.id));
+  const keptProfiles = profiles.filter((profile) => !completedUserIds.has(profile.userId));
+  return { users: keptUsers, profiles: keptProfiles, skipped: users.length - keptUsers.length };
+}
+
+export function filterCompletedDeletionNotes(
+  notes: UserTransformResult["notes"],
+  completedUserIds: ReadonlySet<number>,
+): UserTransformResult["notes"] {
+  return {
+    ...notes,
+    usernameCollisions: notes.usernameCollisions.filter((note) => !completedUserIds.has(note.uid)),
+    invalidEmails: notes.invalidEmails.filter((note) => !completedUserIds.has(note.uid)),
+    duplicateEmails: notes.duplicateEmails.filter(
+      (note) =>
+        !completedUserIds.has(note.keptUid) &&
+        !note.clearedUids.some((userId) => completedUserIds.has(userId)),
+    ),
+    createdAtRepaired: notes.createdAtRepaired.filter((note) => !completedUserIds.has(note.uid)),
+    emptyUsernames: notes.emptyUsernames.filter((userId) => !completedUserIds.has(userId)),
+  };
+}
+
 export const placeholderUsername = (uid: number): string => `已注销用户#${uid}`;
 
 /**

@@ -11,6 +11,7 @@ export async function ForumSelect({
   label,
   defaultValue,
   allLabel,
+  globalLabel,
   kindFilter = "all",
   className = "rounded-lg border border-input bg-background px-2 py-1.5 text-sm",
   required = false,
@@ -20,8 +21,10 @@ export async function ForumSelect({
   label: string;
   /** 选中值；未匹配（含 undefined）时落到 allOption */
   defaultValue?: number | null;
-  /** 首选项文案（如「全局」「全部板块」）；不传则无首选项 */
+  /** 空值首选项（如「选择板块」）；不传则无空选项 */
   allLabel?: string;
+  /** 全站作用域选项，值固定为 0 */
+  globalLabel?: string;
   kindFilter?: "all" | "forum";
   className?: string;
   required?: boolean;
@@ -37,6 +40,7 @@ export async function ForumSelect({
       className={className}
     >
       {allLabel !== undefined && <option value="">{allLabel}</option>}
+      {globalLabel !== undefined && <option value="0">{globalLabel}</option>}
       {rows.map((f) => (
         <option key={f.id} value={f.id}>
           {" ".repeat(Math.max(0, (f.depth - 1) * 2))}

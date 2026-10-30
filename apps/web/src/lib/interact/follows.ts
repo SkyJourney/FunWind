@@ -1,9 +1,11 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
-import { follows, getWebDb, forums, userStats, users } from "@funwind/db";
+import { and, eq, inArray, notExists, sql } from "drizzle-orm";
+import { accountDeletionRequests, follows, getWebDb, forums, userStats, users } from "@funwind/db";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import type { DbTx } from "@/lib/audit";
 import { enqueueEventInTx, sweepPending } from "@/lib/events/outbox";
 import { isDuplicateKey } from "@/lib/auth/register";
+import { checkPermission } from "@/lib/authz/service";
+import { loadSubject } from "@/lib/authz/subject";
 
 /**
  * 关注（M8）：用户与版块同一张表（target_type 区分），主键天然防重；toggle 在事务内
@@ -23,7 +25,23 @@ async function targetExists(tx: DbTx, type: FollowTargetType, id: number): Promi
     const [u] = await tx
       .select({ id: users.id })
       .from(users)
-      .where(and(eq(users.id, id), eq(users.state, "active")))
+      .where(
+        and(
+          eq(users.id, id),
+          eq(users.state, "active"),
+          notExists(
+            tx
+              .select({ id: accountDeletionRequests.id })
+              .from(accountDeletionRequests)
+              .where(
+                and(
+                  eq(accountDeletionRequests.userId, users.id),
+                  eq(accountDeletionRequests.status, "completed"),
+                ),
+              ),
+          ),
+        ),
+      )
       .limit(1);
     return u !== undefined;
   }
@@ -38,6 +56,16 @@ export async function toggleFollow(
   targetId: number,
 ): Promise<ToggleFollowResult> {
   if (targetType === "user" && userId === targetId) {
+    return { ok: false, code: "not_found" };
+  }
+  const viewer = await loadSubject(userId);
+  if (viewer.userId === null || !(await checkPermission(viewer, "site.visit")).allowed) {
+    return { ok: false, code: "not_found" };
+  }
+  if (
+    targetType === "forum" &&
+    !(await checkPermission(viewer, "forum.read", { forumId: targetId })).allowed
+  ) {
     return { ok: false, code: "not_found" };
   }
   const db = getWebDb();

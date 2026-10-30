@@ -6,15 +6,19 @@
  */
 import { and, eq, sql } from "drizzle-orm";
 import {
+  accountDeletionRequests,
   DEMO,
   files,
   forumPrefixes,
   forums,
   getWebDb,
   posts,
+  roles,
   siteSettings,
   threads,
   userProfiles,
+  userRestrictions,
+  userRoles,
   users,
 } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -33,7 +37,8 @@ import {
   getThreadView,
   listThreads,
 } from "./threads";
-import { getProfile, getUserReplies, getUserThreads } from "./users";
+import { searchThreads } from "./search";
+import { avatarKeyOf, getProfile, getUserReplies, getUserThreads } from "./users";
 import { buildViewerScope, visiblePredicate } from "./visibility";
 
 let tdb: TempDb;
@@ -338,9 +343,10 @@ describe.skipIf(skipDb)("查询层 · 真实 MySQL", () => {
       });
       await db().update(threads).set({ authorId: 70001 }).where(eq(threads.id, 900003));
       const v = await getThreadView(guest, 900003);
-      expect(v?.authorDeleted).toBe(true);
+      expect(v).toMatchObject({ authorId: null, authorName: "已注销用户", authorDeleted: true });
       const live = await getThreadView(guest, 900002);
       expect(live?.authorDeleted).toBe(false);
+      expect(live?.authorId).toBe(DEMO.xiaoyi);
     });
   });
 
@@ -371,6 +377,22 @@ describe.skipIf(skipDb)("查询层 · 真实 MySQL", () => {
       expect(p3.items.map((r) => r.floor)).toEqual(Array.from({ length: 7 }, (_, i) => i + 42));
     });
 
+    it("可见回帖的空正文投影为空字符串", async () => {
+      const t = { id: 900001, forumId: 901 };
+      const [target] = await db()
+        .select({ id: posts.id, bodyMd: posts.bodyMd })
+        .from(posts)
+        .where(and(eq(posts.threadId, t.id), sql`${posts.floor} > 1`))
+        .limit(1);
+      await db().update(posts).set({ bodyMd: null }).where(eq(posts.id, target!.id));
+      try {
+        const result = await listReplies(guest, t, 1);
+        expect(result.items.find((item) => item.id === target!.id)?.bodyMd).toBe("");
+      } finally {
+        await db().update(posts).set({ bodyMd: target!.bodyMd }).where(eq(posts.id, target!.id));
+      }
+    });
+
     it("回帖按各自状态过滤：被隐藏的回帖只有版主可见；待审核回帖只有其作者与版主可见", async () => {
       await db().update(posts).set({ state: "hidden" }).where(eq(posts.id, 930000));
       await db()
@@ -397,8 +419,8 @@ describe.skipIf(skipDb)("查询层 · 真实 MySQL", () => {
       expect(p?.username).toBe("demo_alice");
       expect(p?.signatureMd).toBe("签名");
       expect(p?.pointsName).toBe("积分");
-      expect(p?.ban).toBeNull();
-      expect((await getProfile(DEMO.banned))?.ban?.reason).toBe("E2E 封禁夹具");
+      expect(p?.ban).toBe(false);
+      expect((await getProfile(DEMO.banned))?.ban).toBe(true);
     });
 
     it("积分显示名取站点设置；头像经 files 取存储键", async () => {
@@ -422,9 +444,209 @@ describe.skipIf(skipDb)("查询层 · 真实 MySQL", () => {
       expect((await getProfile(DEMO.alice))?.avatarKey).toBe(`bb/bb/${"b".repeat(64)}.png`);
     });
 
-    it("已注销账号与不存在的用户 → null（占位账号不开页面）", async () => {
+    it("公开身份只取 is_public 角色并标注板块范围", async () => {
+      const [role] = await db().select().from(roles).where(eq(roles.key, DEMO.teamRole));
+      expect(role).toBeDefined();
+      await db().update(roles).set({ isPublic: true }).where(eq(roles.key, DEMO.teamRole));
+      await db()
+        .insert(userRoles)
+        .values([
+          {
+            userId: DEMO.alice,
+            roleKey: DEMO.teamRole,
+            scopeId: 0,
+            expiresAt: null,
+            grantedBy: DEMO.admin,
+            grantedAt: sql`NOW()`,
+          },
+          {
+            userId: DEMO.alice,
+            roleKey: DEMO.teamRole,
+            scopeId: DEMO.restrictedForum,
+            expiresAt: null,
+            grantedBy: DEMO.admin,
+            grantedAt: sql`NOW()`,
+          },
+        ]);
+      try {
+        await expect(getProfile(DEMO.alice, guest)).resolves.toMatchObject({
+          publicRoles: [
+            expect.objectContaining({
+              key: DEMO.teamRole,
+              scopeId: 0,
+              scopeLabel: "全站",
+            }),
+            expect.objectContaining({
+              key: DEMO.teamRole,
+              scopeId: DEMO.restrictedForum,
+              scopeLabel: "板块范围",
+            }),
+          ],
+        });
+      } finally {
+        await db()
+          .delete(userRoles)
+          .where(and(eq(userRoles.userId, DEMO.alice), eq(userRoles.roleKey, DEMO.teamRole)));
+        await db()
+          .update(roles)
+          .set({ isPublic: role!.isPublic })
+          .where(eq(roles.key, DEMO.teamRole));
+      }
+    });
+
+    it("生效的头像与签名限制临时隐藏已有资料，解除后投影恢复", async () => {
+      const reason = "m9.6-profile-restriction-projection";
+      await db()
+        .insert(userRestrictions)
+        .values([
+          {
+            userId: DEMO.alice,
+            kind: "no_avatar",
+            scopeId: 0,
+            reason,
+            startsAt: sql`NOW()`,
+            endsAt: null,
+            createdBy: DEMO.admin,
+            createdAt: sql`NOW()`,
+          },
+          {
+            userId: DEMO.alice,
+            kind: "no_signature",
+            scopeId: 0,
+            reason,
+            startsAt: sql`NOW()`,
+            endsAt: null,
+            createdBy: DEMO.admin,
+            createdAt: sql`NOW()`,
+          },
+        ]);
+      try {
+        const profile = await getProfile(DEMO.alice, guest);
+        expect(profile).toMatchObject({ avatarKey: null, signatureMd: null });
+        expect(await avatarKeyOf(DEMO.alice)).toBeNull();
+      } finally {
+        await db()
+          .delete(userRestrictions)
+          .where(and(eq(userRestrictions.userId, DEMO.alice), eq(userRestrictions.reason, reason)));
+      }
+
+      const restored = await getProfile(DEMO.alice, guest);
+      expect(restored?.avatarKey).toBe(`bb/bb/${"b".repeat(64)}.png`);
+      expect(restored?.signatureMd).toBe("签名");
+    });
+
+    it("公开主题流与回帖 DTO 对已注销作者统一匿名", async () => {
+      const [before] = await db()
+        .select({ state: users.state, username: users.username })
+        .from(users)
+        .where(eq(users.id, DEMO.alice));
+      await db()
+        .update(users)
+        .set({ state: "deleted", username: `已注销用户#${DEMO.alice}` })
+        .where(eq(users.id, DEMO.alice));
+      try {
+        const threadsPage = await listThreads(guest, 901, { page: 1 });
+        const thread = [...threadsPage.pinned, ...threadsPage.items].find(
+          (item) => item.id === 900001,
+        );
+        expect(thread).toMatchObject({
+          authorId: null,
+          authorName: "已注销用户",
+          authorDeleted: true,
+        });
+        const replies = await listReplies(guest, { id: 900001, forumId: 901 }, 1);
+        const reply = replies.items.find((item) => item.authorDeleted);
+        expect(reply).toMatchObject({
+          authorId: null,
+          authorName: "已注销用户",
+          authorDeleted: true,
+        });
+
+        const [searchThread] = (await db().insert(threads).values({
+          forumId: 901,
+          authorId: DEMO.alice,
+          title: "匿名作者检索测试",
+          state: "visible",
+          createdAt: "2026-10-29 10:00:00",
+          lastPostedAt: "2026-10-29 10:00:00",
+        })) as unknown as [{ insertId: number }];
+        try {
+          const search = await searchThreads(guest, "匿名作者");
+          expect(
+            search.hits.find((item) => item.id === Number(searchThread.insertId)),
+          ).toMatchObject({
+            authorId: null,
+            authorName: "已注销用户",
+            authorDeleted: true,
+          });
+        } finally {
+          await db()
+            .delete(threads)
+            .where(eq(threads.id, Number(searchThread.insertId)));
+        }
+
+        await db()
+          .update(users)
+          .set({ state: before!.state, username: before!.username })
+          .where(eq(users.id, DEMO.alice));
+        await db()
+          .insert(accountDeletionRequests)
+          .values({
+            userId: DEMO.alice,
+            status: "completed",
+            requestedAt: sql`NOW()`,
+            scheduledAt: sql`NOW()`,
+            completedAt: sql`NOW()`,
+          });
+        const completedPage = await listThreads(guest, 901, { page: 1 });
+        const completedThread = [...completedPage.pinned, ...completedPage.items].find(
+          (item) => item.id === 900001,
+        );
+        expect(completedThread).toMatchObject({
+          authorId: null,
+          authorName: "已注销用户",
+          authorDeleted: true,
+        });
+      } finally {
+        await db()
+          .delete(accountDeletionRequests)
+          .where(
+            and(
+              eq(accountDeletionRequests.userId, DEMO.alice),
+              eq(accountDeletionRequests.status, "completed"),
+            ),
+          );
+        await db()
+          .update(users)
+          .set({ state: before!.state, username: before!.username })
+          .where(eq(users.id, DEMO.alice));
+      }
+    });
+
+    it("已注销账号、完成 tombstone 与不存在的用户 → null（占位账号不开页面）", async () => {
       expect(await getProfile(70001)).toBeNull();
       expect(await getProfile(987654)).toBeNull();
+      await db()
+        .insert(accountDeletionRequests)
+        .values({
+          userId: DEMO.alice,
+          status: "completed",
+          requestedAt: sql`NOW()`,
+          scheduledAt: sql`NOW()`,
+          completedAt: sql`NOW()`,
+        });
+      try {
+        expect(await getProfile(DEMO.alice, guest)).toBeNull();
+      } finally {
+        await db()
+          .delete(accountDeletionRequests)
+          .where(
+            and(
+              eq(accountDeletionRequests.userId, DEMO.alice),
+              eq(accountDeletionRequests.status, "completed"),
+            ),
+          );
+      }
     });
   });
 

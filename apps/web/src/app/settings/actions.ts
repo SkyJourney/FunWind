@@ -1,13 +1,15 @@
 "use server";
 
-import { and, eq, ne } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { getWebDb, notificationPreferences, userProfiles, users } from "@funwind/db";
 import { defineAction } from "@/lib/actions/define-action";
-import { getCurrentUser } from "@/lib/auth/session";
+import { rateLimit } from "@/lib/auth/ratelimit";
+import { checkPermission } from "@/lib/authz/service";
+import { getCurrentUser, getPasswordChangeUser } from "@/lib/auth/session";
 import { hashPassword, verifyLegacyPassword, verifyPassword } from "@/lib/auth/password";
 import { isValidEmail } from "@/lib/auth/email";
 import { MUST_CHANGE_COOKIE, revokeOtherSessions } from "@/lib/auth/session";
@@ -19,6 +21,10 @@ import {
   sendMail,
 } from "@/lib/auth/mailer";
 import { getSiteIdentity } from "@/lib/site-chrome";
+import { issueEmailToken } from "@/lib/auth/tokens";
+import { changeEmailAddress } from "@/lib/auth/email-change";
+import { verifyEmailMail } from "@/lib/auth/mailer";
+import { APP_URL } from "@/lib/site";
 
 /**
  * 账号设置动作（M10.6c）：改密码（双轨强制换密同一入口）/ 改邮箱 / 资料。
@@ -31,10 +37,11 @@ const text = (max: number) => z.string().max(max).default("");
 const errHop = (page: string, code: string) =>
   `/settings/${page}?error=${encodeURIComponent(code)}`;
 
-/** 当前密码校验规则：有 argon2 哈希 → 必验；双轨待换密 → 免验（旧哈希即钥匙，已验过） */
+/** 当前密码校验规则：有 argon2 哈希必验；旧哈希免验只允许专用的强制换密 session。 */
 async function requireCurrentOk(
   userId: number,
   current: string,
+  allowLegacyPasswordBypass = false,
 ): Promise<{ ok: true } | { ok: false; code: string }> {
   const [row] = await getWebDb()
     .select({
@@ -47,9 +54,15 @@ async function requireCurrentOk(
     .limit(1);
   if (!row) return { ok: false, code: "账号不存在" };
   if (row.legacyPending) {
-    if (row.legacyPasswordHash !== null && !verifyLegacyPassword(row.legacyPasswordHash, current)) {
-      // 强制态不强制重输旧密，但若填了必须对——防离开键盘被改
-      if (current !== "") return { ok: false, code: "当前密码不正确" };
+    if (!allowLegacyPasswordBypass) {
+      return { ok: false, code: "请重新使用旧密码登录并完成强制换密" };
+    }
+    if (
+      row.legacyPasswordHash !== null &&
+      current !== "" &&
+      !verifyLegacyPassword(row.legacyPasswordHash, current)
+    ) {
+      return { ok: false, code: "当前密码不正确" };
     }
     return { ok: true };
   }
@@ -63,22 +76,22 @@ async function requireCurrentOk(
 
 export const updatePasswordAction = defineAction({
   name: "settings.password",
-  auth: "user",
+  auth: "password",
   input: z.object({
     current: text(PASSWORD_MAX),
     password: z.string().min(1).max(PASSWORD_MAX),
     confirm: z.string().min(1).max(PASSWORD_MAX),
   }),
   async run(ctx, input) {
-    const user = await getCurrentUser();
-    if (!user) redirect("/login");
+    const user = ctx.passwordChangeOnly ? await getPasswordChangeUser() : await getCurrentUser();
+    if (!user || user.id !== ctx.userId) redirect("/login");
     if (input.password.length < 8) {
       redirect(errHop("password", "新密码至少 8 位"));
     }
     if (input.password !== input.confirm) {
       redirect(errHop("password", "两次输入的新密码不一致"));
     }
-    const cur = await requireCurrentOk(ctx.userId!, input.current);
+    const cur = await requireCurrentOk(ctx.userId!, input.current, ctx.passwordChangeOnly);
     if (!cur.ok) redirect(errHop("password", cur.code));
 
     await getWebDb()
@@ -118,34 +131,64 @@ export const updateEmailAction = defineAction({
     if (!cur.ok) redirect(errHop("email", cur.code));
 
     const key = email.toLowerCase();
-    const [taken] = await getWebDb()
-      .select({ id: users.id })
-      .from(users)
-      .where(and(eq(users.emailKey, key), ne(users.id, ctx.userId!)))
-      .limit(1);
-    if (taken) redirect(errHop("email", "该邮箱已被其他账号使用"));
-
-    // S2 安全强制类：先取旧邮箱（告警发往它——原主由此察觉被盗），更新后双端各一封
-    const [before] = await getWebDb()
-      .select({ email: users.email })
-      .from(users)
-      .where(eq(users.id, ctx.userId!))
-      .limit(1);
     const securityOn = await securityEmailEnabled();
+    const result = await changeEmailAddress(ctx.userId!, email, key, ctx.ip);
+    if (result.kind === "taken") redirect(errHop("email", "该邮箱已被其他账号使用"));
+    if (result.kind === "missing") redirect("/login");
+    if (result.kind === "unchanged") redirect("/settings/email");
 
-    await getWebDb()
-      .update(users)
-      .set({ email, emailKey: key, emailVerifiedAt: null })
-      .where(eq(users.id, ctx.userId!));
-
+    const identity = await getSiteIdentity().catch(() => undefined);
     if (securityOn) {
-      const identity = await getSiteIdentity().catch(() => undefined);
-      if (before?.email && before.email.toLowerCase() !== key) {
-        await sendMail(before.email, emailChangedAlertMail(identity?.name)).catch(() => {});
+      if (result.emailChanged && result.beforeEmail) {
+        await sendMail(result.beforeEmail, emailChangedAlertMail(identity?.name)).catch(() => {});
       }
       await sendMail(email, emailChangedConfirmMail(identity?.name)).catch(() => {});
     }
-    redirect("/settings/email?saved=1");
+    await sendMail(
+      email,
+      verifyEmailMail(`${identity?.url ?? APP_URL}/verify/${result.verifyToken}`, identity?.name),
+    );
+    redirect("/settings/email?saved=1&verification=sent");
+  },
+});
+
+export const resendEmailVerificationAction = defineAction({
+  name: "settings.email.resend_verification",
+  auth: "user",
+  input: z.object({ current: text(PASSWORD_MAX) }),
+  async run(ctx, input) {
+    const user = await getCurrentUser();
+    if (!user) redirect("/login");
+    const cur = await requireCurrentOk(ctx.userId!, input.current);
+    if (!cur.ok) redirect(errHop("email", cur.code));
+    if (!rateLimit(`email-verify:${ctx.userId}`, 3, 60 * 60_000).allowed) {
+      redirect(errHop("email", "验证邮件发送过于频繁，请稍后再试"));
+    }
+
+    const [row] = await getWebDb()
+      .select({
+        email: users.email,
+        emailKey: users.emailKey,
+        emailVerifiedAt: users.emailVerifiedAt,
+      })
+      .from(users)
+      .where(eq(users.id, ctx.userId!))
+      .limit(1);
+    if (!row?.email || !row.emailKey) redirect(errHop("email", "当前账号未绑定邮箱"));
+    if (row.emailVerifiedAt) redirect("/settings/email?saved=1");
+
+    let token: string;
+    try {
+      token = await issueEmailToken(ctx.userId!, "verify", row.emailKey);
+    } catch {
+      redirect(errHop("email", "邮箱已变更，请刷新页面后重试"));
+    }
+    const identity = await getSiteIdentity().catch(() => undefined);
+    await sendMail(
+      row.email,
+      verifyEmailMail(`${identity?.url ?? APP_URL}/verify/${token}`, identity?.name),
+    );
+    redirect("/settings/email?verification=sent");
   },
 });
 
@@ -171,13 +214,18 @@ export const updateProfileAction = defineAction({
     if (birthday !== "" && !/^\d{4}-\d{2}-\d{2}$/.test(birthday)) {
       redirect(errHop("profile", "生日格式应为 YYYY-MM-DD"));
     }
+    const canUseSignature = (await checkPermission(ctx.subject, "sign.use")).allowed;
+    const signature = input.signature.trim();
+    if (!canUseSignature && signature !== "") {
+      redirect(errHop("profile", "签名档当前受限，原内容将在限制解除后恢复"));
+    }
     const values = {
       bio: input.bio.trim() === "" ? null : input.bio.trim(),
       location: input.location.trim(),
       website,
       gender: input.gender,
       birthday: birthday === "" ? null : birthday,
-      signatureMd: input.signature.trim() === "" ? null : input.signature.trim(),
+      ...(canUseSignature ? { signatureMd: signature === "" ? null : signature } : {}),
     };
     await getWebDb()
       .insert(userProfiles)

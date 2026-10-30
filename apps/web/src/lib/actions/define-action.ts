@@ -7,6 +7,7 @@ import { rateLimit } from "@/lib/auth/ratelimit";
 import { requireAdmin, type AdminPermission } from "@/lib/authz/require-admin";
 import type { AdminActor } from "@/lib/authz/admin";
 import { getCurrentSubject } from "@/lib/authz/subject";
+import { getPasswordChangeUser } from "@/lib/auth/session";
 import type { Subject } from "@/lib/authz/types";
 import { clientIpFrom } from "@/lib/net/client-ip";
 import { formDataToObject } from "./form-data";
@@ -18,7 +19,7 @@ import { formDataToObject } from "./form-data";
  * 登录要求、频控、手工 Number(formData.get())、错误转跳转」，漏一环就是一个洞（M5.6 之前真发生过：后台 Action 缺鉴权、
  * 入口漏写模块注册表）。这里把这几件事收口：
  *   1. 求值模块注册表（本文件顶部的 import "@/modules"）；
- *   2. 鉴权：`guest`（谁都可以）/ `user`（未登录跳登录页）/ `{ admin: 权限点 }`（**先于任何取数**调用 requireAdmin）；
+ *   2. 鉴权：`guest`（谁都可以）/ `user`（普通登录态）/ `password`（普通登录态或仅限强制换密的受限会话）/ `{ admin: 权限点 }`（**先于任何取数**调用 requireAdmin）；
  *   3. 取主体与可信 IP；
  *   4. 声明式频控（每条必须写明超限时怎么办，不允许"默认放行"）；
  *   5. zod 结构校验——失败一律 404（与篡改请求的既有行为一致，不泄露校验细节）。业务文案（"用户名需 2–20 位"）仍在 run 里判断；
@@ -26,13 +27,15 @@ import { formDataToObject } from "./form-data";
  * 返回值恒为 `(formData: FormData) => Promise<void>`，可直接用作 `<form action={…}>`。
  */
 
-export type ActionAuth = "guest" | "user" | { admin: AdminPermission };
+export type ActionAuth = "guest" | "user" | "password" | { admin: AdminPermission };
 
 export interface ActionContext {
   /** 评估主体（游客也有：userId 为 null） */
   subject: Subject;
-  /** 当前用户 id；`auth: "guest"` 时可能为 null，`user` / `admin` 时一定非 null */
+  /** 当前用户 id；guest 可为 null；user/password/admin 在通过各自门后一定非 null */
   userId: number | null;
+  /** true 表示仅通过旧密码强制换密受限门，不能被当作普通登录主体 */
+  passwordChangeOnly: boolean;
   /** 可信客户端 IP；取不到（直连部署）为 null，此时 IP 级限额应跳过 */
   ip: string | null;
   /** `auth: { admin }` 时的操作者（供写审计） */
@@ -62,6 +65,8 @@ export interface ActionDef<I> {
 /** 可注入的依赖：单测替换；真实导出的 defineAction 用下面的 realDeps */
 export interface ActionDeps {
   getSubject: () => Promise<Subject>;
+  /** 仅返回数据库标记为 legacy_password_pending 且持有有效 session 的用户 id */
+  getPasswordChangeUserId: () => Promise<number | null>;
   getIp: () => Promise<string | null>;
   requireAdmin: (perm: AdminPermission) => Promise<AdminActor>;
   rateLimit: (key: string, max: number, windowMs: number) => { allowed: boolean };
@@ -71,6 +76,7 @@ export interface ActionDeps {
 
 const realDeps: ActionDeps = {
   getSubject: getCurrentSubject,
+  getPasswordChangeUserId: async () => (await getPasswordChangeUser())?.id ?? null,
   getIp: async () => clientIpFrom(await headers()),
   requireAdmin: (perm) => requireAdmin(perm),
   rateLimit,
@@ -87,10 +93,23 @@ export function createDefineAction(deps: ActionDeps) {
       if (typeof def.auth === "object") admin = await deps.requireAdmin(def.auth.admin);
 
       const subject = await deps.getSubject();
-      if (def.auth === "user" && subject.userId === null) redirect(deps.loginPath);
+      let userId = admin ? admin.userId : subject.userId;
+      let passwordChangeOnly = false;
+      if (def.auth === "password" && userId === null) {
+        userId = await deps.getPasswordChangeUserId();
+        passwordChangeOnly = userId !== null;
+      }
+      if (def.auth === "user" && userId === null) {
+        if ((await deps.getPasswordChangeUserId()) !== null) {
+          redirect("/settings/password?force=1");
+        }
+        redirect(deps.loginPath);
+      }
+      if (def.auth === "password" && userId === null) redirect(deps.loginPath);
       const ctx: ActionContext = {
         subject,
-        userId: admin ? admin.userId : subject.userId,
+        userId,
+        passwordChangeOnly,
         ip: admin ? admin.ip : await deps.getIp(),
         admin,
       };

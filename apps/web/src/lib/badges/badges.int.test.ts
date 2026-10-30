@@ -5,11 +5,19 @@
  */
 import "@/modules";
 import { and, eq, sql } from "drizzle-orm";
-import { auditLog, badges, DEMO, eventLog, getWebDb, userBadges } from "@funwind/db";
+import {
+  accountDeletionRequests,
+  auditLog,
+  badges,
+  DEMO,
+  eventLog,
+  getWebDb,
+  userBadges,
+} from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminError } from "@/lib/authz/admin";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
-import { badgeDictionary, grantBadgeByAdmin, userBadgesOf } from "./service";
+import { badgeDictionary, grantBadgeByAdmin, recentBadgeGrants, userBadgesOf } from "./service";
 
 let tdb: TempDb;
 const db = () => getWebDb();
@@ -129,6 +137,70 @@ describe.skipIf(skipDb)("徽章授予（M7）", () => {
       .from(auditLog)
       .where(and(eq(auditLog.action, "badge.grant"), eq(auditLog.targetId, String(victim))));
     expect(audits).toHaveLength(1);
+  });
+
+  it("后台徽章授予历史将已注销用户姓名与 UID 匿名化", async () => {
+    const [created] = (await db().insert(badges).values({
+      key: "test-anonymous-history-badge",
+      name: "注销匿名历史",
+      description: "集成测试",
+      kind: "honor",
+    })) as unknown as [{ insertId: number }];
+    const id = Number(created.insertId);
+    await db()
+      .insert(userBadges)
+      .values({ userId: DEMO.alice, badgeId: id, awardedAt: sql`NOW()` });
+    await db()
+      .insert(accountDeletionRequests)
+      .values({
+        userId: DEMO.alice,
+        status: "completed",
+        requestedAt: sql`NOW()`,
+        scheduledAt: sql`NOW()`,
+        completedAt: sql`NOW()`,
+      });
+    try {
+      const grant = (await recentBadgeGrants(100)).find((row) => row.badgeName === "注销匿名历史");
+      expect(grant).toMatchObject({ userId: null, username: "已注销用户" });
+    } finally {
+      await db()
+        .delete(accountDeletionRequests)
+        .where(
+          and(
+            eq(accountDeletionRequests.userId, DEMO.alice),
+            eq(accountDeletionRequests.status, "completed"),
+          ),
+        );
+      await db().delete(userBadges).where(eq(userBadges.badgeId, id));
+      await db().delete(badges).where(eq(badges.id, id));
+    }
+  });
+
+  it("注销申请中的账号不能收到新徽章", async () => {
+    const id = await badgeId();
+    const [closure] = (await db()
+      .insert(accountDeletionRequests)
+      .values({
+        userId: DEMO.team,
+        status: "pending",
+        requestedAt: sql`NOW()`,
+        scheduledAt: sql`NOW() + INTERVAL 30 DAY`,
+      })) as unknown as [{ insertId: number }];
+    try {
+      await expect(grantBadgeByAdmin(ADMIN, { userId: DEMO.team, badgeId: id })).rejects.toThrow(
+        /注销中或已注销/,
+      );
+      expect(
+        await db()
+          .select()
+          .from(userBadges)
+          .where(and(eq(userBadges.userId, DEMO.team), eq(userBadges.badgeId, id))),
+      ).toHaveLength(0);
+    } finally {
+      await db()
+        .delete(accountDeletionRequests)
+        .where(eq(accountDeletionRequests.id, Number(closure.insertId)));
+    }
   });
 
   it("未知/停用徽章拒绝；字典只含启用中的徽章", async () => {

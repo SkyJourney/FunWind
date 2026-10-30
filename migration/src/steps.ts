@@ -5,7 +5,14 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { config, toDatetime } from "./config.js";
-import { bumpAutoIncrement, load, replaceAll, upsert } from "./db.js";
+import {
+  bumpAutoIncrement,
+  load,
+  loadCompletedAccountDeletionIds,
+  newQuery,
+  replaceAll,
+  upsert,
+} from "./db.js";
 import {
   extractBans,
   extractBelong,
@@ -26,7 +33,12 @@ import { TEAM_ROLES } from "./mapping/legacy-roles.js";
 import { translateGlobalGrants, translateUserRoles } from "./transform/authz.js";
 import { transformForums } from "./transform/forums.js";
 import { plainConverter } from "./transform/plain.js";
-import { legacyAvatarKey, transformUsers } from "./transform/users.js";
+import {
+  filterCompletedAccountDeletions,
+  filterCompletedDeletionNotes,
+  legacyAvatarKey,
+  transformUsers,
+} from "./transform/users.js";
 import { transformRestrictions } from "./transform/restrictions.js";
 
 // ---------- 版块 ----------
@@ -165,6 +177,40 @@ export const usersStep: Step = {
       fallbackCreatedAt: "2010-01-01 00:00:00",
     });
 
+    const completedDeletionIds = await loadCompletedAccountDeletionIds();
+    const preserved = filterCompletedAccountDeletions(
+      result.users,
+      result.profiles,
+      completedDeletionIds,
+    );
+    const n = filterCompletedDeletionNotes(result.notes, completedDeletionIds);
+    const avatarCountToImport = preserved.profiles.filter(
+      (profile) => profile.avatarSource !== null,
+    ).length;
+    const [registerModes, verificationModes] = await Promise.all([
+      newQuery<{ mode: string }>(
+        "SELECT JSON_UNQUOTE(JSON_EXTRACT(value, '$.mode')) AS mode FROM site_settings WHERE `key` = 'register.mode' LIMIT 1",
+      ),
+      newQuery<{ mode: string }>(
+        "SELECT JSON_UNQUOTE(JSON_EXTRACT(value, '$.mode')) AS mode FROM site_settings WHERE `key` = 'email.verification' LIMIT 1",
+      ),
+    ]);
+    const emailVerificationRequired =
+      registerModes[0]?.mode === "open" || verificationModes[0]?.mode === "always";
+    const importedIds = preserved.users.map((user) => user.id);
+    const existingActiveIds = new Set<number>();
+    for (let offset = 0; offset < importedIds.length; offset += 500) {
+      const batch = importedIds.slice(offset, offset + 500);
+      const placeholders = batch.map(() => "?").join(",");
+      const existing = await newQuery<{ id: number }>(
+        `SELECT id FROM users WHERE state = 'active' AND id IN (${placeholders})`,
+        batch,
+      );
+      for (const row of existing) existingActiveIds.add(Number(row.id));
+    }
+    const usersNeedingVerification = emailVerificationRequired
+      ? importedIds.filter((id) => !existingActiveIds.has(id))
+      : [];
     await upsert(
       "users",
       [
@@ -179,7 +225,7 @@ export const usersStep: Step = {
         "created_at",
         "last_login_at",
       ],
-      result.users.map((u) => ({
+      preserved.users.map((u) => ({
         id: u.id,
         username: u.username,
         username_key: u.usernameKey,
@@ -193,10 +239,18 @@ export const usersStep: Step = {
       })),
       ["id"],
     );
+    for (let offset = 0; offset < usersNeedingVerification.length; offset += 500) {
+      const batch = usersNeedingVerification.slice(offset, offset + 500);
+      const placeholders = batch.map(() => "?").join(",");
+      await newQuery(
+        `UPDATE users SET email_verification_required = 1 WHERE state = 'active' AND email_verified_at IS NULL AND id IN (${placeholders})`,
+        batch,
+      );
+    }
     await upsert(
       "user_profiles",
       ["user_id", "bio", "location", "website", "gender", "birthday", "signature_md"],
-      result.profiles.map((p) => ({
+      preserved.profiles.map((p) => ({
         user_id: p.userId,
         bio: p.bio,
         location: p.location,
@@ -208,15 +262,16 @@ export const usersStep: Step = {
       ["user_id"],
     );
     await bumpAutoIncrement("users");
-    ctx.userIds = new Set(result.users.map((u) => u.id));
+    ctx.userIds = new Set(preserved.users.map((u) => u.id));
     ctx.avatarSources = new Map(
-      result.profiles.flatMap((p) => (p.avatarSource ? [[p.userId, p.avatarSource] as const] : [])),
+      preserved.profiles.flatMap((p) =>
+        p.avatarSource ? [[p.userId, p.avatarSource] as const] : [],
+      ),
     );
 
-    const n = result.notes;
     const s = ctx.report.section("用户");
     s.line(
-      `共 ${result.users.length} 人；spam 账号 ${n.excluded} 个不迁移（旧库即归档）；旧站有头像文件 ${n.avatars} 人（由文件管线入库）；密码一律不迁移（password_hash=NULL，走邮件认领）。`,
+      `旧站用户 ${result.users.length} 人；已完成注销 ${preserved.skipped} 人保留匿名终态、不回填旧资料；spam 账号 ${n.excluded} 个不迁移；入库头像 ${avatarCountToImport} 人；密码一律不迁移（password_hash=NULL，走邮件认领/重置）。`,
     );
     s.bullets([
       `用户名归一化冲突 ${n.usernameCollisions.length} 个${
@@ -253,7 +308,10 @@ export const usersStep: Step = {
       ["邮箱", "保留 uid", "已清空 uid"],
       n.duplicateEmails.map((d) => [d.email, d.keptUid, d.clearedUids.join("、")]),
     );
-    return { rows: result.users.length, note: `${n.excluded} spam 未迁 / ${n.avatars} 头像待入库` };
+    return {
+      rows: preserved.users.length,
+      note: `${n.excluded} spam 未迁 / ${avatarCountToImport} 头像待入库 / ${preserved.skipped} 注销用户保留终态`,
+    };
   },
 };
 
@@ -324,12 +382,13 @@ export const authzStep: Step = {
     // 团队角色是站点数据：由迁移创建（零数据部署不带任何团队角色）
     await upsert(
       "roles",
-      ["key", "name", "kind", "description"],
+      ["key", "name", "kind", "description", "is_public"],
       TEAM_ROLES.map((t) => ({
         key: t.key,
         name: t.name,
         kind: "custom",
         description: t.description,
+        is_public: false,
       })),
       ["key"],
     );

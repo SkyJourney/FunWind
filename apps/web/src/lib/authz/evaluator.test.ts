@@ -75,6 +75,9 @@ const snap = buildSnapshot(tree, [
   g("reader", "forum.read"), // 全局读授权：对 restricted 版块不算数
   g("mod", "forum.moderate", 2),
   g("section-mod", "forum.moderate", 1),
+  g("global-mod", "forum.moderate"),
+  g("admin", "user.viewIp"),
+  g("site-admin", "site.admin"),
 ]);
 
 const user = (
@@ -85,6 +88,7 @@ const user = (
   roles: [{ key: "member", scopeId: 0 }, ...roles],
   restrictions: [],
   emailVerified: true,
+  emailVerificationRequired: false,
   registerMode: "invite",
   ...over,
 });
@@ -129,6 +133,12 @@ describe("admin 短路与角色作用域", () => {
     expect(ok(a, "forum.read", 3)).toBe(true);
     expect(ok(a, "forum.moderate", 5)).toBe(true);
     expect(ok(a, "admin.roles")).toBe(true);
+  });
+
+  it("user.viewIp 不继承 site.admin 短路，必须有独立授权", () => {
+    const siteAdmin = user([role("site-admin")]);
+    expect(ok(siteAdmin, "site.admin")).toBe(true);
+    expect(ok(siteAdmin, "user.viewIp")).toBe(false);
   });
 
   it("版块作用域的 admin 绑定只在该版块子树内生效", () => {
@@ -234,6 +244,13 @@ describe("级联合并（forum.moderate 与其他权限点）", () => {
     expect(ok(m, "forum.moderate", 7)).toBe(false);
   });
 
+  it("全局版主不能借管理权限读取 restricted 内容；管理需要同时可读", () => {
+    const globalModerator = user([role("global-mod")]);
+    expect(ok(globalModerator, "forum.moderate", 2)).toBe(true);
+    expect(ok(globalModerator, "forum.moderate", 3)).toBe(false);
+    expect(ok(user([role("section-mod")]), "forum.moderate", 3)).toBe(true);
+  });
+
   it("全局授权作基线（member 的 forum.report 在任何版块有效）", () => {
     expect(ok(user(), "forum.report", 2)).toBe(true);
     expect(ok(GUEST_SUBJECT, "forum.report", 2)).toBe(false);
@@ -243,9 +260,12 @@ describe("级联合并（forum.moderate 与其他权限点）", () => {
 describe("用户限制优先于授权", () => {
   const mute = (scopeId = 0): Restriction => ({ kind: "mute", scopeId, endsAt: null });
 
-  it("禁言：写类全部拒绝，读/举报/参与投票不受影响", () => {
+  it("全站禁言拒绝普通写入，但不影响无版块上下文的私信、读取与举报", () => {
     const s = user([], { restrictions: [mute()] });
-    for (const k of WRITE_CLASS_KEYS) expect(ok(s, k), k).toBe(false);
+    for (const k of WRITE_CLASS_KEYS) {
+      if (k !== "pm.send") expect(ok(s, k), k).toBe(false);
+    }
+    expect(ok(s, "pm.send")).toBe(true);
     expect(ok(s, "forum.read", 2)).toBe(true);
     expect(ok(s, "forum.report", 2)).toBe(true);
     expect(ok(s, "vote.participate")).toBe(true);
@@ -265,13 +285,24 @@ describe("用户限制优先于授权", () => {
     expect(ok(s, "pm.send")).toBe(true); // 站点级动作不受版块禁言影响
   });
 
-  it("封禁同样拦写类", () => {
-    const s = user([], { restrictions: [{ kind: "ban", scopeId: 0, endsAt: null }] });
-    expect(ok(s, "forum.write", 2)).toBe(false);
-    expect(ok(s, "pm.send")).toBe(false);
+  it("全站封禁拒绝所有登录主体权限；论坛禁入按板块及子树拦读写", () => {
+    const banned = user([role("admin")], {
+      restrictions: [{ kind: "ban", scopeId: 0, endsAt: null }],
+    });
+    expect(ok(banned, "forum.read", 2)).toBe(false);
+    expect(ok(banned, "site.admin")).toBe(false);
+
+    const forumBanned = user([role("admin")], {
+      restrictions: [{ kind: "forum_ban", scopeId: 3, endsAt: null }],
+    });
+    expect(ok(forumBanned, "forum.read", 3)).toBe(false);
+    expect(ok(forumBanned, "forum.write", 5)).toBe(false);
+    expect(ok(forumBanned, "forum.report", 3)).toBe(false);
+    expect(ok(forumBanned, "forum.read", 2)).toBe(true);
+    expect(ok(forumBanned, "pm.send")).toBe(true);
   });
 
-  it("no_signature 只拦 sign.use；no_avatar 不影响任何权限点", () => {
+  it("no_signature 拦 sign.use；no_avatar 由资料投影/上传服务处理", () => {
     const sig = user([], { restrictions: [{ kind: "no_signature", scopeId: 0, endsAt: null }] });
     expect(ok(sig, "sign.use")).toBe(false);
     expect(ok(sig, "forum.write", 2)).toBe(true);
@@ -280,17 +311,27 @@ describe("用户限制优先于授权", () => {
     expect(ok(av, "forum.write", 2)).toBe(true);
   });
 
-  it("admin 不受限制约束（短路在先）", () => {
-    const s = user([role("admin")], { restrictions: [mute()] });
-    expect(ok(s, "forum.write", 2)).toBe(true);
+  it("管理员不绕过禁言、签名限制或未验证邮箱写权限门", () => {
+    const mutedAdmin = user([role("admin")], { restrictions: [mute()] });
+    expect(ok(mutedAdmin, "forum.write", 2)).toBe(false);
+    const unsignedAdmin = user([role("admin")], {
+      restrictions: [{ kind: "no_signature", scopeId: 0, endsAt: null }],
+    });
+    expect(ok(unsignedAdmin, "sign.use")).toBe(false);
+    const unverifiedAdmin = user([role("admin")], {
+      emailVerified: false,
+      emailVerificationRequired: true,
+      registerMode: "open",
+    });
+    expect(ok(unverifiedAdmin, "forum.write", 2)).toBe(false);
   });
 });
 
-describe("开放注册 · 邮箱未验证", () => {
+describe("账号级邮箱验证门", () => {
   const unverified = (mode: "open" | "invite") =>
-    user([], { emailVerified: false, registerMode: mode });
+    user([], { emailVerified: false, emailVerificationRequired: true, registerMode: mode });
 
-  it("开放注册 + 未验证：写类拒绝，读与非写类不受影响", () => {
+  it("需要验证的未验证账号：写类拒绝，读与非写类不受影响", () => {
     const s = unverified("open");
     expect(ok(s, "forum.write", 2)).toBe(false);
     expect(ok(s, "pm.send")).toBe(false);
@@ -299,14 +340,28 @@ describe("开放注册 · 邮箱未验证", () => {
     expect(ok(s, "forum.report", 2)).toBe(true);
   });
 
-  it("邀请制：未验证不影响（迁移用户的 email_verified_at 全为空）", () => {
-    const s = unverified("invite");
-    expect(ok(s, "forum.write", 2)).toBe(true);
-    expect(ok(s, "pm.send")).toBe(true);
+  it("账号级验证要求不随注册模式变化；未要求验证的账号也不受模式影响", () => {
+    expect(ok(unverified("invite"), "forum.write", 2)).toBe(false);
+    const optionalOpen = user([], {
+      emailVerified: false,
+      emailVerificationRequired: false,
+      registerMode: "open",
+    });
+    const optionalInvite = user([], {
+      emailVerified: false,
+      emailVerificationRequired: false,
+      registerMode: "invite",
+    });
+    expect(ok(optionalOpen, "forum.write", 2)).toBe(true);
+    expect(ok(optionalInvite, "forum.write", 2)).toBe(true);
   });
 
-  it("已验证的开放注册用户正常", () => {
-    const s = user([], { emailVerified: true, registerMode: "open" });
+  it("已验证的必需验证账号正常", () => {
+    const s = user([], {
+      emailVerified: true,
+      emailVerificationRequired: true,
+      registerMode: "open",
+    });
     expect(ok(s, "forum.write", 2)).toBe(true);
   });
 });

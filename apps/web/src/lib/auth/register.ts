@@ -33,6 +33,8 @@ export interface RegisterInput {
   username: string;
   email: string;
   passwordHash: string;
+  /** 签发时固定邮箱验证写权限门，避免站点注册模式切换影响既有账号 */
+  emailVerificationRequired?: boolean;
   /** 邀请制必填；开放注册传 null */
   invite: string | null;
 }
@@ -47,6 +49,7 @@ export async function registerUser(input: RegisterInput): Promise<number> {
         email: input.email,
         emailKey: normalizeKey(input.email),
         passwordHash: input.passwordHash,
+        emailVerificationRequired: input.emailVerificationRequired ?? false,
         createdAt: sql`NOW()`,
       });
       const id = Number((inserted as unknown as [{ insertId: number }])[0].insertId);

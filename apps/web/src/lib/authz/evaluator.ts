@@ -3,7 +3,7 @@ import type { AuthzSnapshot, Decision, GrantRow, Subject } from "./types";
 
 /**
  * 权限评估器（纯函数，零 SQL）。顺序与语义见 docs/AUTHZ.md §8.3：
- *   未知权限点 → admin 短路 → 用户限制 → 开放注册未验证邮箱 → 按权限点类型分派
+ *   未知权限点 → 结构约束 → 用户限制 → 账号邮箱验证门 → admin 普通权限短路 → 按权限点类型分派
  *   forum.read   ：沿版块树取最近的非 inherit read_policy（public / members / restricted）
  *   forum.write  ：先过读判定，再取 write_policy（restricted 须在版块作用域持有授权，全局基线不算）；
  *                  目标是分区（kind=section）或自身 / 祖先已归档 → 一律拒绝（**含 admin**，在 admin 短路之前判定）；
@@ -13,7 +13,7 @@ import type { AuthzSnapshot, Decision, GrantRow, Subject } from "./types";
  */
 
 /**
- * 写类权限：会产生内容或社交副作用的动作。禁言/封禁与“开放注册未验证邮箱”拦的就是这一类。
+ * 写类权限：会产生内容或社交副作用的动作。禁言拦截有作用域上下文的写入；无版块上下文的私信与关注等动作不受 mute 影响。账号级邮箱验证门拦截此类权限；全站封禁另拒绝所有权限。
  * 浏览、举报、参与投票、查看投票结果不在其中——禁言不应妨碍举报与投票。
  */
 export const WRITE_CLASS_KEYS: ReadonlySet<string> = new Set([
@@ -87,15 +87,18 @@ export function evaluate(
     if (chain.some((id) => tree.get(id)?.isArchived)) return deny("版块已归档");
   }
 
-  // 1. admin 短路（角色绑定本身也受作用域约束）
+  // 1. 用户限制先于授权与管理员短路；admin 身份不绕过账号治理规则
   const held = new Set(subject.roles.filter((r) => applies(r.scopeId)).map((r) => r.key));
-  if (held.has("admin")) return allow("admin");
-
-  // 2. 用户限制优先于任何授权
   const isWrite = WRITE_CLASS_KEYS.has(permissionKey);
   for (const r of subject.restrictions) {
     if (!applies(r.scopeId)) continue;
-    if (isWrite && (r.kind === "ban" || r.kind === "mute")) {
+    if (r.kind === "ban" && r.scopeId === 0) return deny("账号已被封禁");
+    if (r.kind === "forum_ban" && ctx.forumId !== undefined) return deny("该版块不可访问");
+    if (
+      isWrite &&
+      (r.kind === "ban" ||
+        (r.kind === "mute" && !(permissionKey === "pm.send" && ctx.forumId === undefined)))
+    ) {
       return deny(r.kind === "ban" ? "账号已被封禁" : "账号处于禁言状态");
     }
     if (r.kind === "no_signature" && permissionKey === "sign.use") {
@@ -103,15 +106,19 @@ export function evaluate(
     }
   }
 
-  // 3. 开放注册模式下，邮箱未验证的登录用户不得执行写类动作（邀请制不受影响）
+  // 2. 邮箱验证门必须在 admin 短路之前
+
   if (
     isWrite &&
     subject.userId !== null &&
-    subject.registerMode === "open" &&
+    subject.emailVerificationRequired &&
     !subject.emailVerified
   ) {
     return deny("请先验证邮箱");
   }
+
+  // 管理员仅短路普通权限；账号限制、邮箱验证门和敏感 IP 查看仍按专门规则评估。
+  if (held.has("admin") && permissionKey !== "user.viewIp") return allow("admin");
 
   /** 持有（适用作用域内）满足该权限点的授权；scopeFilter 可进一步限定授权的作用域 */
   const hasGrant = (key: string, scopeFilter: (scopeId: number) => boolean): boolean =>
@@ -124,6 +131,11 @@ export function evaluate(
   /** 仅版块作用域（scope>0）的授权；全局基线不算 */
   const forumScoped = (s: number): boolean => s > 0;
   const anyScope = (): boolean => true;
+
+  if (permissionKey === "forum.moderate" && ctx.forumId !== undefined) {
+    const read = readDecision(subject, ctx.forumId, snap, (k) => hasGrant(k, forumScoped));
+    if (!read.allowed) return deny("无权访问该版块");
+  }
 
   // 4. 按权限点类型分派
   if (permissionKey === "forum.read") {

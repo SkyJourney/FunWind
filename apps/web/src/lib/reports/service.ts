@@ -9,6 +9,7 @@ import type { Subject } from "@/lib/authz/types";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
 import { sweepPending } from "@/lib/events/outbox";
 import { notify } from "@/lib/notifications/notify";
+import { publicUsername } from "@/lib/queries/public-identity";
 
 /**
  * 举报（M9）：前台提交（唯一键 (post_id, reporter_id) 幂等——同人同帖一次）与后台处理。
@@ -20,7 +21,39 @@ export type SubmitReportResult =
   | { ok: true }
   | { ok: false; code: "login" | "not_found" | "forbidden" | "already" | "reason_required" };
 
-/** 前台举报：member 基线权限 forum.report；帖子必须存在且可见（不可见内容举报无意义且泄露存在性） */
+/** 举报确认页的数据仅在目标可读且可举报时返回；不可见对象与不存在统一视为 404。 */
+export async function reportPostTarget(
+  viewer: Subject,
+  postId: number,
+): Promise<{ threadId: number; title: string } | null> {
+  if (viewer.userId === null) return null;
+  const [post] = await getWebDb()
+    .select({
+      threadId: threads.id,
+      title: threads.title,
+      authorId: posts.authorId,
+      state: posts.state,
+      threadState: threads.state,
+      forumId: threads.forumId,
+    })
+    .from(posts)
+    .innerJoin(threads, eq(threads.id, posts.threadId))
+    .where(eq(posts.id, postId))
+    .limit(1);
+  if (
+    !post ||
+    post.state !== "visible" ||
+    post.threadState !== "visible" ||
+    post.authorId === viewer.userId ||
+    !(await checkPermission(viewer, "forum.read", { forumId: post.forumId })).allowed ||
+    !(await checkPermission(viewer, "forum.report", { forumId: post.forumId })).allowed
+  ) {
+    return null;
+  }
+  return { threadId: post.threadId, title: post.title };
+}
+
+/** 前台举报：服务端同时复核主题/回帖可见状态、版块读取范围和非本人目标。 */
 export async function submitReport(
   viewer: Subject,
   postId: number,
@@ -29,15 +62,32 @@ export async function submitReport(
   if (viewer.userId === null) return { ok: false, code: "login" };
   const trimmed = reason.trim();
   if (!trimmed) return { ok: false, code: "reason_required" };
-  if (!(await checkPermission(viewer, "forum.report")).allowed) {
-    return { ok: false, code: "forbidden" };
-  }
   const [post] = await getWebDb()
-    .select({ id: posts.id, state: posts.state })
+    .select({
+      id: posts.id,
+      authorId: posts.authorId,
+      state: posts.state,
+      forumId: threads.forumId,
+      threadState: threads.state,
+    })
     .from(posts)
+    .innerJoin(threads, eq(threads.id, posts.threadId))
     .where(eq(posts.id, postId))
     .limit(1);
-  if (!post || post.state !== "visible") return { ok: false, code: "not_found" };
+  if (
+    !post ||
+    post.state !== "visible" ||
+    post.threadState !== "visible" ||
+    post.authorId === viewer.userId
+  ) {
+    return { ok: false, code: "not_found" };
+  }
+  if (!(await checkPermission(viewer, "forum.read", { forumId: post.forumId })).allowed) {
+    return { ok: false, code: "not_found" };
+  }
+  if (!(await checkPermission(viewer, "forum.report", { forumId: post.forumId })).allowed) {
+    return { ok: false, code: "forbidden" };
+  }
 
   try {
     await getWebDb().insert(reports).values({
@@ -160,7 +210,7 @@ export async function listReportPage(
         threadTitle: threads.title,
         forumId: threads.forumId,
         reason: reports.reason,
-        reporterName: users.username,
+        reporterName: publicUsername(users.username, users.state, users.id),
         status: reports.status,
         createdAt: reports.createdAt,
       })

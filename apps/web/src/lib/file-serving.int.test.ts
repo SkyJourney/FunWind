@@ -7,8 +7,17 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { eq, sql } from "drizzle-orm";
-import { DEMO, attachments, files, getWebDb, posts, threads } from "@funwind/db";
+import { and, eq, sql } from "drizzle-orm";
+import {
+  DEMO,
+  attachments,
+  files,
+  getWebDb,
+  posts,
+  threads,
+  userProfiles,
+  userRestrictions,
+} from "@funwind/db";
 import sharp from "sharp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { invalidateAuthzSnapshot } from "@/lib/authz/snapshot";
@@ -351,6 +360,79 @@ describe.skipIf(skipDb)("/files · 真实 MySQL", () => {
     const res = await get(guest, shared.key);
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+  });
+
+  it("forum_ban 同样阻止登录用户通过公开图片 storage key 读取被禁版块内容", async () => {
+    const image = await putFile("被禁版块图片", "png", "image/png");
+    await attachInline(P_VISIBLE, image.fileId);
+    const reason = "m9.6-file-forum-ban";
+    await getWebDb()
+      .insert(userRestrictions)
+      .values({
+        userId: DEMO.member,
+        kind: "forum_ban",
+        scopeId: 901,
+        reason,
+        startsAt: sql`NOW()`,
+        endsAt: null,
+        createdBy: DEMO.admin,
+        createdAt: sql`NOW()`,
+      });
+    try {
+      const banned = await loadSubject(DEMO.member);
+      expect((await get(banned, image.key)).status).toBe(404);
+      expect((await get(guest, image.key)).status).toBe(200);
+    } finally {
+      await getWebDb()
+        .delete(userRestrictions)
+        .where(and(eq(userRestrictions.userId, DEMO.member), eq(userRestrictions.reason, reason)));
+    }
+  });
+
+  it("no_avatar 限制也隐藏已知的纯头像 URL，解除后恢复公开访问", async () => {
+    const image = await putFile("纯头像图片", "png", "image/png");
+    const userId = DEMO.xiaoyi;
+    const [previousProfile] = await getWebDb()
+      .select({ avatarFileId: userProfiles.avatarFileId })
+      .from(userProfiles)
+      .where(eq(userProfiles.userId, userId))
+      .limit(1);
+    await getWebDb()
+      .insert(userProfiles)
+      .values({ userId, avatarFileId: image.fileId })
+      .onDuplicateKeyUpdate({ set: { avatarFileId: image.fileId } });
+    const reason = "m9.6-file-no-avatar";
+    await getWebDb()
+      .insert(userRestrictions)
+      .values({
+        userId,
+        kind: "no_avatar",
+        scopeId: 0,
+        reason,
+        startsAt: sql`NOW()`,
+        endsAt: null,
+        createdBy: DEMO.admin,
+        createdAt: sql`NOW()`,
+      });
+    try {
+      expect((await get(guest, image.key)).status).toBe(404);
+      await getWebDb()
+        .delete(userRestrictions)
+        .where(and(eq(userRestrictions.userId, userId), eq(userRestrictions.reason, reason)));
+      expect((await get(guest, image.key)).status).toBe(200);
+    } finally {
+      await getWebDb()
+        .delete(userRestrictions)
+        .where(and(eq(userRestrictions.userId, userId), eq(userRestrictions.reason, reason)));
+      if (previousProfile) {
+        await getWebDb()
+          .update(userProfiles)
+          .set({ avatarFileId: previousProfile.avatarFileId })
+          .where(eq(userProfiles.userId, userId));
+      } else {
+        await getWebDb().delete(userProfiles).where(eq(userProfiles.userId, userId));
+      }
+    }
   });
 
   it("矩阵：只被门控内的内联图引用（gate_id 非空）→ 游客 404（门控 fail-closed，与旧规则一致）", async () => {

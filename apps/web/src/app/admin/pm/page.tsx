@@ -90,7 +90,8 @@ export default async function AdminPmPage({
                   >
                     {m.conversationId}
                   </Link>{" "}
-                  · {fmtDateTime(m.createdAt)} · 发送者 uid {m.senderId}
+                  · {fmtDateTime(m.createdAt)} · 发送者{" "}
+                  {m.senderId === null ? "已注销用户" : `uid ${m.senderId}`}
                 </p>
                 <p className="mt-0.5 text-sm break-words whitespace-pre-wrap">{m.body}</p>
               </div>

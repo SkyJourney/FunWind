@@ -7,6 +7,7 @@ import AdminPollPage from "./admin/poll/page";
 
 const mocks = vi.hoisted(() => ({
   subject: vi.fn(),
+  loadSubject: vi.fn(),
   user: vi.fn(),
   tree: vi.fn(),
   search: vi.fn(),
@@ -17,7 +18,10 @@ const mocks = vi.hoisted(() => ({
   removed: vi.fn(),
   polls: vi.fn(),
 }));
-vi.mock("@/lib/authz/subject", () => ({ getCurrentSubject: mocks.subject }));
+vi.mock("@/lib/authz/subject", () => ({
+  getCurrentSubject: mocks.subject,
+  loadSubject: mocks.loadSubject,
+}));
 vi.mock("@/lib/auth/session", () => ({ getCurrentUser: mocks.user }));
 vi.mock("@/lib/authz/snapshot", () => ({ getForumTree: mocks.tree }));
 vi.mock("@/lib/queries/search", () => ({
@@ -57,6 +61,7 @@ describe("页面空态", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.subject.mockResolvedValue({ userId: 1 });
+    mocks.loadSubject.mockResolvedValue({ userId: 1 });
     mocks.user.mockResolvedValue({ id: 1 });
     mocks.tree.mockResolvedValue(new Map());
     mocks.search.mockResolvedValue({ hits: [], total: 0, totalPages: 0 });

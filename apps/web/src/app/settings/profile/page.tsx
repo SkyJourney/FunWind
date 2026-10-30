@@ -1,6 +1,8 @@
 import { eq } from "drizzle-orm";
 import { getWebDb, userProfiles } from "@funwind/db";
 import { getCurrentUser } from "@/lib/auth/session";
+import { checkPermission } from "@/lib/authz/service";
+import { getCurrentSubject } from "@/lib/authz/subject";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { updateProfileAction } from "../actions";
 
@@ -10,7 +12,7 @@ export const metadata = { title: "个人资料" };
 const inputCls =
   "w-full rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring";
 
-/** 个人资料（M10.6c）：userProfiles 可编辑字段；签名走 Markdown 净化渲染。 */
+/** 个人资料（M10.6c）：userProfiles 可编辑字段；受限签名暂时隐藏并保留原值。 */
 export default async function ProfileSettingsPage({
   searchParams,
 }: {
@@ -18,11 +20,16 @@ export default async function ProfileSettingsPage({
 }) {
   const user = await getCurrentUser();
   if (!user) return null;
-  const [profile] = await getWebDb()
-    .select()
-    .from(userProfiles)
-    .where(eq(userProfiles.userId, user.id))
-    .limit(1);
+  const [profile, subject] = await Promise.all([
+    getWebDb()
+      .select()
+      .from(userProfiles)
+      .where(eq(userProfiles.userId, user.id))
+      .limit(1)
+      .then((rows) => rows[0]),
+    getCurrentSubject(),
+  ]);
+  const canUseSignature = (await checkPermission(subject, "sign.use")).allowed;
   const sp = await searchParams;
 
   return (
@@ -42,7 +49,7 @@ export default async function ProfileSettingsPage({
       )}
       <form action={updateProfileAction} className="space-y-3 rounded-xl border bg-card p-4">
         <label className="grid gap-1 text-sm">
-          简介（{500} 字内）
+          简介（500 字内）
           <textarea
             name="bio"
             rows={3}
@@ -51,16 +58,22 @@ export default async function ProfileSettingsPage({
             className={inputCls}
           />
         </label>
-        <label className="grid gap-1 text-sm">
-          签名档（Markdown，展示于个人公开页）
-          <textarea
-            name="signature"
-            rows={2}
-            maxLength={200}
-            defaultValue={profile?.signatureMd ?? ""}
-            className={inputCls}
-          />
-        </label>
+        {canUseSignature ? (
+          <label className="grid gap-1 text-sm">
+            签名档（Markdown，展示于个人公开页）
+            <textarea
+              name="signature"
+              rows={2}
+              maxLength={200}
+              defaultValue={profile?.signatureMd ?? ""}
+              className={inputCls}
+            />
+          </label>
+        ) : (
+          <p className="rounded-lg bg-warning/10 px-3 py-2 text-xs text-warning">
+            签名档当前被暂时隐藏，原内容会在限制解除或到期后恢复。
+          </p>
+        )}
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="grid gap-1 text-sm">
             坐标

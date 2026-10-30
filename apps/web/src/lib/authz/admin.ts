@@ -1,6 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import {
   PERMISSION_DEFINITIONS,
+  accountDeletionRequests,
   getWebDb,
   roleGrants,
   roles,
@@ -9,10 +10,24 @@ import {
   type PermissionDef,
 } from "@funwind/db";
 import { writeAudit } from "@/lib/audit";
-import { emit } from "@/modules/kernel/bus";
-import type { EventPayloads } from "@/modules/kernel/types";
+import { parseDbDateTime } from "@/lib/datetime";
+import {
+  dispatchOutboxRows,
+  enqueueEventInTx,
+  sweepPending,
+  type EnqueuedEvent,
+  type OutboxEmitter,
+} from "@/lib/events/outbox";
+import type { EventName, EventPayloads } from "@/modules/kernel/types";
 import { sql } from "drizzle-orm";
 import { getAuthzSnapshot, invalidateAuthzSnapshot } from "./snapshot";
+import { isTeamMembershipRole } from "./team-role-mapping";
+import {
+  assertEffectiveSiteAdminRemains,
+  lockSiteAdminInvariant,
+  SiteAdminInvariantError,
+  type AuthzTransaction,
+} from "./site-admin-invariant";
 
 /**
  * 授权管理（/admin 最小版；完整后台归 M9）。
@@ -32,13 +47,21 @@ export interface AdminDeps {
   emitter?: (name: "role.changed", payload: EventPayloads["role.changed"]) => Promise<unknown>;
 }
 
-/** 提交后派发 role.changed；失败只记日志，不影响已提交的授权变更 */
-async function emitRoleChanged(deps: AdminDeps, payload: EventPayloads["role.changed"]) {
-  try {
-    await (deps.emitter ?? ((n, p) => emit(n, p, { source: "admin" })))("role.changed", payload);
-  } catch (e) {
-    console.error("[authz] role.changed 派发失败（变更已提交）:", e);
-  }
+/** 提交后派发事务内登记的角色事件；失败留在 outbox 等补派 */
+async function dispatchRoleChanges(
+  events: readonly EnqueuedEvent[],
+  deps: AdminDeps,
+): Promise<void> {
+  const emitter: OutboxEmitter | undefined = deps.emitter
+    ? async <K extends EventName>(name: K, payload: EventPayloads[K]) => {
+        if (name === "role.changed") {
+          return deps.emitter!("role.changed", payload as EventPayloads["role.changed"]);
+        }
+        return undefined;
+      }
+    : undefined;
+  await dispatchOutboxRows(events, emitter ? { emitter } : {});
+  await sweepPending();
 }
 
 export interface AdminActor {
@@ -59,9 +82,37 @@ const PRIVILEGED = (key: string) =>
 /** 防自锁：admin 的这两个全局授权不可撤销，否则后台无人能再进入 */
 const ADMIN_LOCKED = new Set(["site.admin", "admin.roles"]);
 
-async function requireRole(key: string): Promise<{ key: string; kind: string }> {
+function isFutureExpiration(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return false;
+  const [year, month, day, hour, minute, second] = match.slice(1).map(Number);
+  const calendar = new Date(Date.UTC(year!, month! - 1, day!, hour!, minute!, second!));
+  if (
+    calendar.getUTCFullYear() !== year ||
+    calendar.getUTCMonth() !== month! - 1 ||
+    calendar.getUTCDate() !== day ||
+    calendar.getUTCHours() !== hour ||
+    calendar.getUTCMinutes() !== minute ||
+    calendar.getUTCSeconds() !== second
+  ) {
+    return false;
+  }
+  const instant = parseDbDateTime(value).getTime();
+  return Number.isFinite(instant) && instant > Date.now();
+}
+
+async function assertSiteAdminRemains(tx: AuthzTransaction): Promise<void> {
+  try {
+    await assertEffectiveSiteAdminRemains(tx);
+  } catch (error) {
+    if (error instanceof SiteAdminInvariantError) throw new AdminError(error.message);
+    throw error;
+  }
+}
+
+async function requireRole(key: string): Promise<{ key: string; kind: string; isPublic: boolean }> {
   const rows = await getWebDb()
-    .select({ key: roles.key, kind: roles.kind })
+    .select({ key: roles.key, kind: roles.kind, isPublic: roles.isPublic })
     .from(roles)
     .where(eq(roles.key, key))
     .limit(1);
@@ -83,6 +134,7 @@ export async function listRoles(): Promise<
     name: string;
     kind: string;
     description: string;
+    isPublic: boolean;
     /** 授权点数与持有人数（列表页影响面展示，M9.5）；字面量限定名理由同 restrictions-admin */
     grantCount: number;
     holderCount: number;
@@ -94,6 +146,7 @@ export async function listRoles(): Promise<
       name: roles.name,
       kind: roles.kind,
       description: roles.description,
+      isPublic: roles.isPublic,
       grantCount:
         sql<number>`(SELECT COUNT(*) FROM role_grants WHERE role_grants.role_key = roles.key)`.mapWith(
           Number,
@@ -122,6 +175,57 @@ export async function getRoleGrants(
     .orderBy(roleGrants.scopeId, roleGrants.permissionKey);
 }
 
+/** 显式设置自定义角色是否可作为公开身份展示；敏感管理角色不可公开。 */
+export async function setRolePublic(
+  actor: AdminActor,
+  roleKey: string,
+  isPublic: boolean,
+): Promise<void> {
+  await requireRole(roleKey);
+  if (BUILTIN_ROLES.has(roleKey) && isPublic) throw new AdminError("内置角色不可公开展示");
+
+  await getWebDb().transaction(async (tx) => {
+    await lockSiteAdminInvariant(tx);
+    const [role] = await tx
+      .select({ kind: roles.kind, isPublic: roles.isPublic })
+      .from(roles)
+      .where(eq(roles.key, roleKey))
+      .limit(1)
+      .for("update");
+    if (!role) throw new AdminError(`角色不存在: ${roleKey}`);
+    if (role.kind === "builtin" && isPublic) throw new AdminError("内置角色不可公开展示");
+    if (role.isPublic === isPublic) return;
+
+    if (isPublic) {
+      const grants = await tx
+        .select({ permissionKey: roleGrants.permissionKey })
+        .from(roleGrants)
+        .where(eq(roleGrants.roleKey, roleKey));
+      if (
+        grants.some(
+          ({ permissionKey }) =>
+            permissionKey === "site.admin" ||
+            permissionKey === "user.viewIp" ||
+            permissionKey.startsWith("admin."),
+        )
+      ) {
+        throw new AdminError("持有后台管理权限的角色不能公开展示");
+      }
+    }
+
+    await tx.update(roles).set({ isPublic }).where(eq(roles.key, roleKey));
+    await writeAudit(tx, {
+      actorId: actor.userId,
+      action: "role.visibility.update",
+      targetType: "role",
+      targetId: roleKey,
+      before: { isPublic: role.isPublic },
+      after: { isPublic },
+      ip: actor.ip,
+    });
+  });
+}
+
 // ---------- 授权 ----------
 
 export async function grantRolePermission(
@@ -130,9 +234,17 @@ export async function grantRolePermission(
   permissionKey: string,
   scopeId: number,
 ): Promise<void> {
-  await requireRole(roleKey);
+  const role = await requireRole(roleKey);
   if (!KNOWN_PERMISSIONS.has(permissionKey)) {
     throw new AdminError(`未知权限点: ${permissionKey}`);
+  }
+  if (
+    role.isPublic &&
+    (permissionKey === "site.admin" ||
+      permissionKey === "user.viewIp" ||
+      permissionKey.startsWith("admin."))
+  ) {
+    throw new AdminError("公开身份不能授予后台管理权限");
   }
   await requireScope(scopeId);
   if ((roleKey === "guest" || roleKey === "member") && scopeId === 0 && PRIVILEGED(permissionKey)) {
@@ -142,6 +254,22 @@ export async function grantRolePermission(
   }
 
   await getWebDb().transaction(async (tx) => {
+    await lockSiteAdminInvariant(tx);
+    const [currentRole] = await tx
+      .select({ isPublic: roles.isPublic })
+      .from(roles)
+      .where(eq(roles.key, roleKey))
+      .limit(1)
+      .for("update");
+    if (!currentRole) throw new AdminError(`角色不存在: ${roleKey}`);
+    if (
+      currentRole.isPublic &&
+      (permissionKey === "site.admin" ||
+        permissionKey === "user.viewIp" ||
+        permissionKey.startsWith("admin."))
+    ) {
+      throw new AdminError("公开身份不能授予后台管理权限");
+    }
     // 幂等：先查后插在并发（双击 / 重复提交）下两边都看不到对方，第二个 INSERT 会撞唯一键抛原始错误（复查 B5）。
     // 改为 INSERT IGNORE，用 affectedRows 判断是否真的写入了——已存在则不重复写、不重复审计
     const [res] = (await tx
@@ -172,6 +300,7 @@ export async function revokeRolePermission(
     throw new AdminError(`不可撤销 admin 的 ${permissionKey}（防止后台被锁死）`);
   }
   await getWebDb().transaction(async (tx) => {
+    await lockSiteAdminInvariant(tx);
     const rows = await tx
       .select({ id: roleGrants.id })
       .from(roleGrants)
@@ -189,6 +318,9 @@ export async function revokeRolePermission(
         rows.map((r) => r.id),
       ),
     );
+    if (scopeId === 0 && (permissionKey === "site.admin" || permissionKey === "admin.roles")) {
+      await assertSiteAdminRemains(tx);
+    }
     await writeAudit(tx, {
       actorId: actor.userId,
       action: "grant.revoke",
@@ -235,12 +367,20 @@ export async function createCustomRole(
 export async function deleteCustomRole(actor: AdminActor, key: string): Promise<void> {
   const role = await requireRole(key);
   if (role.kind === "builtin" || BUILTIN_ROLES.has(key)) throw new AdminError("内置角色不可删除");
+  if (isTeamMembershipRole(key)) throw new AdminError("固定团队角色不能删除");
   await getWebDb().transaction(async (tx) => {
+    await lockSiteAdminInvariant(tx);
     const grants = await tx.select().from(roleGrants).where(eq(roleGrants.roleKey, key));
     const holders = await tx.select().from(userRoles).where(eq(userRoles.roleKey, key));
+    const removesAdminGrant = grants.some(
+      (grant) =>
+        grant.scopeId === 0 &&
+        (grant.permissionKey === "site.admin" || grant.permissionKey === "admin.roles"),
+    );
     await tx.delete(roleGrants).where(eq(roleGrants.roleKey, key));
     await tx.delete(userRoles).where(eq(userRoles.roleKey, key));
     await tx.delete(roles).where(eq(roles.key, key));
+    if (removesAdminGrant) await assertSiteAdminRemains(tx);
     await writeAudit(tx, {
       actorId: actor.userId,
       action: "role.delete",
@@ -260,24 +400,48 @@ export async function assignUserRole(
   userId: number,
   roleKey: string,
   scopeId: number,
-  expiresAt: string | null = null,
+  expiresAt: string | null,
+  reason: string,
   deps: AdminDeps = {},
 ): Promise<void> {
   if (roleKey === "guest" || roleKey === "member") {
     throw new AdminError(`${roleKey} 是隐式角色，不能绑定到用户`);
   }
+  if (expiresAt !== null && !isFutureExpiration(expiresAt)) {
+    throw new AdminError("到期时间必须是有效的未来北京时间");
+  }
+  if (isTeamMembershipRole(roleKey)) {
+    throw new AdminError("团队角色必须通过团队成员服务授予");
+  }
   await requireRole(roleKey);
   await requireScope(scopeId);
-  const target = await getWebDb()
-    .select({ id: users.id, state: users.state })
-    .from(users)
-    .where(eq(users.id, userId))
-    .limit(1);
-  if (!target[0] || target[0].state !== "active")
-    throw new AdminError(`用户不存在或已注销: ${userId}`);
-
+  const why = reason.trim();
+  if (!why) throw new AdminError("必须填写授予理由");
+  if (why.length > 255) throw new AdminError("授予理由不能超过 255 个字符");
+  const enqueued: EnqueuedEvent[] = [];
   await getWebDb().transaction(async (tx) => {
-    // upsert：已存在则只更新到期时间。先查后插/改在并发下会撞 uq_ur_assignment 抛原始错误（复查 B5，同 grantRolePermission）
+    enqueued.length = 0;
+    await lockSiteAdminInvariant(tx);
+    const [target] = await tx
+      .select({ id: users.id, state: users.state })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1)
+      .for("update");
+    if (!target || target.state !== "active") {
+      throw new AdminError(`用户不存在或已注销: ${userId}`);
+    }
+    const [closure] = await tx
+      .select({ id: accountDeletionRequests.id })
+      .from(accountDeletionRequests)
+      .where(
+        and(
+          eq(accountDeletionRequests.userId, userId),
+          inArray(accountDeletionRequests.status, ["pending", "completed"]),
+        ),
+      )
+      .limit(1);
+    if (closure) throw new AdminError(`用户正在注销或已注销: ${userId}`);
     await tx
       .insert(userRoles)
       .values({
@@ -294,17 +458,19 @@ export async function assignUserRole(
       action: "user_role.assign",
       targetType: "user",
       targetId: userId,
-      after: { roleKey, scopeId, expiresAt },
+      after: { roleKey, scopeId, expiresAt, reason: why },
       ip: actor.ip,
     });
+    enqueued.push(
+      await enqueueEventInTx(
+        tx,
+        "role.changed",
+        { userId, roleKey, scopeId, action: "granted", operatorId: actor.userId, expiresAt },
+        { actorId: actor.userId, source: "admin" },
+      ),
+    );
   });
-  await emitRoleChanged(deps, {
-    userId,
-    roleKey,
-    scopeId,
-    action: "granted",
-    operatorId: actor.userId,
-  });
+  await dispatchRoleChanges(enqueued, deps);
 }
 
 export async function revokeUserRole(
@@ -312,12 +478,21 @@ export async function revokeUserRole(
   userId: number,
   roleKey: string,
   scopeId: number,
+  reason: string,
   deps: AdminDeps = {},
 ): Promise<void> {
-  let removed = false;
+  if (isTeamMembershipRole(roleKey)) {
+    throw new AdminError("团队角色必须通过团队成员服务收回");
+  }
+  const why = reason.trim();
+  if (!why) throw new AdminError("必须填写撤销理由");
+  if (why.length > 255) throw new AdminError("撤销理由不能超过 255 个字符");
+  const enqueued: EnqueuedEvent[] = [];
   await getWebDb().transaction(async (tx) => {
+    enqueued.length = 0;
+    await lockSiteAdminInvariant(tx);
     const rows = await tx
-      .select({ id: userRoles.id })
+      .select({ id: userRoles.id, expiresAt: userRoles.expiresAt })
       .from(userRoles)
       .where(
         and(
@@ -327,30 +502,50 @@ export async function revokeUserRole(
         ),
       );
     if (rows.length === 0) return;
+    const adminGrants =
+      scopeId === 0
+        ? await tx
+            .select({ id: roleGrants.id })
+            .from(roleGrants)
+            .where(
+              and(
+                eq(roleGrants.roleKey, roleKey),
+                eq(roleGrants.scopeId, 0),
+                inArray(roleGrants.permissionKey, ["site.admin", "admin.roles"]),
+              ),
+            )
+        : [];
     await tx.delete(userRoles).where(
       inArray(
         userRoles.id,
         rows.map((r) => r.id),
       ),
     );
+    if (adminGrants.length > 0) await assertSiteAdminRemains(tx);
     await writeAudit(tx, {
       actorId: actor.userId,
       action: "user_role.revoke",
       targetType: "user",
       targetId: userId,
-      before: { roleKey, scopeId },
+      before: { roleKey, scopeId, expiresAt: rows[0]?.expiresAt ?? null },
+      after: { reason: why },
       ip: actor.ip,
     });
-    removed = true;
+    enqueued.push(
+      await enqueueEventInTx(
+        tx,
+        "role.changed",
+        {
+          userId,
+          roleKey,
+          scopeId,
+          action: "revoked",
+          operatorId: actor.userId,
+          expiresAt: rows[0]?.expiresAt ?? null,
+        },
+        { actorId: actor.userId, source: "admin" },
+      ),
+    );
   });
-  // 绑定本来就不存在时是幂等空操作：不写审计、不派发事件
-  if (removed) {
-    await emitRoleChanged(deps, {
-      userId,
-      roleKey,
-      scopeId,
-      action: "revoked",
-      operatorId: actor.userId,
-    });
-  }
+  if (enqueued.length > 0) await dispatchRoleChanges(enqueued, deps);
 }

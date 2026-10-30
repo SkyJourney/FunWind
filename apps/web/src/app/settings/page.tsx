@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AtSign, Bell, KeyRound, ShieldCheck, UserRound } from "lucide-react";
+import { AtSign, Bell, KeyRound, ShieldCheck, UserRound, UserRoundX } from "lucide-react";
 import { eq } from "drizzle-orm";
 import { getWebDb, users } from "@funwind/db";
 import { getCurrentUser } from "@/lib/auth/session";
@@ -31,6 +31,12 @@ const CARDS = [
     icon: Bell,
     title: "通知偏好",
     desc: "选择哪些事件给你发站内通知。",
+  },
+  {
+    href: "/settings/delete-account",
+    icon: UserRoundX,
+    title: "注销账号",
+    desc: "查看数据保留说明、申请注销或撤销申请。",
   },
 ];
 

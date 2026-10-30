@@ -181,7 +181,7 @@ export const NOTIFICATION_TYPE_SPECS: NotificationTypeSpec[] = [
     category: "moderation",
     aggregate: false,
     mandatory: true,
-    template: "你的角色发生了变化",
+    template: "你的角色「{roleName}」{actionText}（{scopeLabel}，{validity}）",
   },
   {
     key: "report.resolved",
@@ -218,6 +218,34 @@ export const NOTIFICATION_TYPE_SPECS: NotificationTypeSpec[] = [
     aggregate: false,
     mandatory: true,
     template: "你的一个徽章已被管理员收回",
+  },
+  {
+    key: "account.deletion_requested",
+    category: "account",
+    aggregate: false,
+    mandatory: true,
+    template: "你的账号已申请注销，计划完成时间：{scheduledAt}",
+  },
+  {
+    key: "account.deletion_cancelled",
+    category: "account",
+    aggregate: false,
+    mandatory: true,
+    template: "你的账号注销申请已撤销；旧会话已失效，请使用新会话继续",
+  },
+  {
+    key: "account.appeal_submitted",
+    category: "account",
+    aggregate: false,
+    mandatory: true,
+    template: "已收到你的申诉申请，处理结果会另行通知",
+  },
+  {
+    key: "account.appeal_resolved",
+    category: "account",
+    aggregate: false,
+    mandatory: true,
+    template: "你的申诉已处理：{result}",
   },
   {
     key: "system.welcome",

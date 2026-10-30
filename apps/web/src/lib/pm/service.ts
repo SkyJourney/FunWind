@@ -1,5 +1,6 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import {
+  accountDeletionRequests,
   conversations,
   conversationMembers,
   follows,
@@ -7,13 +8,16 @@ import {
   messages,
   notifications,
   userProfiles,
+  userRestrictions,
   users,
 } from "@funwind/db";
 import type { Subject } from "@/lib/authz/types";
 import { checkPermission } from "@/lib/authz/service";
+import { findActiveGlobalBan, restrictionActive } from "@/lib/authz/restrictions";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
 import { limitsFor } from "@/lib/limits/load";
+import { publicUserId } from "@/lib/queries/public-identity";
 import { enqueueEventInTx, sweepPending } from "@/lib/events/outbox";
 import { isDuplicateKey } from "@/lib/auth/register";
 
@@ -21,7 +25,7 @@ import { isDuplicateKey } from "@/lib/auth/register";
  * 私信（M10）：pairKey="小uid:大uid"（uq_conv_pair）一队一会话；发送事务=消息+成员 upsert+会话指针+
  * message.sent 入 outbox（M8-1 收尾）；额度 limits.roles.pmPerDay（兑现旧 message_max_send；0=不限）。
  * 已读唯一来源 last_read_message_id；openConversation 推进指针并清理该会话未读 pm.received 行
- * （openGroupKey 随 read_at 变 NULL，新私信自动新开一行）。禁言/封禁自动拦 pm.send（写类权限）。
+ * （openGroupKey 随 read_at 变 NULL，新私信自动新开一行）。封禁/注销申请中的收件人拒收新消息；封禁期的既有会话只读。
  */
 
 export type SendCode =
@@ -64,6 +68,9 @@ export async function sendMessage(
     .where(and(eq(users.id, recipientId), eq(users.state, "active")))
     .limit(1);
   if (!recipient) return { ok: false, code: "not_found", message: "对方不存在或已注销" };
+  if (await findActiveGlobalBan(recipientId)) {
+    return { ok: false, code: "not_found", message: "对方暂时无法接收私信" };
+  }
 
   const pairKey = pairKeyOf(senderId, recipientId);
 
@@ -122,6 +129,57 @@ export async function sendMessage(
 
   const failure = await withDeadlockRetry(() =>
     getWebDb().transaction(async (tx): Promise<SendResult | null> => {
+      const lockedUsers = await tx
+        .select({ id: users.id, state: users.state })
+        .from(users)
+        .where(inArray(users.id, [senderId, recipientId]))
+        .orderBy(users.id)
+        .for("update");
+      if (lockedUsers.length !== 2 || lockedUsers.some((user) => user.state !== "active")) {
+        return { ok: false, code: "not_found", message: "对方不存在或已注销" };
+      }
+
+      const [recipientClosure] = await tx
+        .select({ id: accountDeletionRequests.id })
+        .from(accountDeletionRequests)
+        .where(
+          and(
+            eq(accountDeletionRequests.userId, recipientId),
+            inArray(accountDeletionRequests.status, ["pending", "completed"]),
+          ),
+        )
+        .for("update");
+      if (recipientClosure) {
+        return { ok: false, code: "not_found", message: "对方暂时无法接收私信" };
+      }
+
+      const activeRestrictions = await tx
+        .select({ userId: userRestrictions.userId, kind: userRestrictions.kind })
+        .from(userRestrictions)
+        .where(
+          and(
+            inArray(userRestrictions.userId, [senderId, recipientId]),
+            eq(userRestrictions.scopeId, 0),
+            eq(userRestrictions.kind, "ban"),
+            restrictionActive,
+          ),
+        )
+        .for("update");
+      if (
+        activeRestrictions.some(
+          (restriction) => restriction.userId === recipientId && restriction.kind === "ban",
+        )
+      ) {
+        return { ok: false, code: "not_found", message: "对方暂时无法接收私信" };
+      }
+      if (activeRestrictions.some((restriction) => restriction.userId === senderId)) {
+        return {
+          ok: false,
+          code: "forbidden",
+          message: "你没有发送私信的权限（可能被禁言）",
+        };
+      }
+
       let conversationId: number;
       const [existing] = await tx
         .select({ id: conversations.id })
@@ -248,7 +306,7 @@ export async function conversationMessages(
   page = 1,
   pageSize = PM_MESSAGES_PER_PAGE,
 ): Promise<{
-  items: { id: number; senderId: number; body: string; createdAt: string }[];
+  items: { id: number; senderId: number | null; body: string; createdAt: string }[];
   total: number;
   page: number;
   totalPages: number;
@@ -266,11 +324,12 @@ export async function conversationMessages(
       : await getWebDb()
           .select({
             id: messages.id,
-            senderId: messages.senderId,
+            senderId: publicUserId(users.id, users.state),
             body: messages.body,
             createdAt: messages.createdAt,
           })
           .from(messages)
+          .leftJoin(users, eq(users.id, messages.senderId))
           .where(eq(messages.conversationId, conversationId))
           .orderBy(asc(messages.id))
           .limit(pageSize)

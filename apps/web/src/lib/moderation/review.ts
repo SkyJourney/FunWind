@@ -6,6 +6,7 @@ import { nowBeijingWallTime } from "@/lib/datetime";
 import { transitionContent } from "@/lib/posting/transition";
 import { checkPermission } from "@/lib/authz/service";
 import type { Subject } from "@/lib/authz/types";
+import { publicUsername } from "@/lib/queries/public-identity";
 import {
   dispatchOutboxRows,
   enqueueEventInTx,
@@ -341,7 +342,7 @@ export async function listReviewPage(
     title: threads.title,
     excerpt: sql<string | null>`SUBSTRING(${posts.bodyMd}, 1, 80)`,
     authorId: posts.authorId,
-    authorName: users.username,
+    authorName: publicUsername(users.username, users.state, users.id),
     createdAt: posts.createdAt,
   };
 
@@ -454,7 +455,7 @@ export async function listContentReviews(
       id: contentReviews.id,
       decision: contentReviews.decision,
       note: contentReviews.note,
-      reviewerName: users.username,
+      reviewerName: publicUsername(users.username, users.state, users.id),
       createdAt: contentReviews.createdAt,
     })
     .from(contentReviews)

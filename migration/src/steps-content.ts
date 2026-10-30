@@ -6,7 +6,15 @@ import { copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { recountAll } from "@funwind/db";
 import { config } from "./config.js";
-import { bumpAutoIncrement, load, newPool, newQuery, oldQuery, upsert } from "./db.js";
+import {
+  bumpAutoIncrement,
+  load,
+  loadCompletedAccountDeletionIds,
+  newPool,
+  newQuery,
+  oldQuery,
+  upsert,
+} from "./db.js";
 import {
   extractAttachments,
   extractAttention,
@@ -162,8 +170,9 @@ export const contentStep: Step = {
       await extractAttachments(),
       await extractBuys(),
     ];
-    // 真实用户 = state=active；内容作者不在其中的才建「已注销用户」占位账号
+    // 积分/互动仅挂活跃迁入用户；已注销用户保留真实 UID，不能被占位账号重建覆盖
     const userIds = await loadUserIds(ctx);
+    const authorIds = new Set([...userIds, ...(await loadCompletedAccountDeletionIds())]);
     const [forumIds, prefixIds] = [
       await idSet("SELECT id FROM forums"),
       await idSet("SELECT id FROM forum_prefixes"),
@@ -171,7 +180,7 @@ export const contentStep: Step = {
     const attMap = new Map(oldAtts.map((a) => [Number(a.aid), { name: a.name, path: a.path }]));
 
     const content = transformContent(oldThreads, oldPosts, {
-      userIds,
+      userIds: authorIds,
       forumIds,
       prefixIds,
       spamTids,
@@ -218,7 +227,7 @@ export const contentStep: Step = {
         missingAtts.push(d.sourcePath);
         continue;
       }
-      noteAuthor(content.placeholders, userIds, d.uploaderId, d.createdAt);
+      noteAuthor(content.placeholders, authorIds, d.uploaderId, d.createdAt);
       ctx.attachments.push({
         postId: d.postId,
         gateId: d.gateId,
@@ -230,14 +239,24 @@ export const contentStep: Step = {
       });
     }
 
-    // 占位账号：先清掉上一轮遗留的（只有占位账号是 state=deleted），再按本轮需要重建
+    // 只清理由旧迁移创建的占位用户；完成注销记录是应用 tombstone，真实注销账号不得删除/重建
+    const migrationPlaceholderIds = `
+      SELECT u.id FROM users u
+      WHERE u.state = 'deleted'
+        AND NOT EXISTS (
+          SELECT 1 FROM account_deletion_requests d
+          WHERE d.user_id = u.id AND d.status = 'completed'
+        )`;
+    await newQuery(`DELETE FROM user_profiles WHERE user_id IN (${migrationPlaceholderIds})`);
+    await newQuery(`DELETE FROM user_stats WHERE user_id IN (${migrationPlaceholderIds})`);
     await newQuery(
-      "DELETE FROM user_profiles WHERE user_id IN (SELECT id FROM users WHERE state = 'deleted')",
+      `DELETE u FROM users u
+       WHERE u.state = 'deleted'
+         AND NOT EXISTS (
+           SELECT 1 FROM account_deletion_requests d
+           WHERE d.user_id = u.id AND d.status = 'completed'
+         )`,
     );
-    await newQuery(
-      "DELETE FROM user_stats WHERE user_id IN (SELECT id FROM users WHERE state = 'deleted')",
-    );
-    await newQuery("DELETE FROM users WHERE state = 'deleted'");
     const ph = transformPlaceholders(content.placeholders);
     await upsert(
       "users",
@@ -494,30 +513,66 @@ export const pointsStep: Step = {
       userIds,
       ctx.asOf,
     );
+    const preservedAccounts = await newQuery<{
+      user_id: number;
+      balance: number;
+      lifetime_earned: number;
+      lifetime_spent: number;
+      updated_at: string;
+    }>(
+      `SELECT a.user_id, a.balance, a.lifetime_earned, a.lifetime_spent, a.updated_at
+         FROM point_accounts a
+        WHERE EXISTS (
+          SELECT 1 FROM account_deletion_requests d
+           WHERE d.user_id = a.user_id AND d.status = 'completed'
+        )`,
+    );
+    const preservedLedger = await newQuery<{
+      user_id: number;
+      delta: number;
+      balance_after: number;
+      channel: string;
+      idempotency_key: string;
+      note: string | null;
+      created_at: string;
+    }>(
+      `SELECT l.user_id, l.delta, l.balance_after, l.channel, l.idempotency_key, l.note, l.created_at
+         FROM point_ledger l
+        WHERE EXISTS (
+          SELECT 1 FROM account_deletion_requests d
+           WHERE d.user_id = l.user_id AND d.status = 'completed'
+        )`,
+    );
     await load(
       "point_accounts",
       ["user_id", "balance", "lifetime_earned", "lifetime_spent", "updated_at"],
-      pts.accounts.map((a) => ({
-        user_id: a.userId,
-        balance: a.balance,
-        lifetime_earned: a.lifetimeEarned,
-        lifetime_spent: a.lifetimeSpent,
-        updated_at: a.updatedAt,
-      })),
+      [
+        ...pts.accounts.map((a) => ({
+          user_id: a.userId,
+          balance: a.balance,
+          lifetime_earned: a.lifetimeEarned,
+          lifetime_spent: a.lifetimeSpent,
+          updated_at: a.updatedAt,
+        })),
+        ...preservedAccounts,
+      ],
       ["user_id"],
     );
     await load(
       "point_ledger",
       ["user_id", "delta", "balance_after", "channel", "idempotency_key", "note", "created_at"],
-      pts.ledger.map((l) => ({
-        user_id: l.userId,
-        delta: l.delta,
-        balance_after: l.balanceAfter,
-        channel: l.channel,
-        idempotency_key: l.idempotencyKey,
-        note: l.note,
-        created_at: l.createdAt,
-      })),
+      [
+        ...pts.ledger.map((l) => ({
+          user_id: l.userId,
+          delta: l.delta,
+          balance_after: l.balanceAfter,
+          channel: l.channel,
+          idempotency_key: l.idempotencyKey,
+          note: l.note,
+          created_at: l.createdAt,
+        })),
+        ...preservedLedger,
+      ],
       ["idempotency_key"],
     );
     const checks = transformCheckins(await extractPunchLogs(), userIds);
@@ -534,20 +589,25 @@ export const pointsStep: Step = {
     await bumpAutoIncrement("point_ledger");
 
     const st = pts.stats;
+    const preservedBalance = preservedAccounts.reduce(
+      (sum, account) => sum + Number(account.balance),
+      0,
+    );
     const s = ctx.report.section("积分与签到");
     s.line(
-      `积分账户 ${st.users} 个，期初余额合计 ${st.total} = 旧 credit1 ${st.totalCredit1} + 银行存款本金 ${st.totalBank}（${st.bankAccounts} 户，活期+定期本金，不含利息）。` +
+      `积分账户 ${st.users} 个新迁入；已注销账号保留账户 ${preservedAccounts.length} 个、余额 ${preservedBalance}；新迁入期初余额 ${st.total} = 旧 credit1 ${st.totalCredit1} + 银行存款本金 ${st.totalBank}（${st.bankAccounts} 户，活期+定期本金，不含利息）。` +
         `显示名「青翼币」。**不迁旧流水**（起点 2013-02 且与余额对不上）；羽毛、入住资格证、credit4–8 丢弃。`,
     );
     s.bullets([
+      `注销账号的积分台账原样保留：${preservedLedger.length} 行`,
       `负余额按 0 处理：${st.negativeClamped.length} 人（uid ${head(st.negativeClamped)}）`,
       `用户已不存在的余额 ${st.orphanBalances} 条、银行账户 ${st.orphanBank} 个，丢弃`,
       `签到：旧流水 ${checks.stats.logs} 条 → 按「用户×北京时间自然日」去重（同日重复 ${checks.stats.sameDayDuplicates}、用户不存在 ${checks.stats.orphan}）；` +
         `${checks.stats.users} 位用户各只保留**最近一段连续签到**，共 ${checks.rows.length} 天，更早的 ${checks.stats.olderDropped} 个零散签到日不迁（旧库即归档）`,
     ]);
     return {
-      rows: pts.ledger.length + checks.rows.length,
-      note: `${st.users} 账户 / ${checks.rows.length} 签到`,
+      rows: pts.ledger.length + preservedLedger.length + checks.rows.length,
+      note: `${st.users} 账户 + ${preservedAccounts.length} 注销账户 / ${checks.rows.length} 签到`,
     };
   },
 };

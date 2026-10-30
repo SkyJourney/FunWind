@@ -23,6 +23,7 @@ const guest = {
   roles: [],
   restrictions: [],
   emailVerified: false,
+  emailVerificationRequired: false,
   registerMode: "invite" as const,
 };
 const home = (qs = "") => new Request(`http://127.0.0.1:3100/api/stream/home${qs}`);

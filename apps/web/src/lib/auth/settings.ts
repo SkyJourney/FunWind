@@ -7,7 +7,7 @@ import { CLI_ACTOR, writeAudit, type ConfigActor } from "@/lib/audit";
 
 export type RegisterMode = "invite" | "open";
 
-/** 邮箱验证策略（site_settings("email.verification")）：open_only=仅开放注册强制验证（现状默认）；always=邀请注册也发验证邮件 */
+/** 新注册账号的邮箱验证策略；计算结果写入用户行，后续注册模式切换不改变既有账号的验证门 */
 export type EmailVerificationMode = "open_only" | "always";
 
 export const getEmailVerificationMode = cache(async (): Promise<EmailVerificationMode> => {

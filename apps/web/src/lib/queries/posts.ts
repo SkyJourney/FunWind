@@ -4,6 +4,7 @@ import type { Subject } from "@/lib/authz/types";
 import type { ThreadListItem } from "./threads";
 import { clampPage } from "./paging";
 import { buildViewerScope, visiblePredicate } from "./visibility";
+import { publicUserDeleted, publicUserId, publicUsername } from "./public-identity";
 
 /** 回帖楼层查询：分页（20/页）+ 作者 join + 父帖楼层 + 按帖批量取附件 */
 
@@ -12,7 +13,7 @@ export const REPLIES_PER_PAGE = 20;
 export interface ReplyItem {
   id: number;
   floor: number;
-  authorId: number;
+  authorId: number | null;
   authorName: string | null;
   authorDeleted: boolean;
   bodyMd: string;
@@ -58,9 +59,9 @@ export async function listReplies(
     .select({
       id: posts.id,
       floor: posts.floor,
-      authorId: posts.authorId,
-      authorName: users.username,
-      authorState: users.state,
+      authorId: publicUserId(users.id, users.state),
+      authorName: publicUsername(users.username, users.state, users.id),
+      authorDeleted: publicUserDeleted(users.id, users.state).mapWith(Boolean),
       bodyMd: posts.bodyMd,
       hasGate: posts.hasGate,
       likeCount: posts.likeCount,
@@ -77,10 +78,9 @@ export async function listReplies(
     .limit(REPLIES_PER_PAGE)
     .offset((safePage - 1) * REPLIES_PER_PAGE);
 
-  const items: ReplyItem[] = rows.map(({ authorState, bodyMd, ...r }) => ({
+  const items: ReplyItem[] = rows.map(({ bodyMd, ...r }) => ({
     ...r,
     bodyMd: bodyMd ?? "",
-    authorDeleted: authorState === "deleted",
   }));
   return { items, total, page: safePage, totalPages };
 }

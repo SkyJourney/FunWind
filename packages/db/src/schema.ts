@@ -20,12 +20,12 @@ import {
 } from "drizzle-orm/mysql-core";
 
 /**
- * qysub_next · schema v2.1（M5.5，单一事实源，决策 #10；设计依据 docs/DESIGN-MODEL.md；M7 增 event_outbox，共 45 表）
+ * qysub_next · schema v2.x（M5.5 起的单一事实源；M9.6 增用户注销记录、板块禁入与邮箱令牌地址快照）
  *
  * 设计原则：
- *  - 运行时 schema 不认识旧站：不出现 legacy_* / 迁移标记 / 迁移用 id 公式 / migration_* 表（schema-rules.ts 强制）
+ *  - 运行时 schema 不认识旧站：不出现 legacy_* / 旧站迁移字段 / 迁移用 id 公式 / migration_* 表（schema-rules.ts 强制）
  *  - 只保留 URL 必须稳定的 id（uid/fid/tid/pid）；主键均为 AUTO_INCREMENT，导入后把起点推到最大值之后
- *  - 引用诚实：每个 author_id 都指向 users 中真实存在的一行（已注销账号 = state=deleted 的占位行）
+ *  - 引用诚实：每个 author_id 都指向 users 中真实存在的一行（已注销账号保留 state=deleted 的用户行）
  *  - 唯一键不得依赖 NULL 去重来表达作用域/层级：全局作用域用 scope_id = 0 哨兵
  *    （例外：单列、且「空值 = 没有」本身就是期望语义，如 users.email_key）
  *  - 状态是一等属性（read_policy / state / user_restrictions），不靠「有没有记录」推断
@@ -85,6 +85,8 @@ export const users = mysqlTable(
     /** true = 旧哈希可登录（登录后强制换新密）；判定源即本列，会话不加热点字段 */
     legacyPasswordPending: boolean("legacy_password_pending").notNull().default(false),
     emailVerifiedAt: dt("email_verified_at"),
+    /** 注册时固定的邮箱验证门；不随站点注册模式变更 */
+    emailVerificationRequired: boolean("email_verification_required").notNull().default(false),
     /** deleted = 已注销：保留行以维持引用完整，个人信息已清除 */
     state: mysqlEnum("state", ["active", "deleted"]).notNull().default("active"),
     createdAt: dt("created_at").notNull(),
@@ -140,8 +142,8 @@ export const userRestrictions = mysqlTable(
   {
     id: int("id", { unsigned: true }).notNull().autoincrement(),
     userId: int("user_id", { unsigned: true }).notNull(),
-    kind: mysqlEnum("kind", ["ban", "mute", "no_avatar", "no_signature"]).notNull(),
-    /** 0 = 全站；> 0 = 版块 id */
+    kind: mysqlEnum("kind", ["ban", "forum_ban", "mute", "no_avatar", "no_signature"]).notNull(),
+    /** 0 = 全站；forum_ban 必须为 >0，具体作用域由服务按板块树校验 */
     scopeId: int("scope_id", { unsigned: true }).notNull().default(0),
     reason: varchar("reason", { length: 255 }).notNull().default(""),
     startsAt: dt("starts_at").notNull(),
@@ -178,11 +180,82 @@ export const emailTokens = mysqlTable(
     id: varchar("id", { length: 64 }).notNull(), // 存 SHA-256(token)
     purpose: mysqlEnum("purpose", ["reset", "verify", "claim"]).notNull(),
     userId: int("user_id", { unsigned: true }).notNull(),
+    /** 签发时邮箱归一化键的 SHA-256；旧 token 为 NULL 并在消费时拒绝 */
+    emailKeySnapshot: varchar("email_key_snapshot", { length: 64 }),
     createdAt: dt("created_at").notNull(),
     expiresAt: dt("expires_at").notNull(),
     usedAt: dt("used_at"),
   },
   (t) => [primaryKey({ columns: [t.id] }), index("idx_et_user").on(t.userId, t.purpose)],
+);
+
+/** 账号注销申请与终态 tombstone；migration 只跳过已完成注销的真实用户 */
+export const accountDeletionRequests = mysqlTable(
+  "account_deletion_requests",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    userId: int("user_id", { unsigned: true }).notNull(),
+    status: mysqlEnum("status", ["pending", "cancelled", "completed"]).notNull().default("pending"),
+    requestedAt: dt("requested_at").notNull(),
+    scheduledAt: dt("scheduled_at").notNull(),
+    cancelledAt: dt("cancelled_at"),
+    completedAt: dt("completed_at"),
+    verificationMethod: mysqlEnum("verification_method", ["password", "verified_email"])
+      .notNull()
+      .default("password"),
+    accessTokenHash: varchar("access_token_hash", { length: 64 }),
+    accessExpiresAt: dt("access_expires_at"),
+    /** 仅存受控错误码，不写入原始异常或可能含 PII 的报错文本 */
+    attemptCount: int("attempt_count", { unsigned: true }).notNull().default(0),
+    lastAttemptAt: dt("last_attempt_at"),
+    lastErrorCode: varchar("last_error_code", { length: 64 }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    index("idx_adr_user_status").on(t.userId, t.status),
+    index("idx_adr_status_scheduled").on(t.status, t.scheduledAt),
+  ],
+);
+
+/** 注销申请/受限状态再认证令牌；仅存不可逆 token 与签发邮箱快照。 */
+export const accountDeletionTokens = mysqlTable(
+  "account_deletion_tokens",
+  {
+    id: varchar("id", { length: 64 }).notNull(),
+    userId: int("user_id", { unsigned: true }).notNull(),
+    purpose: mysqlEnum("purpose", ["request", "access"]).notNull(),
+    emailKeySnapshot: varchar("email_key_snapshot", { length: 64 }).notNull(),
+    createdAt: dt("created_at").notNull(),
+    expiresAt: dt("expires_at").notNull(),
+    usedAt: dt("used_at"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    index("idx_adt_user_purpose").on(t.userId, t.purpose),
+    index("idx_adt_expires").on(t.expiresAt),
+  ],
+);
+
+/** 本人对账号限制或注销申请发起复核；处理历史不依赖仍生效的限制行。 */
+export const userAppeals = mysqlTable(
+  "user_appeals",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    userId: int("user_id", { unsigned: true }).notNull(),
+    targetType: mysqlEnum("target_type", ["restriction", "account_deletion"]).notNull(),
+    targetId: int("target_id", { unsigned: true }).notNull(),
+    reason: varchar("reason", { length: 2000 }).notNull(),
+    status: mysqlEnum("status", ["pending", "approved", "rejected"]).notNull().default("pending"),
+    handledBy: int("handled_by", { unsigned: true }),
+    handledAt: dt("handled_at"),
+    result: varchar("result", { length: 1000 }),
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    index("idx_user_appeals_user_status").on(t.userId, t.status, t.createdAt),
+    index("idx_user_appeals_target").on(t.targetType, t.targetId, t.status),
+  ],
 );
 
 export const inviteCodes = mysqlTable(
@@ -592,7 +665,7 @@ export const messages = mysqlTable(
   {
     id: bigint("id", { mode: "number", unsigned: true }).notNull().autoincrement(),
     conversationId: int("conversation_id", { unsigned: true }).notNull(),
-    senderId: int("sender_id", { unsigned: true }).notNull(),
+    senderId: int("sender_id", { unsigned: true }),
     body: text("body").notNull(),
     createdAt: dt("created_at").notNull(),
   },
@@ -814,6 +887,8 @@ export const roles = mysqlTable(
     name: varchar("name", { length: 64 }).notNull(),
     kind: mysqlEnum("kind", ["builtin", "custom"]).notNull(),
     description: varchar("description", { length: 255 }).notNull().default(""),
+    /** 允许公开展示的身份；后台权限角色默认不公开 */
+    isPublic: boolean("is_public").notNull().default(false),
   },
   (t) => [primaryKey({ columns: [t.key] })],
 );

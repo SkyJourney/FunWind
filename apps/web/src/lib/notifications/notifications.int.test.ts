@@ -3,7 +3,7 @@
  * 通知核心集成测试（M8 S4）：notify 聚合与已读新开、偏好与强制类型、模块停用、
  * 事件 → 通知（经真实模块消费者）、读取契约（unreadSummary/list 合并公告/markRead）。
  */
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   announcementReads,
   DEMO,
@@ -11,6 +11,7 @@ import {
   notificationPreferences,
   notifications,
   siteSettings,
+  users,
 } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
@@ -323,6 +324,32 @@ describe.skipIf(skipDb)("读取契约", () => {
     await markRead(ALICE, { all: true });
     expect((await unreadSummary(ALICE)).announcement).toBe(0);
     expect((await unreadSummary(ALICE)).total).toBe(0);
+  });
+
+  it("通知 actor 已注销时只返回匿名名且不提供 actorId 链接", async () => {
+    const groupKey = "m9.6-deleted-notification-actor";
+    await db().update(users).set({ state: "deleted" }).where(eq(users.id, DEMO.xiaoyi));
+    try {
+      await notify({
+        type: "post.replied",
+        recipients: [ALICE],
+        actorId: DEMO.xiaoyi,
+        targetType: "post",
+        targetId: 900101,
+        groupKey,
+        data: { title: "匿名身份回归" },
+      });
+      const feed = await listFeed(ALICE);
+      const item = feed.items.find(
+        (entry) => entry.kind === "notification" && entry.groupKey === groupKey,
+      );
+      expect(item).toMatchObject({ actorId: null, actorName: "已注销用户" });
+    } finally {
+      await db().update(users).set({ state: "active" }).where(eq(users.id, DEMO.xiaoyi));
+      await db()
+        .delete(notifications)
+        .where(and(eq(notifications.userId, ALICE), eq(notifications.groupKey, groupKey)));
+    }
   });
 
   it("游客：只有 audience=all 的公告，total=公告数", async () => {

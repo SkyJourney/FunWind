@@ -18,11 +18,13 @@ import { checkUsername } from "@/lib/auth/username";
 import { takeInviteAttempt } from "@/lib/auth/invite-limit";
 import { InviteCodeError, RegisterError, registerUser } from "@/lib/auth/register";
 import {
+  createLegacyPasswordChangeSession,
   createSession,
   destroyCurrentSession,
   revokeAllForUser,
   MUST_CHANGE_COOKIE,
   isSecureSite,
+  SessionCreationError,
 } from "@/lib/auth/session";
 import { rateLimit } from "@/lib/auth/ratelimit";
 import { issueEmailToken } from "@/lib/auth/tokens";
@@ -52,6 +54,27 @@ async function safeEmit<K extends EventName>(name: K, payload: EventPayloads[K])
     await emit(name, payload, { source: "auth" });
   } catch (e) {
     console.error(`[auth] ${name} 派发失败:`, e);
+  }
+}
+
+async function establishLoginSession(
+  userId: number,
+  meta: { ip: string | null; userAgent: string },
+  legacyPasswordChangeOnly = false,
+): Promise<void> {
+  try {
+    if (legacyPasswordChangeOnly) await createLegacyPasswordChangeSession(userId, meta);
+    else await createSession(userId, meta);
+  } catch (error) {
+    if (!(error instanceof SessionCreationError)) throw error;
+    const ban = await findActiveGlobalBan(userId);
+    if (ban) {
+      const until = ban.endsAt ? `，至 ${ban.endsAt}` : "（永久）";
+      redirect(
+        "/login?error=" + encodeURIComponent(`账号已被封禁${until}：${ban.reason || "违规"}`),
+      );
+    }
+    redirect("/login?error=" + encodeURIComponent("账号状态已变化，请重新登录"));
   }
 }
 
@@ -97,14 +120,19 @@ export const loginAction = defineAction({
       );
     }
 
+    await destroyCurrentSession(); // 登录成功后先轮换当前设备 session，避免会话固定
+    await establishLoginSession(
+      user.id,
+      { ip: ctx.ip, userAgent: (await headers()).get("user-agent") ?? "" },
+      user.mustChange,
+    );
     await getWebDb()
       .update(users)
       .set({ lastLoginAt: sql`NOW()` })
       .where(eq(users.id, user.id));
     if (user.mustChange) {
-      // 双轨强制换密：cookie 是 middleware 的快速门（不查库）；真源是 users.legacy_password_pending
-      const store = await cookies();
-      store.set(MUST_CHANGE_COOKIE, "1", {
+      // 仅作 middleware 快速跳转信号；普通页面/API 仍由数据库 legacy_password_pending 门控
+      (await cookies()).set(MUST_CHANGE_COOKIE, "1", {
         httpOnly: true,
         sameSite: "lax",
         secure: isSecureSite(),
@@ -112,10 +140,6 @@ export const loginAction = defineAction({
         maxAge: 3600,
       });
     }
-    await createSession(user.id, {
-      ip: ctx.ip,
-      userAgent: (await headers()).get("user-agent") ?? "",
-    });
     await safeEmit("user.logged_in", { userId: user.id });
     redirect(user.mustChange ? "/settings/password?force=1" : "/");
   },
@@ -159,6 +183,8 @@ export const registerAction = defineAction({
     if (inviteAttempt && !inviteAttempt.allowed) fail("邀请码尝试过于频繁，请稍后再试");
 
     const passwordHash = await hashPassword(password);
+    const verificationMode = await getEmailVerificationMode();
+    const requiresEmailVerification = mode === "open" || verificationMode === "always";
 
     let newId: number;
     try {
@@ -166,6 +192,7 @@ export const registerAction = defineAction({
         username,
         email,
         passwordHash,
+        emailVerificationRequired: requiresEmailVerification,
         invite: mode === "invite" ? invite : null,
       });
     } catch (e) {
@@ -178,11 +205,9 @@ export const registerAction = defineAction({
     }
     inviteAttempt?.refund();
 
-    // 邮箱验证邮件（M10.6 收尾）：开放注册必发；邀请注册按后台「邮箱验证策略」决定（always=也发）
-    const verificationMode = await getEmailVerificationMode();
-    const shouldVerify = mode === "open" || verificationMode === "always";
-    if (shouldVerify) {
-      const token = await issueEmailToken(newId, "verify");
+    // 邮箱验证要求已写入用户行；注册模式后续切换不会改变该账号的写权限门。
+    if (requiresEmailVerification) {
+      const token = await issueEmailToken(newId, "verify", email);
       const { getSiteIdentity } = await import("@/lib/site-chrome");
       const identity = await getSiteIdentity().catch(() => undefined);
       await sendMail(
@@ -191,12 +216,12 @@ export const registerAction = defineAction({
       );
     }
 
-    await createSession(newId, {
+    await establishLoginSession(newId, {
       ip: ctx.ip,
       userAgent: (await headers()).get("user-agent") ?? "",
     });
     await safeEmit("user.registered", { userId: newId });
-    redirect(shouldVerify ? "/?notice=verify-email-sent" : "/");
+    redirect(requiresEmailVerification ? "/?notice=verify-email-sent" : "/");
   },
 });
 
@@ -252,7 +277,7 @@ export const resetPasswordAction = defineAction({
       .where(eq(users.id, userId));
     await revokeAllForUser(userId);
     // 重置并登录（M10.6c）：验邮即登录，不再要求回登录页重输一遍
-    await createSession(userId, {
+    await establishLoginSession(userId, {
       ip: ctx.ip,
       userAgent: (await headers()).get("user-agent") ?? "",
     });
@@ -312,7 +337,7 @@ export const claimAction = defineAction({
       .where(eq(users.id, userId));
     await revokeAllForUser(userId);
     // 认领并登录（M10.6c）：按钮语义落地——设密成功直接建立会话进入站点
-    await createSession(userId, {
+    await establishLoginSession(userId, {
       ip: ctx.ip,
       userAgent: (await headers()).get("user-agent") ?? "",
     });

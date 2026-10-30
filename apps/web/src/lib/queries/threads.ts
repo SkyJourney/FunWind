@@ -6,6 +6,7 @@ import { getCurrentSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
 import { clampPage } from "./paging";
 import { buildViewerScope, visiblePredicate, type ViewerScope } from "./visibility";
+import { publicUserDeleted, publicUserId, publicUsername } from "./public-identity";
 
 /**
  * 主题查询：版块列表（置顶块 + 分页）、全站最新、详情。
@@ -20,7 +21,7 @@ export interface ThreadListItem {
   id: number;
   forumId: number;
   title: string;
-  authorId: number;
+  authorId: number | null;
   authorName: string | null;
   /** 作者为“已注销用户”占位账号：界面显示“已注销”，不提供个人页链接 */
   authorDeleted: boolean;
@@ -41,9 +42,9 @@ const LIST_SELECTION = {
   id: threads.id,
   forumId: threads.forumId,
   title: threads.title,
-  authorId: threads.authorId,
-  authorName: users.username,
-  authorState: users.state,
+  authorId: publicUserId(users.id, users.state),
+  authorName: publicUsername(users.username, users.state, users.id),
+  authorDeleted: publicUserDeleted(users.id, users.state).mapWith(Boolean),
   replyCount: threads.replyCount,
   viewCount: threads.viewCount,
   pinLevel: threads.pinLevel,
@@ -59,8 +60,7 @@ const LIST_SELECTION = {
 type ListRow = Awaited<ReturnType<typeof selectList>>[number];
 
 export function toItem(r: ListRow): ThreadListItem {
-  const { authorState, ...rest } = r;
-  return { ...rest, authorDeleted: authorState === "deleted" };
+  return r;
 }
 
 export const threadCols = {

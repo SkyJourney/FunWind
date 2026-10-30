@@ -3,13 +3,19 @@
  * 举报集成测试（M9 S6）：提交幂等（唯一键）、不可见帖拒绝、处理（审计+通知举报人）、队列筛选。
  */
 import "@/modules";
-import { and, eq } from "drizzle-orm";
-import { auditLog, DEMO, getWebDb, notifications, reports } from "@funwind/db";
+import { and, eq, sql } from "drizzle-orm";
+import { auditLog, DEMO, getWebDb, notifications, reports, userRestrictions } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
-import { dismissReportsBulk, handleReport, listReportPage, submitReport } from "./service";
+import {
+  dismissReportsBulk,
+  handleReport,
+  listReportPage,
+  reportPostTarget,
+  submitReport,
+} from "./service";
 
 let tdb: TempDb;
 let member: Subject;
@@ -38,16 +44,58 @@ describe.skipIf(skipDb)("举报（M9）", () => {
     expect(rows).toHaveLength(2);
   });
 
-  it("不可见/不存在帖子拒绝；空理由拒绝；封禁用户 forbidden", async () => {
+  it("举报确认与提交均要求登录；不存在目标的确认页返回空", async () => {
+    const guest = await loadSubject(null);
+    expect(await reportPostTarget(guest, 900101)).toBeNull();
+    expect(await submitReport(guest, 900101, "游客举报")).toEqual({ ok: false, code: "login" });
+    expect(await reportPostTarget(member, 99999999)).toBeNull();
+  });
+
+  it("不可见/不存在帖子拒绝；空理由拒绝；全站封禁用户不能举报", async () => {
     expect(await submitReport(member, 900107, "x")).toEqual({ ok: false, code: "not_found" }); // pending 帖
     expect(await submitReport(member, 99999999, "x")).toEqual({ ok: false, code: "not_found" });
     expect(await submitReport(member, 900102, "   ")).toEqual({
       ok: false,
       code: "reason_required",
     });
-    // forum.report 是非写类权限（evaluator 有意如此：封禁用户仍可举报）——封禁用户可提交
     const banned = await loadSubject(DEMO.banned);
-    expect(await submitReport(banned, 900102, "封禁用户举报")).toEqual({ ok: true });
+    expect(await submitReport(banned, 900102, "封禁用户举报")).toEqual({
+      ok: false,
+      code: "not_found",
+    });
+  });
+
+  it("forum_ban 阻止读取被禁版块中的可举报对象，不影响其他版块", async () => {
+    const reason = "m9.6-report-forum-ban";
+    await db()
+      .insert(userRestrictions)
+      .values({
+        userId: DEMO.member,
+        kind: "forum_ban",
+        scopeId: 901,
+        reason,
+        startsAt: sql`NOW()`,
+        endsAt: null,
+        createdBy: DEMO.admin,
+        createdAt: sql`NOW()`,
+      });
+    try {
+      const bannedMember = await loadSubject(DEMO.member);
+      expect(await reportPostTarget(bannedMember, 900101)).toBeNull();
+      expect(await reportPostTarget(bannedMember, 900102)).toMatchObject({ threadId: 900002 });
+      expect(await submitReport(bannedMember, 900101, "禁入版块不能举报")).toEqual({
+        ok: false,
+        code: "not_found",
+      });
+      expect(await submitReport(bannedMember, 900102, "其他版块仍可举报")).toEqual({ ok: true });
+    } finally {
+      await db()
+        .delete(userRestrictions)
+        .where(and(eq(userRestrictions.userId, DEMO.member), eq(userRestrictions.reason, reason)));
+      await db()
+        .delete(reports)
+        .where(and(eq(reports.reporterId, DEMO.member), eq(reports.postId, 900102)));
+    }
   });
 
   it("处理：resolved 落库+审计+举报人通知（report.resolved 带 note）；重复处理拒绝", async () => {

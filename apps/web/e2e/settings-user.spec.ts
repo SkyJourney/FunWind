@@ -41,9 +41,10 @@ test("设置中心：hub / 资料 / 通知偏好 / 邮箱校验", async ({ page 
 
   // 邮箱：当前密码错误 → 服务端错误回显（不做真实换绑，避免污染夹具邮箱断言）
   await page.goto("/settings/email");
-  await page.getByLabel("新邮箱").fill("member-new@test.local");
-  await page.getByLabel("当前密码").fill("definitely-wrong");
-  await page.getByRole("button", { name: "更换邮箱" }).click();
+  const changeEmailForm = page.locator("form").filter({ has: page.getByLabel("新邮箱") });
+  await changeEmailForm.getByLabel("新邮箱").fill("member-new@example.com");
+  await changeEmailForm.getByLabel("当前密码").fill("definitely-wrong");
+  await changeEmailForm.getByRole("button", { name: "更换邮箱" }).click();
   await expect(page.getByText("当前密码不正确")).toBeVisible();
 });
 

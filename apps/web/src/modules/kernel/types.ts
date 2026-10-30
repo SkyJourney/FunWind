@@ -98,7 +98,7 @@ export interface EventPayloads {
   "attachment.uploaded": { attachmentId: number; fileId: number; uploaderId: number };
   "restriction.changed": {
     userId: number;
-    kind: "ban" | "mute" | "no_avatar" | "no_signature";
+    kind: "ban" | "forum_ban" | "mute" | "no_avatar" | "no_signature";
     action: "created" | "lifted";
     operatorId: number;
     reason?: string;
@@ -110,12 +110,26 @@ export interface EventPayloads {
     scopeId: number;
     action: "granted" | "revoked";
     operatorId: number;
+    expiresAt: string | null;
   };
   "announcement.published": { announcementId: number; createdBy: number };
   "points.changed": { userId: number; channel: string; delta: number };
   "gate.unlocked": { gateId: number; userId: number; authorId: number; price: number };
   "badge.awarded": { userId: number; badgeId: number };
   "badge.revoked": { userId: number; badgeId: number };
+  "account.deletion.requested": { userId: number; requestId: number; scheduledAt: string };
+  "account.deletion.cancelled": { userId: number; requestId: number };
+  "account.appeal.submitted": {
+    userId: number;
+    appealId: number;
+    targetType: "restriction" | "account_deletion";
+    targetId: number;
+  };
+  "account.appeal.resolved": {
+    userId: number;
+    appealId: number;
+    status: "approved" | "rejected";
+  };
   "checkin.done": { userId: number; streak: number };
 }
 

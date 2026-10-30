@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  filterCompletedAccountDeletions,
+  filterCompletedDeletionNotes,
   legacyAvatarKey,
   placeholderUsername,
   transformPlaceholders,
@@ -206,6 +208,41 @@ describe("transformUsers · 资料", () => {
       const r = run([u({ uid: 1, byear: y, bmonth: m, bday: d })]);
       expect(r.profiles[0]?.birthday, `${y}-${m}-${d}`).toBeNull();
     }
+  });
+});
+
+describe("filterCompletedAccountDeletions", () => {
+  it("迁移重跑时不覆盖已完成注销账号及其匿名资料", () => {
+    const transformed = run([u({ uid: 1 }), u({ uid: 2 })]);
+    const result = filterCompletedAccountDeletions(
+      transformed.users,
+      transformed.profiles,
+      new Set([2]),
+    );
+
+    expect(result.skipped).toBe(1);
+    expect(result.users.map((user) => user.id)).toEqual([1]);
+    expect(result.profiles.map((profile) => profile.userId)).toEqual([1]);
+  });
+
+  it("不把已完成注销用户的邮箱、用户名等信息写入迁移待办", () => {
+    const notes = {
+      usernameCollisions: [{ uid: 1, from: "Old", to: "Old_1" }],
+      invalidEmails: [{ uid: 2, email: "former@example.com" }],
+      duplicateEmails: [{ email: "shared@example.com", keptUid: 1, clearedUids: [2] }],
+      createdAtRepaired: [{ uid: 2, to: "2010-01-01 00:00:00", source: "fallback" as const }],
+      emptyUsernames: [2],
+      avatars: 1,
+      excluded: 0,
+    };
+
+    expect(filterCompletedDeletionNotes(notes, new Set([2]))).toEqual({
+      ...notes,
+      invalidEmails: [],
+      duplicateEmails: [],
+      createdAtRepaired: [],
+      emptyUsernames: [],
+    });
   });
 });
 

@@ -1,6 +1,7 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, notExists, sql } from "drizzle-orm";
 import { cache } from "react";
 import {
+  accountDeletionRequests,
   files,
   getWebDb,
   normalizeKey,
@@ -8,14 +9,16 @@ import {
   posts,
   threads,
   userProfiles,
+  userRestrictions,
   userStats,
   users,
 } from "@funwind/db";
-import { findActiveGlobalBan } from "@/lib/authz/restrictions";
+import { findActiveGlobalBan, restrictionActive } from "@/lib/authz/restrictions";
 import { getPointsName } from "@/lib/auth/settings";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
 import { buildViewerScope, visiblePredicate } from "./visibility";
-import type { Subject } from "@/lib/authz/types";
+import { publicRolesOf, type PublicRoleIdentity } from "./public-identity";
+import { GUEST_SUBJECT, type Subject } from "@/lib/authz/types";
 import { extractFeedMedia } from "./feed-media";
 import { selectList, threadScope, toItem, type ThreadListItem } from "./threads";
 
@@ -37,45 +40,120 @@ export interface Profile {
   pointsName: string;
   /** 私信权限（M10.5 功能补全）：all/following/off */
   pmPolicy: "all" | "following" | "off";
-  ban: { reason: string; endsAt: string | null } | null;
+  /** 仅公开显示通用封禁标记，不含理由/期限 */
+  ban: boolean;
+  /** 仅显式公开、仍有效的自定义角色身份 */
+  publicRoles: PublicRoleIdentity[];
 }
 
-export async function getProfile(uid: number): Promise<Profile | null> {
+export async function getProfile(
+  uid: number,
+  viewer: Subject = GUEST_SUBJECT,
+): Promise<Profile | null> {
   const db = getWebDb();
-  const rows = await db
-    .select({
-      id: users.id,
-      username: users.username,
-      createdAt: users.createdAt,
-      signatureMd: userProfiles.signatureMd,
-      avatarKey: files.storageKey,
-      pmPolicy: userProfiles.pmPolicy,
-      threadCount: userStats.threadCount,
-      postCount: userStats.postCount,
-      featuredCount: userStats.featuredCount,
-      followerCount: userStats.followerCount,
-      points: pointAccounts.balance,
-    })
-    .from(users)
-    .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
-    .leftJoin(files, eq(files.id, userProfiles.avatarFileId))
-    .leftJoin(userStats, eq(userStats.userId, users.id))
-    .leftJoin(pointAccounts, eq(pointAccounts.userId, users.id))
-    .where(and(eq(users.id, uid), eq(users.state, "active")))
-    .limit(1);
+  const [rows, activeProfileRestrictions, scope, { tree }] = await Promise.all([
+    db
+      .select({
+        id: users.id,
+        username: users.username,
+        createdAt: users.createdAt,
+        signatureMd: userProfiles.signatureMd,
+        avatarKey: files.storageKey,
+        pmPolicy: userProfiles.pmPolicy,
+        followerCount: userStats.followerCount,
+        points: pointAccounts.balance,
+      })
+      .from(users)
+      .leftJoin(userProfiles, eq(userProfiles.userId, users.id))
+      .leftJoin(files, eq(files.id, userProfiles.avatarFileId))
+      .leftJoin(userStats, eq(userStats.userId, users.id))
+      .leftJoin(pointAccounts, eq(pointAccounts.userId, users.id))
+      .where(
+        and(
+          eq(users.id, uid),
+          eq(users.state, "active"),
+          notExists(
+            db
+              .select({ id: accountDeletionRequests.id })
+              .from(accountDeletionRequests)
+              .where(
+                and(
+                  eq(accountDeletionRequests.userId, users.id),
+                  eq(accountDeletionRequests.status, "completed"),
+                ),
+              ),
+          ),
+        ),
+      )
+      .limit(1),
+    db
+      .select({ kind: userRestrictions.kind })
+      .from(userRestrictions)
+      .where(
+        and(
+          eq(userRestrictions.userId, uid),
+          eq(userRestrictions.scopeId, 0),
+          inArray(userRestrictions.kind, ["no_avatar", "no_signature"]),
+          restrictionActive,
+        ),
+      ),
+    buildViewerScope(viewer),
+    getAuthzSnapshot(),
+  ]);
   const r = rows[0];
   if (!r) return null;
 
+  const restrictedKinds = new Set(activeProfileRestrictions.map((restriction) => restriction.kind));
+  const listedForumIds = scope.readable.filter((id) => tree.get(id)?.isListed);
+  let threadCount = 0;
+  let postCount = 0;
+  let featuredCount = 0;
+  if (listedForumIds.length > 0) {
+    const [threadRows, postRows] = await Promise.all([
+      db
+        .select({
+          count: count(),
+          featured: sql<number>`COALESCE(SUM(${threads.isFeatured}), 0)`.mapWith(Number),
+        })
+        .from(threads)
+        .where(
+          and(
+            eq(threads.authorId, uid),
+            eq(threads.state, "visible"),
+            inArray(threads.forumId, listedForumIds),
+          ),
+        ),
+      db
+        .select({ count: count() })
+        .from(posts)
+        .innerJoin(threads, eq(threads.id, posts.threadId))
+        .where(
+          and(
+            eq(posts.authorId, uid),
+            eq(posts.state, "visible"),
+            eq(threads.state, "visible"),
+            inArray(threads.forumId, listedForumIds),
+          ),
+        ),
+    ]);
+    threadCount = Number(threadRows[0]?.count ?? 0);
+    featuredCount = Number(threadRows[0]?.featured ?? 0);
+    postCount = Number(postRows[0]?.count ?? 0);
+  }
+
   return {
     ...r,
-    threadCount: r.threadCount ?? 0,
-    postCount: r.postCount ?? 0,
-    featuredCount: r.featuredCount ?? 0,
+    signatureMd: restrictedKinds.has("no_signature") ? null : r.signatureMd,
+    avatarKey: restrictedKinds.has("no_avatar") ? null : r.avatarKey,
+    threadCount,
+    postCount,
+    featuredCount,
     followerCount: r.followerCount ?? 0,
     points: r.points ?? 0,
     pointsName: await getPointsName(),
     pmPolicy: r.pmPolicy ?? "all",
-    ban: await findActiveGlobalBan(uid),
+    ban: (await findActiveGlobalBan(uid)) !== null,
+    publicRoles: await publicRolesOf(uid),
   };
 }
 
@@ -87,18 +165,65 @@ export async function findUserIdByName(username: string): Promise<number | null>
   const [row] = await getWebDb()
     .select({ id: users.id })
     .from(users)
-    .where(and(eq(users.usernameKey, normalizeKey(username)), eq(users.state, "active")))
+    .where(
+      and(
+        eq(users.usernameKey, normalizeKey(username)),
+        eq(users.state, "active"),
+        notExists(
+          getWebDb()
+            .select({ id: accountDeletionRequests.id })
+            .from(accountDeletionRequests)
+            .where(
+              and(
+                eq(accountDeletionRequests.userId, users.id),
+                eq(accountDeletionRequests.status, "completed"),
+              ),
+            ),
+        ),
+      ),
+    )
     .limit(1);
   return row?.id ?? null;
 }
 
 /** 头像存储键（请求级缓存：帖子页作者行最多 21 个作者，同一作者只查一次） */
 export const avatarKeyOf = cache(async (userId: number): Promise<string | null> => {
-  const [row] = await getWebDb()
+  const db = getWebDb();
+  const [row] = await db
     .select({ key: files.storageKey })
     .from(userProfiles)
+    .innerJoin(users, eq(users.id, userProfiles.userId))
     .innerJoin(files, eq(files.id, userProfiles.avatarFileId))
-    .where(eq(userProfiles.userId, userId))
+    .where(
+      and(
+        eq(userProfiles.userId, userId),
+        eq(users.state, "active"),
+        notExists(
+          db
+            .select({ id: accountDeletionRequests.id })
+            .from(accountDeletionRequests)
+            .where(
+              and(
+                eq(accountDeletionRequests.userId, users.id),
+                eq(accountDeletionRequests.status, "completed"),
+              ),
+            ),
+        ),
+        notExists(
+          db
+            .select({ id: userRestrictions.id })
+            .from(userRestrictions)
+            .where(
+              and(
+                eq(userRestrictions.userId, userProfiles.userId),
+                eq(userRestrictions.kind, "no_avatar"),
+                eq(userRestrictions.scopeId, 0),
+                restrictionActive,
+              ),
+            ),
+        ),
+      ),
+    )
     .limit(1);
   return row?.key ?? null;
 });

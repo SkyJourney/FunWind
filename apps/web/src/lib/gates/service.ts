@@ -20,7 +20,7 @@ export type GateViews = Map<number, Map<string, GateView>>; // postId → gateKe
 
 interface PostCtx {
   id: number;
-  authorId: number;
+  authorId: number | null;
 }
 
 /** 一个门控的判定结果（元数据 + 观众相对它的开放/锁定结论）。元数据刻意不含 hidden_md */
@@ -245,7 +245,7 @@ async function resolveViews(
 export async function loadGateViews(
   viewer: Subject,
   thread: { id: number; forumId: number },
-  postList: readonly { id: number; authorId: number; hasGate: boolean }[],
+  postList: readonly { id: number; authorId: number | null; hasGate: boolean }[],
 ): Promise<GateViews> {
   return resolveViews(
     viewer,

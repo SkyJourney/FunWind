@@ -3,6 +3,7 @@ import { getWebDb, posts, threads, users } from "@funwind/db";
 import type { Subject } from "@/lib/authz/types";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
 import { buildViewerScope, visiblePredicate } from "./visibility";
+import { publicUserDeleted, publicUserId, publicUsername } from "./public-identity";
 import { clampPage } from "./paging";
 import type { ThreadListItem } from "./threads";
 
@@ -109,7 +110,7 @@ export async function searchThreads(
       id: threads.id,
       forumId: threads.forumId,
       title: threads.title,
-      authorId: threads.authorId,
+      authorId: publicUserId(users.id, users.state),
       replyCount: threads.replyCount,
       viewCount: threads.viewCount,
       pinLevel: threads.pinLevel,
@@ -119,8 +120,8 @@ export async function searchThreads(
       state: threads.state,
       lastPostedAt: threads.lastPostedAt,
       createdAt: threads.createdAt,
-      authorName: users.username,
-      authorState: users.state,
+      authorName: publicUsername(users.username, users.state, users.id),
+      authorDeleted: publicUserDeleted(users.id, users.state).mapWith(Boolean),
       viaTitle: sql<boolean>`(${titleMatch})`,
     })
     .from(threads)
@@ -136,7 +137,7 @@ export async function searchThreads(
     title: r.title,
     authorId: r.authorId,
     authorName: r.authorName,
-    authorDeleted: r.authorState === "deleted",
+    authorDeleted: r.authorDeleted,
     replyCount: r.replyCount,
     viewCount: r.viewCount,
     pinLevel: r.pinLevel,

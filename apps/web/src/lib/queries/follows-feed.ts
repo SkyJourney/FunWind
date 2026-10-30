@@ -1,11 +1,12 @@
-import { and, count, desc, eq, inArray, or } from "drizzle-orm";
-import { follows, getWebDb, posts, threads } from "@funwind/db";
+import { and, count, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { follows, getWebDb, posts, threads, users } from "@funwind/db";
 import type { Subject } from "@/lib/authz/types";
 import { THREADS_PER_PAGE, selectList, threadCols, toItem, type HomeFeedItem } from "./threads";
 import { extractFeedMedia } from "./feed-media";
 import { clampPage } from "./paging";
 import { buildViewerScope, visiblePredicate } from "./visibility";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
+import { publicUserDeleted } from "./public-identity";
 
 /**
  * 关注动态（M8）：关注的版块新帖 + 关注用户的发帖，实时从新表推导（旧 fresh 流不迁）。
@@ -15,13 +16,28 @@ import { getAuthzSnapshot } from "@/lib/authz/snapshot";
 export async function followedThreadIds(
   userId: number,
 ): Promise<{ forumIds: number[]; userIds: number[] }> {
-  const rows = await getWebDb()
-    .select({ targetType: follows.targetType, targetId: follows.targetId })
-    .from(follows)
-    .where(eq(follows.userId, userId));
+  const db = getWebDb();
+  const [forums, activeUsers] = await Promise.all([
+    db
+      .select({ targetId: follows.targetId })
+      .from(follows)
+      .where(and(eq(follows.userId, userId), eq(follows.targetType, "forum"))),
+    db
+      .select({ targetId: follows.targetId })
+      .from(follows)
+      .innerJoin(users, eq(users.id, follows.targetId))
+      .where(
+        and(
+          eq(follows.userId, userId),
+          eq(follows.targetType, "user"),
+          eq(users.state, "active"),
+          sql`NOT ${publicUserDeleted(users.id, users.state)}`,
+        ),
+      ),
+  ]);
   return {
-    forumIds: rows.filter((r) => r.targetType === "forum").map((r) => r.targetId),
-    userIds: rows.filter((r) => r.targetType === "user").map((r) => r.targetId),
+    forumIds: forums.map((row) => row.targetId),
+    userIds: activeUsers.map((row) => row.targetId),
   };
 }
 
@@ -48,17 +64,18 @@ export async function getFollowFeed(
   const { forumIds, userIds } = await followedThreadIds(viewer.userId);
   const [scope, { tree }] = await Promise.all([buildViewerScope(viewer), getAuthzSnapshot()]);
   const listed = scope.readable.filter((id) => tree.get(id)?.isListed);
+  const visibleForumIds = forumIds.filter((id) => listed.includes(id));
 
   const empty = {
     items: [] as HomeFeedItem[],
     total: 0,
     page: 1,
     totalPages: 1,
-    forumCount: forumIds.length,
+    forumCount: visibleForumIds.length,
     userCount: userIds.length,
   };
-  // 类型筛选（M10.6d，线稿①）：forum = 仅关注版块的新帖；user = 仅关注用户的发帖
-  const matchForumIds = type === "user" ? [] : forumIds;
+  // 类型筛选（M10.6d，线稿①）：forum = 仅关注且当前可读版块的新帖；user = 仅关注用户的发帖
+  const matchForumIds = type === "user" ? [] : visibleForumIds;
   const matchUserIds = type === "forum" ? [] : userIds;
   if (matchForumIds.length === 0 && matchUserIds.length === 0) return empty;
 
@@ -66,8 +83,7 @@ export async function getFollowFeed(
   const forumMatch = matchForumIds.length > 0 ? inArray(threads.forumId, matchForumIds) : undefined;
   const userMatch = matchUserIds.length > 0 ? inArray(threads.authorId, matchUserIds) : undefined;
   const listedFilter = listed.length > 0 ? inArray(threads.forumId, listed) : undefined;
-  if (listedFilter === undefined)
-    return { ...empty, forumCount: forumIds.length, userCount: userIds.length };
+  if (listedFilter === undefined) return empty;
 
   const where = and(visiblePredicate(threadCols, scope), listedFilter, or(forumMatch, userMatch))!;
 
@@ -114,7 +130,7 @@ export async function getFollowFeed(
     total,
     page,
     totalPages,
-    forumCount: forumIds.length,
+    forumCount: visibleForumIds.length,
     userCount: userIds.length,
   };
 }

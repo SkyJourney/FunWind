@@ -6,6 +6,7 @@
 import "@/modules";
 import { and, eq, sql } from "drizzle-orm";
 import {
+  accountDeletionRequests,
   conversations,
   conversationMembers,
   DEMO,
@@ -16,13 +17,20 @@ import {
   notifications,
   siteSettings,
   userProfiles,
+  userRestrictions,
   users,
 } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
-import { conversationList, otherMemberOf, unreadPmTotal } from "./queries";
+import {
+  conversationList,
+  messagesBefore,
+  otherMemberOf,
+  otherMemberSummaryOf,
+  unreadPmTotal,
+} from "./queries";
 import { openConversation, sendMessage } from "./service";
 
 let tdb: TempDb;
@@ -147,7 +155,7 @@ describe.skipIf(skipDb)("私信（M10）", () => {
     await setPmPerDay(50);
   });
 
-  it("自发给/已注销用户/空内容被拒；封禁用户仍可接收（其禁言只拦写类动作）", async () => {
+  it("自发给/已注销用户/封禁用户/空内容均被拒", async () => {
     expect(await sendMessage(alice, DEMO.alice, "自己")).toMatchObject({ ok: false, code: "self" });
     // 已注销（state=deleted）占位行：不可作为收信人
     await db()
@@ -167,7 +175,10 @@ describe.skipIf(skipDb)("私信（M10）", () => {
       ok: false,
       code: "not_found",
     });
-    expect(await sendMessage(alice, DEMO.banned, "给封禁用户")).toMatchObject({ ok: true });
+    expect(await sendMessage(alice, DEMO.banned, "给封禁用户")).toMatchObject({
+      ok: false,
+      code: "not_found",
+    });
     expect(await sendMessage(alice, DEMO.team, "   ")).toMatchObject({
       ok: false,
       code: "reason_required",
@@ -292,6 +303,129 @@ describe.skipIf(skipDb)("私信（M10）", () => {
     expect(await sendMessage(alice, fresh, "旧会话回复应放行")).toMatchObject({ ok: true });
 
     await db().update(userProfiles).set({ pmPolicy: "all" }).where(eq(userProfiles.userId, fresh));
+
+    const reason = "m9.6-pm-ban-read-only";
+    await db()
+      .insert(userRestrictions)
+      .values({
+        userId: fresh,
+        kind: "ban",
+        scopeId: 0,
+        reason,
+        startsAt: sql`NOW()`,
+        endsAt: null,
+        createdBy: DEMO.admin,
+        createdAt: sql`NOW()`,
+      });
+    try {
+      expect(await sendMessage(alice, fresh, "封禁期间旧会话只读")).toMatchObject({
+        ok: false,
+        code: "not_found",
+      });
+    } finally {
+      await db()
+        .delete(userRestrictions)
+        .where(and(eq(userRestrictions.userId, fresh), eq(userRestrictions.reason, reason)));
+    }
+
+    const [closure] = (await db()
+      .insert(accountDeletionRequests)
+      .values({
+        userId: fresh,
+        status: "pending",
+        requestedAt: sql`NOW()`,
+        scheduledAt: sql`NOW() + INTERVAL 30 DAY`,
+      })) as unknown as [{ insertId: number }];
+    try {
+      expect(await sendMessage(alice, fresh, "注销申请期不能收新私信")).toMatchObject({
+        ok: false,
+        code: "not_found",
+      });
+    } finally {
+      await db()
+        .delete(accountDeletionRequests)
+        .where(eq(accountDeletionRequests.id, Number(closure.insertId)));
+    }
+  });
+
+  it("全站禁言不影响无版块上下文的私信", async () => {
+    const reason = "m9.6-pm-global-mute";
+    await db()
+      .insert(userRestrictions)
+      .values({
+        userId: DEMO.alice,
+        kind: "mute",
+        scopeId: 0,
+        reason,
+        startsAt: sql`NOW()`,
+        endsAt: null,
+        createdBy: DEMO.admin,
+        createdAt: sql`NOW()`,
+      });
+    try {
+      const mutedAlice = await loadSubject(DEMO.alice);
+      expect(await sendMessage(mutedAlice, DEMO.xiaoyi, "全站禁言仍可发私信")).toMatchObject({
+        ok: true,
+      });
+    } finally {
+      await db()
+        .delete(userRestrictions)
+        .where(and(eq(userRestrictions.userId, DEMO.alice), eq(userRestrictions.reason, reason)));
+    }
+  });
+
+  it("注销对端在会话列表与历史中只投影匿名身份", async () => {
+    const xiaoyi = await loadSubject(DEMO.xiaoyi);
+    const first = await sendMessage(alice, DEMO.xiaoyi, "匿名历史会话");
+    if (!first.ok) throw new Error(first.code);
+    await sendMessage(xiaoyi, DEMO.alice, "对方历史消息");
+    await db().update(users).set({ state: "deleted" }).where(eq(users.id, DEMO.xiaoyi));
+    try {
+      const item = (await conversationList(DEMO.alice)).find(
+        (conversation) => conversation.conversationId === first.conversationId,
+      );
+      expect(item).toMatchObject({
+        otherId: null,
+        otherName: "已注销用户",
+        otherDeleted: true,
+      });
+      expect(await otherMemberSummaryOf(first.conversationId, DEMO.alice)).toEqual({
+        userId: null,
+        displayName: "已注销用户",
+        deleted: true,
+      });
+      const history = await messagesBefore(first.conversationId, null);
+      expect(history.items.find((message) => message.body === "对方历史消息")?.senderId).toBeNull();
+
+      await db().update(users).set({ state: "active" }).where(eq(users.id, DEMO.xiaoyi));
+      await db()
+        .insert(accountDeletionRequests)
+        .values({
+          userId: DEMO.xiaoyi,
+          status: "completed",
+          requestedAt: sql`NOW()`,
+          scheduledAt: sql`NOW()`,
+          completedAt: sql`NOW()`,
+        });
+      const tombstoneItem = (await conversationList(DEMO.alice)).find(
+        (conversation) => conversation.conversationId === first.conversationId,
+      );
+      expect(tombstoneItem).toMatchObject({ otherId: null, otherName: "已注销用户" });
+      const tombstoneHistory = await messagesBefore(first.conversationId, null);
+      expect(
+        tombstoneHistory.items.find((message) => message.body === "对方历史消息")?.senderId,
+      ).toBeNull();
+    } finally {
+      await db()
+        .delete(accountDeletionRequests)
+        .where(
+          and(
+            eq(accountDeletionRequests.userId, DEMO.xiaoyi),
+            eq(accountDeletionRequests.status, "completed"),
+          ),
+        );
+      await db().update(users).set({ state: "active" }).where(eq(users.id, DEMO.xiaoyi));
+    }
   });
 
   it("unreadPmTotal：角标总数与会话列表未读之和一致，打开会话后清零", async () => {
