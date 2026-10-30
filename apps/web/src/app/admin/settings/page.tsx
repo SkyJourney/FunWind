@@ -295,9 +295,9 @@ export default async function SiteSettingsPage({
                 className="mt-1 size-4"
               />
               <span>
-                <span className="font-medium">仅开放注册验证（默认）</span>
+                <span className="font-medium">开放注册新账号验证（默认）</span>
                 <span className="text-muted-foreground">
-                  ——开放注册强制验证；邀请制注册凭邀请码即算可信，不发验证邮件
+                  ——开放注册时新建的账号需要验证；要求会写入用户行，后续切换注册模式不改变既有账号
                 </span>
               </span>
             </label>
@@ -310,9 +310,9 @@ export default async function SiteSettingsPage({
                 className="mt-1 size-4"
               />
               <span>
-                <span className="font-medium">一律验证</span>
+                <span className="font-medium">所有新账号验证</span>
                 <span className="text-muted-foreground">
-                  ——邀请注册同样发验证邮件（邮箱可用的账号更可靠，召回不失效）
+                  ——邀请注册的新账号也要验证；每个账号的要求固定在注册时，不受之后的注册模式切换影响
                 </span>
               </span>
             </label>

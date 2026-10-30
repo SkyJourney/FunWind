@@ -3,6 +3,7 @@
  * 权限内核的真实 MySQL 集成测试（临时库 + 演示夹具）：
  * 规则快照加载与失效、主体加载（过期角色/限制过滤）、管理动作的校验/同事务审计、版主派生。
  */
+import "@/modules";
 import { and, eq, sql } from "drizzle-orm";
 import {
   DEMO,
@@ -13,6 +14,7 @@ import {
   roles,
   userRestrictions,
   userRoles,
+  users,
 } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { skipDb, setupTempDb, type TempDb } from "@/test/temp-db";
@@ -22,8 +24,10 @@ import {
   createCustomRole,
   deleteCustomRole,
   grantRolePermission,
+  listRoles,
   revokeRolePermission,
   revokeUserRole,
+  setRolePublic,
   type AdminActor,
 } from "./admin";
 import {
@@ -88,7 +92,21 @@ describe.skipIf(skipDb)("权限内核 · 真实 MySQL", () => {
       expect(s.roles).toContainEqual({ key: "member", scopeId: 0 });
       expect(s.roles).toContainEqual({ key: DEMO.teamRole, scopeId: 0 });
       expect(s.emailVerified).toBe(false);
+      expect(s.emailVerificationRequired).toBe(false);
       expect(s.registerMode).toBe("invite");
+
+      await getWebDb()
+        .update(users)
+        .set({ emailVerificationRequired: true })
+        .where(eq(users.id, DEMO.team));
+      try {
+        expect((await loadSubject(DEMO.team)).emailVerificationRequired).toBe(true);
+      } finally {
+        await getWebDb()
+          .update(users)
+          .set({ emailVerificationRequired: false })
+          .where(eq(users.id, DEMO.team));
+      }
     });
 
     it("过期的角色绑定被过滤；未生效/已结束的限制被过滤", async () => {
@@ -202,6 +220,34 @@ describe.skipIf(skipDb)("权限内核 · 真实 MySQL", () => {
       });
     });
 
+    it("公开身份显式启用；后台权限角色不能公开", async () => {
+      const key = "team-media";
+      expect((await listRoles()).find((role) => role.key === key)?.isPublic).toBe(false);
+      await setRolePublic(admin, key, true);
+      expect((await listRoles()).find((role) => role.key === key)?.isPublic).toBe(true);
+      await expect(grantRolePermission(admin, key, "admin.users", 0)).rejects.toThrow(/公开身份/);
+
+      await setRolePublic(admin, key, false);
+      await getWebDb().insert(roleGrants).values({
+        roleKey: key,
+        permissionKey: "admin.users",
+        scopeId: 0,
+      });
+      try {
+        await expect(setRolePublic(admin, key, true)).rejects.toThrow(/后台管理权限/);
+      } finally {
+        await getWebDb()
+          .delete(roleGrants)
+          .where(
+            and(
+              eq(roleGrants.roleKey, key),
+              eq(roleGrants.permissionKey, "admin.users"),
+              eq(roleGrants.scopeId, 0),
+            ),
+          );
+      }
+    });
+
     it("grant：校验角色/权限点/作用域；幂等；提权护栏；生效即时（快照失效）", async () => {
       await expect(grantRolePermission(admin, "no-such", "forum.read", 0)).rejects.toThrow(
         /角色不存在/,
@@ -251,6 +297,9 @@ describe.skipIf(skipDb)("权限内核 · 真实 MySQL", () => {
       await expect(assignUserRole(admin, DEMO.member, "team-media", 424242)).rejects.toThrow(
         /版块不存在/,
       );
+      await expect(
+        assignUserRole(admin, DEMO.member, "team-media", 0, "2000-01-01 00:00:00"),
+      ).rejects.toThrow(/未来北京时间/);
       await revokeUserRole(admin, DEMO.member, "team-media", 0);
       const s = await loadSubject(DEMO.member);
       expect(s.roles.map((r) => r.key)).toEqual(["member"]);
@@ -272,6 +321,7 @@ describe.skipIf(skipDb)("权限内核 · 真实 MySQL", () => {
           scopeId: 0,
           action: "granted",
           operatorId: DEMO.admin,
+          expiresAt: null,
         },
         {
           userId: DEMO.member,
@@ -279,6 +329,7 @@ describe.skipIf(skipDb)("权限内核 · 真实 MySQL", () => {
           scopeId: 0,
           action: "revoked",
           operatorId: DEMO.admin,
+          expiresAt: null,
         },
       ]);
     });

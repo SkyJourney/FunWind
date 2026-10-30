@@ -7,6 +7,8 @@ import { AdminError } from "@/lib/authz/admin";
 import { defineAction } from "@/lib/actions/define-action";
 import { createRestriction, liftRestriction } from "@/lib/authz/restrictions-admin";
 import { assignUserRole, revokeUserRole } from "@/lib/authz/admin";
+import { isTeamMembershipRole } from "@/lib/authz/team-role-mapping";
+import { assignTeamMembership, revokeTeamMembership } from "@/lib/authz/team-membership";
 
 /** 用户管理 Server Actions（M9，admin.users）：限制创建/解除、角色授予/撤销（复用 M5 服务）。 */
 
@@ -85,6 +87,7 @@ const assignRoleInput = z.object({
   userId: z.coerce.number().int().positive(),
   roleKey: z.string().max(64),
   scopeId: z.coerce.number().int().min(0).default(0),
+  expiresAt: z.string().max(32).default(""),
 });
 export const assignRoleAction = defineAction({
   name: "admin.user_role.assign",
@@ -92,8 +95,25 @@ export const assignRoleAction = defineAction({
   input: assignRoleInput,
   async run(ctx, input) {
     const back = `/admin/users/${input.userId}`;
+    const expiresAt =
+      input.expiresAt === "" ? null : `${input.expiresAt.replace("T", " ")}:00`.slice(0, 19);
     try {
-      await assignUserRole(actor(ctx.userId, ctx.ip), input.userId, input.roleKey, input.scopeId);
+      if (isTeamMembershipRole(input.roleKey)) {
+        if (input.scopeId !== 0) throw new AdminError("固定团队角色只能绑定为全站身份");
+        await assignTeamMembership(actor(ctx.userId, ctx.ip), {
+          userId: input.userId,
+          roleKey: input.roleKey,
+          expiresAt,
+        });
+      } else {
+        await assignUserRole(
+          actor(ctx.userId, ctx.ip),
+          input.userId,
+          input.roleKey,
+          input.scopeId,
+          expiresAt,
+        );
+      }
     } catch (e) {
       if (e instanceof AdminError) redirect(`${back}?error=${encodeURIComponent(e.message)}`);
       throw e;
@@ -114,7 +134,17 @@ export const revokeRoleAction = defineAction({
   input: revokeRoleInput,
   async run(ctx, input) {
     const back = `/admin/users/${input.userId}`;
-    await revokeUserRole(actor(ctx.userId, ctx.ip), input.userId, input.roleKey, input.scopeId);
+    try {
+      if (isTeamMembershipRole(input.roleKey)) {
+        if (input.scopeId !== 0) throw new AdminError("固定团队角色只能绑定为全站身份");
+        await revokeTeamMembership(actor(ctx.userId, ctx.ip), input.userId, input.roleKey);
+      } else {
+        await revokeUserRole(actor(ctx.userId, ctx.ip), input.userId, input.roleKey, input.scopeId);
+      }
+    } catch (e) {
+      if (e instanceof AdminError) redirect(`${back}?error=${encodeURIComponent(e.message)}`);
+      throw e;
+    }
     revalidatePath(back);
     redirect(`${back}?role=1`);
   },

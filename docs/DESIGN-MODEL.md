@@ -23,7 +23,7 @@
 
 | 表 | 要点 |
 |----|------|
-| `users` | `id`（保留 uid）、`username`、`username_key`（trim+小写，唯一）、`email`、`email_key`（唯一，可空）、`password_hash`、`email_verified_at`、`state(active\|deleted)`、`created_at`、`last_login_at`。已注销账号保留行与 UID，清个人信息；真实注销以 `account_deletion_requests.status=completed` 留 tombstone，迁移占位不使用运行时迁移标记 |
+| `users` | `id`（保留 uid）、`username`、`username_key`（trim+小写，唯一）、`email`、`email_key`（唯一，可空）、`password_hash`、`email_verified_at`、`email_verification_required`（注册时固定写入验证门）、`state(active\|deleted)`、`created_at`、`last_login_at`。已注销账号保留行与 UID，清个人信息；真实注销以 `account_deletion_requests.status=completed` 留 tombstone，迁移占位不使用运行时迁移标记 |
 | `user_profiles` | `bio`、`location`、`website`、`gender`、`birthday`、`signature_md`、`avatar_file_id` |
 | `user_stats` | 可重算的计数缓存：主题/帖子/精华/粉丝数、最后发帖时间 |
 | `user_restrictions` | `kind(ban\|forum_ban\|mute\|no_avatar\|no_signature)`、`scope_id`、起止时间、理由、操作者；`ban` 全站，`forum_ban` 按板块子树禁入 |
@@ -66,7 +66,7 @@
 
 ### 权限（4）——M5 架构沿用，微调
 
-`roles`、`permissions`（**去掉 `legacy_key`、`condition_params`**）、`role_grants`（`scope_id`）、`user_roles`（`scope_id`）。
+`roles`（`is_public` 显式控制前台身份展示，默认 false）、`permissions`（**去掉 `legacy_key`、`condition_params`**）、`role_grants`（`scope_id`）、`user_roles`（`scope_id`）。
 内置角色只有 `guest` / `member` / `admin`；团队角色是**站点数据**，由管理员创建（青翼的由迁移创建）。详见 [AUTHZ.md](AUTHZ.md)。
 
 ### 表情（2）

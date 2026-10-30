@@ -31,6 +31,17 @@ describe("通知渲染目录", () => {
     expect(renderNotification("no.such.type", {})).toBeNull();
   });
 
+  it("角色通知呈现公开范围与期限，不包含管理理由", () => {
+    expect(
+      renderNotification("account.role_changed", {
+        roleName: "字幕制作组",
+        actionText: "已授予",
+        scopeLabel: "板块范围",
+        validity: "有效至 2099-01-01 00:00:00",
+      })?.label,
+    ).toBe("你的角色「字幕制作组」已授予（板块范围，有效至 2099-01-01 00:00:00）");
+  });
+
   it("分类标签齐全", () => {
     expect(CATEGORY_LABELS.interaction).toBe("互动");
     expect(CATEGORY_LABELS.moderation).toBe("审核与管理");

@@ -1,5 +1,7 @@
+import { createHash } from "node:crypto";
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { emailTokens, getWebDb, users } from "@funwind/db";
+import type { DbTx } from "@/lib/audit";
 import { generateToken, hashToken } from "./token";
 
 /**
@@ -28,34 +30,61 @@ export const MAX_LIVE_TOKENS = 6;
  * （冷却时间一过就能再来一次，可以让你永远用不上链接）。现在未过期、未使用的旧令牌继续有效；
  * 只清理过期 / 已使用的行，超过上限时才删最旧的。令牌被成功消费时再作废其余的（见 consumeEmailToken）。
  */
-export async function issueEmailToken(userId: number, purpose: EmailTokenPurpose): Promise<string> {
-  const db = getWebDb();
+export async function issueEmailTokenInTx(
+  tx: DbTx,
+  userId: number,
+  purpose: EmailTokenPurpose,
+  expectedEmailKey?: string,
+): Promise<string> {
+  const [user] = await tx
+    .select({ emailKey: users.emailKey, state: users.state })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1)
+    .for("update");
+  if (!user || user.state !== "active" || !user.emailKey) {
+    throw new Error("无法为没有有效邮箱的账号签发邮件令牌");
+  }
+  if (expectedEmailKey !== undefined && user.emailKey !== expectedEmailKey) {
+    throw new Error("签发邮箱已变更");
+  }
+
   const mine = and(eq(emailTokens.userId, userId), eq(emailTokens.purpose, purpose));
-  // 过期或已使用的行没有保留价值
-  await db
+  await tx
     .delete(emailTokens)
     .where(
       and(mine, sql`(${emailTokens.usedAt} IS NOT NULL OR ${emailTokens.expiresAt} <= NOW())`),
     );
-  // 为新令牌腾出名额：保留最新的 MAX_LIVE_TOKENS - 1 个
-  const live = await db
+  const live = await tx
     .select({ id: emailTokens.id })
     .from(emailTokens)
     .where(mine)
     .orderBy(desc(emailTokens.createdAt));
   const evict = live.slice(MAX_LIVE_TOKENS - 1).map((r) => r.id);
-  if (evict.length > 0) await db.delete(emailTokens).where(inArray(emailTokens.id, evict));
+  if (evict.length > 0) await tx.delete(emailTokens).where(inArray(emailTokens.id, evict));
 
   const token = generateToken();
-  await db.insert(emailTokens).values({
+  await tx.insert(emailTokens).values({
     id: hashToken(token),
     purpose,
     userId,
+    emailKeySnapshot: hashEmailKey(user.emailKey),
     createdAt: sql`NOW()`,
     expiresAt: sql`NOW() + INTERVAL ${TTL_SEC[purpose]} SECOND`,
   });
   return token;
 }
+
+export async function issueEmailToken(
+  userId: number,
+  purpose: EmailTokenPurpose,
+  expectedEmailKey?: string,
+): Promise<string> {
+  return getWebDb().transaction((tx) => issueEmailTokenInTx(tx, userId, purpose, expectedEmailKey));
+}
+
+export const hashEmailKey = (emailKey: string): string =>
+  createHash("sha256").update(emailKey).digest("hex");
 
 /** 消费令牌（单次、原子）：返回 userId 或 null（无效/过期/已用） */
 export async function consumeEmailToken(
@@ -65,48 +94,72 @@ export async function consumeEmailToken(
   if (!token) return null;
   const db = getWebDb();
   const id = hashToken(token);
-  const result = await db
-    .update(emailTokens)
-    .set({ usedAt: sql`NOW()` })
-    .where(
-      and(
-        eq(emailTokens.id, id),
-        eq(emailTokens.purpose, purpose),
-        sql`${emailTokens.usedAt} IS NULL`,
-        sql`${emailTokens.expiresAt} > NOW()`,
-      ),
-    );
-  const affected = (result as unknown as [{ affectedRows: number }])[0]?.affectedRows ?? 0;
-  if (affected === 0) return null;
-  const rows = await db
+  const [candidate] = await db
     .select({ userId: emailTokens.userId })
     .from(emailTokens)
-    .where(eq(emailTokens.id, id))
+    .where(and(eq(emailTokens.id, id), eq(emailTokens.purpose, purpose)))
     .limit(1);
-  const userId = rows[0]?.userId ?? null;
-  if (userId !== null) {
-    // 一个令牌成功使用，同用户同用途的其余令牌一并作废：改完密码 / 认领完，之前发出的其他链接不该再能用
-    await db
+  if (!candidate) return null;
+
+  return db.transaction(async (tx) => {
+    const [user] = await tx
+      .select({ emailKey: users.emailKey, state: users.state })
+      .from(users)
+      .where(eq(users.id, candidate.userId))
+      .limit(1)
+      .for("update");
+    const [row] = await tx
+      .select({
+        userId: emailTokens.userId,
+        purpose: emailTokens.purpose,
+        emailKeySnapshot: emailTokens.emailKeySnapshot,
+        usedAt: emailTokens.usedAt,
+        isLive: sql<boolean>`${emailTokens.expiresAt} > NOW()`.mapWith(Boolean),
+      })
+      .from(emailTokens)
+      .where(eq(emailTokens.id, id))
+      .limit(1)
+      .for("update");
+    if (!row || row.userId !== candidate.userId || row.purpose !== purpose || row.usedAt !== null) {
+      return null;
+    }
+    if (!row.isLive) return null;
+    if (
+      !user ||
+      user.state !== "active" ||
+      !user.emailKey ||
+      row.emailKeySnapshot !== hashEmailKey(user.emailKey)
+    ) {
+      await tx.delete(emailTokens).where(eq(emailTokens.id, id));
+      return null;
+    }
+
+    const result = await tx
+      .update(emailTokens)
+      .set({ usedAt: sql`NOW()` })
+      .where(
+        and(
+          eq(emailTokens.id, id),
+          sql`${emailTokens.usedAt} IS NULL`,
+          sql`${emailTokens.expiresAt} > NOW()`,
+        ),
+      );
+    const affected = (result as unknown as [{ affectedRows: number }])[0]?.affectedRows ?? 0;
+    if (affected === 0) return null;
+
+    await tx
       .delete(emailTokens)
       .where(
         and(
-          eq(emailTokens.userId, userId),
+          eq(emailTokens.userId, candidate.userId),
           eq(emailTokens.purpose, purpose),
           ne(emailTokens.id, id),
         ),
       );
-    // 令牌经邮件投递且被成功消费，就证明用户控制该邮箱：reset / claim / verify 三种用途都记为已验证。
-    // 这样站点切到开放注册模式时，已认领的迁移用户不会被“邮箱未验证”规则拦在写操作之外。
-    await db
+    await tx
       .update(users)
       .set({ emailVerifiedAt: sql`NOW()` })
-      .where(
-        and(
-          eq(users.id, userId),
-          sql`${users.email} IS NOT NULL`,
-          sql`${users.emailVerifiedAt} IS NULL`,
-        ),
-      );
-  }
-  return userId;
+      .where(eq(users.id, candidate.userId));
+    return candidate.userId;
+  });
 }

@@ -127,6 +127,13 @@
       "when": 1793323379733,
       "tag": "0017_true_nehzno",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "5",
+      "when": 1793335537783,
+      "tag": "0018_m9_6_email_governance",
+      "breakpoints": true
     }
   ]
 }

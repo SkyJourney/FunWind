@@ -10,6 +10,7 @@ import {
   deleteCustomRole,
   grantRolePermission,
   revokeRolePermission,
+  setRolePublic,
 } from "@/lib/authz/admin";
 
 /**
@@ -60,6 +61,18 @@ export const deleteRoleAction = defineAction({
     await guarded("/admin/authz", () => deleteCustomRole(ctx.admin!, input.key));
     revalidatePath("/admin/authz");
     redirect("/admin/authz");
+  },
+});
+
+export const setRolePublicAction = defineAction({
+  name: "admin.role.visibility",
+  auth: { admin: "admin.roles" },
+  input: z.object({ roleKey: text(200), isPublic: z.enum(["on", "off"]) }),
+  async run(ctx, input) {
+    const back = `/admin/authz/${input.roleKey}`;
+    await guarded(back, () => setRolePublic(ctx.admin!, input.roleKey, input.isPublic === "on"));
+    revalidatePath(back);
+    redirect(`${back}?public=1`);
   },
 });
 

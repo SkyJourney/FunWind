@@ -36,16 +36,16 @@ export async function UserHoverCard({
   const [viewer, viewerSubject, customRoles] = await Promise.all([
     getCurrentUser(),
     getCurrentSubject(),
-    // 特殊组展示（M10.6d 站长反馈：字幕组等团队身份应在名片可见）：
-    // 只取 custom 角色（team-*），builtin（admin/member/guest）不上名片
+    // 只有显式公开的自定义身份可上名片；有版块作用域时明确标注，后台角色默认隐藏
     getWebDb()
-      .select({ name: roles.name })
+      .select({ name: roles.name, scopeId: userRoles.scopeId })
       .from(userRoles)
       .innerJoin(roles, eq(roles.key, userRoles.roleKey))
       .where(
         and(
           eq(userRoles.userId, uid),
           eq(roles.kind, "custom"),
+          eq(roles.isPublic, true),
           or(isNull(userRoles.expiresAt), sql`${userRoles.expiresAt} > NOW()`),
         ),
       )
@@ -81,10 +81,10 @@ export async function UserHoverCard({
         <div className="flex flex-wrap gap-1">
           {customRoles.map((r) => (
             <span
-              key={r.name}
+              key={`${r.name}:${r.scopeId}`}
               className="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary"
             >
-              {r.name}
+              {r.scopeId === 0 ? r.name : `${r.name} · 板块范围`}
             </span>
           ))}
         </div>

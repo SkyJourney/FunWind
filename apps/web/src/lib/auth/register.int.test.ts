@@ -42,10 +42,23 @@ describe.skipIf(skipDb)("注册事务 · 真实 MySQL", () => {
       emailKey: "new@example.com",
       state: "active",
       emailVerifiedAt: null,
+      emailVerificationRequired: false,
     });
     expect(
       await getWebDb().select().from(userProfiles).where(eq(userProfiles.userId, id)),
     ).toHaveLength(1);
+  });
+
+  it("将注册时的邮箱验证要求固定在用户行，后续不依赖注册模式", async () => {
+    const id = await registerUser(
+      input({
+        username: "需验证甲",
+        email: "required@example.com",
+        emailVerificationRequired: true,
+      }),
+    );
+    const [row] = await getWebDb().select().from(users).where(eq(users.id, id));
+    expect(row).toMatchObject({ emailVerifiedAt: null, emailVerificationRequired: true });
   });
 
   it("注册同事务建立 user_stats 行（计数全 0）；失败回滚时不留孤儿统计行", async () => {
@@ -166,11 +179,11 @@ describe.skipIf(skipDb)("注册事务 · 真实 MySQL", () => {
 
   it("没有邮箱的用户消费令牌不会被标记为已验证", async () => {
     const db = getWebDb();
+    const t = await issueEmailToken(DEMO.member, "reset");
     await db.execute(
       sql`UPDATE users SET email = NULL, email_key = NULL, email_verified_at = NULL WHERE id = ${DEMO.member}`,
     );
-    const t = await issueEmailToken(DEMO.member, "reset");
-    expect(await consumeEmailToken(t, "reset")).toBe(DEMO.member);
+    expect(await consumeEmailToken(t, "reset")).toBeNull();
     const [u] = await db.select().from(users).where(eq(users.id, DEMO.member));
     expect(u?.emailVerifiedAt).toBeNull();
   });

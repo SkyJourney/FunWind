@@ -53,7 +53,7 @@ export const REQUIRED_PAYLOAD_KEYS: Record<EventName, readonly string[]> = {
   "message.sent": ["conversationId", "messageId", "senderId", "recipientId"],
   "attachment.uploaded": ["attachmentId", "fileId", "uploaderId"],
   "restriction.changed": ["userId", "kind", "action", "operatorId"],
-  "role.changed": ["userId", "roleKey", "scopeId", "action", "operatorId"],
+  "role.changed": ["userId", "roleKey", "scopeId", "action", "operatorId", "expiresAt"],
   "announcement.published": ["announcementId", "createdBy"],
   "points.changed": ["userId", "channel", "delta"],
   "gate.unlocked": ["gateId", "userId", "authorId", "price"],

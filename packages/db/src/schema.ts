@@ -85,6 +85,8 @@ export const users = mysqlTable(
     /** true = 旧哈希可登录（登录后强制换新密）；判定源即本列，会话不加热点字段 */
     legacyPasswordPending: boolean("legacy_password_pending").notNull().default(false),
     emailVerifiedAt: dt("email_verified_at"),
+    /** 注册时固定的邮箱验证门；不随站点注册模式变更 */
+    emailVerificationRequired: boolean("email_verification_required").notNull().default(false),
     /** deleted = 已注销：保留行以维持引用完整，个人信息已清除 */
     state: mysqlEnum("state", ["active", "deleted"]).notNull().default("active"),
     createdAt: dt("created_at").notNull(),
@@ -839,6 +841,8 @@ export const roles = mysqlTable(
     name: varchar("name", { length: 64 }).notNull(),
     kind: mysqlEnum("kind", ["builtin", "custom"]).notNull(),
     description: varchar("description", { length: 255 }).notNull().default(""),
+    /** 允许公开展示的身份；后台权限角色默认不公开 */
+    isPublic: boolean("is_public").notNull().default(false),
   },
   (t) => [primaryKey({ columns: [t.key] })],
 );

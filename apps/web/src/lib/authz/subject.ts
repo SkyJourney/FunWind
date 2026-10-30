@@ -19,7 +19,10 @@ export async function loadSubject(userId: number | null): Promise<Subject> {
   const db = getWebDb();
   const [userRows, roleRows, restrictionRows, closureRows] = await Promise.all([
     db
-      .select({ emailVerifiedAt: users.emailVerifiedAt })
+      .select({
+        emailVerifiedAt: users.emailVerifiedAt,
+        emailVerificationRequired: users.emailVerificationRequired,
+      })
       .from(users)
       .where(
         and(
@@ -70,6 +73,7 @@ export async function loadSubject(userId: number | null): Promise<Subject> {
     ],
     restrictions: restrictionRows,
     emailVerified: user.emailVerifiedAt !== null,
+    emailVerificationRequired: user.emailVerificationRequired,
     registerMode,
   };
 }

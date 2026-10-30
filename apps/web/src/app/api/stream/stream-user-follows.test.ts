@@ -27,6 +27,7 @@ const subject = {
   roles: [],
   restrictions: [],
   emailVerified: true,
+  emailVerificationRequired: false,
   registerMode: "invite" as const,
 };
 const user = (uid: string, qs = "") =>

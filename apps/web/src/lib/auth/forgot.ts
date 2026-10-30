@@ -44,7 +44,7 @@ async function defaultDeliver(
   siteUrl?: string,
 ) {
   const purpose = user.hasPassword ? "reset" : "claim";
-  const token = await issueEmailToken(user.id, purpose);
+  const token = await issueEmailToken(user.id, purpose, normalizeKey(email));
   const link = `${siteUrl ?? APP_URL}/${purpose}/${token}`;
   // 站点身份可配（M10.6b）：未取到（调用方读取失败）回退模板默认站名
   await sendMail(

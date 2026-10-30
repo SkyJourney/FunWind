@@ -86,6 +86,7 @@ const user = (
   roles: [{ key: "member", scopeId: 0 }, ...roles],
   restrictions: [],
   emailVerified: true,
+  emailVerificationRequired: false,
   registerMode: "invite",
   ...over,
 });
@@ -306,16 +307,20 @@ describe("用户限制优先于授权", () => {
       restrictions: [{ kind: "no_signature", scopeId: 0, endsAt: null }],
     });
     expect(ok(unsignedAdmin, "sign.use")).toBe(false);
-    const unverifiedAdmin = user([role("admin")], { emailVerified: false, registerMode: "open" });
+    const unverifiedAdmin = user([role("admin")], {
+      emailVerified: false,
+      emailVerificationRequired: true,
+      registerMode: "open",
+    });
     expect(ok(unverifiedAdmin, "forum.write", 2)).toBe(false);
   });
 });
 
-describe("开放注册 · 邮箱未验证", () => {
+describe("账号级邮箱验证门", () => {
   const unverified = (mode: "open" | "invite") =>
-    user([], { emailVerified: false, registerMode: mode });
+    user([], { emailVerified: false, emailVerificationRequired: true, registerMode: mode });
 
-  it("开放注册 + 未验证：写类拒绝，读与非写类不受影响", () => {
+  it("需要验证的未验证账号：写类拒绝，读与非写类不受影响", () => {
     const s = unverified("open");
     expect(ok(s, "forum.write", 2)).toBe(false);
     expect(ok(s, "pm.send")).toBe(false);
@@ -324,14 +329,28 @@ describe("开放注册 · 邮箱未验证", () => {
     expect(ok(s, "forum.report", 2)).toBe(true);
   });
 
-  it("邀请制：未验证不影响（迁移用户的 email_verified_at 全为空）", () => {
-    const s = unverified("invite");
-    expect(ok(s, "forum.write", 2)).toBe(true);
-    expect(ok(s, "pm.send")).toBe(true);
+  it("账号级验证要求不随注册模式变化；未要求验证的账号也不受模式影响", () => {
+    expect(ok(unverified("invite"), "forum.write", 2)).toBe(false);
+    const optionalOpen = user([], {
+      emailVerified: false,
+      emailVerificationRequired: false,
+      registerMode: "open",
+    });
+    const optionalInvite = user([], {
+      emailVerified: false,
+      emailVerificationRequired: false,
+      registerMode: "invite",
+    });
+    expect(ok(optionalOpen, "forum.write", 2)).toBe(true);
+    expect(ok(optionalInvite, "forum.write", 2)).toBe(true);
   });
 
-  it("已验证的开放注册用户正常", () => {
-    const s = user([], { emailVerified: true, registerMode: "open" });
+  it("已验证的必需验证账号正常", () => {
+    const s = user([], {
+      emailVerified: true,
+      emailVerificationRequired: true,
+      registerMode: "open",
+    });
     expect(ok(s, "forum.write", 2)).toBe(true);
   });
 });

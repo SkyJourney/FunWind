@@ -22,6 +22,7 @@ beforeAll(async () => {
     roles: [{ key: "guest", scopeId: 0 }],
     restrictions: [],
     emailVerified: false,
+    emailVerificationRequired: false,
     registerMode: "invite",
   };
   team = await loadSubject(90006);

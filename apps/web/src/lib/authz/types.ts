@@ -25,6 +25,7 @@ export interface Subject {
   roles: RoleBinding[];
   restrictions: Restriction[];
   emailVerified: boolean;
+  emailVerificationRequired: boolean;
   registerMode: "invite" | "open";
 }
 
@@ -63,5 +64,6 @@ export const GUEST_SUBJECT: Subject = {
   roles: [{ key: "guest", scopeId: 0 }],
   restrictions: [],
   emailVerified: false,
+  emailVerificationRequired: false,
   registerMode: "invite",
 };

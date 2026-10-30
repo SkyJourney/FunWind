@@ -258,6 +258,14 @@ export default async function AdminUserDetailPage({ params, searchParams }: Para
                 defaultValue={0}
                 allLabel="全局"
               />
+              <label className="grid gap-1 text-xs text-muted-foreground">
+                到期时间（北京时间，空为永久）
+                <input
+                  name="expiresAt"
+                  type="datetime-local"
+                  className="rounded-lg border bg-background px-2.5 py-1.5 text-sm text-foreground"
+                />
+              </label>
               <SubmitButton
                 className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
                 pendingText="…"

@@ -110,6 +110,7 @@ export interface EventPayloads {
     scopeId: number;
     action: "granted" | "revoked";
     operatorId: number;
+    expiresAt: string | null;
   };
   "announcement.published": { announcementId: number; createdBy: number };
   "points.changed": { userId: number; channel: string; delta: number };

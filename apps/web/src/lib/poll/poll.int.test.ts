@@ -182,6 +182,7 @@ describe.skipIf(skipDb)("投票（M10）", () => {
       roles: [],
       restrictions: [],
       emailVerified: false,
+      emailVerificationRequired: false,
       registerMode: "invite",
     };
     const live = await makePoll(alice);
@@ -198,6 +199,7 @@ describe.skipIf(skipDb)("投票（M10）", () => {
       roles: [],
       restrictions: [],
       emailVerified: false,
+      emailVerificationRequired: false,
       registerMode: "invite",
     };
     const hidden = await getPollView(guest, threadId);
@@ -254,6 +256,7 @@ describe.skipIf(skipDb)("投票（M10）", () => {
       roles: [],
       restrictions: [],
       emailVerified: false,
+      emailVerificationRequired: false,
       registerMode: "invite",
     };
     // 游客在 always 下看得到计数（初始 0）

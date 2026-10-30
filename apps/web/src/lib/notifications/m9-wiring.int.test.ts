@@ -98,7 +98,14 @@ describe.skipIf(skipDb)("M9 通知生产方", () => {
   it("role.changed：granted → account.role_changed", async () => {
     await emit(
       "role.changed",
-      { userId: 90005, roleKey: "demo-team", scopeId: 0, action: "granted", operatorId: 90004 },
+      {
+        userId: 90005,
+        roleKey: "demo-team",
+        scopeId: 0,
+        action: "granted",
+        operatorId: 90004,
+        expiresAt: null,
+      },
       { source: "test" },
     );
     expect((await rowsOf(90005, "account.role_changed")).length).toBe(1);

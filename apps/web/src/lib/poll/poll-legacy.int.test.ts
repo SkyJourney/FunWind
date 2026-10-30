@@ -68,6 +68,7 @@ describe.skipIf(skipDb)("旧投票数据对照（M10）", () => {
           roles: [],
           restrictions: [],
           emailVerified: false,
+          emailVerificationRequired: false,
           registerMode: "invite",
         },
         sample.threadId,

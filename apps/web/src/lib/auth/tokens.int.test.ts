@@ -9,7 +9,8 @@ import { DEMO, emailTokens, getWebDb, users } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { hashToken } from "./token";
-import { MAX_LIVE_TOKENS, consumeEmailToken, issueEmailToken } from "./tokens";
+import { changeEmailAddress } from "./email-change";
+import { MAX_LIVE_TOKENS, consumeEmailToken, hashEmailKey, issueEmailToken } from "./tokens";
 
 let tdb: TempDb;
 
@@ -69,6 +70,85 @@ describe.skipIf(skipDb)("邮件令牌 · 真实 MySQL", () => {
   it("空令牌与随机串不消费任何东西", async () => {
     expect(await consumeEmailToken("", "reset")).toBeNull();
     expect(await consumeEmailToken("not-a-real-token", "reset")).toBeNull();
+  });
+
+  it("签发快照绑定当前 email_key；NULL 旧快照不能验证邮箱", async () => {
+    const [before] = await getWebDb()
+      .select({ emailKey: users.emailKey, emailVerifiedAt: users.emailVerifiedAt })
+      .from(users)
+      .where(eq(users.id, DEMO.member));
+    expect(before?.emailKey).toBeTruthy();
+    const token = await issueEmailToken(DEMO.member, "verify");
+    const tokenId = hashToken(token);
+    const [row] = await getWebDb()
+      .select({ emailKeySnapshot: emailTokens.emailKeySnapshot })
+      .from(emailTokens)
+      .where(eq(emailTokens.id, tokenId));
+    expect(row?.emailKeySnapshot).toBe(hashEmailKey(before!.emailKey!));
+
+    await getWebDb()
+      .update(emailTokens)
+      .set({ emailKeySnapshot: null })
+      .where(eq(emailTokens.id, tokenId));
+    expect(await consumeEmailToken(token, "verify")).toBeNull();
+    const [after] = await getWebDb()
+      .select({ emailVerifiedAt: users.emailVerifiedAt })
+      .from(users)
+      .where(eq(users.id, DEMO.member));
+    expect(after?.emailVerifiedAt).toBe(before?.emailVerifiedAt);
+  });
+
+  it("邮箱换绑原子作废所有旧用途令牌，并只验证新地址", async () => {
+    const userId = DEMO.xiaoyi;
+    const [before] = await getWebDb()
+      .select({
+        email: users.email,
+        emailKey: users.emailKey,
+        emailVerifiedAt: users.emailVerifiedAt,
+        emailVerificationRequired: users.emailVerificationRequired,
+      })
+      .from(users)
+      .where(eq(users.id, userId));
+    const oldTokens = await Promise.all(
+      (["reset", "verify", "claim"] as const).map((purpose) => issueEmailToken(userId, purpose)),
+    );
+    const email = `m96-step4-${userId}@example.com`;
+    const emailKey = email.toLowerCase();
+
+    try {
+      const changed = await changeEmailAddress(userId, email, emailKey, null);
+      expect(changed.kind).toBe("changed");
+      if (changed.kind !== "changed") return;
+      for (const [index, purpose] of (["reset", "verify", "claim"] as const).entries()) {
+        expect(await consumeEmailToken(oldTokens[index]!, purpose)).toBeNull();
+      }
+      const [verifyRow] = await getWebDb()
+        .select({ emailKeySnapshot: emailTokens.emailKeySnapshot })
+        .from(emailTokens)
+        .where(eq(emailTokens.id, hashToken(changed.verifyToken)));
+      expect(verifyRow?.emailKeySnapshot).toBe(hashEmailKey(emailKey));
+      expect(await consumeEmailToken(changed.verifyToken, "verify")).toBe(userId);
+      const [verified] = await getWebDb()
+        .select({
+          email: users.email,
+          emailKey: users.emailKey,
+          emailVerifiedAt: users.emailVerifiedAt,
+        })
+        .from(users)
+        .where(eq(users.id, userId));
+      expect(verified).toMatchObject({ email, emailKey, emailVerifiedAt: expect.any(String) });
+    } finally {
+      await getWebDb().delete(emailTokens).where(eq(emailTokens.userId, userId));
+      await getWebDb()
+        .update(users)
+        .set({
+          email: before?.email ?? null,
+          emailKey: before?.emailKey ?? null,
+          emailVerifiedAt: before?.emailVerifiedAt ?? null,
+          emailVerificationRequired: before?.emailVerificationRequired ?? false,
+        })
+        .where(eq(users.id, userId));
+    }
   });
 
   describe("共存与作废（M5.6 S3：别人替你请求找回，不能让你邮箱里已有的链接失效）", () => {

@@ -3,7 +3,7 @@ import type { AuthzSnapshot, Decision, GrantRow, Subject } from "./types";
 
 /**
  * 权限评估器（纯函数，零 SQL）。顺序与语义见 docs/AUTHZ.md §8.3：
- *   未知权限点 → 结构约束 → 用户限制 → 开放注册未验证邮箱 → admin 普通权限短路 → 按权限点类型分派
+ *   未知权限点 → 结构约束 → 用户限制 → 账号邮箱验证门 → admin 普通权限短路 → 按权限点类型分派
  *   forum.read   ：沿版块树取最近的非 inherit read_policy（public / members / restricted）
  *   forum.write  ：先过读判定，再取 write_policy（restricted 须在版块作用域持有授权，全局基线不算）；
  *                  目标是分区（kind=section）或自身 / 祖先已归档 → 一律拒绝（**含 admin**，在 admin 短路之前判定）；
@@ -13,7 +13,7 @@ import type { AuthzSnapshot, Decision, GrantRow, Subject } from "./types";
  */
 
 /**
- * 写类权限：会产生内容或社交副作用的动作。禁言与“开放注册未验证邮箱”拦截这一类权限；全站封禁另在限制阶段拒绝所有权限。
+ * 写类权限：会产生内容或社交副作用的动作。禁言与账号级邮箱验证门拦截这一类权限；全站封禁另在限制阶段拒绝所有权限。
  * 浏览、举报、参与投票、查看投票结果不在其中——禁言不应妨碍举报与投票。
  */
 export const WRITE_CLASS_KEYS: ReadonlySet<string> = new Set([
@@ -107,7 +107,7 @@ export function evaluate(
   if (
     isWrite &&
     subject.userId !== null &&
-    subject.registerMode === "open" &&
+    subject.emailVerificationRequired &&
     !subject.emailVerified
   ) {
     return deny("请先验证邮箱");

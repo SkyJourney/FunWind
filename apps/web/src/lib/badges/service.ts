@@ -69,8 +69,8 @@ export async function badgeDictionary() {
       isActive: badges.isActive,
     })
     .from(badges)
-    .where(eq(badges.isActive, true))
-    .orderBy(asc(badges.kind), asc(badges.sortOrder), asc(badges.id));
+    .where(and(eq(badges.isActive, true), eq(badges.kind, "honor")))
+    .orderBy(asc(badges.sortOrder), asc(badges.id));
 }
 
 export interface GrantBadgeRequest {
@@ -98,11 +98,17 @@ export async function grantBadgeByAdmin(
         if (!holder_user) throw new AdminError("目标用户不存在或已注销");
 
         const [badge] = await tx
-          .select({ id: badges.id, name: badges.name, isActive: badges.isActive })
+          .select({
+            id: badges.id,
+            name: badges.name,
+            kind: badges.kind,
+            isActive: badges.isActive,
+          })
           .from(badges)
           .where(eq(badges.id, req.badgeId))
           .limit(1);
         if (!badge || !badge.isActive) throw new AdminError("徽章不存在或已停用");
+        if (badge.kind === "team") throw new AdminError("团队徽章必须通过团队成员服务授予");
 
         const [holder] = await tx
           .select({ userId: userBadges.userId })
@@ -160,10 +166,11 @@ export async function revokeBadgeByAdmin(
       if (!holder) throw new AdminError("该用户未持有此徽章");
 
       const [badge] = await tx
-        .select({ name: badges.name })
+        .select({ name: badges.name, kind: badges.kind })
         .from(badges)
         .where(eq(badges.id, req.badgeId))
         .limit(1);
+      if (badge?.kind === "team") throw new AdminError("团队徽章必须通过团队成员服务收回");
 
       await tx
         .delete(userBadges)

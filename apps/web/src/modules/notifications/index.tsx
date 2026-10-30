@@ -4,7 +4,7 @@ import { notify } from "@/lib/notifications/notify";
 import { securityEmailEnabled, sendUserEmail, userEmailEnabled } from "@/lib/notifications/email";
 import { gateSoldMail, restrictionMail, contentApprovedMail } from "@/lib/auth/mailer";
 import { getForumModerators } from "@/lib/authz/service";
-import { getWebDb, posts, threads, users } from "@funwind/db";
+import { forums, getWebDb, posts, roles, threads, users } from "@funwind/db";
 import { eq } from "drizzle-orm";
 
 /**
@@ -258,19 +258,44 @@ export const notificationsModule = defineModule({
 
     "role.changed": async (p) => {
       if (p.userId === p.operatorId) return;
-      const [user] = await getWebDb()
-        .select({ username: users.username })
-        .from(users)
-        .where(eq(users.id, p.userId))
-        .limit(1);
+      const [[user], [role], forumRows] = await Promise.all([
+        getWebDb()
+          .select({ username: users.username })
+          .from(users)
+          .where(eq(users.id, p.userId))
+          .limit(1),
+        getWebDb()
+          .select({ name: roles.name })
+          .from(roles)
+          .where(eq(roles.key, p.roleKey))
+          .limit(1),
+        p.scopeId === 0
+          ? Promise.resolve([])
+          : getWebDb()
+              .select({ name: forums.name })
+              .from(forums)
+              .where(eq(forums.id, p.scopeId))
+              .limit(1),
+      ]);
+      const validity =
+        p.action === "revoked" ? "已移除" : p.expiresAt ? `有效至 ${p.expiresAt}` : "长期有效";
       await notify({
         type: "account.role_changed",
         recipients: [p.userId],
         actorId: p.operatorId,
         targetType: "user",
         targetId: p.userId,
-        dedupKey: () => `role:${p.userId}:${p.roleKey}:${p.scopeId}:${p.action}`,
-        data: { roleKey: p.roleKey, action: p.action, username: user?.username ?? "" },
+        dedupKey: () =>
+          `role:${p.userId}:${p.roleKey}:${p.scopeId}:${p.action}:${p.expiresAt ?? "none"}`,
+        data: {
+          roleKey: p.roleKey,
+          roleName: role?.name ?? p.roleKey,
+          action: p.action,
+          actionText: p.action === "granted" ? "已授予" : "已撤销",
+          scopeLabel: p.scopeId === 0 ? "全站" : `板块 ${forumRows[0]?.name ?? p.scopeId} 及子树`,
+          validity,
+          username: user?.username ?? "",
+        },
       });
     },
   },

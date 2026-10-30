@@ -15,6 +15,7 @@ const guest: Subject = {
   roles: [{ key: "guest", scopeId: 0 }],
   restrictions: [],
   emailVerified: false,
+  emailVerificationRequired: false,
   registerMode: "invite",
 };
 const db = () => getWebDb();

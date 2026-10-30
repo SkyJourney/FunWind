@@ -183,6 +183,8 @@ export const registerAction = defineAction({
     if (inviteAttempt && !inviteAttempt.allowed) fail("邀请码尝试过于频繁，请稍后再试");
 
     const passwordHash = await hashPassword(password);
+    const verificationMode = await getEmailVerificationMode();
+    const requiresEmailVerification = mode === "open" || verificationMode === "always";
 
     let newId: number;
     try {
@@ -190,6 +192,7 @@ export const registerAction = defineAction({
         username,
         email,
         passwordHash,
+        emailVerificationRequired: requiresEmailVerification,
         invite: mode === "invite" ? invite : null,
       });
     } catch (e) {
@@ -202,11 +205,9 @@ export const registerAction = defineAction({
     }
     inviteAttempt?.refund();
 
-    // 邮箱验证邮件（M10.6 收尾）：开放注册必发；邀请注册按后台「邮箱验证策略」决定（always=也发）
-    const verificationMode = await getEmailVerificationMode();
-    const shouldVerify = mode === "open" || verificationMode === "always";
-    if (shouldVerify) {
-      const token = await issueEmailToken(newId, "verify");
+    // 邮箱验证要求已写入用户行；注册模式后续切换不会改变该账号的写权限门。
+    if (requiresEmailVerification) {
+      const token = await issueEmailToken(newId, "verify", email);
       const { getSiteIdentity } = await import("@/lib/site-chrome");
       const identity = await getSiteIdentity().catch(() => undefined);
       await sendMail(
@@ -220,7 +221,7 @@ export const registerAction = defineAction({
       userAgent: (await headers()).get("user-agent") ?? "",
     });
     await safeEmit("user.registered", { userId: newId });
-    redirect(shouldVerify ? "/?notice=verify-email-sent" : "/");
+    redirect(requiresEmailVerification ? "/?notice=verify-email-sent" : "/");
   },
 });
 

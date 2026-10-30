@@ -181,7 +181,7 @@ export const NOTIFICATION_TYPE_SPECS: NotificationTypeSpec[] = [
     category: "moderation",
     aggregate: false,
     mandatory: true,
-    template: "你的角色发生了变化",
+    template: "你的角色「{roleName}」{actionText}（{scopeLabel}，{validity}）",
   },
   {
     key: "report.resolved",

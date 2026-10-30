@@ -9,6 +9,7 @@ import {
   bumpAutoIncrement,
   load,
   loadCompletedAccountDeletionIds,
+  newQuery,
   replaceAll,
   upsert,
 } from "./db.js";
@@ -186,6 +187,30 @@ export const usersStep: Step = {
     const avatarCountToImport = preserved.profiles.filter(
       (profile) => profile.avatarSource !== null,
     ).length;
+    const [registerModes, verificationModes] = await Promise.all([
+      newQuery<{ mode: string }>(
+        "SELECT JSON_UNQUOTE(JSON_EXTRACT(value, '$.mode')) AS mode FROM site_settings WHERE `key` = 'register.mode' LIMIT 1",
+      ),
+      newQuery<{ mode: string }>(
+        "SELECT JSON_UNQUOTE(JSON_EXTRACT(value, '$.mode')) AS mode FROM site_settings WHERE `key` = 'email.verification' LIMIT 1",
+      ),
+    ]);
+    const emailVerificationRequired =
+      registerModes[0]?.mode === "open" || verificationModes[0]?.mode === "always";
+    const importedIds = preserved.users.map((user) => user.id);
+    const existingActiveIds = new Set<number>();
+    for (let offset = 0; offset < importedIds.length; offset += 500) {
+      const batch = importedIds.slice(offset, offset + 500);
+      const placeholders = batch.map(() => "?").join(",");
+      const existing = await newQuery<{ id: number }>(
+        `SELECT id FROM users WHERE state = 'active' AND id IN (${placeholders})`,
+        batch,
+      );
+      for (const row of existing) existingActiveIds.add(Number(row.id));
+    }
+    const usersNeedingVerification = emailVerificationRequired
+      ? importedIds.filter((id) => !existingActiveIds.has(id))
+      : [];
     await upsert(
       "users",
       [
@@ -214,6 +239,14 @@ export const usersStep: Step = {
       })),
       ["id"],
     );
+    for (let offset = 0; offset < usersNeedingVerification.length; offset += 500) {
+      const batch = usersNeedingVerification.slice(offset, offset + 500);
+      const placeholders = batch.map(() => "?").join(",");
+      await newQuery(
+        `UPDATE users SET email_verification_required = 1 WHERE state = 'active' AND email_verified_at IS NULL AND id IN (${placeholders})`,
+        batch,
+      );
+    }
     await upsert(
       "user_profiles",
       ["user_id", "bio", "location", "website", "gender", "birthday", "signature_md"],
@@ -349,12 +382,13 @@ export const authzStep: Step = {
     // 团队角色是站点数据：由迁移创建（零数据部署不带任何团队角色）
     await upsert(
       "roles",
-      ["key", "name", "kind", "description"],
+      ["key", "name", "kind", "description", "is_public"],
       TEAM_ROLES.map((t) => ({
         key: t.key,
         name: t.name,
         kind: "custom",
         description: t.description,
+        is_public: false,
       })),
       ["key"],
     );
