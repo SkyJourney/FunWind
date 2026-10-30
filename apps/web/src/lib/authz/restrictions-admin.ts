@@ -17,7 +17,7 @@ import {
  * kind 语义沿用 M4/M5：ban（封禁）/ mute（禁言）/ no_avatar / no_signature；scope 0=全站。
  */
 
-export type RestrictionKind = "ban" | "mute" | "no_avatar" | "no_signature";
+export type RestrictionKind = "ban" | "forum_ban" | "mute" | "no_avatar" | "no_signature";
 
 export type RestrictionResult =
   | { ok: true }

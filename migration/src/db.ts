@@ -28,6 +28,14 @@ export async function newQuery<T = any>(sql: string, params: unknown[] = []): Pr
   return rows as T[];
 }
 
+/** 已完成注销账号是应用生命周期 tombstone，迁移重跑不得回填旧站个人信息。 */
+export async function loadCompletedAccountDeletionIds(): Promise<Set<number>> {
+  const rows = await newQuery<{ user_id: number }>(
+    "SELECT user_id FROM account_deletion_requests WHERE status = 'completed'",
+  );
+  return new Set(rows.map((row) => Number(row.user_id)));
+}
+
 export type Row = Record<string, unknown>;
 
 const q = (name: string) => `\`${name}\``;

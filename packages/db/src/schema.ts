@@ -20,12 +20,12 @@ import {
 } from "drizzle-orm/mysql-core";
 
 /**
- * qysub_next · schema v2.1（M5.5，单一事实源，决策 #10；设计依据 docs/DESIGN-MODEL.md；M7 增 event_outbox，共 45 表）
+ * qysub_next · schema v2.x（M5.5 起的单一事实源；M9.6 增用户注销记录、板块禁入与邮箱令牌地址快照）
  *
  * 设计原则：
- *  - 运行时 schema 不认识旧站：不出现 legacy_* / 迁移标记 / 迁移用 id 公式 / migration_* 表（schema-rules.ts 强制）
+ *  - 运行时 schema 不认识旧站：不出现 legacy_* / 旧站迁移字段 / 迁移用 id 公式 / migration_* 表（schema-rules.ts 强制）
  *  - 只保留 URL 必须稳定的 id（uid/fid/tid/pid）；主键均为 AUTO_INCREMENT，导入后把起点推到最大值之后
- *  - 引用诚实：每个 author_id 都指向 users 中真实存在的一行（已注销账号 = state=deleted 的占位行）
+ *  - 引用诚实：每个 author_id 都指向 users 中真实存在的一行（已注销账号保留 state=deleted 的用户行）
  *  - 唯一键不得依赖 NULL 去重来表达作用域/层级：全局作用域用 scope_id = 0 哨兵
  *    （例外：单列、且「空值 = 没有」本身就是期望语义，如 users.email_key）
  *  - 状态是一等属性（read_policy / state / user_restrictions），不靠「有没有记录」推断
@@ -140,8 +140,8 @@ export const userRestrictions = mysqlTable(
   {
     id: int("id", { unsigned: true }).notNull().autoincrement(),
     userId: int("user_id", { unsigned: true }).notNull(),
-    kind: mysqlEnum("kind", ["ban", "mute", "no_avatar", "no_signature"]).notNull(),
-    /** 0 = 全站；> 0 = 版块 id */
+    kind: mysqlEnum("kind", ["ban", "forum_ban", "mute", "no_avatar", "no_signature"]).notNull(),
+    /** 0 = 全站；forum_ban 必须为 >0，具体作用域由服务按板块树校验 */
     scopeId: int("scope_id", { unsigned: true }).notNull().default(0),
     reason: varchar("reason", { length: 255 }).notNull().default(""),
     startsAt: dt("starts_at").notNull(),
@@ -178,11 +178,36 @@ export const emailTokens = mysqlTable(
     id: varchar("id", { length: 64 }).notNull(), // 存 SHA-256(token)
     purpose: mysqlEnum("purpose", ["reset", "verify", "claim"]).notNull(),
     userId: int("user_id", { unsigned: true }).notNull(),
+    /** 签发时邮箱归一化键的 SHA-256；旧 token 为 NULL 并在消费时拒绝 */
+    emailKeySnapshot: varchar("email_key_snapshot", { length: 64 }),
     createdAt: dt("created_at").notNull(),
     expiresAt: dt("expires_at").notNull(),
     usedAt: dt("used_at"),
   },
   (t) => [primaryKey({ columns: [t.id] }), index("idx_et_user").on(t.userId, t.purpose)],
+);
+
+/** 账号注销申请与终态 tombstone；migration 只跳过已完成注销的真实用户 */
+export const accountDeletionRequests = mysqlTable(
+  "account_deletion_requests",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    userId: int("user_id", { unsigned: true }).notNull(),
+    status: mysqlEnum("status", ["pending", "cancelled", "completed"]).notNull().default("pending"),
+    requestedAt: dt("requested_at").notNull(),
+    scheduledAt: dt("scheduled_at").notNull(),
+    cancelledAt: dt("cancelled_at"),
+    completedAt: dt("completed_at"),
+    /** 仅存受控错误码，不写入原始异常或可能含 PII 的报错文本 */
+    attemptCount: int("attempt_count", { unsigned: true }).notNull().default(0),
+    lastAttemptAt: dt("last_attempt_at"),
+    lastErrorCode: varchar("last_error_code", { length: 64 }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    index("idx_adr_user_status").on(t.userId, t.status),
+    index("idx_adr_status_scheduled").on(t.status, t.scheduledAt),
+  ],
 );
 
 export const inviteCodes = mysqlTable(

@@ -98,7 +98,7 @@ export interface EventPayloads {
   "attachment.uploaded": { attachmentId: number; fileId: number; uploaderId: number };
   "restriction.changed": {
     userId: number;
-    kind: "ban" | "mute" | "no_avatar" | "no_signature";
+    kind: "ban" | "forum_ban" | "mute" | "no_avatar" | "no_signature";
     action: "created" | "lifted";
     operatorId: number;
     reason?: string;

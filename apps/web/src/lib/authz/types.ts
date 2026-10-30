@@ -13,7 +13,7 @@ export interface RoleBinding {
 
 /** 当前生效的用户限制（过期与未开始的已在加载时过滤） */
 export interface Restriction {
-  kind: "ban" | "mute" | "no_avatar" | "no_signature";
+  kind: "ban" | "forum_ban" | "mute" | "no_avatar" | "no_signature";
   /** 0 = 全站；>0 = 版块（含子树） */
   scopeId: number;
   endsAt: string | null;

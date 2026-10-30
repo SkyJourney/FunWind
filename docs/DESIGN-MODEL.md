@@ -1,4 +1,4 @@
-# 目标数据模型（schema v2.1）· 设计先行
+# 目标数据模型（schema v2.x）· 设计先行
 
 > 状态：2026-10-23 站长确认。本文是**数据模型的单一设计依据**：先按现代论坛的设计原则定下新系统，
 > 旧数据向它靠拢；迁移程序只是适配层。冲突时以本文为准（BLUEPRINT §3 的 v1/v2 映射表仅作历史对照）。
@@ -17,17 +17,18 @@
 7. **扩展点前置抽象**：积分渠道、门控解锁条件、通知类型与投递渠道，均为模块内核的注册边界；新增能力 = 新模块注册。
 8. **内容只有 Markdown**：不产生也不存储内联样式（见 §6）。
 
-## 2. 表清单（43 张）
+## 2. 表清单（49 张）
 
-### 身份（8）
+### 身份（9）
 
 | 表 | 要点 |
 |----|------|
-| `users` | `id`（保留 uid）、`username`、`username_key`（trim+小写，唯一）、`email`、`email_key`（唯一，可空）、`password_hash`、`email_verified_at`、`state(active\|deleted)`、`created_at`、`last_login_at`。已注销账号保留行：`state=deleted`，用户名「已注销用户#id」，无邮箱无密码 |
+| `users` | `id`（保留 uid）、`username`、`username_key`（trim+小写，唯一）、`email`、`email_key`（唯一，可空）、`password_hash`、`email_verified_at`、`state(active\|deleted)`、`created_at`、`last_login_at`。已注销账号保留行与 UID，清个人信息；真实注销以 `account_deletion_requests.status=completed` 留 tombstone，迁移占位不使用运行时迁移标记 |
 | `user_profiles` | `bio`、`location`、`website`、`gender`、`birthday`、`signature_md`、`avatar_file_id` |
 | `user_stats` | 可重算的计数缓存：主题/帖子/精华/粉丝数、最后发帖时间 |
-| `user_restrictions` | `kind(ban\|mute\|no_avatar\|no_signature)`、`scope_id`、起止时间、理由、操作者 |
-| `sessions`、`email_tokens`、`invite_codes`、`site_settings` | 认证与站点配置，沿用 |
+| `user_restrictions` | `kind(ban\|forum_ban\|mute\|no_avatar\|no_signature)`、`scope_id`、起止时间、理由、操作者；`ban` 全站，`forum_ban` 按板块子树禁入 |
+| `sessions`、`email_tokens`、`invite_codes`、`site_settings` | 认证与站点配置；`email_tokens.email_key_snapshot` 绑定令牌签发地址 |
+| `account_deletion_requests` | 注销申请历史与状态：`pending/cancelled/completed`；完成记录作为真实账号注销 tombstone，并支持 30 天待完成任务重试 |
 
 ### 版块（2）
 
@@ -36,7 +37,7 @@
 | `forums` | 邻接表 `parent_id` + 物化路径 `path`/`depth`、`kind(section\|forum)`、`name`、`description`、`icon_key`（板块图，M9.5 schema v2.4：内容寻址 storage key 走 /files/<key>，NULL=无图）、`sort_order`；策略三件套 `read_policy`（inherit\|public\|members\|restricted）、`write_policy`（inherit\|members\|restricted）、`review_policy`（inherit\|none\|threads\|all）；`is_listed`、`is_archived`；可重算缓存 `thread_count`/`post_count`/`last_post_*` |
 | `forum_prefixes` | 主题前缀 |
 
-### 内容（9）
+### 内容与治理（10）
 
 | 表 | 要点 |
 |----|------|
@@ -44,7 +45,8 @@
 | `posts` | 统一 post 模型：首帖 = `floor 1`。`thread_id`、`floor`（`(thread_id, floor)` 唯一）、`author_id`、`body_md`（仅公开部分）、`reply_to_post_id`、`has_gate`、`state`、`like_count`、`created_at`、`edited_at` |
 | `post_gates` | 门控：自增 `id`、`post_id`、**`gate_key`**（帖内唯一的短键，`(post_id, gate_key)` 唯一；正文占位引用它）、`conditions` JSON、`match_mode`、`hidden_md`、`unlock_count` |
 | `gate_unlocks` | `(gate_id, user_id)` 主键、`price_paid`、`author_income`、`ledger_id`、`unlocked_at` |
-| `content_reviews` | 审核历史：`post_id`、`reviewer_id`、`decision(approved\|rejected)`、`note`、`created_at` |
+| `content_reviews` | 审核历史：`post_id`、`reviewer_id`、`decision(approved\|rejected\|disabled)`、`note`、`created_at` |
+| `reports` | 内容举报：目标帖子、举报人、原因、状态、处理人和处理时间 |
 | `files` | **文件注册表**：`sha256`（唯一）、`storage_key`（由哈希派生）、`size_bytes`、`mime`、`width`、`height`、`created_at` |
 | `attachments` | 帖子的下载附件：`post_id`、`gate_id`（可空，NULL=公开；归属门控，见 `ATTACHMENT-GATES.md`）、`file_id`、`uploader_id`、`original_name`、`downloads`、`created_at` |
 | `tags`、`thread_tags` | 主题标签 |
@@ -67,9 +69,13 @@
 `roles`、`permissions`（**去掉 `legacy_key`、`condition_params`**）、`role_grants`（`scope_id`）、`user_roles`（`scope_id`）。
 内置角色只有 `guest` / `member` / `admin`；团队角色是**站点数据**，由管理员创建（青翼的由迁移创建）。详见 [AUTHZ.md](AUTHZ.md)。
 
-### 平台（3）
+### 表情（2）
 
-`event_log`、`module_state`、`audit_log`（**删除 `migration_state`**：迁移记录由对账报告承担，不进业务库）。
+`emoji_groups`、`emojis`。表情图片的存储仍由 `files` 管理。
+
+### 平台与上传（5）
+
+`event_log`、`event_outbox`、`module_state`、`audit_log`、`file_uploads`（**删除 `migration_state`**：迁移记录由对账报告承担，不进业务库）。
 
 ## 3. 关键字段的设计说明
 

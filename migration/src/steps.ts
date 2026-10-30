@@ -5,7 +5,13 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { config, toDatetime } from "./config.js";
-import { bumpAutoIncrement, load, replaceAll, upsert } from "./db.js";
+import {
+  bumpAutoIncrement,
+  load,
+  loadCompletedAccountDeletionIds,
+  replaceAll,
+  upsert,
+} from "./db.js";
 import {
   extractBans,
   extractBelong,
@@ -26,7 +32,12 @@ import { TEAM_ROLES } from "./mapping/legacy-roles.js";
 import { translateGlobalGrants, translateUserRoles } from "./transform/authz.js";
 import { transformForums } from "./transform/forums.js";
 import { plainConverter } from "./transform/plain.js";
-import { legacyAvatarKey, transformUsers } from "./transform/users.js";
+import {
+  filterCompletedAccountDeletions,
+  filterCompletedDeletionNotes,
+  legacyAvatarKey,
+  transformUsers,
+} from "./transform/users.js";
 import { transformRestrictions } from "./transform/restrictions.js";
 
 // ---------- 版块 ----------
@@ -165,6 +176,16 @@ export const usersStep: Step = {
       fallbackCreatedAt: "2010-01-01 00:00:00",
     });
 
+    const completedDeletionIds = await loadCompletedAccountDeletionIds();
+    const preserved = filterCompletedAccountDeletions(
+      result.users,
+      result.profiles,
+      completedDeletionIds,
+    );
+    const n = filterCompletedDeletionNotes(result.notes, completedDeletionIds);
+    const avatarCountToImport = preserved.profiles.filter(
+      (profile) => profile.avatarSource !== null,
+    ).length;
     await upsert(
       "users",
       [
@@ -179,7 +200,7 @@ export const usersStep: Step = {
         "created_at",
         "last_login_at",
       ],
-      result.users.map((u) => ({
+      preserved.users.map((u) => ({
         id: u.id,
         username: u.username,
         username_key: u.usernameKey,
@@ -196,7 +217,7 @@ export const usersStep: Step = {
     await upsert(
       "user_profiles",
       ["user_id", "bio", "location", "website", "gender", "birthday", "signature_md"],
-      result.profiles.map((p) => ({
+      preserved.profiles.map((p) => ({
         user_id: p.userId,
         bio: p.bio,
         location: p.location,
@@ -208,15 +229,16 @@ export const usersStep: Step = {
       ["user_id"],
     );
     await bumpAutoIncrement("users");
-    ctx.userIds = new Set(result.users.map((u) => u.id));
+    ctx.userIds = new Set(preserved.users.map((u) => u.id));
     ctx.avatarSources = new Map(
-      result.profiles.flatMap((p) => (p.avatarSource ? [[p.userId, p.avatarSource] as const] : [])),
+      preserved.profiles.flatMap((p) =>
+        p.avatarSource ? [[p.userId, p.avatarSource] as const] : [],
+      ),
     );
 
-    const n = result.notes;
     const s = ctx.report.section("用户");
     s.line(
-      `共 ${result.users.length} 人；spam 账号 ${n.excluded} 个不迁移（旧库即归档）；旧站有头像文件 ${n.avatars} 人（由文件管线入库）；密码一律不迁移（password_hash=NULL，走邮件认领）。`,
+      `旧站用户 ${result.users.length} 人；已完成注销 ${preserved.skipped} 人保留匿名终态、不回填旧资料；spam 账号 ${n.excluded} 个不迁移；入库头像 ${avatarCountToImport} 人；密码一律不迁移（password_hash=NULL，走邮件认领/重置）。`,
     );
     s.bullets([
       `用户名归一化冲突 ${n.usernameCollisions.length} 个${
@@ -253,7 +275,10 @@ export const usersStep: Step = {
       ["邮箱", "保留 uid", "已清空 uid"],
       n.duplicateEmails.map((d) => [d.email, d.keptUid, d.clearedUids.join("、")]),
     );
-    return { rows: result.users.length, note: `${n.excluded} spam 未迁 / ${n.avatars} 头像待入库` };
+    return {
+      rows: preserved.users.length,
+      note: `${n.excluded} spam 未迁 / ${avatarCountToImport} 头像待入库 / ${preserved.skipped} 注销用户保留终态`,
+    };
   },
 };
 

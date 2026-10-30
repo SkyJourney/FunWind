@@ -141,6 +141,7 @@ export function emailChangedConfirmMail(siteName: string = SITE_NAME): MailMessa
 
 const RESTRICTION_LABEL = {
   ban: "封禁",
+  forum_ban: "板块禁入",
   mute: "禁言",
   no_avatar: "禁用头像",
   no_signature: "禁用签名",

@@ -89,14 +89,25 @@ const spamUids = (
     GROUP BY t.created_userid`)
 ).map((r) => Number(r.uid));
 const NOT_SPAM = spamUids.length ? `NOT IN (${spamUids.join(",")})` : "IS NOT NULL";
+const completedDeletions = await newQuery<{ user_id: number }>(
+  "SELECT user_id FROM account_deletion_requests WHERE status = 'completed'",
+);
+const completedDeletionIds = new Set(completedDeletions.map((row) => Number(row.user_id)));
+const NOT_CLOSED = completedDeletionIds.size
+  ? `NOT IN (${[...completedDeletionIds].join(",")})`
+  : "IS NOT NULL";
 
 // ---------- 用户 ----------
 group = "用户";
 {
-  const realUsers = (await num("SELECT COUNT(*) n FROM nw_user")) - spamUids.length;
+  const oldUsers = await oldQuery<{ uid: number }>(`SELECT uid FROM nw_user WHERE uid ${NOT_SPAM}`);
+  const completedLegacyUsers = oldUsers.filter((user) =>
+    completedDeletionIds.has(Number(user.uid)),
+  );
+  const expectedActiveUsers = oldUsers.length - completedLegacyUsers.length;
   eq(
-    "真实用户数（旧用户 − spam 账号）",
-    realUsers,
+    "活跃真实用户数（旧用户 − spam − 已完成注销）",
+    expectedActiveUsers,
     await num("SELECT COUNT(*) n FROM users WHERE state = 'active'", newQuery),
   );
   eq(
@@ -131,9 +142,10 @@ group = "用户";
   add("spam 账号未作为真实用户迁入", spamLeak === 0, `${spamUids.length} 个，泄入 ${spamLeak}`);
 
   // 头像：旧站磁盘上有主图的真实用户数 = 带 avatar_file_id 的用户数
-  const olds = await oldQuery<{ uid: number }>(`SELECT uid FROM nw_user WHERE uid ${NOT_SPAM}`);
-  const expAvatars = olds.filter((r) =>
-    existsSync(join(config.attachmentDir, legacyAvatarKey(Number(r.uid)))),
+  const expAvatars = oldUsers.filter(
+    (r) =>
+      !completedDeletionIds.has(Number(r.uid)) &&
+      existsSync(join(config.attachmentDir, legacyAvatarKey(Number(r.uid)))),
   ).length;
   eq(
     "有头像的用户数（旧站磁盘上有主图）",
@@ -150,29 +162,46 @@ group = "用户";
   );
   add("内容作者/上传者都指向存在的用户", orphanAuthors === 0, `悬空 ${orphanAuthors}`);
   const useless = await num(
-    `SELECT COUNT(*) n FROM users u WHERE u.state = 'deleted'
-       AND NOT EXISTS (SELECT 1 FROM threads t WHERE t.author_id = u.id)
-       AND NOT EXISTS (SELECT 1 FROM posts p WHERE p.author_id = u.id)
-       AND NOT EXISTS (SELECT 1 FROM attachments a WHERE a.uploader_id = u.id)`,
+    `SELECT COUNT(*) n FROM users u
+       WHERE u.state = 'deleted'
+         AND NOT EXISTS (SELECT 1 FROM account_deletion_requests d WHERE d.user_id = u.id AND d.status = 'completed')
+         AND NOT EXISTS (SELECT 1 FROM threads t WHERE t.author_id = u.id)
+         AND NOT EXISTS (SELECT 1 FROM posts p WHERE p.author_id = u.id)
+         AND NOT EXISTS (SELECT 1 FROM attachments a WHERE a.uploader_id = u.id)`,
     newQuery,
   );
   add("占位账号都有内容（无多余占位）", useless === 0, `多余 ${useless}`);
   const phBad = await num(
-    `SELECT COUNT(*) n FROM users WHERE state = 'deleted'
-       AND (email IS NOT NULL OR password_hash IS NOT NULL OR username <> CONCAT('已注销用户#', id))`,
+    `SELECT COUNT(*) n FROM users u
+       WHERE u.state = 'deleted'
+         AND NOT EXISTS (SELECT 1 FROM account_deletion_requests d WHERE d.user_id = u.id AND d.status = 'completed')
+         AND (u.email IS NOT NULL OR u.password_hash IS NOT NULL OR u.username <> CONCAT('已注销用户#', u.id))`,
     newQuery,
   );
   add("占位账号无邮箱/密码且命名规范", phBad === 0, `异常 ${phBad}`);
   const phAssets = await num(
-    `SELECT (SELECT COUNT(*) FROM point_accounts a JOIN users u ON u.id = a.user_id WHERE u.state = 'deleted')
-          + (SELECT COUNT(*) FROM user_roles r JOIN users u ON u.id = r.user_id WHERE u.state = 'deleted')
-          + (SELECT COUNT(*) FROM user_badges b JOIN users u ON u.id = b.user_id WHERE u.state = 'deleted')
-          + (SELECT COUNT(*) FROM follows f JOIN users u ON u.id = f.user_id WHERE u.state = 'deleted')
-          + (SELECT COUNT(*) FROM reactions r JOIN users u ON u.id = r.user_id WHERE u.state = 'deleted')
-          + (SELECT COUNT(*) FROM gate_unlocks g JOIN users u ON u.id = g.user_id WHERE u.state = 'deleted') AS n`,
+    `SELECT (SELECT COUNT(*) FROM point_accounts a JOIN users u ON u.id = a.user_id WHERE u.state = 'deleted' AND NOT EXISTS (SELECT 1 FROM account_deletion_requests d WHERE d.user_id = u.id AND d.status = 'completed'))
+          + (SELECT COUNT(*) FROM user_roles r JOIN users u ON u.id = r.user_id WHERE u.state = 'deleted' AND NOT EXISTS (SELECT 1 FROM account_deletion_requests d WHERE d.user_id = u.id AND d.status = 'completed'))
+          + (SELECT COUNT(*) FROM user_badges b JOIN users u ON u.id = b.user_id WHERE u.state = 'deleted' AND NOT EXISTS (SELECT 1 FROM account_deletion_requests d WHERE d.user_id = u.id AND d.status = 'completed'))
+          + (SELECT COUNT(*) FROM follows f JOIN users u ON u.id = f.user_id WHERE u.state = 'deleted' AND NOT EXISTS (SELECT 1 FROM account_deletion_requests d WHERE d.user_id = u.id AND d.status = 'completed'))
+          + (SELECT COUNT(*) FROM reactions r JOIN users u ON u.id = r.user_id WHERE u.state = 'deleted' AND NOT EXISTS (SELECT 1 FROM account_deletion_requests d WHERE d.user_id = u.id AND d.status = 'completed'))
+          + (SELECT COUNT(*) FROM gate_unlocks g JOIN users u ON u.id = g.user_id WHERE u.state = 'deleted' AND NOT EXISTS (SELECT 1 FROM account_deletion_requests d WHERE d.user_id = u.id AND d.status = 'completed')) AS n`,
     newQuery,
   );
   add("占位账号不持有积分/角色/徽章/关注/点赞/解锁", phAssets === 0, `持有 ${phAssets}`);
+  const closedBad = await num(
+    `SELECT COUNT(*) n FROM account_deletion_requests d
+       LEFT JOIN users u ON u.id = d.user_id
+       WHERE d.status = 'completed'
+         AND (u.id IS NULL OR u.state <> 'deleted' OR u.email IS NOT NULL OR u.email_key IS NOT NULL
+           OR u.password_hash IS NOT NULL OR u.legacy_password_hash IS NOT NULL
+           OR u.legacy_password_pending <> 0 OR u.email_verified_at IS NOT NULL
+           OR EXISTS (SELECT 1 FROM user_profiles p WHERE p.user_id = u.id
+             AND (p.bio IS NOT NULL OR p.location <> '' OR p.website <> '' OR p.gender <> 0
+               OR p.birthday IS NOT NULL OR p.signature_md IS NOT NULL OR p.avatar_file_id IS NOT NULL)))`,
+    newQuery,
+  );
+  add("真实注销 tombstone 保持终态且无认证 PII", closedBad === 0, `异常 ${closedBad}`);
 }
 
 // ---------- 版块 ----------
@@ -292,12 +321,12 @@ group = "用户限制";
   const expMute = await num(
     `SELECT COUNT(*) n FROM (
        SELECT b.uid FROM nw_user_ban b JOIN nw_user u ON u.uid = b.uid
-        WHERE b.typeid = 1 AND (b.end_time = 0 OR b.end_time > ?) AND b.uid ${NOT_SPAM}
+        WHERE b.typeid = 1 AND (b.end_time = 0 OR b.end_time > ?) AND b.uid ${NOT_SPAM} AND b.uid ${NOT_CLOSED}
        UNION
-       SELECT uid FROM nw_user WHERE groupid = 6 AND uid ${NOT_SPAM}
+       SELECT uid FROM nw_user WHERE groupid = 6 AND uid ${NOT_SPAM} AND uid ${NOT_CLOSED}
        UNION
        SELECT bl.uid FROM nw_user_belong bl JOIN nw_user u ON u.uid = bl.uid
-        WHERE bl.gid = 6 AND (bl.endtime = 0 OR bl.endtime > ?) AND bl.uid ${NOT_SPAM}
+        WHERE bl.gid = 6 AND (bl.endtime = 0 OR bl.endtime > ?) AND bl.uid ${NOT_SPAM} AND bl.uid ${NOT_CLOSED}
      ) x`,
     oldQuery,
     [asOfUnix, asOfUnix],
@@ -318,7 +347,7 @@ group = "用户限制";
       `${kind} 条数`,
       await num(
         `SELECT COUNT(*) n FROM nw_user_ban b JOIN nw_user u ON u.uid = b.uid
-          WHERE b.typeid = ? AND (b.end_time = 0 OR b.end_time > ?) AND b.uid ${NOT_SPAM}`,
+          WHERE b.typeid = ? AND (b.end_time = 0 OR b.end_time > ?) AND b.uid ${NOT_SPAM} AND b.uid ${NOT_CLOSED}`,
         oldQuery,
         [typeid, asOfUnix],
       ),
@@ -382,10 +411,12 @@ group = "权限";
     const gids = role.gids.join(",");
     const expected = await num(
       `SELECT COUNT(*) n FROM (
-         SELECT u.uid FROM nw_user u WHERE u.groupid IN (${gids})
+         SELECT u.uid FROM nw_user u
+          WHERE u.groupid IN (${gids}) AND u.uid ${NOT_SPAM} AND u.uid ${NOT_CLOSED}
          UNION
          SELECT b.uid FROM nw_user_belong b JOIN nw_user u ON u.uid = b.uid
           WHERE b.gid IN (${gids}) AND (b.endtime = 0 OR b.endtime > ${asOfUnix})
+            AND b.uid ${NOT_SPAM} AND b.uid ${NOT_CLOSED}
        ) x`,
     );
     eq(
@@ -964,25 +995,41 @@ group = "积分";
   );
   add("每个账户余额 = 其台账之和", mismatch === 0, `不一致 ${mismatch}`);
 
-  // 独立推导：旧 credit1（非负，仅真实用户）+ 银行存款本金（仅真实用户）
-  const expected = await num(
-    `SELECT (SELECT COALESCE(SUM(GREATEST(d.credit1, 0)), 0) FROM nw_user_data d JOIN nw_user u ON u.uid = d.uid WHERE u.uid ${NOT_SPAM})
-          + (SELECT COALESCE(SUM(GREATEST(b.deposit, 0) + GREATEST(b.ddeposit, 0)), 0) FROM nw_app_bank b JOIN nw_user u ON u.uid = b.uid WHERE u.uid ${NOT_SPAM}) AS n`,
+  // 活跃迁入账户从旧数据独立推导；真实注销账户保留应用内现有余额与完整台账
+  const expectedImportedBalances = await num(
+    `SELECT (SELECT COALESCE(SUM(GREATEST(d.credit1, 0)), 0) FROM nw_user_data d JOIN nw_user u ON u.uid = d.uid WHERE u.uid ${NOT_SPAM} AND u.uid ${NOT_CLOSED})
+          + (SELECT COALESCE(SUM(GREATEST(b.deposit, 0) + GREATEST(b.ddeposit, 0)), 0) FROM nw_app_bank b JOIN nw_user u ON u.uid = b.uid WHERE u.uid ${NOT_SPAM} AND u.uid ${NOT_CLOSED}) AS n`,
   );
-  eq("期初余额总额（旧 credit1 + 银行本金，独立 SQL）", expected, Number(sums[0]!.accounts));
+  const retainedDeletedBalances = await num(
+    `SELECT COALESCE(SUM(a.balance), 0) n FROM point_accounts a
+      WHERE EXISTS (SELECT 1 FROM account_deletion_requests d
+        WHERE d.user_id = a.user_id AND d.status = 'completed')`,
+    newQuery,
+  );
+  eq(
+    "积分余额（活跃旧用户独立推导 + 已注销账号留存余额）",
+    expectedImportedBalances + retainedDeletedBalances,
+    Number(sums[0]!.accounts),
+  );
   const neg = await num("SELECT COUNT(*) n FROM point_accounts WHERE balance < 0", newQuery);
   add("没有负余额", neg === 0, `负余额 ${neg}`);
   const notOpening = await num(
-    "SELECT COUNT(*) n FROM point_ledger WHERE channel <> 'opening'",
+    `SELECT COUNT(*) n FROM point_ledger l WHERE l.channel <> 'opening'
+      AND NOT EXISTS (SELECT 1 FROM account_deletion_requests d
+        WHERE d.user_id = l.user_id AND d.status = 'completed')`,
     newQuery,
   );
-  add("台账只有期初分录（不迁旧流水）", notOpening === 0, `其他渠道 ${notOpening}`);
+  add(
+    "活跃迁入用户台账只有期初分录（注销账号保留既有历史）",
+    notOpening === 0,
+    `其他渠道 ${notOpening}`,
+  );
 
   // 签到：每个真实用户只保留最近一段连续签到——这里用另一种写法独立推导
   const days = await oldQuery<{ uid: number; d: string }>(
     `SELECT l.created_userid uid, DATE(DATE_ADD('1970-01-01', INTERVAL l.created_time + 28800 SECOND)) d
        FROM nw_credit_log l JOIN nw_user u ON u.uid = l.created_userid
-      WHERE l.logtype = 'punch' AND u.uid ${NOT_SPAM}
+      WHERE l.logtype = 'punch' AND u.uid ${NOT_SPAM} AND u.uid ${NOT_CLOSED}
       GROUP BY l.created_userid, d ORDER BY l.created_userid, d`,
   );
   const dayNo = (d: unknown) =>
@@ -1047,7 +1094,8 @@ group = "社交";
     "关注用户",
     await num(
       `SELECT COUNT(*) n FROM nw_attention a JOIN nw_user x ON x.uid = a.uid JOIN nw_user y ON y.uid = a.touid
-        WHERE a.uid <> a.touid AND a.uid ${NOT_SPAM} AND a.touid ${NOT_SPAM}`,
+        WHERE a.uid <> a.touid AND a.uid ${NOT_SPAM} AND a.touid ${NOT_SPAM}
+          AND a.uid ${NOT_CLOSED} AND a.touid ${NOT_CLOSED}`,
     ),
     await num("SELECT COUNT(*) n FROM follows WHERE target_type = 'user'", newQuery),
   );
@@ -1055,7 +1103,7 @@ group = "社交";
     "加入版块",
     await num(
       `SELECT COUNT(*) n FROM nw_bbs_forum_user j JOIN nw_user x ON x.uid = j.uid JOIN nw_bbs_forum f ON f.fid = j.fid
-        WHERE j.uid ${NOT_SPAM} AND j.fid IN (${keepFidSql})`,
+        WHERE j.uid ${NOT_SPAM} AND j.uid ${NOT_CLOSED} AND j.fid IN (${keepFidSql})`,
     ),
     await num("SELECT COUNT(*) n FROM follows WHERE target_type = 'forum'", newQuery),
   );
