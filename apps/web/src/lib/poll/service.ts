@@ -151,6 +151,15 @@ export async function vote(
     db.transaction(async (tx): Promise<VoteResult | null> => {
       // 每次尝试都从空开始（与 posting 同纪律）
       enqueued = [];
+      // 必须先锁 poll 行再做任何一致性读；RR 下若先普通 SELECT 建立旧快照，
+      // 等锁事务提交后再读 pollVotes 仍可能从旧快照取到旧票，不能真正串行化改票
+      const [lockedPoll] = await tx
+        .select({ id: polls.id })
+        .from(polls)
+        .where(eq(polls.threadId, threadId))
+        .limit(1)
+        .for("update");
+      if (!lockedPoll) return { ok: false, code: "not_found", message: "投票不存在" };
       const [poll] = await tx
         .select({
           id: polls.id,
@@ -165,7 +174,7 @@ export async function vote(
         .from(polls)
         .innerJoin(threads, eq(threads.id, polls.threadId))
         .innerJoin(posts, eq(posts.id, threads.firstPostId))
-        .where(eq(polls.threadId, threadId))
+        .where(eq(polls.id, lockedPoll.id))
         .limit(1);
       if (!poll) return { ok: false, code: "not_found", message: "投票不存在" };
       const snapshot = await getAuthzSnapshot();

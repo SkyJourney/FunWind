@@ -83,13 +83,24 @@ export default async function AdminContentsPage({
   const state = STATE_TABS.some((t) => t.key === sp.state)
     ? (sp.state as ContentStateFilter)
     : "all";
-  const page = Math.max(1, Number(sp.page ?? "1") || 1);
+  const page = Number(sp.page ?? "1") || 1;
 
   // 作用域：site.admin / admin.recycle 看全站；版主看所辖版块
   const scopeForumIds = isSiteAdmin.allowed || hasRecycle.allowed ? null : moderated;
 
-  const { items, total } = await listContentsPage({ kind, q, forumId, state, page, scopeForumIds });
-  const totalPages = Math.max(1, Math.ceil(total / 20));
+  const {
+    items,
+    total,
+    page: safePage,
+    totalPages,
+  } = await listContentsPage({
+    kind,
+    q,
+    forumId,
+    state,
+    page,
+    scopeForumIds,
+  });
 
   const baseQuery = (over: Record<string, string>) => {
     const p = new URLSearchParams();
@@ -341,7 +352,7 @@ export default async function AdminContentsPage({
         </ul>
       )}
 
-      <Pagination basePath={baseQuery({})} page={page} totalPages={totalPages} />
+      <Pagination basePath={baseQuery({})} page={safePage} totalPages={totalPages} />
     </div>
   );
 }

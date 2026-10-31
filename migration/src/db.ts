@@ -1,4 +1,4 @@
-import mysql from "mysql2/promise";
+import mysql, { type PoolConnection } from "mysql2/promise";
 import { createPool } from "@funwind/db";
 import { config } from "./config.js";
 
@@ -26,6 +26,32 @@ export const newPool = createPool(config.newDb);
 export async function newQuery<T = any>(sql: string, params: unknown[] = []): Promise<T[]> {
   const [rows] = await newPool.query(sql, params as any[]);
   return rows as T[];
+}
+
+export async function withNewTransaction<T>(
+  run: (connection: PoolConnection) => Promise<T>,
+): Promise<T> {
+  const connection = await newPool.getConnection();
+  let began = false;
+  try {
+    await connection.beginTransaction();
+    began = true;
+    const result = await run(connection);
+    await connection.commit();
+    began = false;
+    return result;
+  } catch (error) {
+    if (began) {
+      try {
+        await connection.rollback();
+      } catch (rollbackError) {
+        throw new AggregateError([error, rollbackError], "迁移事务失败且回滚失败");
+      }
+    }
+    throw error;
+  } finally {
+    connection.release();
+  }
 }
 
 /** 已完成注销账号是应用生命周期 tombstone，迁移重跑不得回填旧站个人信息。 */
@@ -106,21 +132,13 @@ export async function upsert(table: string, cols: string[], rows: Row[], keys: s
  * 好处是旧数据变化后重跑不会遗留过期授权。
  */
 export async function replaceAll(table: string, cols: string[], rows: Row[]) {
-  const conn = await newPool.getConnection();
-  try {
-    await conn.beginTransaction();
+  return withNewTransaction(async (conn) => {
     await conn.query(`DELETE FROM ${q(table)}`);
     for (const part of chunkRows(rows, cols)) {
       const { sql, values } = buildInsert(table, cols, part);
       await conn.query(sql, values);
     }
-    await conn.commit();
-  } catch (e) {
-    await conn.rollback();
-    throw e;
-  } finally {
-    conn.release();
-  }
+  });
 }
 
 /**

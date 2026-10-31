@@ -1,5 +1,5 @@
 import { and, eq, sql } from "drizzle-orm";
-import { getWebDb, pointAccounts, pointLedger } from "@funwind/db";
+import { getWebDb, insertIdOf, pointAccounts, pointLedger } from "@funwind/db";
 import type { DbTx } from "@/lib/audit";
 import { emit } from "@/modules/kernel/bus";
 import { BUILTIN_POINT_CHANNELS } from "@/modules/kernel/builtin";
@@ -138,17 +138,19 @@ export async function applyPointsInTx(
   if (balanceAfter < 0) throw new InsufficientPointsError(req.userId, balance, -req.delta);
   if (balanceAfter > MAX_BALANCE) throw new PointsOverflowError(req.userId, balance, req.delta);
 
-  const [inserted] = (await tx.insert(pointLedger).values({
-    userId: req.userId,
-    delta: req.delta,
-    balanceAfter,
-    channel: req.channel,
-    refType: req.ref?.type ?? null,
-    refId: req.ref?.id ?? null,
-    idempotencyKey: req.idempotencyKey,
-    note: req.note ?? "",
-    createdAt: sql`NOW()`,
-  })) as unknown as [{ insertId: number }];
+  const ledgerId = insertIdOf(
+    await tx.insert(pointLedger).values({
+      userId: req.userId,
+      delta: req.delta,
+      balanceAfter,
+      channel: req.channel,
+      refType: req.ref?.type ?? null,
+      refId: req.ref?.id ?? null,
+      idempotencyKey: req.idempotencyKey,
+      note: req.note ?? "",
+      createdAt: sql`NOW()`,
+    }),
+  );
 
   await tx
     .update(pointAccounts)
@@ -162,7 +164,7 @@ export async function applyPointsInTx(
 
   return {
     applied: true,
-    ledgerId: Number(inserted.insertId),
+    ledgerId,
     balanceAfter,
     event: { userId: req.userId, channel: req.channel, delta: req.delta },
   };

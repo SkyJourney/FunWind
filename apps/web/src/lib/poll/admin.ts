@@ -7,6 +7,7 @@ import { AdminError } from "@/lib/authz/admin";
 import { checkPermission } from "@/lib/authz/service";
 import type { DbTx } from "@/lib/audit";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
+import { pageBounds } from "@/lib/queries/paging";
 
 /**
  * 投票管理（M10 补做，admin.reports？否——用 forum.moderate 作用域 + site.admin 两级）：
@@ -45,7 +46,7 @@ export type PollPageFilters = {
  */
 export async function listPollPage(
   filters: PollPageFilters,
-): Promise<{ items: PollAdminItem[]; total: number }> {
+): Promise<{ items: PollAdminItem[]; total: number; page: number; totalPages: number }> {
   const { forums: forumsTable } = await import("@funwind/db");
   const perPage = filters.perPage ?? 20;
   const conds = [];
@@ -58,45 +59,47 @@ export async function listPollPage(
   if (filters.moderated) conds.push(inArray(threads.forumId, filters.moderated));
   const where = conds.length > 0 ? and(...conds) : undefined;
 
-  const [countRow, rows] = await Promise.all([
-    getWebDb()
-      .select({ total: sql<number>`COUNT(*)` })
-      .from(polls)
-      .innerJoin(threads, eq(threads.id, polls.threadId))
-      .where(where),
-    getWebDb()
-      .select({
-        pollId: polls.id,
-        threadId: polls.threadId,
-        title: threads.title,
-        forumId: threads.forumId,
-        forumName: forumsTable.name,
-        optionCount:
-          sql<number>`(SELECT COUNT(*) FROM poll_options po WHERE po.poll_id = ${polls.id})`.mapWith(
-            Number,
-          ),
-        totalVotes:
-          sql<number>`(SELECT COALESCE(SUM(po.vote_count), 0) FROM poll_options po WHERE po.poll_id = ${polls.id})`.mapWith(
-            Number,
-          ),
-        voterCount: polls.voterCount,
-        endsAt: polls.endsAt,
-      })
-      .from(polls)
-      .innerJoin(threads, eq(threads.id, polls.threadId))
-      .innerJoin(forumsTable, eq(forumsTable.id, threads.forumId))
-      .where(where)
-      .orderBy(desc(polls.id))
-      .limit(perPage)
-      .offset((filters.page - 1) * perPage),
-  ]);
+  const [countRow] = await getWebDb()
+    .select({ total: sql<number>`COUNT(*)` })
+    .from(polls)
+    .innerJoin(threads, eq(threads.id, polls.threadId))
+    .where(where);
+  const total = Number(countRow?.total ?? 0);
+  const { page, totalPages, offset } = pageBounds(total, filters.page, perPage);
+  const rows = await getWebDb()
+    .select({
+      pollId: polls.id,
+      threadId: polls.threadId,
+      title: threads.title,
+      forumId: threads.forumId,
+      forumName: forumsTable.name,
+      optionCount:
+        sql<number>`(SELECT COUNT(*) FROM poll_options po WHERE po.poll_id = ${polls.id})`.mapWith(
+          Number,
+        ),
+      totalVotes:
+        sql<number>`(SELECT COALESCE(SUM(po.vote_count), 0) FROM poll_options po WHERE po.poll_id = ${polls.id})`.mapWith(
+          Number,
+        ),
+      voterCount: polls.voterCount,
+      endsAt: polls.endsAt,
+    })
+    .from(polls)
+    .innerJoin(threads, eq(threads.id, polls.threadId))
+    .innerJoin(forumsTable, eq(forumsTable.id, threads.forumId))
+    .where(where)
+    .orderBy(desc(polls.id))
+    .limit(perPage)
+    .offset(offset);
 
   return {
     items: rows.map((r) => ({
       ...r,
       closed: r.endsAt !== null && r.endsAt <= nowBeijingWallTime(),
     })),
-    total: Number(countRow[0]?.total ?? 0),
+    total,
+    page,
+    totalPages,
   };
 }
 

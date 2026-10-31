@@ -2,7 +2,7 @@ import { and, asc, count, eq, gt } from "drizzle-orm";
 import { getWebDb, posts, threads, users } from "@funwind/db";
 import type { Subject } from "@/lib/authz/types";
 import type { ThreadListItem } from "./threads";
-import { clampPage } from "./paging";
+import { pageBounds } from "./paging";
 import { buildViewerScope, visiblePredicate } from "./visibility";
 import { publicUserDeleted, publicUserId, publicUsername } from "./public-identity";
 
@@ -52,8 +52,7 @@ export async function listReplies(
     .innerJoin(threads, eq(threads.id, posts.threadId))
     .where(where);
   const total = Number(nRow?.n ?? 0);
-  const totalPages = Math.max(1, Math.ceil(total / REPLIES_PER_PAGE));
-  const safePage = clampPage(page, totalPages);
+  const { page: safePage, totalPages, offset } = pageBounds(total, page, REPLIES_PER_PAGE);
 
   const rows = await db
     .select({
@@ -76,7 +75,7 @@ export async function listReplies(
     .where(where)
     .orderBy(asc(posts.floor))
     .limit(REPLIES_PER_PAGE)
-    .offset((safePage - 1) * REPLIES_PER_PAGE);
+    .offset(offset);
 
   const items: ReplyItem[] = rows.map(({ bodyMd, ...r }) => ({
     ...r,

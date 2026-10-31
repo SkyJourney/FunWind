@@ -21,13 +21,12 @@ export default async function AdminPmPage({
   await requireAdmin();
   const sp = await searchParams;
   const q = typeof sp.q === "string" ? sp.q : "";
-  const page = Math.max(1, Number(sp.page ?? "1") || 1);
+  const page = Number(sp.page ?? "1") || 1;
 
-  const [{ items, total, unknownUser }, stats] = await Promise.all([
+  const [{ items, page: safePage, totalPages, unknownUser }, stats] = await Promise.all([
     listPmMessagesPage({ q, page }),
     pmStats(),
   ]);
-  const totalPages = Math.max(1, Math.ceil(total / 20));
 
   const baseQuery = (over: Record<string, string>) => {
     const p = new URLSearchParams();
@@ -123,7 +122,7 @@ export default async function AdminPmPage({
         )}
       </ul>
 
-      <Pagination basePath={baseQuery({})} page={page} totalPages={totalPages} />
+      <Pagination basePath={baseQuery({})} page={safePage} totalPages={totalPages} />
     </div>
   );
 }

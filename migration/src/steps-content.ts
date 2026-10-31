@@ -4,7 +4,7 @@
  */
 import { copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { recountAll } from "@funwind/db";
+import { affectedRowsOf, recountAll } from "@funwind/db";
 import { config } from "./config.js";
 import {
   bumpAutoIncrement,
@@ -127,12 +127,14 @@ export const emojiStep: Step = {
         continue;
       }
       // INSERT IGNORE：新插 affectedRows=1，冲突跳过=0（newQuery 对 INSERT 返回 ResultSetHeader 本体）
-      const res = (await newQuery(
-        "INSERT IGNORE INTO emojis (id, group_id, name, keywords, ext, storage_key, sort, enabled, created_at, updated_at) " +
-          "VALUES (?, ?, ?, '', 'gif', NULL, ?, 1, NOW(), NOW())",
-        [p.id, gid, p.name, p.sort],
-      )) as unknown as { affectedRows: number };
-      emojisAdded += Number(res.affectedRows ?? 0) > 0 ? 1 : 0;
+      const affectedRows = affectedRowsOf(
+        await newQuery(
+          "INSERT IGNORE INTO emojis (id, group_id, name, keywords, ext, storage_key, sort, enabled, created_at, updated_at) " +
+            "VALUES (?, ?, ?, '', 'gif', NULL, ?, 1, NOW(), NOW())",
+          [p.id, gid, p.name, p.sort],
+        ),
+      );
+      emojisAdded += affectedRows > 0 ? 1 : 0;
     }
     if (noGroup.length) throw new Error(`表情缺少可归入的分组: ${noGroup.join(", ")}`);
     // 显式 id 导入后把自增拨到旧 id 之后，后台新上传的表情从接续 id 开始

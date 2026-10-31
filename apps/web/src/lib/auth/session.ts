@@ -2,8 +2,9 @@ import { cache } from "react";
 import { cookies } from "next/headers";
 import { and, eq, gt, inArray, ne, sql } from "drizzle-orm";
 import { accountDeletionRequests, getWebDb, sessions, userRestrictions, users } from "@funwind/db";
-import type { DbTx } from "@/lib/audit";
+import { writeAudit, type DbTx } from "@/lib/audit";
 import { restrictionActive } from "@/lib/authz/restrictions";
+import { consumeEmailTokenInTx, peekEmailTokenUserId, type EmailTokenPurpose } from "./tokens";
 import { generateToken, hashToken } from "./token";
 
 /**
@@ -290,19 +291,143 @@ export async function destroyCurrentSession(): Promise<void> {
   store.delete(CLOSURE_ACCESS_COOKIE);
 }
 
+/** 在调用方事务内吊销某用户全部会话 */
+export async function revokeAllForUserInTx(tx: DbTx, userId: number): Promise<void> {
+  await tx.delete(sessions).where(eq(sessions.userId, userId));
+}
+
 /** 改密/重置后吊销某用户全部会话 */
 export async function revokeAllForUser(userId: number): Promise<void> {
-  const db = getWebDb();
-  await db.delete(sessions).where(eq(sessions.userId, userId));
+  await getWebDb().transaction((tx) => revokeAllForUserInTx(tx, userId));
+}
+
+/** 在调用方事务内吊销**其他**会话（保留当前设备）；无当前令牌时不删任何行 */
+export async function revokeOtherSessionsInTx(
+  tx: DbTx,
+  userId: number,
+  currentToken: string | null,
+): Promise<void> {
+  if (!currentToken) return;
+  await tx
+    .delete(sessions)
+    .where(and(eq(sessions.userId, userId), ne(sessions.id, hashToken(currentToken))));
 }
 
 /** 改密后吊销**其他**会话（保留当前设备，用户不被踢出）；当前无会话 cookie 时不删任何行 */
 export async function revokeOtherSessions(userId: number): Promise<void> {
-  const store = await cookies();
-  const token = store.get(SESSION_COOKIE)?.value;
-  if (!token) return;
-  const db = getWebDb();
-  await db
-    .delete(sessions)
-    .where(and(eq(sessions.userId, userId), ne(sessions.id, hashToken(token))));
+  const token = (await cookies()).get(SESSION_COOKIE)?.value ?? null;
+  await getWebDb().transaction((tx) => revokeOtherSessionsInTx(tx, userId, token));
+}
+
+export type CredentialRotationResult =
+  | { ok: true; sessionToken: string }
+  | { ok: false; code: SessionCreationFailure | "already_claimed" };
+
+export type EmailTokenCredentialRotationResult =
+  | { ok: true; userId: number; sessionToken: string }
+  | { ok: false; code: "invalid_token" }
+  | { ok: false; userId: number; code: SessionCreationFailure | "already_claimed" };
+
+/** 在调用方事务中更新凭据、吊销旧会话、审计并建立新会话。 */
+export async function replaceCredentialsAndCreateSessionInTx(
+  tx: DbTx,
+  userId: number,
+  passwordHash: string,
+  meta: { ip?: string | null; userAgent?: string } = {},
+  options: { requireUnsetPassword?: boolean; auditAction?: string } = {},
+): Promise<CredentialRotationResult> {
+  const [user] = await tx
+    .select({
+      state: users.state,
+      passwordHash: users.passwordHash,
+      legacyPasswordPending: users.legacyPasswordPending,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1)
+    .for("update");
+  if (!user || user.state !== "active") return { ok: false, code: "not_active" };
+  if (options.requireUnsetPassword && user.passwordHash) {
+    return { ok: false, code: "already_claimed" };
+  }
+  const [closure] = await tx
+    .select({ id: accountDeletionRequests.id })
+    .from(accountDeletionRequests)
+    .where(
+      and(
+        eq(accountDeletionRequests.userId, userId),
+        inArray(accountDeletionRequests.status, ["pending", "completed"]),
+      ),
+    )
+    .limit(1)
+    .for("update");
+  if (closure) return { ok: false, code: "account_closing" };
+
+  await tx
+    .update(users)
+    .set({
+      passwordHash,
+      legacyPasswordHash: null,
+      legacyPasswordPending: false,
+    })
+    .where(eq(users.id, userId));
+  await revokeAllForUserInTx(tx, userId);
+  await writeAudit(tx, {
+    actorId: userId,
+    action: options.auditAction ?? "user.password.reset",
+    targetType: "user",
+    targetId: userId,
+    before: {
+      passwordConfigured: user.passwordHash !== null,
+      legacyPasswordPending: user.legacyPasswordPending,
+    },
+    after: { passwordConfigured: true, legacyPasswordPending: false, via: "self" },
+    ip: meta.ip,
+  });
+  try {
+    const sessionToken = await createSessionInTx(tx, userId, meta);
+    return { ok: true, sessionToken };
+  } catch (error) {
+    if (error instanceof SessionCreationError) return { ok: false, code: error.code };
+    throw error;
+  }
+}
+
+/** reset/claim 令牌消费与凭据轮换共用一个事务，避免先失效链接、后更新密码的崩溃窗口。 */
+export async function replaceCredentialsAndCreateSessionWithEmailToken(
+  token: string,
+  purpose: EmailTokenPurpose,
+  passwordHash: string,
+  meta: { ip?: string | null; userAgent?: string } = {},
+  options: { requireUnsetPassword?: boolean; auditAction?: string } = {},
+): Promise<EmailTokenCredentialRotationResult> {
+  const expectedUserId = await peekEmailTokenUserId(token, purpose);
+  if (expectedUserId === null) return { ok: false, code: "invalid_token" };
+
+  return getWebDb().transaction(async (tx) => {
+    const userId = await consumeEmailTokenInTx(tx, token, purpose);
+    if (userId === null || userId !== expectedUserId) {
+      return { ok: false, code: "invalid_token" };
+    }
+    const rotation = await replaceCredentialsAndCreateSessionInTx(
+      tx,
+      userId,
+      passwordHash,
+      meta,
+      options,
+    );
+    return { ...rotation, userId };
+  });
+}
+
+/** reset/claim 的凭据轮换事务：封禁时保留密码重置和旧会话吊销，但不签发新会话。 */
+export async function replaceCredentialsAndCreateSession(
+  userId: number,
+  passwordHash: string,
+  meta: { ip?: string | null; userAgent?: string } = {},
+  options: { requireUnsetPassword?: boolean; auditAction?: string } = {},
+): Promise<CredentialRotationResult> {
+  return getWebDb().transaction((tx) =>
+    replaceCredentialsAndCreateSessionInTx(tx, userId, passwordHash, meta, options),
+  );
 }

@@ -4,6 +4,7 @@ import type { ConfigActor } from "@/lib/audit";
 import { writeAudit } from "@/lib/audit";
 import { AdminError } from "@/lib/authz/admin";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
+import { pageBounds } from "@/lib/queries/paging";
 
 /**
  * 私信管理（M10 补做）：删除违规消息（软处理——标记正文，保留审计）与封禁私信
@@ -101,6 +102,8 @@ export async function listPmMessagesPage(filters: PmPageFilters): Promise<{
     createdAt: string;
   }[];
   total: number;
+  page: number;
+  totalPages: number;
   /** 用户名筛选命中不到人时的提示（与「无消息」区分） */
   unknownUser: boolean;
 }> {
@@ -117,30 +120,30 @@ export async function listPmMessagesPage(filters: PmPageFilters): Promise<{
         .from(users)
         .where(eq(users.username, q))
         .limit(1);
-      if (!u) return { items: [], total: 0, unknownUser: true };
+      if (!u) return { items: [], total: 0, page: 1, totalPages: 1, unknownUser: true };
       senderFilter = u.id;
     }
   }
 
   const where = senderFilter !== null ? eq(messages.senderId, senderFilter) : undefined;
-  const [countRow, rows] = await Promise.all([
-    getWebDb()
-      .select({ total: sql<number>`COUNT(*)` })
-      .from(messages)
-      .where(where),
-    getWebDb()
-      .select({
-        id: messages.id,
-        conversationId: messages.conversationId,
-        senderId: messages.senderId,
-        body: messages.body,
-        createdAt: messages.createdAt,
-      })
-      .from(messages)
-      .where(where)
-      .orderBy(desc(messages.id))
-      .limit(perPage)
-      .offset((filters.page - 1) * perPage),
-  ]);
-  return { items: rows, total: Number(countRow[0]?.total ?? 0), unknownUser };
+  const [countRow] = await getWebDb()
+    .select({ total: sql<number>`COUNT(*)` })
+    .from(messages)
+    .where(where);
+  const total = Number(countRow?.total ?? 0);
+  const { page, totalPages, offset } = pageBounds(total, filters.page, perPage);
+  const rows = await getWebDb()
+    .select({
+      id: messages.id,
+      conversationId: messages.conversationId,
+      senderId: messages.senderId,
+      body: messages.body,
+      createdAt: messages.createdAt,
+    })
+    .from(messages)
+    .where(where)
+    .orderBy(desc(messages.id))
+    .limit(perPage)
+    .offset(offset);
+  return { items: rows, total, page, totalPages, unknownUser };
 }

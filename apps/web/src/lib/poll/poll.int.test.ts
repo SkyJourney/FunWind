@@ -249,6 +249,23 @@ describe.skipIf(skipDb)("投票（M10）", () => {
     expect(opts[0]!.voteCount).toBe(1);
   });
 
+  it("并发改票（不同选项）：poll 行锁串行化，用户最终只持有 1 票", async () => {
+    const { threadId, pollId, optionIds } = await makePoll(alice);
+    const [a, b] = await Promise.all([
+      vote(team, threadId, [optionIds[0]!]),
+      vote(team, threadId, [optionIds[1]!]),
+    ]);
+    expect(a.ok && b.ok).toBe(true);
+    const votes = await db().select().from(pollVotes).where(eq(pollVotes.pollId, pollId));
+    expect(votes).toHaveLength(1);
+    const opts = await db()
+      .select()
+      .from(pollOptions)
+      .where(eq(pollOptions.pollId, pollId))
+      .orderBy(pollOptions.id);
+    expect(opts.map((o) => o.voteCount).sort((x, y) => y - x)).toEqual([1, 0]);
+  });
+
   it("always 可见性：游客也看得到计数；多人投票 voterCount 去重", async () => {
     const { threadId, pollId, optionIds } = await makePoll(alice, { resultVisibility: "always" });
     const guest: Subject = {

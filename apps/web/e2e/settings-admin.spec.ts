@@ -39,6 +39,13 @@ test("邀请码：生成 → 列表可用 → 撤销 → 消失", async ({ brows
   await admin.getByLabel("批次备注").fill("e2e 批次");
   await submitAndWait(admin, "生成");
   await expect(admin.getByText(/已生成 2 枚邀请码/)).toBeVisible();
+  await admin.goto("/admin/invites?page=999999");
+  const invitePageLabel = admin.getByText(/第 \d+\/\d+ 页/);
+  await expect(invitePageLabel).toBeVisible();
+  const invitePageMatch = (await invitePageLabel.textContent())?.match(/第 (\d+)\/(\d+) 页/);
+  expect(invitePageMatch).not.toBeNull();
+  expect(invitePageMatch?.[1]).toBe(invitePageMatch?.[2]);
+  await admin.goto("/admin/invites");
   const rows = admin.locator("div.rounded-lg.border").filter({ hasText: "e2e 批次" });
   await expect(rows).toHaveCount(2);
 
@@ -50,6 +57,19 @@ test("邀请码：生成 → 列表可用 → 撤销 → 消失", async ({ brows
 
   const after = await admin.getByText("可用", { exact: true }).count();
   expect(after).toBe(before + 1);
+  await ctx.close();
+});
+
+test("审计日志越界页码标签显示夹取后的实际页", async ({ browser }) => {
+  const ctx = await browser.newContext();
+  await loginAs(ctx, USERS.admin);
+  const admin = await ctx.newPage();
+  await admin.goto("/admin/logs?page=999999");
+  const pageLabel = admin.getByText(/共 \d+ 条 · 第 \d+\/\d+ 页/);
+  await expect(pageLabel).toBeVisible();
+  const pageMatch = (await pageLabel.textContent())?.match(/第 (\d+)\/(\d+) 页/);
+  expect(pageMatch).not.toBeNull();
+  expect(pageMatch?.[1]).toBe(pageMatch?.[2]);
   await ctx.close();
 });
 

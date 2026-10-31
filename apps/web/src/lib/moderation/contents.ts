@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { forums, getWebDb, posts, threads, users } from "@funwind/db";
 import { publicUsername } from "@/lib/queries/public-identity";
+import { pageBounds } from "@/lib/queries/paging";
 
 /**
  * 内容管理查询（M9.5 §9.2-A）：后台跨主题/回帖的**定位**能力——
@@ -47,7 +48,7 @@ export interface ContentListItem {
 /** 内容管理列表（分页 + 定位筛选） */
 export async function listContentsPage(
   filters: ContentListFilters,
-): Promise<{ items: ContentListItem[]; total: number }> {
+): Promise<{ items: ContentListItem[]; total: number; page: number; totalPages: number }> {
   const perPage = filters.perPage ?? 20;
   const conds = [];
 
@@ -56,7 +57,7 @@ export async function listContentsPage(
   if (filters.state !== "all") conds.push(eq(stateCol, filters.state as never));
   if (filters.forumId) conds.push(eq(threads.forumId, filters.forumId));
   if (filters.scopeForumIds) {
-    if (filters.scopeForumIds.length === 0) return { items: [], total: 0 };
+    if (filters.scopeForumIds.length === 0) return { items: [], total: 0, page: 1, totalPages: 1 };
     conds.push(inArray(threads.forumId, filters.scopeForumIds));
   }
   const q = filters.q?.trim();
@@ -119,9 +120,22 @@ export async function listContentsPage(
 
   // 主题分支：以 threads 为主表（不 join threads——自连接会触发「Not unique table/alias」）；
   // 回帖分支：以 posts 为主表 join threads 取所属主题。
-  const rowsPromise =
+  const countRow =
     filters.kind === "thread"
-      ? base
+      ? await base
+          .select({ total: sql<number>`COUNT(*)` })
+          .from(threads)
+          .where(where)
+      : await base
+          .select({ total: sql<number>`COUNT(*)` })
+          .from(posts)
+          .innerJoin(threads, eq(threads.id, posts.threadId))
+          .where(where);
+  const total = Number(countRow[0]?.total ?? 0);
+  const { page, totalPages, offset } = pageBounds(total, filters.page, perPage);
+  const rows =
+    filters.kind === "thread"
+      ? await base
           .select(listSelect)
           .from(threads)
           .innerJoin(forums, eq(forums.id, threads.forumId))
@@ -129,8 +143,8 @@ export async function listContentsPage(
           .where(where)
           .orderBy(desc(threads.createdAt))
           .limit(perPage)
-          .offset((filters.page - 1) * perPage)
-      : base
+          .offset(offset)
+      : await base
           .select(listSelect)
           .from(posts)
           .innerJoin(threads, eq(threads.id, posts.threadId))
@@ -139,22 +153,9 @@ export async function listContentsPage(
           .where(where)
           .orderBy(desc(posts.createdAt))
           .limit(perPage)
-          .offset((filters.page - 1) * perPage);
+          .offset(offset);
 
-  const countPromise =
-    filters.kind === "thread"
-      ? base
-          .select({ total: sql<number>`COUNT(*)` })
-          .from(threads)
-          .where(where)
-      : base
-          .select({ total: sql<number>`COUNT(*)` })
-          .from(posts)
-          .innerJoin(threads, eq(threads.id, posts.threadId))
-          .where(where);
-
-  const [rows, countRow] = await Promise.all([rowsPromise, countPromise]);
-  return { items: rows, total: Number(countRow[0]?.total ?? 0) };
+  return { items: rows, total, page, totalPages };
 }
 
 /**

@@ -7,12 +7,13 @@ import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { getWebDb, notificationPreferences, userProfiles, users } from "@funwind/db";
 import { defineAction } from "@/lib/actions/define-action";
+import { writeAudit } from "@/lib/audit";
 import { rateLimit } from "@/lib/auth/ratelimit";
 import { checkPermission } from "@/lib/authz/service";
 import { getCurrentUser, getPasswordChangeUser } from "@/lib/auth/session";
 import { hashPassword, verifyLegacyPassword, verifyPassword } from "@/lib/auth/password";
 import { isValidEmail } from "@/lib/auth/email";
-import { MUST_CHANGE_COOKIE, revokeOtherSessions } from "@/lib/auth/session";
+import { MUST_CHANGE_COOKIE, revokeOtherSessionsInTx, SESSION_COOKIE } from "@/lib/auth/session";
 import { securityEmailEnabled, sendUserEmail } from "@/lib/notifications/email";
 import {
   emailChangedAlertMail,
@@ -21,7 +22,7 @@ import {
   sendMail,
 } from "@/lib/auth/mailer";
 import { getSiteIdentity } from "@/lib/site-chrome";
-import { issueEmailToken } from "@/lib/auth/tokens";
+import { hashEmailKey, issueEmailToken } from "@/lib/auth/tokens";
 import { changeEmailAddress } from "@/lib/auth/email-change";
 import { verifyEmailMail } from "@/lib/auth/mailer";
 import { APP_URL } from "@/lib/site";
@@ -94,15 +95,27 @@ export const updatePasswordAction = defineAction({
     const cur = await requireCurrentOk(ctx.userId!, input.current, ctx.passwordChangeOnly);
     if (!cur.ok) redirect(errHop("password", cur.code));
 
-    await getWebDb()
-      .update(users)
-      .set({
-        passwordHash: await hashPassword(input.password),
-        legacyPasswordHash: null, // 设密即销毁旧哈希凭据（双轨闭环）
-        legacyPasswordPending: false,
-      })
-      .where(eq(users.id, ctx.userId!));
-    await revokeOtherSessions(ctx.userId!);
+    const currentToken = (await cookies()).get(SESSION_COOKIE)?.value ?? null;
+    await getWebDb().transaction(async (tx) => {
+      await tx
+        .update(users)
+        .set({
+          passwordHash: await hashPassword(input.password),
+          legacyPasswordHash: null, // 设密即销毁旧哈希凭据（双轨闭环）
+          legacyPasswordPending: false,
+        })
+        .where(eq(users.id, ctx.userId!));
+      await revokeOtherSessionsInTx(tx, ctx.userId!, currentToken);
+      await writeAudit(tx, {
+        actorId: ctx.userId!,
+        action: "user.password.change",
+        targetType: "user",
+        targetId: ctx.userId!,
+        before: { passwordConfigured: user.passwordHashIsSet },
+        after: { passwordConfigured: true, legacyPasswordPending: false },
+        ip: ctx.ip,
+      });
+    });
     (await cookies()).delete(MUST_CHANGE_COOKIE);
     // S1 安全强制类（后台统一开关；docs/EMAIL-SCENARIOS.md）：改密即告知
     if (await securityEmailEnabled()) {
@@ -120,6 +133,15 @@ export const updateEmailAction = defineAction({
     email: text(254),
     current: text(PASSWORD_MAX),
   }),
+  // 错误凭据仍按操作者限尝试；目标地址额度在凭据验证通过且确认将发验证邮件后消费。
+  rateLimit: [
+    {
+      key: (ctx) => `email-change:${ctx.userId}`,
+      max: 5,
+      windowMs: 60 * 60_000,
+      onLimit: () => redirect(errHop("email", "操作过于频繁，请稍后再试")),
+    },
+  ],
   async run(ctx, input) {
     const user = await getCurrentUser();
     if (!user) redirect("/login");
@@ -132,7 +154,16 @@ export const updateEmailAction = defineAction({
 
     const key = email.toLowerCase();
     const securityOn = await securityEmailEnabled();
-    const result = await changeEmailAddress(ctx.userId!, email, key, ctx.ip);
+    const result = await changeEmailAddress(
+      ctx.userId!,
+      email,
+      key,
+      ctx.ip,
+      () => rateLimit(`email-change-to:${hashEmailKey(key)}`, 5, 60 * 60_000).allowed,
+    );
+    if (result.kind === "rate_limited") {
+      redirect(errHop("email", "该地址的验证邮件发送过于频繁，请稍后再试"));
+    }
     if (result.kind === "taken") redirect(errHop("email", "该邮箱已被其他账号使用"));
     if (result.kind === "missing") redirect("/login");
     if (result.kind === "unchanged") redirect("/settings/email");

@@ -6,6 +6,7 @@ import { requireAdmin } from "@/lib/authz/require-admin";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { Pagination } from "@/components/content/pagination";
+import { pageBounds } from "@/lib/queries/paging";
 import {
   createGroupAction,
   deleteGroupAction,
@@ -57,7 +58,7 @@ export default async function AdminEmojisPage({ searchParams }: Params) {
   const sp = await searchParams;
   const groupId = sp.group ? Number(sp.group) : null;
   const q = typeof sp.q === "string" ? sp.q.trim() : "";
-  const page = Math.max(1, Number(sp.page ?? "1") || 1);
+  const requestedPage = Number(sp.page ?? "1") || 1;
   const back = "/admin/emojis";
 
   const groups = await getWebDb()
@@ -75,32 +76,28 @@ export default async function AdminEmojisPage({ searchParams }: Params) {
     .orderBy(asc(emojiGroups.sort), asc(emojiGroups.id));
 
   // 组内表情：关键词过滤 + 分页 20（M9.5）——原无上限全量渲染（500 枚 ≈ 2500 form 节点）
-  const { selected, total, totalPages } = await (async () => {
+  const { selected, total, page, totalPages } = await (async () => {
     if (groupId === null || !Number.isInteger(groupId))
-      return { selected: [], total: 0, totalPages: 1 };
+      return { selected: [], total: 0, page: 1, totalPages: 1 };
     const perPage = 20;
     const conds = [eq(emojis.groupId, groupId)];
     if (q)
       conds.push(sql`(${emojis.name} LIKE ${`%${q}%`} OR ${emojis.keywords} LIKE ${`%${q}%`})`);
     const where = and(...conds);
-    const [countRow, rows] = await Promise.all([
-      getWebDb()
-        .select({ n: sql<number>`COUNT(*)` })
-        .from(emojis)
-        .where(where),
-      getWebDb()
-        .select()
-        .from(emojis)
-        .where(where)
-        .orderBy(asc(emojis.sort), asc(emojis.id))
-        .limit(perPage)
-        .offset((page - 1) * perPage),
-    ]);
-    return {
-      selected: rows,
-      total: Number(countRow[0]?.n ?? 0),
-      totalPages: Math.max(1, Math.ceil(Number(countRow[0]?.n ?? 0) / perPage)),
-    };
+    const [countRow] = await getWebDb()
+      .select({ n: sql<number>`COUNT(*)` })
+      .from(emojis)
+      .where(where);
+    const total = Number(countRow?.n ?? 0);
+    const bounds = pageBounds(total, requestedPage, perPage);
+    const selected = await getWebDb()
+      .select()
+      .from(emojis)
+      .where(where)
+      .orderBy(asc(emojis.sort), asc(emojis.id))
+      .limit(perPage)
+      .offset(bounds.offset);
+    return { selected, total, page: bounds.page, totalPages: bounds.totalPages };
   })();
 
   const saved = sp.saved ? SAVED[sp.saved] : undefined;

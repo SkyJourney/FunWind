@@ -7,6 +7,7 @@ import { transitionContent } from "@/lib/posting/transition";
 import { checkPermission } from "@/lib/authz/service";
 import type { Subject } from "@/lib/authz/types";
 import { publicUsername } from "@/lib/queries/public-identity";
+import { pageBounds } from "@/lib/queries/paging";
 import {
   dispatchOutboxRows,
   enqueueEventInTx,
@@ -315,10 +316,10 @@ export type ReviewQueueItem = {
 export async function listReviewPage(
   operator: Subject,
   opts: ReviewPageFilters,
-): Promise<{ items: ReviewQueueItem[]; total: number }> {
+): Promise<{ items: ReviewQueueItem[]; total: number; page: number; totalPages: number }> {
   const { buildViewerScope } = await import("@/lib/queries/visibility");
   const scope = await buildViewerScope(operator);
-  if (scope.moderated.length === 0) return { items: [], total: 0 };
+  if (scope.moderated.length === 0) return { items: [], total: 0, page: 1, totalPages: 1 };
   const { forums } = await import("@funwind/db");
 
   const perPage = opts.perPage ?? 20;
@@ -346,23 +347,23 @@ export async function listReviewPage(
     createdAt: posts.createdAt,
   };
 
-  const [countRow, rows] = await Promise.all([
-    getWebDb()
-      .select({ total: sql<number>`COUNT(*)` })
-      .from(posts)
-      .innerJoin(threads, eq(threads.id, posts.threadId))
-      .where(where),
-    getWebDb()
-      .select(listSelect)
-      .from(posts)
-      .innerJoin(threads, eq(threads.id, posts.threadId))
-      .innerJoin(forums, eq(forums.id, threads.forumId))
-      .leftJoin(users, eq(users.id, posts.authorId))
-      .where(where)
-      .orderBy(opts.tab === "pending" ? asc(posts.createdAt) : desc(posts.createdAt))
-      .limit(perPage)
-      .offset((opts.page - 1) * perPage),
-  ]);
+  const [countRow] = await getWebDb()
+    .select({ total: sql<number>`COUNT(*)` })
+    .from(posts)
+    .innerJoin(threads, eq(threads.id, posts.threadId))
+    .where(where);
+  const total = Number(countRow?.total ?? 0);
+  const { page, totalPages, offset } = pageBounds(total, opts.page, perPage);
+  const rows = await getWebDb()
+    .select(listSelect)
+    .from(posts)
+    .innerJoin(threads, eq(threads.id, posts.threadId))
+    .innerJoin(forums, eq(forums.id, threads.forumId))
+    .leftJoin(users, eq(users.id, posts.authorId))
+    .where(where)
+    .orderBy(opts.tab === "pending" ? asc(posts.createdAt) : desc(posts.createdAt))
+    .limit(perPage)
+    .offset(offset);
 
   return {
     items: rows.map((r) => ({
@@ -377,7 +378,9 @@ export async function listReviewPage(
       authorName: r.authorName,
       createdAt: r.createdAt,
     })),
-    total: Number(countRow[0]?.total ?? 0),
+    total,
+    page,
+    totalPages,
   };
 }
 

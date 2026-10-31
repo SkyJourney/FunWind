@@ -1,5 +1,6 @@
 import { and, desc, eq, gte, sql, type SQL } from "drizzle-orm";
 import { auditLog, eventLog, getWebDb } from "@funwind/db";
+import { pageBounds } from "@/lib/queries/paging";
 
 /**
  * 审计中心查询（M9）：audit_log 与 event_log 统一筛选/分页；CSV 行生成是纯函数（单测锚定转义）。
@@ -11,6 +12,9 @@ export interface LogFilter {
   /** ISO 日期下界（含） */
   since?: string;
   limit?: number;
+  /** 1-based 页码；提供时优先于 offset */
+  page?: number;
+  /** 0-based 直接偏移（仅 CSV / 有界内部查询使用） */
   offset?: number;
 }
 
@@ -26,6 +30,16 @@ export interface AuditLogRow {
   createdAt: string;
 }
 
+function boundedLimit(raw: number | undefined): number {
+  return Math.min(Math.max(1, Math.trunc(raw ?? 50) || 50), 200);
+}
+
+function boundedOffset(total: number, filter: LogFilter, limit: number): number {
+  if (filter.page !== undefined) return pageBounds(total, filter.page, limit).offset;
+  const raw = filter.offset ?? 0;
+  return Number.isFinite(raw) ? Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, Math.trunc(raw))) : 0;
+}
+
 export async function queryAuditLogs(
   filter: LogFilter = {},
 ): Promise<{ items: AuditLogRow[]; total: number }> {
@@ -39,14 +53,16 @@ export async function queryAuditLogs(
     .select({ n: sql<number>`COUNT(*)` })
     .from(auditLog)
     .where(where);
+  const total = Number(n);
+  const limit = boundedLimit(filter.limit);
   const items = await getWebDb()
     .select()
     .from(auditLog)
     .where(where)
     .orderBy(desc(auditLog.id))
-    .limit(Math.min(filter.limit ?? 50, 200))
-    .offset(filter.offset ?? 0);
-  return { items: items as AuditLogRow[], total: Number(n) };
+    .limit(limit)
+    .offset(boundedOffset(total, filter, limit));
+  return { items: items as AuditLogRow[], total };
 }
 
 export interface EventLogRowView {
@@ -71,14 +87,16 @@ export async function queryEventLogs(
     .select({ n: sql<number>`COUNT(*)` })
     .from(eventLog)
     .where(where);
+  const total = Number(n);
+  const limit = boundedLimit(filter.limit);
   const items = await getWebDb()
     .select()
     .from(eventLog)
     .where(where)
     .orderBy(desc(eventLog.id))
-    .limit(Math.min(filter.limit ?? 50, 200))
-    .offset(filter.offset ?? 0);
-  return { items: items as EventLogRowView[], total: Number(n) };
+    .limit(limit)
+    .offset(boundedOffset(total, filter, limit));
+  return { items: items as EventLogRowView[], total };
 }
 
 const CSV_HEADER = "id,created_at,action,actor_id,target_type,target_id,detail";

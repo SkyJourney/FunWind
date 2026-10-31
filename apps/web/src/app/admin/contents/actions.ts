@@ -46,7 +46,7 @@ export const approveContentAction = defineAction({
       via: "admin",
       ip: ctx.ip,
     });
-    if (!r.ok) redirect(`/t/0?error=${encodeURIComponent(r.message)}`);
+    if (!r.ok) redirect(`/admin/review?error=${encodeURIComponent(r.message)}`);
     revalidatePath("/admin/review");
     revalidatePath("/admin/contents");
     redirect("/admin/review?approved=1");

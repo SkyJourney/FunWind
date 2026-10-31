@@ -59,10 +59,14 @@ export default async function InvitesAdminPage({
     ? (sp.status as "all" | "available" | "used" | "expired")
     : "all";
   const batch = typeof sp.batch === "string" ? sp.batch : "";
-  const page = Math.max(1, Number(sp.page ?? "1") || 1);
+  const page = Number(sp.page ?? "1") || 1;
 
-  const { items, total } = await listInvitesPage({ status, batch, page });
-  const totalPages = Math.max(1, Math.ceil(total / 20));
+  const {
+    items,
+    total,
+    page: safePage,
+    totalPages,
+  } = await listInvitesPage({ status, batch, page });
 
   const baseQuery = (over: Record<string, string>) => {
     const p = new URLSearchParams();
@@ -201,7 +205,7 @@ export default async function InvitesAdminPage({
         <Card>
           <CardHeader>
             <CardTitle>
-              第 {page}/{totalPages} 页
+              第 {safePage}/{totalPages} 页
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-1.5">
@@ -252,7 +256,7 @@ export default async function InvitesAdminPage({
         </Card>
       )}
 
-      <Pagination basePath={baseQuery({})} page={page} totalPages={totalPages} />
+      <Pagination basePath={baseQuery({})} page={safePage} totalPages={totalPages} />
     </div>
   );
 }

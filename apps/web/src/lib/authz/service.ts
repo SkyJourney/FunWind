@@ -18,32 +18,12 @@ import type { Decision, Subject } from "./types";
  * 取代 M5 里“忽略传入 userId、偷偷读当前请求用户”的 checkPermission(userId, …)。
  */
 
-export class ForbiddenError extends Error {
-  constructor(
-    public readonly permissionKey: string,
-    public readonly reason: string,
-  ) {
-    super(`权限不足: ${permissionKey}（${reason}）`);
-    this.name = "ForbiddenError";
-  }
-}
-
 export async function checkPermission(
   subject: Subject,
   permissionKey: string,
   ctx: EvalContext = {},
 ): Promise<Decision> {
   return evaluate(subject, permissionKey, ctx, await getAuthzSnapshot());
-}
-
-/** 拒绝时抛 ForbiddenError（Server Action 入口用；页面层应捕获并按 404 处理） */
-export async function requirePermission(
-  subject: Subject,
-  permissionKey: string,
-  ctx: EvalContext = {},
-): Promise<void> {
-  const d = await checkPermission(subject, permissionKey, ctx);
-  if (!d.allowed) throw new ForbiddenError(permissionKey, d.reason);
 }
 
 /** 当前请求用户的便捷封装 */

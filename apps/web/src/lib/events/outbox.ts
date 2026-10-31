@@ -1,5 +1,5 @@
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
-import { eventOutbox, getWebDb } from "@funwind/db";
+import { eventOutbox, getWebDb, insertIdOf } from "@funwind/db";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import type { DbExecutor } from "@/lib/audit";
 import { emit } from "@/modules/kernel/bus";
@@ -47,15 +47,17 @@ export async function enqueueEventInTx(
   if (!isEventName(name)) throw new Error(`[outbox] 未注册的事件名: ${String(name)}`);
   const invalid = validateEventPayload(name, payload);
   if (invalid) throw new Error(`[outbox] ${name} 载荷非法: ${invalid}`);
-  const [row] = (await tx.insert(eventOutbox).values({
-    eventName: name,
-    payload: payload as object,
-    actorId: opts.actorId ?? null,
-    source: opts.source ?? null,
-    createdAt: nowBeijingWallTime(),
-  })) as unknown as [{ insertId: number }]; // insertId 只有 id 一列被用到；drizzle 的 mysql 返回形状收口与 points/apply.ts 同法
+  const id = insertIdOf(
+    await tx.insert(eventOutbox).values({
+      eventName: name,
+      payload: payload as object,
+      actorId: opts.actorId ?? null,
+      source: opts.source ?? null,
+      createdAt: nowBeijingWallTime(),
+    }),
+  );
   return {
-    id: Number(row.insertId),
+    id,
     name,
     payload,
     source: opts.source ?? null,

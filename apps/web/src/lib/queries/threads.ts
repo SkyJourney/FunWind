@@ -4,7 +4,7 @@ import { contentReviews, forumPrefixes, getWebDb, posts, threads, users } from "
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
-import { clampPage } from "./paging";
+import { pageBounds } from "./paging";
 import { buildViewerScope, visiblePredicate, type ViewerScope } from "./visibility";
 import { publicUserDeleted, publicUserId, publicUsername } from "./public-identity";
 
@@ -117,8 +117,7 @@ export async function listThreads(
 
   const [nRow] = await getWebDb().select({ n: count() }).from(threads).where(where);
   const total = Number(nRow?.n ?? 0);
-  const totalPages = Math.max(1, Math.ceil(total / THREADS_PER_PAGE));
-  const page = clampPage(opts.page, totalPages);
+  const { page, totalPages, offset } = pageBounds(total, opts.page, THREADS_PER_PAGE);
 
   const rows = await selectList(where)
     .orderBy(
@@ -127,7 +126,7 @@ export async function listThreads(
       desc(threads.id),
     )
     .limit(THREADS_PER_PAGE)
-    .offset((page - 1) * THREADS_PER_PAGE);
+    .offset(offset);
 
   let pinned: ThreadListItem[] = [];
   if (page === 1 && !prefixed && !tagFilter) {
@@ -203,7 +202,8 @@ export async function getHomeFeed(
   }
   if (listed.length === 0) return { items: [], hasMore: false, page: 1 };
 
-  const page = Math.max(1, Math.trunc(opts.page ?? 1) || 1);
+  // 首页流不查总数；以安全整数上限夹取输入，确保 OFFSET 始终可表示且为非负整数。
+  const { page, offset } = pageBounds(Number.MAX_SAFE_INTEGER, opts.page ?? 1, HOME_FEED_PAGE);
   const order =
     opts.sort === "new"
       ? [desc(threads.createdAt), desc(threads.id)]
@@ -213,7 +213,7 @@ export async function getHomeFeed(
   )
     .orderBy(...order)
     .limit(HOME_FEED_PAGE + 1)
-    .offset((page - 1) * HOME_FEED_PAGE);
+    .offset(offset);
 
   const hasMore = rows.length > HOME_FEED_PAGE;
   const items = rows.slice(0, HOME_FEED_PAGE).map((r) => toItem(r));

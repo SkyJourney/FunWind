@@ -5,6 +5,7 @@ import {
   conversationMembers,
   follows,
   getWebDb,
+  insertIdOf,
   messages,
   notifications,
   userProfiles,
@@ -20,6 +21,7 @@ import { limitsFor } from "@/lib/limits/load";
 import { publicUserId } from "@/lib/queries/public-identity";
 import { enqueueEventInTx, sweepPending } from "@/lib/events/outbox";
 import { isDuplicateKey } from "@/lib/auth/register";
+import { pageBounds } from "@/lib/queries/paging";
 
 /**
  * 私信（M10）：pairKey="小uid:大uid"（uq_conv_pair）一队一会话；发送事务=消息+成员 upsert+会话指针+
@@ -117,15 +119,6 @@ export async function sendMessage(
 
   const limits = await limitsFor(viewer);
   const perDay = limits.pmPerDay ?? 0;
-  if (perDay > 0) {
-    const [{ n }] = await getWebDb()
-      .select({ n: sql<number>`COUNT(*)` })
-      .from(messages)
-      .where(and(eq(messages.senderId, senderId), sql`DATE(${messages.createdAt}) = CURDATE()`));
-    if (Number(n) >= perDay) {
-      return { ok: false, code: "quota_exceeded", message: `今日私信已达上限（${perDay} 条）` };
-    }
-  }
 
   const failure = await withDeadlockRetry(() =>
     getWebDb().transaction(async (tx): Promise<SendResult | null> => {
@@ -137,6 +130,19 @@ export async function sendMessage(
         .for("update");
       if (lockedUsers.length !== 2 || lockedUsers.some((user) => user.state !== "active")) {
         return { ok: false, code: "not_found", message: "对方不存在或已注销" };
+      }
+
+      // 日配额在持有发送者行锁后判定：事务外计数会被并发请求同时通过（击穿每日上限）
+      if (perDay > 0) {
+        const [{ n }] = await tx
+          .select({ n: sql<number>`COUNT(*)` })
+          .from(messages)
+          .where(
+            and(eq(messages.senderId, senderId), sql`DATE(${messages.createdAt}) = CURDATE()`),
+          );
+        if (Number(n) >= perDay) {
+          return { ok: false, code: "quota_exceeded", message: `今日私信已达上限（${perDay} 条）` };
+        }
       }
 
       const [recipientClosure] = await tx
@@ -220,12 +226,14 @@ export async function sendMessage(
         }
       }
 
-      const [msgRow] = (await tx.insert(messages).values({
-        conversationId,
-        senderId,
-        body: text,
-        createdAt: nowBeijingWallTime(),
-      })) as unknown as [{ insertId: number }];
+      const messageId = insertIdOf(
+        await tx.insert(messages).values({
+          conversationId,
+          senderId,
+          body: text,
+          createdAt: nowBeijingWallTime(),
+        }),
+      );
       await tx
         .update(conversations)
         .set({ lastMessageAt: nowBeijingWallTime() })
@@ -234,7 +242,7 @@ export async function sendMessage(
       await enqueueEventInTx(
         tx,
         "message.sent",
-        { conversationId, messageId: Number(msgRow.insertId), senderId, recipientId },
+        { conversationId, messageId, senderId, recipientId },
         { actorId: senderId, source: "pm" },
       );
       return null;
@@ -316,8 +324,7 @@ export async function conversationMessages(
     .from(messages)
     .where(eq(messages.conversationId, conversationId));
   const total = Number(n);
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const safePage = Math.min(Math.max(1, page), totalPages);
+  const { page: safePage, totalPages, offset } = pageBounds(total, page, pageSize);
   const items =
     total === 0
       ? []
@@ -333,6 +340,6 @@ export async function conversationMessages(
           .where(eq(messages.conversationId, conversationId))
           .orderBy(asc(messages.id))
           .limit(pageSize)
-          .offset((safePage - 1) * pageSize);
+          .offset(offset);
   return { items, total, page: safePage, totalPages };
 }

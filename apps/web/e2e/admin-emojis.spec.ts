@@ -15,13 +15,22 @@ const SUFFIX = Date.now() % 100000;
 const GROUP_A = `E2E 表情组 A ${SUFFIX}`;
 const GROUP_B = `E2E 表情组 B ${SUFFIX}`;
 
-async function auditExists(action: string): Promise<boolean> {
+async function auditExists(action: string, targetType: string, targetId: number): Promise<boolean> {
   return withE2eDb(async (q) => {
     const rows = await q.query<{ id: number }>(
-      "SELECT id FROM audit_log WHERE action = ? ORDER BY id DESC LIMIT 1",
-      [action],
+      "SELECT id FROM audit_log WHERE action = ? AND target_type = ? AND target_id = ? ORDER BY id DESC LIMIT 1",
+      [action, targetType, String(targetId)],
     );
     return rows.length > 0;
+  });
+}
+
+async function groupIdOf(name: string): Promise<number> {
+  return withE2eDb(async (q) => {
+    const rows = await q.query<{ id: number }>("SELECT id FROM emoji_groups WHERE name = ?", [
+      name,
+    ]);
+    return Number(rows[0]!.id);
   });
 }
 
@@ -94,8 +103,8 @@ test("admin 全流程：建组 → 上传 → /emoji 可访问 → 改名/关键
   const served = await request.get(`/emoji/${id1}.png`);
   expect(served.status()).toBe(200);
   expect(served.headers()["content-type"]).toBe("image/png");
-  expect(await auditExists("admin.emoji.group.create")).toBe(true);
-  expect(await auditExists("admin.emoji.upload")).toBe(true);
+  expect(await auditExists("admin.emoji.group.create", "emoji_group", groupA)).toBe(true);
+  expect(await auditExists("admin.emoji.upload", "emoji", id1)).toBe(true);
 
   // 改名 + 关键词
   await page.getByLabel(`表情 #${id1} 的名称`).fill("E2E 改名表情");
@@ -128,7 +137,61 @@ test("admin 全流程：建组 → 上传 → /emoji 可访问 → 改名/关键
     .first()
     .getAttribute("alt");
   expect(firstName).toBe("E2E 改名表情");
-  expect(await auditExists("admin.emoji.rename")).toBe(true);
+  expect(await auditExists("admin.emoji.update", "emoji", id1)).toBe(true);
+
+  // 并发管理时，审计 before 必须读取行锁后的最新值。
+  const intermediateName = "E2E 并发中间值";
+  let rowLocked!: () => void;
+  const rowLockedPromise = new Promise<void>((resolve) => {
+    rowLocked = resolve;
+  });
+  let releaseRow!: () => void;
+  const releasePromise = new Promise<void>((resolve) => {
+    releaseRow = resolve;
+  });
+  const concurrentMutation = withE2eDb(async (q) => {
+    await q.exec("START TRANSACTION");
+    try {
+      await q.query("SELECT id FROM emojis WHERE id = ? FOR UPDATE", [id1]);
+      rowLocked();
+      await releasePromise;
+      await q.exec("UPDATE emojis SET name = ?, updated_at = NOW() WHERE id = ?", [
+        intermediateName,
+        id1,
+      ]);
+      await q.exec("COMMIT");
+    } catch (error) {
+      await q.exec("ROLLBACK");
+      throw error;
+    }
+  });
+  await rowLockedPromise;
+  const concurrentPage = await context.newPage();
+  await concurrentPage.goto(`/admin/emojis?group=${groupA}`);
+  const concurrentRow = concurrentPage.locator('[data-testid="emoji-grid"] tbody tr', {
+    has: concurrentPage.locator('img[alt="E2E 改名表情"]'),
+  });
+  await concurrentRow.getByLabel(`表情 #${id1} 的名称`).fill("E2E 改名表情");
+  const actionRequest = concurrentPage.waitForRequest(
+    (request) => request.method() === "POST" && request.headers()["next-action"] !== undefined,
+  );
+  const concurrentSave = concurrentRow.getByRole("button", { name: "保存" }).click();
+  try {
+    await actionRequest;
+    await concurrentPage.waitForTimeout(250);
+  } finally {
+    releaseRow();
+  }
+  await Promise.all([concurrentMutation, concurrentSave]);
+  const [latestUpdateAudit] = await withE2eDb((q) =>
+    q.query<{ beforeName: string | null }>(
+      "SELECT JSON_UNQUOTE(JSON_EXTRACT(before_json, '$.name')) AS beforeName FROM audit_log WHERE action = ? AND target_type = ? AND target_id = ? ORDER BY id DESC LIMIT 1",
+      ["admin.emoji.update", "emoji", String(id1)],
+    ),
+  );
+  expect(latestUpdateAudit?.beforeName).toBe(intermediateName);
+  await concurrentPage.close();
+  await page.goto(`/admin/emojis?group=${groupA}`);
 
   // 停用 → 网格标记停用，但 /emoji 仍 200（已发布正文不能碎）
   await page
@@ -146,7 +209,7 @@ test("admin 全流程：建组 → 上传 → /emoji 可访问 → 改名/关键
       .and(page.locator('[data-enabled="0"]')),
   ).toBeVisible();
   expect((await request.get(`/emoji/${id1}.png`)).status()).toBe(200);
-  expect(await auditExists("admin.emoji.toggle")).toBe(true);
+  expect(await auditExists("admin.emoji.toggle", "emoji", id1)).toBe(true);
 
   // 删除保护：有表情的组删不掉（错误提示）；空组可删
   await page.goto("/admin/emojis");
@@ -156,18 +219,21 @@ test("admin 全流程：建组 → 上传 → /emoji 可访问 → 改名/关键
     .click();
   await page.getByRole("button", { name: "确认" }).click();
   await expect(page).toHaveURL(/err=group-not-empty/);
-  await page.locator('input[name="name"][placeholder="新分组名"]').fill(`${GROUP_B} 空删`);
+  const emptyGroupName = `${GROUP_B} 空删`;
+  await page.locator('input[name="name"][placeholder="新分组名"]').fill(emptyGroupName);
   await page.getByRole("button", { name: "新建分组" }).click();
+  await expect(page).toHaveURL(/saved=group-created/);
+  const emptyGroupId = await groupIdOf(emptyGroupName);
   await page
-    .locator('[data-testid="group-list"] li', { hasText: `${GROUP_B} 空删` })
+    .locator('[data-testid="group-list"] li', { hasText: emptyGroupName })
     .getByRole("button", { name: "删除" })
     .click();
   await page.getByRole("button", { name: "确认" }).click();
   await expect(page).toHaveURL(/saved=group-deleted/);
   await expect(
-    page.locator('[data-testid="group-list"] li', { hasText: `${GROUP_B} 空删` }),
+    page.locator('[data-testid="group-list"] li', { hasText: emptyGroupName }),
   ).toHaveCount(0);
-  expect(await auditExists("admin.emoji.group.delete")).toBe(true);
+  expect(await auditExists("admin.emoji.group.delete", "emoji_group", emptyGroupId)).toBe(true);
 });
 
 test("分组标题图：admin 上传 → 列表显示 + /files 可访问 + 审计；超限拒绝且不改动", async ({
@@ -177,6 +243,7 @@ test("分组标题图：admin 上传 → 列表显示 + /files 可访问 + 审�
 }) => {
   await loginAs(context, USERS.admin);
   await page.goto("/admin/emojis");
+  const groupA = await groupIdOf(GROUP_A);
   const row = page.locator('[data-testid="group-list"] li', { hasText: GROUP_A });
 
   // 上传标题图（96×96 png）→ /files 可访问 + 审计
@@ -188,7 +255,7 @@ test("分组标题图：admin 上传 → 列表显示 + /files 可访问 + 审�
   const iconSrc = await row.locator('img[src^="/files/"]').getAttribute("src");
   expect(iconSrc).toBeTruthy();
   expect((await request.get(iconSrc!)).status()).toBe(200);
-  expect(await auditExists("admin.emoji.group.icon")).toBe(true);
+  expect(await auditExists("admin.emoji.group.icon", "emoji_group", groupA)).toBe(true);
 
   // 更换为超限图（201×201）：拒绝并提示，已有标题图不变
   await page.goto("/admin/emojis");

@@ -1,6 +1,6 @@
 import { desc, eq, sql } from "drizzle-orm";
 import { getWebDb, pointAccounts, pointLedger } from "@funwind/db";
-import { clampPage } from "@/lib/queries/paging";
+import { pageBounds } from "@/lib/queries/paging";
 
 /**
  * 积分台账查询（/points 页）：余额快照 + 只增台账的分页。写路径一律在 lib/points（守卫测试）；这里只读。
@@ -58,8 +58,7 @@ export async function getLedgerPage(userId: number, rawPage: number): Promise<Le
     .from(pointLedger)
     .where(eq(pointLedger.userId, userId));
   const total = Number(n);
-  const totalPages = Math.max(1, Math.ceil(total / LEDGER_PER_PAGE));
-  const page = clampPage(rawPage, totalPages);
+  const { page, totalPages, offset } = pageBounds(total, rawPage, LEDGER_PER_PAGE);
 
   const items =
     total === 0
@@ -70,7 +69,7 @@ export async function getLedgerPage(userId: number, rawPage: number): Promise<Le
           .where(eq(pointLedger.userId, userId))
           .orderBy(desc(pointLedger.id))
           .limit(LEDGER_PER_PAGE)
-          .offset((page - 1) * LEDGER_PER_PAGE);
+          .offset(offset);
 
   return {
     items,
