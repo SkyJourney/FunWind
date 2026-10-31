@@ -54,7 +54,8 @@ export default async function ProfilePage({
   if (!profile) notFound();
   const sp = await searchParams;
   const tab = sp.tab === "replies" ? "replies" : "threads";
-  const page = Math.max(1, Math.trunc(Number(sp.page)) || 1);
+  // 下游 getUserThreads/getUserReplies 按查询结果用 clampPage 收束；这里不计算 OFFSET。
+  const page = Number(sp.page) || 1;
   const isSelf = viewer?.id === uid;
 
   const following =

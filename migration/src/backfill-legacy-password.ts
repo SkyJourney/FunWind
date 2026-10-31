@@ -1,3 +1,4 @@
+import { affectedRowsOf } from "@funwind/db";
 import { oldQuery, newQuery } from "./db.js";
 import { config } from "./config.js";
 
@@ -40,12 +41,14 @@ async function main() {
       }
       const stored = `md5$${r.password}$${r.salt}`;
       // pool.query 的 UPDATE 结果是 ResultSetHeader（非行数组）
-      const res = (await newQuery(
-        "UPDATE users SET legacy_password_hash = ?, legacy_password_pending = 1 " +
-          "WHERE id = ? AND state = 'active' AND password_hash IS NULL AND legacy_password_hash IS NULL",
-        [stored, r.uid],
-      )) as unknown as { affectedRows: number };
-      backfilled += res.affectedRows > 0 ? 1 : 0;
+      const affectedRows = affectedRowsOf(
+        await newQuery(
+          "UPDATE users SET legacy_password_hash = ?, legacy_password_pending = 1 " +
+            "WHERE id = ? AND state = 'active' AND password_hash IS NULL AND legacy_password_hash IS NULL",
+          [stored, r.uid],
+        ),
+      );
+      backfilled += affectedRows > 0 ? 1 : 0;
     }
     console.log(`[backfill] 已扫描到 uid=${maxUid}（本批 ${rows.length}）`);
   }

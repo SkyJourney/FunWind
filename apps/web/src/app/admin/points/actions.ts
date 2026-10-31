@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { AdminError } from "@/lib/authz/admin";
 import { defineAction } from "@/lib/actions/define-action";
-import { setSetting } from "@/lib/auth/settings";
+import { setSettings } from "@/lib/auth/settings";
 import { adjustPointsByAdmin } from "@/lib/points/adjust";
 import { findUserIdByName } from "@/lib/queries/users";
 import {
@@ -54,19 +54,19 @@ export const saveRewardAction = defineAction({
   input: saveRewardInput,
   async run(ctx, input) {
     try {
-      await setSetting(
-        "points.name",
-        { name: input.name },
-        { userId: ctx.admin!.userId, via: "admin", ip: ctx.admin!.ip },
-      );
-      await setSetting(
-        "points.reward",
-        {
-          post: input.post,
-          reply: input.reply,
-          postDailyCap: input.postDailyCap,
-          replyDailyCap: input.replyDailyCap,
-        },
+      await setSettings(
+        [
+          { key: "points.name", value: { name: input.name } },
+          {
+            key: "points.reward",
+            value: {
+              post: input.post,
+              reply: input.reply,
+              postDailyCap: input.postDailyCap,
+              replyDailyCap: input.replyDailyCap,
+            },
+          },
+        ],
         { userId: ctx.admin!.userId, via: "admin", ip: ctx.admin!.ip },
       );
     } catch (e) {

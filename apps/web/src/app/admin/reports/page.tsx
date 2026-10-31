@@ -36,10 +36,14 @@ export default async function AdminReportsPage({ searchParams }: Params) {
     ? (sp.tab as "pending" | "resolved" | "dismissed")
     : "pending";
   const forumId = Number(sp.forum ?? "0") || undefined;
-  const page = Math.max(1, Number(sp.page ?? "1") || 1);
+  const page = Number(sp.page ?? "1") || 1;
 
-  const { items, total } = await listReportPage({ status: tab, forumId, page });
-  const totalPages = Math.max(1, Math.ceil(total / 20));
+  const {
+    items,
+    total,
+    page: safePage,
+    totalPages,
+  } = await listReportPage({ status: tab, forumId, page });
 
   const baseQuery = (over: Record<string, string>) => {
     const p = new URLSearchParams();
@@ -214,7 +218,7 @@ export default async function AdminReportsPage({ searchParams }: Params) {
         </ul>
       )}
 
-      <Pagination basePath={baseQuery({})} page={page} totalPages={totalPages} />
+      <Pagination basePath={baseQuery({})} page={safePage} totalPages={totalPages} />
     </div>
   );
 }

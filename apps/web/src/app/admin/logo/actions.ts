@@ -1,6 +1,7 @@
 "use server";
 
 import { defineAction } from "@/lib/actions/define-action";
+import type { ConfigActor } from "@/lib/audit";
 import { z } from "zod";
 import { addLogo } from "@/lib/brand/logo-pool-fs";
 import { removeLogo, setActiveLogo } from "@/lib/brand/logo-pool";
@@ -13,6 +14,11 @@ import { redirect } from "next/navigation";
  */
 
 const backInput = z.object({ back: z.string().max(200).default("/admin/logo") });
+const logoActor = (ctx: { userId: number | null; ip: string | null }): ConfigActor => ({
+  userId: ctx.userId,
+  via: "admin",
+  ip: ctx.ip,
+});
 
 export const uploadLogoAction = defineAction({
   name: "admin.logo.upload",
@@ -24,7 +30,7 @@ export const uploadLogoAction = defineAction({
   }),
   async run(ctx, input) {
     const bytes = new Uint8Array(await input.file.arrayBuffer());
-    const r = await addLogo(input.name, bytes);
+    const r = await addLogo(input.name, bytes, logoActor(ctx));
     if (!r.ok) redirect(`/admin/logo?err=${r.code}`);
     revalidatePath("/admin/logo");
     // 带 added 回跳：新入池项高亮（M9.5）
@@ -37,7 +43,7 @@ export const setActiveLogoAction = defineAction({
   auth: { admin: "site.admin" },
   input: z.object({ file: z.string().max(64), back: backInput.shape.back }),
   async run(ctx, input) {
-    await setActiveLogo(input.file);
+    await setActiveLogo(input.file, logoActor(ctx));
     revalidatePath("/admin/logo");
     redirect(input.back);
   },
@@ -48,7 +54,7 @@ export const removeLogoAction = defineAction({
   auth: { admin: "site.admin" },
   input: z.object({ file: z.string().max(64), back: backInput.shape.back }),
   async run(ctx, input) {
-    await removeLogo(input.file);
+    await removeLogo(input.file, logoActor(ctx));
     revalidatePath("/admin/logo");
     redirect(input.back);
   },

@@ -1,5 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 import { getWebDb, siteSettings } from "@funwind/db";
+import { CLI_ACTOR, writeAudit, type ConfigActor } from "@/lib/audit";
 import { invalidateSiteChrome } from "@/lib/site-chrome";
 
 /**
@@ -49,7 +50,12 @@ export async function getLogoPoolRaw(): Promise<LogoPool> {
 
 const sqlNow = () => sql`NOW()`;
 
-async function updatePool(change: (pool: LogoPool) => LogoPool): Promise<LogoPool> {
+async function updatePool(
+  change: (pool: LogoPool) => LogoPool,
+  actor: ConfigActor,
+  action: string,
+  targetId: string,
+): Promise<LogoPool> {
   const next = await getWebDb().transaction(async (tx) => {
     await tx
       .insert(siteSettings)
@@ -60,34 +66,63 @@ async function updatePool(change: (pool: LogoPool) => LogoPool): Promise<LogoPoo
       .from(siteSettings)
       .where(eq(siteSettings.key, KEY))
       .for("update");
-    const pool = change(parseLogoPool(row?.value));
-    await tx
-      .update(siteSettings)
-      .set({ value: pool, updatedAt: sqlNow() })
-      .where(eq(siteSettings.key, KEY));
-    return pool;
+    const before = parseLogoPool(row?.value);
+    const after = change(before);
+    if (JSON.stringify(before) !== JSON.stringify(after)) {
+      await tx
+        .update(siteSettings)
+        .set({ value: after, updatedAt: sqlNow() })
+        .where(eq(siteSettings.key, KEY));
+      await writeAudit(tx, {
+        actorId: actor.userId,
+        action,
+        targetType: "logo",
+        targetId,
+        before,
+        after,
+        ip: actor.ip,
+      });
+    }
+    return after;
   });
   invalidateSiteChrome();
   return next;
 }
 
-export async function setActiveLogo(file: string): Promise<void> {
-  await updatePool((pool) =>
-    pool.items.some((i) => i.file === file) ? { ...pool, active: file } : pool,
+export async function setActiveLogo(file: string, actor: ConfigActor = CLI_ACTOR): Promise<void> {
+  await updatePool(
+    (pool) => (pool.items.some((i) => i.file === file) ? { ...pool, active: file } : pool),
+    actor,
+    "admin.logo.activate",
+    file,
   );
 }
 
 /** 停用并移出池（文件保留在磁盘，误删可手工找回）；当前项被移除则回到 Wind 占位。 */
-export async function removeLogo(file: string): Promise<void> {
-  await updatePool((pool) => ({
-    items: pool.items.filter((i) => i.file !== file),
-    active: pool.active === file ? null : pool.active,
-  }));
+export async function removeLogo(file: string, actor: ConfigActor = CLI_ACTOR): Promise<void> {
+  await updatePool(
+    (pool) => ({
+      items: pool.items.filter((i) => i.file !== file),
+      active: pool.active === file ? null : pool.active,
+    }),
+    actor,
+    "admin.logo.remove",
+    file,
+  );
 }
 
 /** 入池登记（DB 半）：由 fs 侧 addLogo 在写盘成功后调用。 */
-export async function registerLogo(name: string, file: string): Promise<LogoPool> {
-  return updatePool((pool) => ({ items: [...pool.items, { file, name }], active: file }));
+export async function registerLogo(
+  name: string,
+  file: string,
+  actor: ConfigActor = CLI_ACTOR,
+): Promise<LogoPool> {
+  return updatePool(
+    (pool) => ({ items: [...pool.items, { file, name }], active: file }),
+    actor,
+    "admin.logo.upload",
+    file,
+  );
 }
 
 /** 读取池内 LOGO 字节（/brand/logo）；不传 file 时取当前项，file 必须在池内；无可输出返回 null。 */

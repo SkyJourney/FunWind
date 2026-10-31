@@ -48,6 +48,67 @@ test("设置中心：hub / 资料 / 通知偏好 / 邮箱校验", async ({ page 
   await expect(page.getByText("当前密码不正确")).toBeVisible();
 });
 
+test("错误当前密码不会占用目标邮箱验证额度", async ({ browser }) => {
+  const targetEmail = `e2e-rate-${Date.now()}@example.com`;
+  for (const userId of [USERS.xiaoyi, USERS.team, USERS.alice, USERS.admin, USERS.member]) {
+    const context = await browser.newContext();
+    try {
+      await loginAs(context, userId);
+      const page = await context.newPage();
+      await page.goto("/settings/email");
+      const changeEmailForm = page.locator("form").filter({ has: page.getByLabel("新邮箱") });
+      await changeEmailForm.getByLabel("新邮箱").fill(targetEmail);
+      await changeEmailForm.getByLabel("当前密码").fill("definitely-wrong");
+      await changeEmailForm.getByRole("button", { name: "更换邮箱" }).click();
+      await expect(page.getByRole("alert")).toBeVisible();
+    } finally {
+      await context.close();
+    }
+  }
+
+  type EmailState = {
+    email: string | null;
+    email_key: string | null;
+    email_verified_at: string | null;
+    email_verification_required: number;
+  };
+  const [before] = await withE2eDb((q) =>
+    q.query<EmailState>(
+      "SELECT email, email_key, email_verified_at, email_verification_required FROM users WHERE id = ?",
+      [USERS.member],
+    ),
+  );
+  if (!before) throw new Error("E2E member fixture is missing");
+
+  const context = await browser.newContext();
+  try {
+    await loginAs(context, USERS.member);
+    const page = await context.newPage();
+    await page.goto("/settings/email");
+    const changeEmailForm = page.locator("form").filter({ has: page.getByLabel("新邮箱") });
+    await changeEmailForm.getByLabel("新邮箱").fill(targetEmail);
+    await changeEmailForm.getByLabel("当前密码").fill("e2e-admin-pass");
+    await changeEmailForm.getByRole("button", { name: "更换邮箱" }).click();
+    await page.waitForURL("**/settings/email?saved=1&verification=sent");
+    await expect(page.getByText("验证链接已发送，请查收当前邮箱。")).toBeVisible();
+  } finally {
+    await withE2eDb(async (q) => {
+      await q.exec("DELETE FROM email_tokens WHERE user_id = ?", [USERS.member]);
+      await q.exec(
+        "UPDATE users SET email = ?, email_key = ?, email_verified_at = ?, email_verification_required = ? WHERE id = ?",
+        [
+          before.email,
+          before.email_key,
+          before.email_verified_at,
+          before.email_verification_required,
+          USERS.member,
+        ],
+      );
+    });
+    await context.close();
+  }
+});
+
 test("S1 安全类邮件：改密触发通知；后台关闭后停发", async ({ browser }) => {
   test.setTimeout(120_000);
   // 自愈：恢复 member 密码与安全开关（上轮消费过的中间态也能重跑）

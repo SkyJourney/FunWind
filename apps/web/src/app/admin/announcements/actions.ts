@@ -4,8 +4,9 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
-import { announcements, getWebDb } from "@funwind/db";
+import { announcements, getWebDb, insertIdOf } from "@funwind/db";
 import { defineAction } from "@/lib/actions/define-action";
+import { writeAudit, type DbTx } from "@/lib/audit";
 import { setSetting } from "@/lib/auth/settings";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import {
@@ -38,6 +39,25 @@ function toDatetime(local: string): string {
   return `${local.replace("T", " ")}:00`.slice(0, 19);
 }
 
+/** 编辑/下线共用同一行锁与状态快照，保证变更前值与审计记录来自同一事务。 */
+async function lockAnnouncement(tx: DbTx, id: number) {
+  const [row] = await tx
+    .select({
+      title: announcements.title,
+      bodyMd: announcements.bodyMd,
+      level: announcements.level,
+      audience: announcements.audience,
+      showBanner: announcements.showBanner,
+      startsAt: announcements.startsAt,
+      endsAt: announcements.endsAt,
+    })
+    .from(announcements)
+    .where(eq(announcements.id, id))
+    .limit(1)
+    .for("update");
+  return row ?? null;
+}
+
 export const createAnnouncementAction = defineAction({
   name: "admin.announcement.create",
   auth: { admin: "site.admin" },
@@ -45,20 +65,33 @@ export const createAnnouncementAction = defineAction({
   async run(ctx, input) {
     const enqueued: EnqueuedEvent[] = [];
     let announcementId = 0;
+    const values = {
+      title: input.title,
+      bodyMd: input.bodyMd,
+      level: input.level,
+      audience: input.audience,
+      showBanner: input.showBanner === "on",
+      startsAt: toDatetime(input.startsAt),
+      endsAt: input.endsAt ? toDatetime(input.endsAt) : null,
+      createdBy: ctx.userId ?? 0,
+    };
     await getWebDb().transaction(async (tx) => {
-      const [row] = (await tx.insert(announcements).values({
-        title: input.title,
-        bodyMd: input.bodyMd,
-        level: input.level,
-        audience: input.audience,
-        showBanner: input.showBanner === "on",
-        startsAt: toDatetime(input.startsAt),
-        endsAt: input.endsAt ? toDatetime(input.endsAt) : null,
-        createdBy: ctx.userId ?? 0,
-        createdAt: nowBeijingWallTime(),
-        updatedAt: nowBeijingWallTime(),
-      })) as unknown as [{ insertId: number }];
-      announcementId = Number(row.insertId);
+      announcementId = insertIdOf(
+        await tx.insert(announcements).values({
+          ...values,
+          createdAt: nowBeijingWallTime(),
+          updatedAt: nowBeijingWallTime(),
+        }),
+      );
+      await writeAudit(tx, {
+        actorId: ctx.userId ?? null,
+        action: "announcement.create",
+        targetType: "announcement",
+        targetId: announcementId,
+        before: null,
+        after: values,
+        ip: ctx.ip,
+      });
       enqueued.push(
         await enqueueEventInTx(
           tx,
@@ -82,15 +115,12 @@ export const editAnnouncementAction = defineAction({
   auth: { admin: "site.admin" },
   input: createAnnouncementInput.extend({ id: z.coerce.number().int().positive() }),
   async run(ctx, input) {
-    const [orig] = await getWebDb()
-      .select({ startsAt: announcements.startsAt })
-      .from(announcements)
-      .where(eq(announcements.id, input.id))
-      .limit(1);
-    if (!orig) redirect(`/admin/announcements?err=${encodeURIComponent("公告不存在")}`);
-    await getWebDb()
-      .update(announcements)
-      .set({
+    let found = false;
+    await getWebDb().transaction(async (tx) => {
+      const orig = await lockAnnouncement(tx, input.id);
+      if (!orig) return;
+      found = true;
+      const values = {
         title: input.title,
         bodyMd: input.bodyMd,
         level: input.level,
@@ -98,9 +128,24 @@ export const editAnnouncementAction = defineAction({
         showBanner: input.showBanner === "on",
         startsAt: input.startsAt ? toDatetime(input.startsAt) : orig.startsAt,
         endsAt: input.endsAt ? toDatetime(input.endsAt) : null,
-        updatedAt: nowBeijingWallTime(),
-      })
-      .where(eq(announcements.id, input.id));
+      };
+      await tx
+        .update(announcements)
+        .set({ ...values, updatedAt: nowBeijingWallTime() })
+        .where(eq(announcements.id, input.id));
+      if (JSON.stringify(orig) !== JSON.stringify(values)) {
+        await writeAudit(tx, {
+          actorId: ctx.userId ?? null,
+          action: "announcement.edit",
+          targetType: "announcement",
+          targetId: input.id,
+          before: orig,
+          after: values,
+          ip: ctx.ip,
+        });
+      }
+    });
+    if (!found) redirect(`/admin/announcements?err=${encodeURIComponent("公告不存在")}`);
     revalidatePath("/admin/announcements");
     revalidatePath("/");
     redirect(`/admin/announcements?updated=1`);
@@ -113,11 +158,27 @@ export const endAnnouncementAction = defineAction({
   auth: { admin: "site.admin" },
   input: endAnnouncementInput,
   async run(ctx, input) {
-    await getWebDb()
-      .update(announcements)
-      .set({ endsAt: nowBeijingWallTime(), updatedAt: nowBeijingWallTime() })
-      .where(eq(announcements.id, input.id));
-    void ctx;
+    let found = false;
+    await getWebDb().transaction(async (tx) => {
+      const orig = await lockAnnouncement(tx, input.id);
+      if (!orig) return;
+      found = true;
+      const endedAt = nowBeijingWallTime();
+      await tx
+        .update(announcements)
+        .set({ endsAt: endedAt, updatedAt: endedAt })
+        .where(eq(announcements.id, input.id));
+      await writeAudit(tx, {
+        actorId: ctx.userId ?? null,
+        action: "announcement.end",
+        targetType: "announcement",
+        targetId: input.id,
+        before: { endsAt: orig.endsAt },
+        after: { endsAt: endedAt },
+        ip: ctx.ip,
+      });
+    });
+    if (!found) redirect(`/admin/announcements?err=${encodeURIComponent("公告不存在")}`);
     revalidatePath("/admin/announcements");
     revalidatePath("/");
     redirect(`/admin/announcements?ended=1`);

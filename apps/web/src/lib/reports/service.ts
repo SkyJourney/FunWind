@@ -10,6 +10,7 @@ import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
 import { sweepPending } from "@/lib/events/outbox";
 import { notify } from "@/lib/notifications/notify";
 import { publicUsername } from "@/lib/queries/public-identity";
+import { pageBounds } from "@/lib/queries/paging";
 
 /**
  * 举报（M9）：前台提交（唯一键 (post_id, reporter_id) 幂等——同人同帖一次）与后台处理。
@@ -189,41 +190,41 @@ export type ReportPageFilters = {
 /** 举报队列（M9.5 改分页）：SQL where（状态 + 板块）+ COUNT，替代无上限拉取 */
 export async function listReportPage(
   filters: ReportPageFilters,
-): Promise<{ items: ReportQueueItem[]; total: number }> {
+): Promise<{ items: ReportQueueItem[]; total: number; page: number; totalPages: number }> {
   const perPage = filters.perPage ?? 20;
   const conds = [eq(reports.status, filters.status)];
   if (filters.forumId) conds.push(eq(threads.forumId, filters.forumId));
   const where = and(...conds);
 
-  const [countRow, rows] = await Promise.all([
-    getWebDb()
-      .select({ total: sql<number>`COUNT(*)` })
-      .from(reports)
-      .innerJoin(posts, eq(posts.id, reports.postId))
-      .innerJoin(threads, eq(threads.id, posts.threadId))
-      .where(where),
-    getWebDb()
-      .select({
-        id: reports.id,
-        postId: reports.postId,
-        threadId: threads.id,
-        threadTitle: threads.title,
-        forumId: threads.forumId,
-        reason: reports.reason,
-        reporterName: publicUsername(users.username, users.state, users.id),
-        status: reports.status,
-        createdAt: reports.createdAt,
-      })
-      .from(reports)
-      .innerJoin(posts, eq(posts.id, reports.postId))
-      .innerJoin(threads, eq(threads.id, posts.threadId))
-      .leftJoin(users, eq(users.id, reports.reporterId))
-      .where(where)
-      .orderBy(desc(reports.createdAt))
-      .limit(perPage)
-      .offset((filters.page - 1) * perPage),
-  ]);
-  return { items: rows, total: Number(countRow[0]?.total ?? 0) };
+  const [countRow] = await getWebDb()
+    .select({ total: sql<number>`COUNT(*)` })
+    .from(reports)
+    .innerJoin(posts, eq(posts.id, reports.postId))
+    .innerJoin(threads, eq(threads.id, posts.threadId))
+    .where(where);
+  const total = Number(countRow?.total ?? 0);
+  const { page, totalPages, offset } = pageBounds(total, filters.page, perPage);
+  const rows = await getWebDb()
+    .select({
+      id: reports.id,
+      postId: reports.postId,
+      threadId: threads.id,
+      threadTitle: threads.title,
+      forumId: threads.forumId,
+      reason: reports.reason,
+      reporterName: publicUsername(users.username, users.state, users.id),
+      status: reports.status,
+      createdAt: reports.createdAt,
+    })
+    .from(reports)
+    .innerJoin(posts, eq(posts.id, reports.postId))
+    .innerJoin(threads, eq(threads.id, posts.threadId))
+    .leftJoin(users, eq(users.id, reports.reporterId))
+    .where(where)
+    .orderBy(desc(reports.createdAt))
+    .limit(perPage)
+    .offset(offset);
+  return { items: rows, total, page, totalPages };
 }
 
 /** 批量忽略（M9.5）：说明统一「经核实不构成违规」，逐条独立事务（部分成功反馈）；已处置/已忽略的行跳过 */

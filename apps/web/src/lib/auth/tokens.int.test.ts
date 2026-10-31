@@ -10,7 +10,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { hashToken } from "./token";
 import { changeEmailAddress } from "./email-change";
-import { MAX_LIVE_TOKENS, consumeEmailToken, hashEmailKey, issueEmailToken } from "./tokens";
+import {
+  MAX_LIVE_TOKENS,
+  consumeEmailToken,
+  consumeEmailTokenInTx,
+  hashEmailKey,
+  issueEmailToken,
+} from "./tokens";
 
 let tdb: TempDb;
 
@@ -98,6 +104,26 @@ describe.skipIf(skipDb)("邮件令牌 · 真实 MySQL", () => {
     expect(after?.emailVerifiedAt).toBe(before?.emailVerifiedAt);
   });
 
+  it("凭据轮换外层事务失败时回滚令牌消费", async () => {
+    const token = await issueEmailToken(DEMO.member, "reset");
+    const tokenId = hashToken(token);
+    try {
+      await expect(
+        getWebDb().transaction(async (tx) => {
+          expect(await consumeEmailTokenInTx(tx, token, "reset")).toBe(DEMO.member);
+          throw new Error("注入的凭据轮换失败");
+        }),
+      ).rejects.toThrow("注入的凭据轮换失败");
+      const [row] = await getWebDb()
+        .select({ usedAt: emailTokens.usedAt })
+        .from(emailTokens)
+        .where(eq(emailTokens.id, tokenId));
+      expect(row?.usedAt).toBeNull();
+    } finally {
+      await getWebDb().delete(emailTokens).where(eq(emailTokens.id, tokenId));
+    }
+  });
+
   it("邮箱换绑原子作废所有旧用途令牌，并只验证新地址", async () => {
     const userId = DEMO.xiaoyi;
     const [before] = await getWebDb()
@@ -149,6 +175,104 @@ describe.skipIf(skipDb)("邮件令牌 · 真实 MySQL", () => {
         })
         .where(eq(users.id, userId));
     }
+  });
+
+  it("目标邮箱频控拒绝时回滚改绑与新令牌；已占用地址不消耗额度", async () => {
+    const userId = DEMO.xiaoyi;
+    const [before] = await getWebDb()
+      .select({
+        email: users.email,
+        emailKey: users.emailKey,
+        emailVerifiedAt: users.emailVerifiedAt,
+        emailVerificationRequired: users.emailVerificationRequired,
+      })
+      .from(users)
+      .where(eq(users.id, userId));
+    const [taken] = await getWebDb()
+      .select({ email: users.email, emailKey: users.emailKey })
+      .from(users)
+      .where(eq(users.id, DEMO.member));
+    const resetToken = await issueEmailToken(userId, "reset");
+    let allowedChecks = 0;
+
+    const takenResult = await changeEmailAddress(
+      userId,
+      taken!.email!,
+      taken!.emailKey!,
+      null,
+      () => {
+        allowedChecks++;
+        return false;
+      },
+    );
+    expect(takenResult).toEqual({ kind: "taken" });
+    expect(allowedChecks).toBe(0);
+
+    const email = `rate-limited-${userId}@example.com`;
+    const limited = await changeEmailAddress(userId, email, email.toLowerCase(), null, () => {
+      allowedChecks++;
+      return false;
+    });
+    expect(limited).toEqual({ kind: "rate_limited" });
+    expect(allowedChecks).toBe(1);
+
+    const [after] = await getWebDb()
+      .select({
+        email: users.email,
+        emailKey: users.emailKey,
+        emailVerifiedAt: users.emailVerifiedAt,
+        emailVerificationRequired: users.emailVerificationRequired,
+      })
+      .from(users)
+      .where(eq(users.id, userId));
+    expect(after).toEqual(before);
+    expect(await consumeEmailToken(resetToken, "reset")).toBe(userId);
+  });
+
+  it("目标邮箱限流拒绝时回滚改绑，已占用地址不消费额度", async () => {
+    const userId = DEMO.xiaoyi;
+    const [before] = await getWebDb()
+      .select({
+        email: users.email,
+        emailKey: users.emailKey,
+        emailVerifiedAt: users.emailVerifiedAt,
+        emailVerificationRequired: users.emailVerificationRequired,
+      })
+      .from(users)
+      .where(eq(users.id, userId));
+    const [taken] = await getWebDb()
+      .select({ email: users.email, emailKey: users.emailKey })
+      .from(users)
+      .where(eq(users.id, DEMO.member));
+    const resetToken = await issueEmailToken(userId, "reset");
+    let allowedChecks = 0;
+    const denyTarget = () => {
+      allowedChecks++;
+      return false;
+    };
+
+    expect(
+      await changeEmailAddress(userId, taken!.email!, taken!.emailKey!, null, denyTarget),
+    ).toEqual({ kind: "taken" });
+    expect(allowedChecks).toBe(0);
+
+    const email = `rate-limited-${userId}@example.com`;
+    expect(await changeEmailAddress(userId, email, email.toLowerCase(), null, denyTarget)).toEqual({
+      kind: "rate_limited",
+    });
+    expect(allowedChecks).toBe(1);
+
+    const [after] = await getWebDb()
+      .select({
+        email: users.email,
+        emailKey: users.emailKey,
+        emailVerifiedAt: users.emailVerifiedAt,
+        emailVerificationRequired: users.emailVerificationRequired,
+      })
+      .from(users)
+      .where(eq(users.id, userId));
+    expect(after).toEqual(before);
+    expect(await consumeEmailToken(resetToken, "reset")).toBe(userId);
   });
 
   describe("共存与作废（M5.6 S3：别人替你请求找回，不能让你邮箱里已有的链接失效）", () => {

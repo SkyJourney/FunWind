@@ -14,6 +14,7 @@ import { likedPostIds } from "@/lib/interact/reactions";
 import { tagsOfThreads } from "@/lib/interact/tags";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { ReplyComposer } from "@/components/posting/reply-composer";
 import { ReplyFab } from "@/components/posting/reply-fab";
 import { PostActionLink } from "@/components/posting/post-action-link";
@@ -141,9 +142,9 @@ export default async function ThreadPage({ params, searchParams }: Params) {
         <>
           <form action={approveContentAction}>
             <input type="hidden" name="postId" value={postId} />
-            <button type="submit" className="text-primary hover:underline">
+            <SubmitButton pendingText="通过中…" className="text-primary hover:underline">
               通过
-            </button>
+            </SubmitButton>
           </form>
           <form action={rejectContentAction} className="inline-flex items-center gap-1">
             <input type="hidden" name="postId" value={postId} />
@@ -155,9 +156,9 @@ export default async function ThreadPage({ params, searchParams }: Params) {
               aria-label="驳回理由"
               className="w-32 rounded border bg-background px-1.5 py-0.5 text-xs"
             />
-            <button type="submit" className="text-destructive hover:underline">
+            <SubmitButton pendingText="驳回中…" className="text-destructive hover:underline">
               驳回
-            </button>
+            </SubmitButton>
           </form>
         </>
       )}
@@ -172,9 +173,9 @@ export default async function ThreadPage({ params, searchParams }: Params) {
             aria-label="封禁理由（作者可见）"
             className="w-32 rounded border bg-background px-1.5 py-0.5 text-xs"
           />
-          <button type="submit" className="text-destructive hover:underline">
+          <SubmitButton pendingText="封禁中…" className="text-destructive hover:underline">
             封禁
-          </button>
+          </SubmitButton>
         </form>
       )}
       {canRestorePost(state) && (

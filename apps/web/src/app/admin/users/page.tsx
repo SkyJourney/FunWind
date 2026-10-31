@@ -56,13 +56,14 @@ export default async function AdminUsersPage({ searchParams }: Params) {
   const sort = SORTS.some((s) => s.key === sp.sort)
     ? (sp.sort as "recent" | "id" | "threads")
     : "recent";
-  const page = Math.max(1, Number(sp.page ?? "1") || 1);
+  const page = Number(sp.page ?? "1") || 1;
 
-  const { items, total } = await listAdminUsersPage(
-    { q, status, lifecycle, credential, sort },
-    page,
-  );
-  const totalPages = Math.max(1, Math.ceil(total / 20));
+  const {
+    items,
+    total,
+    page: safePage,
+    totalPages,
+  } = await listAdminUsersPage({ q, status, lifecycle, credential, sort }, page);
 
   const baseQuery = (over: Record<string, string>) => {
     const p = new URLSearchParams();
@@ -233,7 +234,7 @@ export default async function AdminUsersPage({ searchParams }: Params) {
         </div>
       )}
 
-      <Pagination basePath={baseQuery({})} page={page} totalPages={totalPages} />
+      <Pagination basePath={baseQuery({})} page={safePage} totalPages={totalPages} />
     </div>
   );
 }

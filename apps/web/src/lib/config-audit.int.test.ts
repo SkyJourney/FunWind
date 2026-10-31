@@ -1,9 +1,9 @@
 // @vitest-environment node
 /** 配置类管理动作（模块启停、站点设置）的审计：真实 MySQL 集成测试（临时库）。 */
 import { eq } from "drizzle-orm";
-import { auditLog, getWebDb } from "@funwind/db";
+import { auditLog, getWebDb, siteSettings } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { getRegisterMode, setSetting } from "@/lib/auth/settings";
+import { getPointsName, getRegisterMode, setSetting, setSettings } from "@/lib/auth/settings";
 import { registerModule } from "@/modules/kernel/registry";
 import { getEnabledModuleIds, setModuleEnabled } from "@/modules/kernel/state";
 import { defineModule } from "@/modules/kernel/types";
@@ -90,6 +90,45 @@ describe.skipIf(skipDb)("配置类管理动作的审计", () => {
       );
       expect(r?.beforeJson).toBeNull();
       expect(r?.afterJson).toEqual({ value: { rate: 0.1 }, via: "cli" });
+    });
+
+    it("积分名称缺少 name 时回退默认显示名", async () => {
+      const [current] = await getWebDb()
+        .select({ value: siteSettings.value })
+        .from(siteSettings)
+        .where(eq(siteSettings.key, "points.name"))
+        .limit(1);
+      if (!current) throw new Error("测试夹具缺少积分名称设置");
+      await setSetting("points.name", {});
+      try {
+        expect(await getPointsName()).toBe("积分");
+      } finally {
+        await setSetting("points.name", current.value);
+      }
+    });
+
+    it("多键设置排序后同事务写入且只记一条合并审计；不同输入顺序与空写入幂等", async () => {
+      const entries = [
+        { key: "points.reward_probe", value: { post: 3, reply: 1 } },
+        { key: "points.name_probe", value: { name: "青翼币" } },
+      ];
+      await setSettings(entries, { userId: 12, via: "admin", ip: "203.0.113.12" });
+      await setSettings([...entries].reverse(), { userId: 12, via: "admin", ip: "203.0.113.12" });
+      await setSettings([], { userId: 12, via: "admin", ip: "203.0.113.12" });
+
+      const rows = (await audits("setting.update")).filter(
+        (r) => r.targetId === "points.name_probe,points.reward_probe",
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ actorId: 12, targetType: "setting", ip: "203.0.113.12" });
+      expect(rows[0]?.beforeJson).toEqual({
+        "points.name_probe": null,
+        "points.reward_probe": null,
+      });
+      expect(rows[0]?.afterJson).toEqual({
+        "points.name_probe": { value: { name: "青翼币" }, via: "admin" },
+        "points.reward_probe": { value: { post: 3, reply: 1 }, via: "admin" },
+      });
     });
   });
 });

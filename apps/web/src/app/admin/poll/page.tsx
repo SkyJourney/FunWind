@@ -44,15 +44,24 @@ export default async function AdminPollPage({ searchParams }: Params) {
   const sp = await searchParams;
   const tab = TABS.some((t) => t.key === sp.tab) ? (sp.tab as "all" | "open" | "closed") : "all";
   const forumId = Number(sp.forum ?? "0") || undefined;
-  const page = Math.max(1, Number(sp.page ?? "1") || 1);
+  const page = Number(sp.page ?? "1") || 1;
 
   const subject = await getCurrentSubject();
   const isSiteAdmin = (await checkPermission(subject, "site.admin")).allowed;
   const moderated = isSiteAdmin ? null : await getModeratedForumIds(subject);
   if (!isSiteAdmin && moderated !== null && moderated.length === 0) notFound();
 
-  const { items, total } = await listPollPage({ status: tab, forumId, page, moderated });
-  const totalPages = Math.max(1, Math.ceil(total / 20));
+  const {
+    items,
+    total,
+    page: safePage,
+    totalPages,
+  } = await listPollPage({
+    status: tab,
+    forumId,
+    page,
+    moderated,
+  });
   // 无 JS 回退（M10.6d 惯例）：?confirm-delete=<pollId> 渲染页顶原生确认段
   const confirmDeleteId = Number(sp["confirm-delete"]);
   const confirmDelete = items.find((p) => p.pollId === confirmDeleteId);
@@ -222,7 +231,7 @@ export default async function AdminPollPage({ searchParams }: Params) {
         </ul>
       )}
 
-      <Pagination basePath={baseQuery({})} page={page} totalPages={totalPages} />
+      <Pagination basePath={baseQuery({})} page={safePage} totalPages={totalPages} />
     </div>
   );
 }

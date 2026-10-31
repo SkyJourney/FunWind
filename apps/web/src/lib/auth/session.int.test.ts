@@ -3,10 +3,12 @@
  * 会话的真实 MySQL 集成测试（临时库）。next/headers 的 cookies() 用内存 cookie 罐替身，其余全是真实代码与真实数据库。
  * 覆盖：令牌只存哈希、读取条件（过期/已注销/封禁）、活跃时间记录与 30 天绝对过期、登录轮换、登出与全部吊销。
  */
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import {
   accountDeletionRequests,
+  auditLog,
   DEMO,
+  emailTokens,
   getWebDb,
   sessions,
   userRestrictions,
@@ -28,6 +30,7 @@ vi.mock("next/headers", () => ({
 
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { generateToken, hashToken } from "./token";
+import { issueEmailToken, peekEmailTokenUserId } from "./tokens";
 import {
   MUST_CHANGE_COOKIE,
   SESSION_COOKIE,
@@ -37,6 +40,8 @@ import {
   destroyCurrentSession,
   getCurrentUser,
   getPasswordChangeUser,
+  replaceCredentialsAndCreateSession,
+  replaceCredentialsAndCreateSessionWithEmailToken,
   revokeAllForUser,
   revokeOtherSessions,
 } from "./session";
@@ -93,6 +98,177 @@ describe.skipIf(skipDb)("会话 · 真实 MySQL", () => {
       await createSession(DEMO.member);
       expect(jar.get(SESSION_COOKIE)!.value).not.toBe(first);
       expect((await rows(DEMO.member)).every((r) => r.ip === null)).toBe(true);
+    });
+
+    it("凭据轮换：密码更新、旧会话吊销、新会话建立原子提交", async () => {
+      const [original] = await db()
+        .select({
+          passwordHash: users.passwordHash,
+          legacy: users.legacyPasswordHash,
+          pending: users.legacyPasswordPending,
+        })
+        .from(users)
+        .where(eq(users.id, DEMO.member));
+      await insertExistingSession(DEMO.member);
+      await insertExistingSession(DEMO.member);
+      try {
+        const result = await replaceCredentialsAndCreateSession(
+          DEMO.member,
+          "rotated-test-hash",
+          { ip: "203.0.113.8", userAgent: "rotation-test" },
+          { auditAction: "test.password.rotate" },
+        );
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+
+        const sessionRows = await rows(DEMO.member);
+        expect(sessionRows).toHaveLength(1);
+        expect(sessionRows[0]?.id).toBe(hashToken(result.sessionToken));
+        const [user] = await db()
+          .select({ passwordHash: users.passwordHash, legacy: users.legacyPasswordHash })
+          .from(users)
+          .where(eq(users.id, DEMO.member));
+        expect(user).toEqual({ passwordHash: "rotated-test-hash", legacy: null });
+        const [audit] = await db()
+          .select({ before: auditLog.beforeJson, after: auditLog.afterJson })
+          .from(auditLog)
+          .where(eq(auditLog.action, "test.password.rotate"));
+        expect(audit?.before).toMatchObject({ passwordConfigured: true });
+        expect(audit?.after).toEqual({
+          passwordConfigured: true,
+          legacyPasswordPending: false,
+          via: "self",
+        });
+        expect(JSON.stringify(audit?.after)).not.toContain("rotated-test-hash");
+      } finally {
+        if (original) {
+          await db()
+            .update(users)
+            .set({
+              passwordHash: original.passwordHash,
+              legacyPasswordHash: original.legacy,
+              legacyPasswordPending: original.pending,
+            })
+            .where(eq(users.id, DEMO.member));
+        }
+      }
+    });
+
+    it("reset 令牌消费与密码轮换共事务，轮换失败会保留令牌", async () => {
+      const [original] = await db()
+        .select({
+          passwordHash: users.passwordHash,
+          legacy: users.legacyPasswordHash,
+          pending: users.legacyPasswordPending,
+          emailVerifiedAt: users.emailVerifiedAt,
+        })
+        .from(users)
+        .where(eq(users.id, DEMO.member));
+      const token = await issueEmailToken(DEMO.member, "reset");
+      const tokenId = hashToken(token);
+      try {
+        await expect(
+          replaceCredentialsAndCreateSessionWithEmailToken(
+            token,
+            "reset",
+            "x".repeat(300),
+            {},
+            { auditAction: "test.password.reset_email_token_failed" },
+          ),
+        ).rejects.toThrow();
+        expect(await peekEmailTokenUserId(token, "reset")).toBe(DEMO.member);
+
+        const result = await replaceCredentialsAndCreateSessionWithEmailToken(
+          token,
+          "reset",
+          "email-token-rotation-hash",
+          { ip: "203.0.113.10", userAgent: "atomic-token-test" },
+          { auditAction: "test.password.reset_email_token" },
+        );
+        expect(result).toMatchObject({ ok: true, userId: DEMO.member });
+        if (!result.ok) return;
+        expect(await peekEmailTokenUserId(token, "reset")).toBeNull();
+        expect(await rows(DEMO.member)).toHaveLength(1);
+        const [updated] = await db()
+          .select({ passwordHash: users.passwordHash })
+          .from(users)
+          .where(eq(users.id, DEMO.member));
+        expect(updated?.passwordHash).toBe("email-token-rotation-hash");
+      } finally {
+        await db().delete(sessions).where(eq(sessions.userId, DEMO.member));
+        await db().delete(emailTokens).where(eq(emailTokens.id, tokenId));
+        if (original) {
+          await db()
+            .update(users)
+            .set({
+              passwordHash: original.passwordHash,
+              legacyPasswordHash: original.legacy,
+              legacyPasswordPending: original.pending,
+              emailVerifiedAt: original.emailVerifiedAt,
+            })
+            .where(eq(users.id, DEMO.member));
+        }
+      }
+    });
+
+    it("封禁态密码重置仍原子吊销旧会话，但不签发新会话", async () => {
+      const [original] = await db()
+        .select({
+          passwordHash: users.passwordHash,
+          legacy: users.legacyPasswordHash,
+          pending: users.legacyPasswordPending,
+        })
+        .from(users)
+        .where(eq(users.id, DEMO.member));
+      const reason = "重置边界回归";
+      await insertExistingSession(DEMO.member);
+      await db().insert(userRestrictions).values({
+        userId: DEMO.member,
+        kind: "ban",
+        scopeId: 0,
+        reason,
+        startsAt: "2000-01-01 00:00:00",
+        endsAt: null,
+        createdAt: "2000-01-01 00:00:00",
+      });
+
+      try {
+        const result = await replaceCredentialsAndCreateSession(
+          DEMO.member,
+          "reset-under-ban",
+          {},
+          { auditAction: "test.password.reset_under_ban" },
+        );
+        expect(result).toEqual({ ok: false, code: "banned" });
+        expect(await rows(DEMO.member)).toHaveLength(0);
+        const [user] = await db()
+          .select({ passwordHash: users.passwordHash })
+          .from(users)
+          .where(eq(users.id, DEMO.member));
+        expect(user?.passwordHash).toBe("reset-under-ban");
+        const [audit] = await db()
+          .select({ after: auditLog.afterJson })
+          .from(auditLog)
+          .where(eq(auditLog.action, "test.password.reset_under_ban"));
+        expect(audit?.after).toMatchObject({ passwordConfigured: true, via: "self" });
+        expect(JSON.stringify(audit?.after)).not.toContain("reset-under-ban");
+      } finally {
+        await db()
+          .delete(userRestrictions)
+          .where(
+            and(eq(userRestrictions.userId, DEMO.member), eq(userRestrictions.reason, reason)),
+          );
+        if (original) {
+          await db()
+            .update(users)
+            .set({
+              passwordHash: original.passwordHash,
+              legacyPasswordHash: original.legacy,
+              legacyPasswordPending: original.pending,
+            })
+            .where(eq(users.id, DEMO.member));
+        }
+      }
     });
   });
 

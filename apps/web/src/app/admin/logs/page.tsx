@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { queryAuditLogs, queryEventLogs } from "@/lib/admin/logs";
+import { pageBounds } from "@/lib/queries/paging";
 import { JsonViewerButton } from "@/components/admin/json-viewer";
 import { Pagination } from "@/components/content/pagination";
 
@@ -20,11 +21,11 @@ export default async function AdminLogsPage({ searchParams }: Params) {
   const tab = sp.tab === "events" ? "events" : "audit";
   const action = typeof sp.action === "string" && sp.action ? sp.action : undefined;
   const actorId = Number(sp.actor ?? "0") || undefined;
-  const page = Math.max(1, Number(sp.page ?? "1") || 1);
-  const filter = { action, actorId, limit: PER_PAGE, offset: (page - 1) * PER_PAGE };
+  const page = Number(sp.page ?? "1") || 1;
+  const filter = { action, actorId, limit: PER_PAGE, page };
 
   const result = tab === "events" ? await queryEventLogs(filter) : await queryAuditLogs(filter);
-  const totalPages = Math.max(1, Math.ceil(result.total / PER_PAGE));
+  const { page: safePage, totalPages } = pageBounds(result.total, page, PER_PAGE);
 
   const baseQuery = (over: Record<string, string | number>) => {
     const p = new URLSearchParams();
@@ -88,9 +89,9 @@ export default async function AdminLogsPage({ searchParams }: Params) {
       </div>
 
       <p className="text-xs text-muted-foreground">
-        共 {result.total} 条 · 第 {page}/{totalPages} 页
+        共 {result.total} 条 · 第 {safePage}/{totalPages} 页
       </p>
-      <Pagination basePath={baseQuery({ page: "" })} page={page} totalPages={totalPages} />
+      <Pagination basePath={baseQuery({ page: "" })} page={safePage} totalPages={totalPages} />
 
       <div className="overflow-x-auto rounded-xl border bg-card">
         <table className="w-full text-left text-xs">

@@ -11,3 +11,20 @@ export function clampPage(page: number, totalPages: number): number {
   const whole = Math.trunc(page) || 1; // NaN 与 0 都回到第 1 页
   return Math.min(Math.max(1, whole), Math.max(1, totalPages));
 }
+
+export interface PageBounds {
+  page: number;
+  totalPages: number;
+  offset: number;
+}
+
+/** 统一计算列表分页边界；拒绝无效 pageSize，避免各查询重复拼 totalPages/offset。 */
+export function pageBounds(total: number, rawPage: number, pageSize: number): PageBounds {
+  if (!Number.isInteger(pageSize) || pageSize <= 0) {
+    throw new RangeError("pageSize 必须是正整数");
+  }
+  const safeTotal = Number.isFinite(total) ? Math.max(0, Math.trunc(total)) : 0;
+  const totalPages = Math.max(1, Math.ceil(safeTotal / pageSize));
+  const page = clampPage(rawPage, totalPages);
+  return { page, totalPages, offset: (page - 1) * pageSize };
+}

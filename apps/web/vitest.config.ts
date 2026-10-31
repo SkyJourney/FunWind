@@ -8,6 +8,7 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: ["./vitest.setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
+    hookTimeout: 30_000, // 临时库 bootstrap+seed 在并发负载下允许更宽裕的准备时间
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],

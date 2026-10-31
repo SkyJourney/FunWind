@@ -4,6 +4,10 @@ import { z } from "zod";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { defineAction } from "@/lib/actions/define-action";
+import {
+  closureCancelIpRateLimit,
+  closureConsumeIpRateLimit,
+} from "@/lib/auth/rate-limit-policies";
 import { hashEmailKey } from "@/lib/auth/tokens";
 import {
   AccountDeletionError,
@@ -140,6 +144,15 @@ export const consumeClosureEmailTokenAction = defineAction({
   name: "account_deletion.consume_email_token",
   auth: "guest",
   input: z.object({ token: z.string().min(1).max(256) }),
+  // 令牌本身高熵单次，爆破不可行；此限额防脚本高频打库
+  rateLimit: [
+    {
+      key: (ctx) => closureConsumeIpRateLimit.key(ctx.ip),
+      max: closureConsumeIpRateLimit.max,
+      windowMs: closureConsumeIpRateLimit.windowMs,
+      onLimit: () => redirect("/closure/verify?error=操作过于频繁，请稍后再试"),
+    },
+  ],
   async run(_ctx, input) {
     let result: Awaited<ReturnType<typeof consumeAccountDeletionEmailToken>>;
     try {
@@ -159,6 +172,14 @@ export const consumeClosureEmailTokenAction = defineAction({
 export const cancelAccountDeletionAction = defineAction({
   name: "account_deletion.cancel",
   auth: "guest",
+  rateLimit: [
+    {
+      key: (ctx) => closureCancelIpRateLimit.key(ctx.ip),
+      max: closureCancelIpRateLimit.max,
+      windowMs: closureCancelIpRateLimit.windowMs,
+      onLimit: () => redirect("/closure?error=操作过于频繁，请稍后再试"),
+    },
+  ],
   async run(_ctx) {
     const token = (await cookies()).get(CLOSURE_ACCESS_COOKIE)?.value;
     if (!token) redirect("/closure?error=请先重新验证身份");

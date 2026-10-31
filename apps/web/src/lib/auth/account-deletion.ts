@@ -11,6 +11,7 @@ import {
   follows,
   gateUnlocks,
   getWebDb,
+  insertIdOf,
   inviteCodes,
   messages,
   notificationPreferences,
@@ -130,14 +131,15 @@ async function createRequestInTx(
   if (previous[0]?.status === "pending") throw new AccountDeletionError("already_pending");
   if (previous[0]?.status === "completed") throw new AccountDeletionError("already_completed");
 
-  const [created] = (await tx.insert(accountDeletionRequests).values({
-    userId,
-    status: "pending",
-    requestedAt: sql`NOW()`,
-    scheduledAt: sql`NOW() + INTERVAL ${REQUEST_TTL_SECONDS} SECOND`,
-    verificationMethod,
-  })) as unknown as [{ insertId: number }];
-  const requestId = Number(created.insertId);
+  const requestId = insertIdOf(
+    await tx.insert(accountDeletionRequests).values({
+      userId,
+      status: "pending",
+      requestedAt: sql`NOW()`,
+      scheduledAt: sql`NOW() + INTERVAL ${REQUEST_TTL_SECONDS} SECOND`,
+      verificationMethod,
+    }),
+  );
   const [request] = await tx
     .select({ scheduledAt: accountDeletionRequests.scheduledAt })
     .from(accountDeletionRequests)

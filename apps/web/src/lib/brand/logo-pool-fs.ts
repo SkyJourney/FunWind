@@ -7,6 +7,7 @@ import sharp from "sharp";
 import { getStorageDir } from "@/lib/storage";
 import { sniffType } from "@/lib/uploads/sniff";
 import { getLogoPoolRaw, registerLogo, type LogoPool } from "./logo-pool";
+import { CLI_ACTOR, type ConfigActor } from "@/lib/audit";
 
 const MAX_BYTES = 512 * 1024;
 
@@ -14,6 +15,7 @@ const MAX_BYTES = 512 * 1024;
 export async function addLogo(
   name: string,
   bytes: Uint8Array,
+  actor: ConfigActor = CLI_ACTOR,
 ): Promise<{ ok: true; pool: LogoPool } | { ok: false; code: "bad_type" | "too_large" }> {
   if (bytes.length > MAX_BYTES) return { ok: false, code: "too_large" };
   if (sniffType(bytes) !== "png") return { ok: false, code: "bad_type" };
@@ -29,7 +31,7 @@ export async function addLogo(
   const filePath = path.join(dir, file);
   await writeFile(filePath, bytes, { flag: "wx" });
   try {
-    const pool = await registerLogo(clean, file);
+    const pool = await registerLogo(clean, file, actor);
     return { ok: true, pool };
   } catch (error) {
     await unlink(filePath).catch(() => {});

@@ -4,9 +4,11 @@
  * 关键词、作用域过滤、封禁作者徽标、setThreadFlags 的权限递减（版主置顶上限 1）。
  */
 import "@/modules";
-import { eq } from "drizzle-orm";
-import { DEMO, getWebDb, posts, threads } from "@funwind/db";
+import { and, eq } from "drizzle-orm";
+import { DEMO, getWebDb, posts, threads, userRoles } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { assignUserRole, createCustomRole, grantRolePermission } from "@/lib/authz/admin";
+import { invalidateAuthzSnapshot } from "@/lib/authz/snapshot";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { listContentsPage, setThreadFlags } from "./contents";
 
@@ -148,7 +150,7 @@ describe.skipIf(skipDb)("内容管理（M9.5）", () => {
       page: 1,
       scopeForumIds: [],
     });
-    expect(none).toEqual({ items: [], total: 0 });
+    expect(none).toMatchObject({ items: [], total: 0 });
   });
 
   it("setThreadFlags：版主可锁定/精华/版块置顶；置顶到全站被拒；锁定即时生效", async () => {
@@ -177,6 +179,25 @@ describe.skipIf(skipDb)("内容管理（M9.5）", () => {
       { userId: DEMO.member, via: "admin", ip: null },
     );
     expect(denied).toMatchObject({ ok: false, code: "forbidden" });
+
+    const roleKey = "contents-moderator";
+    await createCustomRole(admin, roleKey, "内容版主", "");
+    await grantRolePermission(admin, roleKey, "forum.moderate", REVIEW_FORUM);
+    await assignUserRole(admin, DEMO.member, roleKey, 0, null, "版主置顶权限边界测试");
+    try {
+      const moderator = { userId: DEMO.member, via: "admin" as const, ip: null };
+      expect(
+        await setThreadFlags({ userId: DEMO.member }, t.threadId, { pinLevel: 1 }, moderator),
+      ).toEqual({ ok: true });
+      expect(
+        await setThreadFlags({ userId: DEMO.member }, t.threadId, { pinLevel: 2 }, moderator),
+      ).toMatchObject({ ok: false, code: "bad_pin" });
+    } finally {
+      await db()
+        .delete(userRoles)
+        .where(and(eq(userRoles.userId, DEMO.member), eq(userRoles.roleKey, roleKey)));
+      invalidateAuthzSnapshot();
+    }
 
     // 不存在的主题
     expect(

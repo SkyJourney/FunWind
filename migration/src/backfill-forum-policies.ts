@@ -1,3 +1,4 @@
+import { affectedRowsOf } from "@funwind/db";
 import { oldQuery, newQuery } from "./db.js";
 
 /**
@@ -121,11 +122,13 @@ async function main() {
   for (const fid of restrictedFids) {
     for (const role of TEAM_ROLES) {
       for (const perm of ["forum.read", "forum.write"]) {
-        const res = (await newQuery(
-          "INSERT IGNORE INTO role_grants (role_key, permission_key, scope_id) VALUES (?, ?, ?)",
-          [role, perm, fid],
-        )) as unknown as { affectedRows: number };
-        grantsAdded += res.affectedRows > 0 ? 1 : 0;
+        const affectedRows = affectedRowsOf(
+          await newQuery(
+            "INSERT IGNORE INTO role_grants (role_key, permission_key, scope_id) VALUES (?, ?, ?)",
+            [role, perm, fid],
+          ),
+        );
+        grantsAdded += affectedRows > 0 ? 1 : 0;
       }
     }
   }

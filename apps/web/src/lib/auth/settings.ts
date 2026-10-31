@@ -1,5 +1,5 @@
 import { cache } from "react";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { getWebDb, siteSettings } from "@funwind/db";
 import { CLI_ACTOR, writeAudit, type ConfigActor } from "@/lib/audit";
 
@@ -56,6 +56,53 @@ export async function setSetting(
         targetId: key,
         before: prev ? { value: prev.value } : null,
         after: { value, via: actor.via },
+        ip: actor.ip,
+      });
+    }
+  });
+}
+
+/**
+ * 多键站点设置写入：单事务提交一组相关联的键（如积分显示名与奖励数值），
+ * 按 key 排序加锁避免与其它多键写入交叉死锁；有变化时只写一条合并审计
+ * （before/after 按键记录），避免「半更新 + 两条互相矛盾的审计」。
+ */
+export async function setSettings(
+  entries: ReadonlyArray<{ key: string; value: unknown }>,
+  actor: ConfigActor = CLI_ACTOR,
+): Promise<void> {
+  const ordered = [...entries].sort((a, b) => (a.key < b.key ? -1 : 1));
+  if (ordered.length === 0) return;
+  await getWebDb().transaction(async (tx) => {
+    const prev = await tx
+      .select({ key: siteSettings.key, value: siteSettings.value })
+      .from(siteSettings)
+      .where(
+        inArray(
+          siteSettings.key,
+          ordered.map((e) => e.key),
+        ),
+      )
+      .orderBy(siteSettings.key)
+      .for("update");
+    const prevByKey = new Map(prev.map((row) => [row.key, row.value]));
+    for (const { key, value } of ordered) {
+      await tx
+        .insert(siteSettings)
+        .values({ key, value: value as object, updatedAt: sql`NOW()` })
+        .onDuplicateKeyUpdate({ set: { value: value as object, updatedAt: sql`NOW()` } });
+    }
+    const changed = ordered.filter(
+      ({ key, value }) => JSON.stringify(prevByKey.get(key)) !== JSON.stringify(value),
+    );
+    if (changed.length > 0) {
+      await writeAudit(tx, {
+        actorId: actor.userId,
+        action: "setting.update",
+        targetType: "setting",
+        targetId: changed.map((c) => c.key).join(","),
+        before: Object.fromEntries(changed.map((c) => [c.key, prevByKey.get(c.key) ?? null])),
+        after: Object.fromEntries(changed.map((c) => [c.key, { value: c.value, via: actor.via }])),
         ip: actor.ip,
       });
     }

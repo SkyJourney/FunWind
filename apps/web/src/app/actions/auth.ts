@@ -18,16 +18,18 @@ import { checkUsername } from "@/lib/auth/username";
 import { takeInviteAttempt } from "@/lib/auth/invite-limit";
 import { InviteCodeError, RegisterError, registerUser } from "@/lib/auth/register";
 import {
+  clearClosureAccessCookie,
   createLegacyPasswordChangeSession,
   createSession,
   destroyCurrentSession,
-  revokeAllForUser,
-  MUST_CHANGE_COOKIE,
   isSecureSite,
+  replaceCredentialsAndCreateSessionWithEmailToken,
   SessionCreationError,
+  setSessionCookie,
+  MUST_CHANGE_COOKIE,
 } from "@/lib/auth/session";
 import { rateLimit } from "@/lib/auth/ratelimit";
-import { issueEmailToken } from "@/lib/auth/tokens";
+import { issueEmailToken, peekEmailTokenUserId } from "@/lib/auth/tokens";
 import { sendMail, verifyEmailMail } from "@/lib/auth/mailer";
 import { getRegisterMode, getEmailVerificationMode } from "@/lib/auth/settings";
 import { APP_URL } from "@/lib/site";
@@ -57,6 +59,22 @@ async function safeEmit<K extends EventName>(name: K, payload: EventPayloads[K])
   }
 }
 
+async function redirectSessionCreationFailure(
+  userId: number,
+  code: SessionCreationError["code"],
+): Promise<never> {
+  if (code === "banned") {
+    const ban = await findActiveGlobalBan(userId);
+    if (ban) {
+      const until = ban.endsAt ? `，至 ${ban.endsAt}` : "（永久）";
+      redirect(
+        "/login?error=" + encodeURIComponent(`账号已被封禁${until}：${ban.reason || "违规"}`),
+      );
+    }
+  }
+  redirect("/login?error=" + encodeURIComponent("账号状态已变化，请重新登录"));
+}
+
 async function establishLoginSession(
   userId: number,
   meta: { ip: string | null; userAgent: string },
@@ -67,15 +85,47 @@ async function establishLoginSession(
     else await createSession(userId, meta);
   } catch (error) {
     if (!(error instanceof SessionCreationError)) throw error;
-    const ban = await findActiveGlobalBan(userId);
-    if (ban) {
-      const until = ban.endsAt ? `，至 ${ban.endsAt}` : "（永久）";
-      redirect(
-        "/login?error=" + encodeURIComponent(`账号已被封禁${until}：${ban.reason || "违规"}`),
-      );
-    }
-    redirect("/login?error=" + encodeURIComponent("账号状态已变化，请重新登录"));
+    await redirectSessionCreationFailure(userId, error.code);
   }
+}
+
+/** reset / claim：令牌消费、凭据轮换、旧会话吊销与新会话签发共用一个事务。 */
+async function establishEmailPasswordFlow(
+  token: string,
+  purpose: "reset" | "claim",
+  password: string,
+  meta: { ip: string | null; userAgent: string },
+  options: {
+    auditAction: "user.password.reset" | "user.password.claim";
+    notice: "password-reset" | "claimed";
+    requireUnsetPassword?: boolean;
+  },
+): Promise<never> {
+  const tokenPath = purpose === "reset" ? "/reset/" : "/claim/";
+  const invalidToken = () =>
+    redirect(
+      `${tokenPath}${encodeURIComponent(token)}?error=${encodeURIComponent("链接无效或已过期，请重新申请")}`,
+    );
+  if ((await peekEmailTokenUserId(token, purpose)) === null) invalidToken();
+
+  const rotation = await replaceCredentialsAndCreateSessionWithEmailToken(
+    token,
+    purpose,
+    await hashPassword(password),
+    meta,
+    { requireUnsetPassword: options.requireUnsetPassword, auditAction: options.auditAction },
+  );
+  if (!rotation.ok) {
+    if (rotation.code === "invalid_token") return invalidToken();
+    if (rotation.code === "already_claimed") {
+      return redirect("/login?error=" + encodeURIComponent("该账号已设置过密码，请直接登录"));
+    }
+    return redirectSessionCreationFailure(rotation.userId, rotation.code);
+  }
+  await setSessionCookie(rotation.sessionToken);
+  await clearClosureAccessCookie();
+  await safeEmit("user.logged_in", { userId: rotation.userId });
+  redirect(`/?notice=${options.notice}`);
 }
 
 /**
@@ -255,34 +305,13 @@ export const resetPasswordAction = defineAction({
       );
     }
 
-    const { consumeEmailToken } = await import("@/lib/auth/tokens");
-    const userId = await consumeEmailToken(token, "reset");
-    if (userId === null) {
-      redirect(
-        "/reset/" +
-          encodeURIComponent(token) +
-          "?error=" +
-          encodeURIComponent("链接无效或已过期，请重新申请"),
-      );
-    }
-
-    const db = getWebDb();
-    await db
-      .update(users)
-      .set({
-        passwordHash: await hashPassword(password),
-        legacyPasswordHash: null, // 设密即销毁旧哈希凭据（双轨闭环）
-        legacyPasswordPending: false,
-      })
-      .where(eq(users.id, userId));
-    await revokeAllForUser(userId);
-    // 重置并登录（M10.6c）：验邮即登录，不再要求回登录页重输一遍
-    await establishLoginSession(userId, {
-      ip: ctx.ip,
-      userAgent: (await headers()).get("user-agent") ?? "",
-    });
-    await safeEmit("user.logged_in", { userId });
-    redirect("/?notice=password-reset");
+    return establishEmailPasswordFlow(
+      token,
+      "reset",
+      password,
+      { ip: ctx.ip, userAgent: (await headers()).get("user-agent") ?? "" },
+      { auditAction: "user.password.reset", notice: "password-reset" },
+    );
   },
 });
 
@@ -305,44 +334,17 @@ export const claimAction = defineAction({
       );
     }
 
-    const { consumeEmailToken } = await import("@/lib/auth/tokens");
-    const userId = await consumeEmailToken(token, "claim");
-    if (userId === null) {
-      redirect(
-        "/claim/" +
-          encodeURIComponent(token) +
-          "?error=" +
-          encodeURIComponent("链接无效或已过期，请重新申请"),
-      );
-    }
-
-    const db = getWebDb();
-    const rows = await db
-      .select({ passwordHash: users.passwordHash })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
-    if (rows[0]?.passwordHash) {
-      // 已设密账号不认领（认领链接 30 天有效，防旧链接变成密码重置）
-      redirect("/login?error=" + encodeURIComponent("该账号已设置过密码，请直接登录"));
-    }
-
-    await db
-      .update(users)
-      .set({
-        passwordHash: await hashPassword(password),
-        legacyPasswordHash: null, // 认领即销毁旧哈希材料（双轨闭环）
-        legacyPasswordPending: false,
-      })
-      .where(eq(users.id, userId));
-    await revokeAllForUser(userId);
-    // 认领并登录（M10.6c）：按钮语义落地——设密成功直接建立会话进入站点
-    await establishLoginSession(userId, {
-      ip: ctx.ip,
-      userAgent: (await headers()).get("user-agent") ?? "",
-    });
-    await safeEmit("user.logged_in", { userId });
-    redirect("/?notice=claimed");
+    return establishEmailPasswordFlow(
+      token,
+      "claim",
+      password,
+      { ip: ctx.ip, userAgent: (await headers()).get("user-agent") ?? "" },
+      {
+        requireUnsetPassword: true,
+        auditAction: "user.password.claim",
+        notice: "claimed",
+      },
+    );
   },
 });
 

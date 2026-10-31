@@ -4,7 +4,7 @@ import type { Subject } from "@/lib/authz/types";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
 import { buildViewerScope, visiblePredicate } from "./visibility";
 import { publicUserDeleted, publicUserId, publicUsername } from "./public-identity";
-import { clampPage } from "./paging";
+import { pageBounds } from "./paging";
 import type { ThreadListItem } from "./threads";
 
 /**
@@ -96,8 +96,7 @@ export async function searchThreads(
     .from(threads)
     .where(where);
   const total = Number(n);
-  const totalPages = Math.max(1, Math.ceil(total / SEARCH_PER_PAGE));
-  const page = clampPage(opts.page ?? 1, totalPages);
+  const { page, totalPages, offset } = pageBounds(total, opts.page ?? 1, SEARCH_PER_PAGE);
   if (total === 0) return { ...empty, emptyQuery: false };
 
   const orderBy =
@@ -129,7 +128,7 @@ export async function searchThreads(
     .where(where)
     .orderBy(...orderBy)
     .limit(SEARCH_PER_PAGE)
-    .offset((page - 1) * SEARCH_PER_PAGE);
+    .offset(offset);
 
   const hits: SearchHit[] = rows.map((r) => ({
     id: r.id,

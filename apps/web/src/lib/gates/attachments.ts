@@ -4,6 +4,7 @@ import {
   fileUploads,
   files,
   getWebDb,
+  insertIdOf,
   postGates,
   posts,
   threads,
@@ -507,16 +508,18 @@ export async function registerPostFiles(
   // 逐条插入以取得每一行的 id（attachment.uploaded 的载荷需要）；附件数量有上限，代价可忽略
   const uploaded: UploadedAttachment[] = [];
   for (const [fileId, d] of desired) {
-    const [{ insertId }] = (await tx.insert(attachments).values({
-      postId,
-      gateId: d.gateId,
-      fileId,
-      uploaderId: authorId,
-      originalName: d.name,
-      kind: "download",
-      createdAt: sql`NOW()`,
-    })) as unknown as [{ insertId: number }];
-    uploaded.push({ attachmentId: Number(insertId), fileId, uploaderId: authorId });
+    const attachmentId = insertIdOf(
+      await tx.insert(attachments).values({
+        postId,
+        gateId: d.gateId,
+        fileId,
+        uploaderId: authorId,
+        originalName: d.name,
+        kind: "download",
+        createdAt: sql`NOW()`,
+      }),
+    );
+    uploaded.push({ attachmentId, fileId, uploaderId: authorId });
   }
   return { ok: true, uploaded };
 }

@@ -36,7 +36,6 @@ import {
   getForumModerators,
   getModeratedForumIds,
   getReadableForumIds,
-  requirePermission,
 } from "./service";
 import { getAuthzSnapshot, getForumTree, invalidateAuthzSnapshot } from "./snapshot";
 import { loadSubject } from "./subject";
@@ -184,12 +183,6 @@ describe.skipIf(skipDb)("权限内核 · 真实 MySQL", () => {
       expect(guest).not.toContain(DEMO.restrictedForum);
       expect(team).toContain(DEMO.restrictedForum);
       expect(await getModeratedForumIds(await loadSubject(DEMO.member))).toEqual([]);
-    });
-
-    it("requirePermission 拒绝时抛 ForbiddenError", async () => {
-      await expect(
-        requirePermission(await loadSubject(DEMO.member), "admin.roles"),
-      ).rejects.toThrow(/权限不足/);
     });
 
     it("带 sign 限制的主体：签名档权限被拒；其余写权限不受影响", async () => {
@@ -445,6 +438,23 @@ describe.skipIf(skipDb)("权限内核 · 真实 MySQL", () => {
               eq(accountDeletionRequests.status, "completed"),
             ),
           );
+      }
+    });
+
+    it("同一用户继承并直接持有版主授权时，直接授权优先展示", async () => {
+      const roleKey = "section-mod-direct";
+      await createCustomRole(admin, roleKey, "子版块版主", "");
+      await grantRolePermission(admin, roleKey, "forum.moderate", 901);
+      await assignUserRole(admin, DEMO.xiaoyi, roleKey, 0, null, "直接版主角色测试");
+      try {
+        expect(await getForumModerators(901)).toEqual([
+          { userId: DEMO.xiaoyi, username: "demo_小翼", viaParent: false },
+        ]);
+      } finally {
+        await getWebDb()
+          .delete(userRoles)
+          .where(and(eq(userRoles.userId, DEMO.xiaoyi), eq(userRoles.roleKey, roleKey)));
+        invalidateAuthzSnapshot();
       }
     });
 

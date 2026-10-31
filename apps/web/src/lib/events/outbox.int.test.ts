@@ -1,10 +1,10 @@
 // @vitest-environment node
 import { eq, isNull } from "drizzle-orm";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { eventLog, eventOutbox, getWebDb } from "@funwind/db";
 import { registerModule } from "@/modules/kernel/registry";
 import { defineModule } from "@/modules/kernel/types";
-import { setupTempDb, skipDb } from "@/test/temp-db";
+import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import {
   countPendingOutbox,
   dispatchOutboxRows,
@@ -29,8 +29,14 @@ registerModule(
 );
 
 describe.skipIf(skipDb)("事务性 outbox", () => {
+  let tdb: TempDb | undefined;
+
   beforeAll(async () => {
-    await setupTempDb();
+    tdb = await setupTempDb();
+  });
+
+  afterAll(async () => {
+    await tdb?.teardown();
   });
 
   afterEach(async () => {

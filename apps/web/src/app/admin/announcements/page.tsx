@@ -5,6 +5,7 @@ import { announcements, getWebDb } from "@funwind/db";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { getSiteChrome } from "@/lib/site-chrome";
 import { fmtDateTime } from "@/lib/admin/format";
+import { pageBounds } from "@/lib/queries/paging";
 import { AdminFlash } from "@/components/admin/admin-flash";
 import { AdminFilterBar } from "@/components/admin/admin-filter-bar";
 import { ChromeRowsEditor } from "@/components/admin/chrome-rows-editor";
@@ -44,7 +45,7 @@ function statusOf(a: { startsAt: string; endsAt: string | null }): {
 export default async function AdminAnnouncementsPage({ searchParams }: Params) {
   await requireAdmin();
   const sp = await searchParams;
-  const page = Math.max(1, Number(sp.page ?? "1") || 1);
+  const requestedPage = Number(sp.page ?? "1") || 1;
   const status = sp.status === "active" || sp.status === "ended" ? sp.status : undefined;
   // 编辑模式：?edit=id 时顶部表单预填
   const editId = Number(sp.edit ?? "0") || null;
@@ -56,19 +57,19 @@ export default async function AdminAnnouncementsPage({ searchParams }: Params) {
         ? or(isNull(announcements.endsAt), sql`${announcements.endsAt} > NOW()`)
         : undefined;
 
-  const [countRow, rows, chrome] = await Promise.all([
+  const [countRow, chrome] = await Promise.all([
     getWebDb().select({ n: count() }).from(announcements).where(where),
-    getWebDb()
-      .select()
-      .from(announcements)
-      .where(where)
-      .orderBy(desc(announcements.id))
-      .limit(PER_PAGE)
-      .offset((page - 1) * PER_PAGE),
     getSiteChrome(),
   ]);
   const total = Number(countRow[0]?.n ?? 0);
-  const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
+  const { page, totalPages, offset } = pageBounds(total, requestedPage, PER_PAGE);
+  const rows = await getWebDb()
+    .select()
+    .from(announcements)
+    .where(where)
+    .orderBy(desc(announcements.id))
+    .limit(PER_PAGE)
+    .offset(offset);
   const editing = editId ? (rows.find((a) => a.id === editId) ?? null) : null;
 
   const flash = Object.entries({

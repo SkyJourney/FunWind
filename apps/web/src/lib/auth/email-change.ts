@@ -4,11 +4,14 @@ import { writeAudit } from "@/lib/audit";
 import { isDuplicateKey } from "./register";
 import { hashEmailKey, issueEmailTokenInTx } from "./tokens";
 
+class TargetVerificationRateLimited extends Error {}
+
 export type EmailChangeResult =
   | { kind: "changed"; beforeEmail: string | null; emailChanged: boolean; verifyToken: string }
   | { kind: "taken" }
   | { kind: "missing" }
-  | { kind: "unchanged" };
+  | { kind: "unchanged" }
+  | { kind: "rate_limited" };
 
 /** 改绑邮箱、清理旧令牌并签发新地址验证令牌；单次事务内串行化。 */
 export async function changeEmailAddress(
@@ -16,6 +19,7 @@ export async function changeEmailAddress(
   email: string,
   emailKey: string,
   ip: string | null,
+  allowTargetVerification: () => boolean = () => true,
 ): Promise<EmailChangeResult> {
   try {
     return await getWebDb().transaction(async (tx) => {
@@ -62,6 +66,7 @@ export async function changeEmailAddress(
         after: { emailKey: hashEmailKey(emailKey), verificationRequired: true },
         ip,
       });
+      if (!allowTargetVerification()) throw new TargetVerificationRateLimited();
       return {
         kind: "changed",
         beforeEmail: current.email,
@@ -70,6 +75,7 @@ export async function changeEmailAddress(
       };
     });
   } catch (error) {
+    if (error instanceof TargetVerificationRateLimited) return { kind: "rate_limited" };
     if (isDuplicateKey(error)) return { kind: "taken" };
     throw error;
   }

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
-import { accountDeletionRequests, emailTokens, getWebDb, users } from "@funwind/db";
+import { accountDeletionRequests, affectedRowsOf, emailTokens, getWebDb, users } from "@funwind/db";
 import type { DbTx } from "@/lib/audit";
 import { generateToken, hashToken } from "./token";
 
@@ -97,95 +97,122 @@ export async function issueEmailToken(
 export const hashEmailKey = (emailKey: string): string =>
   createHash("sha256").update(emailKey).digest("hex");
 
-/** 消费令牌（单次、原子）：返回 userId 或 null（无效/过期/已用） */
-export async function consumeEmailToken(
+/** 预检令牌是否存在且未过期；后续写操作仍需在事务中再次校验并消费。 */
+export async function peekEmailTokenUserId(
   token: string,
   purpose: EmailTokenPurpose,
 ): Promise<number | null> {
   if (!token) return null;
-  const db = getWebDb();
+  const [row] = await getWebDb()
+    .select({ userId: emailTokens.userId })
+    .from(emailTokens)
+    .where(
+      and(
+        eq(emailTokens.id, hashToken(token)),
+        eq(emailTokens.purpose, purpose),
+        sql`${emailTokens.usedAt} IS NULL`,
+        sql`${emailTokens.expiresAt} > NOW()`,
+      ),
+    )
+    .limit(1);
+  return row?.userId ?? null;
+}
+
+/** 在调用方事务中原子消费令牌；供凭据轮换把令牌消费和密码更新放在同一事务。 */
+export async function consumeEmailTokenInTx(
+  tx: DbTx,
+  token: string,
+  purpose: EmailTokenPurpose,
+): Promise<number | null> {
+  if (!token) return null;
   const id = hashToken(token);
-  const [candidate] = await db
+  const [candidate] = await tx
     .select({ userId: emailTokens.userId })
     .from(emailTokens)
     .where(and(eq(emailTokens.id, id), eq(emailTokens.purpose, purpose)))
     .limit(1);
   if (!candidate) return null;
 
-  return db.transaction(async (tx) => {
-    const [user] = await tx
-      .select({ emailKey: users.emailKey, state: users.state })
-      .from(users)
-      .where(eq(users.id, candidate.userId))
-      .limit(1)
-      .for("update");
-    const [closure] = await tx
-      .select({ id: accountDeletionRequests.id })
-      .from(accountDeletionRequests)
-      .where(
-        and(
-          eq(accountDeletionRequests.userId, candidate.userId),
-          inArray(accountDeletionRequests.status, ["pending", "completed"]),
-        ),
-      )
-      .limit(1);
-    if (closure) {
-      await tx.delete(emailTokens).where(eq(emailTokens.id, id));
-      return null;
-    }
+  const [user] = await tx
+    .select({ emailKey: users.emailKey, state: users.state })
+    .from(users)
+    .where(eq(users.id, candidate.userId))
+    .limit(1)
+    .for("update");
+  const [closure] = await tx
+    .select({ id: accountDeletionRequests.id })
+    .from(accountDeletionRequests)
+    .where(
+      and(
+        eq(accountDeletionRequests.userId, candidate.userId),
+        inArray(accountDeletionRequests.status, ["pending", "completed"]),
+      ),
+    )
+    .limit(1);
+  if (closure) {
+    await tx.delete(emailTokens).where(eq(emailTokens.id, id));
+    return null;
+  }
 
-    const [row] = await tx
-      .select({
-        userId: emailTokens.userId,
-        purpose: emailTokens.purpose,
-        emailKeySnapshot: emailTokens.emailKeySnapshot,
-        usedAt: emailTokens.usedAt,
-        isLive: sql<boolean>`${emailTokens.expiresAt} > NOW()`.mapWith(Boolean),
-      })
-      .from(emailTokens)
-      .where(eq(emailTokens.id, id))
-      .limit(1)
-      .for("update");
-    if (!row || row.userId !== candidate.userId || row.purpose !== purpose || row.usedAt !== null) {
-      return null;
-    }
-    if (!row.isLive) return null;
-    if (
-      !user ||
-      user.state !== "active" ||
-      !user.emailKey ||
-      row.emailKeySnapshot !== hashEmailKey(user.emailKey)
-    ) {
-      await tx.delete(emailTokens).where(eq(emailTokens.id, id));
-      return null;
-    }
+  const [row] = await tx
+    .select({
+      userId: emailTokens.userId,
+      purpose: emailTokens.purpose,
+      emailKeySnapshot: emailTokens.emailKeySnapshot,
+      usedAt: emailTokens.usedAt,
+      isLive: sql<boolean>`${emailTokens.expiresAt} > NOW()`.mapWith(Boolean),
+    })
+    .from(emailTokens)
+    .where(eq(emailTokens.id, id))
+    .limit(1)
+    .for("update");
+  if (!row || row.userId !== candidate.userId || row.purpose !== purpose || row.usedAt !== null) {
+    return null;
+  }
+  if (!row.isLive) return null;
+  if (
+    !user ||
+    user.state !== "active" ||
+    !user.emailKey ||
+    row.emailKeySnapshot !== hashEmailKey(user.emailKey)
+  ) {
+    await tx.delete(emailTokens).where(eq(emailTokens.id, id));
+    return null;
+  }
 
-    const result = await tx
-      .update(emailTokens)
-      .set({ usedAt: sql`NOW()` })
-      .where(
-        and(
-          eq(emailTokens.id, id),
-          sql`${emailTokens.usedAt} IS NULL`,
-          sql`${emailTokens.expiresAt} > NOW()`,
-        ),
-      );
-    const affected = (result as unknown as [{ affectedRows: number }])[0]?.affectedRows ?? 0;
-    if (affected === 0) return null;
+  const result = await tx
+    .update(emailTokens)
+    .set({ usedAt: sql`NOW()` })
+    .where(
+      and(
+        eq(emailTokens.id, id),
+        sql`${emailTokens.usedAt} IS NULL`,
+        sql`${emailTokens.expiresAt} > NOW()`,
+      ),
+    );
+  if (affectedRowsOf(result) === 0) return null;
 
-    await tx
-      .delete(emailTokens)
-      .where(
-        and(
-          eq(emailTokens.userId, candidate.userId),
-          eq(emailTokens.purpose, purpose),
-          ne(emailTokens.id, id),
-        ),
-      );
-    await tx
-      .update(users)
-      .set({ emailVerifiedAt: sql`NOW()` })
-      .where(eq(users.id, candidate.userId));
-    return candidate.userId;
-  });
+  await tx
+    .delete(emailTokens)
+    .where(
+      and(
+        eq(emailTokens.userId, candidate.userId),
+        eq(emailTokens.purpose, purpose),
+        ne(emailTokens.id, id),
+      ),
+    );
+  await tx
+    .update(users)
+    .set({ emailVerifiedAt: sql`NOW()` })
+    .where(eq(users.id, candidate.userId));
+  return candidate.userId;
+}
+
+/** 消费令牌（单次、原子）：返回 userId 或 null（无效/过期/已用） */
+export async function consumeEmailToken(
+  token: string,
+  purpose: EmailTokenPurpose,
+): Promise<number | null> {
+  if (!token) return null;
+  return getWebDb().transaction((tx) => consumeEmailTokenInTx(tx, token, purpose));
 }

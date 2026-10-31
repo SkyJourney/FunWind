@@ -22,6 +22,7 @@ import {
 } from "@/lib/authz/site-admin-invariant";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
 import { publicUserDeleted } from "@/lib/queries/public-identity";
+import { pageBounds } from "@/lib/queries/paging";
 import {
   dispatchOutboxRows,
   enqueueEventInTx,
@@ -333,6 +334,8 @@ export async function listAdminUsersPage(
     restricted: boolean;
   }[];
   total: number;
+  page: number;
+  totalPages: number;
 }> {
   const perPage = ADMIN_USERS_PER_PAGE;
   const q = filters.q?.trim() ?? "";
@@ -402,39 +405,39 @@ export async function listAdminUsersPage(
           ]
         : [desc(users.id)];
 
-  const [countRow, items] = await Promise.all([
-    getWebDb()
-      .select({ total: sql<number>`COUNT(*)` })
-      .from(users)
-      .where(where),
-    getWebDb()
-      .select({
-        id: users.id,
-        username: sql<string>`CASE WHEN ${publicUserDeleted(users.id, users.state)} THEN '已注销用户' ELSE ${users.username} END`,
-        state: sql<
-          "active" | "deleted"
-        >`CASE WHEN ${publicUserDeleted(users.id, users.state)} THEN 'deleted' ELSE 'active' END`,
-        emailVerified: sql<boolean>`${users.emailVerifiedAt} IS NOT NULL`.mapWith(Boolean),
-        emailVerificationRequired: users.emailVerificationRequired,
-        hasPassword: sql<boolean>`${users.passwordHash} IS NOT NULL`.mapWith(Boolean),
-        legacyPasswordPending: users.legacyPasswordPending,
-        createdAt: users.createdAt,
-        threadCount: sql<number | null>`(SELECT COUNT(*) FROM threads
-          WHERE threads.author_id = users.id AND threads.state = 'visible')`,
-        postCount: sql<number | null>`(SELECT COUNT(*) FROM posts
-          WHERE posts.author_id = users.id AND posts.state = 'visible')`,
-        restricted:
-          sql<boolean>`EXISTS (SELECT 1 FROM user_restrictions ur WHERE ur.user_id = users.id
-            AND ur.starts_at <= NOW() AND (ur.ends_at IS NULL OR ur.ends_at > NOW()))`.mapWith(
-            Boolean,
-          ),
-      })
-      .from(users)
-      .where(where)
-      .orderBy(...orderBy)
-      .limit(perPage)
-      .offset((page - 1) * perPage),
-  ]);
+  const [countRow] = await getWebDb()
+    .select({ total: sql<number>`COUNT(*)` })
+    .from(users)
+    .where(where);
+  const total = Number(countRow?.total ?? 0);
+  const { page: safePage, totalPages, offset } = pageBounds(total, page, perPage);
+  const items = await getWebDb()
+    .select({
+      id: users.id,
+      username: sql<string>`CASE WHEN ${publicUserDeleted(users.id, users.state)} THEN '已注销用户' ELSE ${users.username} END`,
+      state: sql<
+        "active" | "deleted"
+      >`CASE WHEN ${publicUserDeleted(users.id, users.state)} THEN 'deleted' ELSE 'active' END`,
+      emailVerified: sql<boolean>`${users.emailVerifiedAt} IS NOT NULL`.mapWith(Boolean),
+      emailVerificationRequired: users.emailVerificationRequired,
+      hasPassword: sql<boolean>`${users.passwordHash} IS NOT NULL`.mapWith(Boolean),
+      legacyPasswordPending: users.legacyPasswordPending,
+      createdAt: users.createdAt,
+      threadCount: sql<number | null>`(SELECT COUNT(*) FROM threads
+        WHERE threads.author_id = users.id AND threads.state = 'visible')`,
+      postCount: sql<number | null>`(SELECT COUNT(*) FROM posts
+        WHERE posts.author_id = users.id AND posts.state = 'visible')`,
+      restricted:
+        sql<boolean>`EXISTS (SELECT 1 FROM user_restrictions ur WHERE ur.user_id = users.id
+          AND ur.starts_at <= NOW() AND (ur.ends_at IS NULL OR ur.ends_at > NOW()))`.mapWith(
+          Boolean,
+        ),
+    })
+    .from(users)
+    .where(where)
+    .orderBy(...orderBy)
+    .limit(perPage)
+    .offset(offset);
   const closureRows = items.length
     ? await getWebDb()
         .select({
@@ -473,7 +476,9 @@ export async function listAdminUsersPage(
         closureScheduledAt,
       };
     }),
-    total: Number(countRow[0]?.total ?? 0),
+    total,
+    page: safePage,
+    totalPages,
   };
 }
 

@@ -46,6 +46,7 @@ describe.skipIf(skipDb)("私信管理辅助（M10 补做）", () => {
   it("pmStats：会话/消息/今日计数", async () => {
     await sendMessage(await loadSubject(90001), 90006, "统计前消息");
     const stats = await pmStats();
+    expect(await pmStats()).toEqual(stats);
     expect(stats.conversations).toBeGreaterThanOrEqual(1);
     expect(stats.messages).toBeGreaterThanOrEqual(1);
     expect(stats.today).toBeGreaterThanOrEqual(1);

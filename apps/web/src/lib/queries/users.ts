@@ -18,6 +18,7 @@ import { getPointsName } from "@/lib/auth/settings";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
 import { buildViewerScope, visiblePredicate } from "./visibility";
 import { publicRolesOf, type PublicRoleIdentity } from "./public-identity";
+import { pageBounds } from "./paging";
 import { GUEST_SUBJECT, type Subject } from "@/lib/authz/types";
 import { extractFeedMedia } from "./feed-media";
 import { selectList, threadScope, toItem, type ThreadListItem } from "./threads";
@@ -261,13 +262,12 @@ export async function getUserThreads(
     .from(threads)
     .where(base);
   const total = Number(n);
-  const totalPages = Math.max(1, Math.ceil(total / USER_CONTENT_PER_PAGE));
-  const cur = Math.min(Math.max(1, page), totalPages);
+  const { page: cur, totalPages, offset } = pageBounds(total, page, USER_CONTENT_PER_PAGE);
   const rows = listed.length
     ? await selectList(base)
         .orderBy(desc(threads.lastPostedAt), desc(threads.id))
         .limit(USER_CONTENT_PER_PAGE)
-        .offset((cur - 1) * USER_CONTENT_PER_PAGE)
+        .offset(offset)
     : [];
   return { items: rows.map((r) => toItem(r)), total, page: cur, totalPages };
 }
@@ -308,8 +308,7 @@ export async function getUserReplies(
     .innerJoin(threads, eq(threads.id, posts.threadId))
     .where(base);
   const total = Number(n);
-  const totalPages = Math.max(1, Math.ceil(total / USER_CONTENT_PER_PAGE));
-  const cur = Math.min(Math.max(1, page), totalPages);
+  const { page: cur, totalPages, offset } = pageBounds(total, page, USER_CONTENT_PER_PAGE);
   const rows =
     listed.length > 0
       ? await getWebDb()
@@ -326,7 +325,7 @@ export async function getUserReplies(
           .where(base)
           .orderBy(desc(posts.id))
           .limit(USER_CONTENT_PER_PAGE)
-          .offset((cur - 1) * USER_CONTENT_PER_PAGE)
+          .offset(offset)
       : [];
   return {
     items: rows.map((r) => ({

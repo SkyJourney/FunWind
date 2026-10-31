@@ -2,6 +2,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import {
   accountDeletionRequests,
   getWebDb,
+  insertIdOf,
   userAppeals,
   userRestrictions,
   users,
@@ -67,15 +68,16 @@ async function createAppealsInTx(
       .for("update");
     if (pending) continue;
 
-    const [created] = (await tx.insert(userAppeals).values({
-      userId,
-      targetType: "restriction",
-      targetId: restriction.id,
-      reason,
-      status: "pending",
-      createdAt: sql`NOW()`,
-    })) as unknown as [{ insertId: number }];
-    const appealId = Number(created.insertId);
+    const appealId = insertIdOf(
+      await tx.insert(userAppeals).values({
+        userId,
+        targetType: "restriction",
+        targetId: restriction.id,
+        reason,
+        status: "pending",
+        createdAt: sql`NOW()`,
+      }),
+    );
     await writeAudit(tx, {
       actorId: userId,
       action: "user.appeal.submit",

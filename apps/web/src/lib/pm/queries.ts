@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { conversations, conversationMembers, getWebDb, messages, users } from "@funwind/db";
 import { publicUserDeleted, publicUserId, publicUsername } from "@/lib/queries/public-identity";
+import { pageBounds } from "@/lib/queries/paging";
 
 export interface ConversationItem {
   conversationId: number;
@@ -32,12 +33,9 @@ export async function conversationPage(
   userId: number,
   rawPage: number,
 ): Promise<{ items: ConversationItem[]; hasMore: boolean; page: number }> {
-  const page = Math.max(1, Math.trunc(rawPage) || 1);
-  const rows = await loadConversations(
-    userId,
-    CONVERSATIONS_PER_PAGE + 1,
-    (page - 1) * CONVERSATIONS_PER_PAGE,
-  );
+  // 会话流不做总数统计；按安全整数上限夹取页码，确保 OFFSET 可表示。
+  const { page, offset } = pageBounds(Number.MAX_SAFE_INTEGER, rawPage, CONVERSATIONS_PER_PAGE);
+  const rows = await loadConversations(userId, CONVERSATIONS_PER_PAGE + 1, offset);
   return {
     items: rows.slice(0, CONVERSATIONS_PER_PAGE),
     hasMore: rows.length > CONVERSATIONS_PER_PAGE,

@@ -6,13 +6,11 @@
  */
 import mysql from "mysql2/promise";
 import { newDbConfig } from "../src/env.js";
+import { assertE2eResetTarget, E2E_DATABASE_NAME } from "../src/e2e-safety.js";
 
-const DB_NAME_RE = /^[a-z0-9_]+$/;
 const base = newDbConfig();
-const database = process.env.NEW_DB_NAME ?? "qysub_next_e2e";
-if (!DB_NAME_RE.test(database)) {
-  throw new Error(`非法数据库名: ${database}`);
-}
+const database = process.env.NEW_DB_NAME ?? E2E_DATABASE_NAME;
+assertE2eResetTarget(database, base.host);
 
 console.log(`→ E2E 库重置（空库）: ${database} @ ${base.host}:${base.port}`);
 const admin = await mysql.createConnection({

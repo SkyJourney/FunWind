@@ -1,5 +1,5 @@
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
-import { getWebDb, pollOptions, polls, posts, threads } from "@funwind/db";
+import { getWebDb, insertIdOf, pollOptions, polls, posts, threads } from "@funwind/db";
 import { splitSource, type GateDraft } from "@funwind/content";
 import { type DbTx } from "@/lib/audit";
 import { evaluate } from "@/lib/authz/evaluator";
@@ -294,25 +294,27 @@ export async function createThread(
 
         await enforceFrequency(tx, authorId, limits, true);
 
-        const [t] = (await tx.insert(threads).values({
-          forumId,
-          authorId,
-          title: title.value,
-          state,
-          createdAt: sql`NOW()`,
-          lastPostedAt: sql`NOW()`,
-        })) as unknown as [{ insertId: number }];
-        const threadId = Number(t.insertId);
-        const [p] = (await tx.insert(posts).values({
-          threadId,
-          floor: 1,
-          authorId,
-          bodyMd: body.publicMd,
-          hasGate: body.gates.length > 0,
-          state,
-          createdAt: sql`NOW()`,
-        })) as unknown as [{ insertId: number }];
-        const postId = Number(p.insertId);
+        const threadId = insertIdOf(
+          await tx.insert(threads).values({
+            forumId,
+            authorId,
+            title: title.value,
+            state,
+            createdAt: sql`NOW()`,
+            lastPostedAt: sql`NOW()`,
+          }),
+        );
+        const postId = insertIdOf(
+          await tx.insert(posts).values({
+            threadId,
+            floor: 1,
+            authorId,
+            bodyMd: body.publicMd,
+            hasGate: body.gates.length > 0,
+            state,
+            createdAt: sql`NOW()`,
+          }),
+        );
         await tx.update(threads).set({ firstPostId: postId }).where(eq(threads.id, threadId));
         if (input.poll) {
           if (input.poll.options.length < 2 || input.poll.options.length > 20) {
@@ -332,16 +334,17 @@ export async function createThread(
             throw new Rollback(err("poll_option_limit", "可选项数须在 1 与选项数之间"));
           }
           const kindMark = input.poll.resultVisibility === "after_vote" ? "after_vote" : "always";
-          const [pollRow] = (await tx.insert(polls).values({
-            threadId,
-            optionLimit: input.poll.optionLimit,
-            endsAt: input.poll.endsAt,
-            resultVisibility: kindMark,
-            voterCount: 0,
-            createdBy: authorId,
-            createdAt: sql`NOW()`,
-          })) as unknown as [{ insertId: number }];
-          const pollId = Number(pollRow.insertId);
+          const pollId = insertIdOf(
+            await tx.insert(polls).values({
+              threadId,
+              optionLimit: input.poll.optionLimit,
+              endsAt: input.poll.endsAt,
+              resultVisibility: kindMark,
+              voterCount: 0,
+              createdBy: authorId,
+              createdAt: sql`NOW()`,
+            }),
+          );
           await tx
             .insert(pollOptions)
             .values(
@@ -573,17 +576,18 @@ export async function createReply(
           .where(eq(posts.threadId, thread.id));
         const floor = Number(maxRow?.m ?? 0) + 1;
 
-        const [p] = (await tx.insert(posts).values({
-          threadId: thread.id,
-          floor,
-          authorId,
-          bodyMd: body.publicMd,
-          replyToPostId: replyTo,
-          hasGate: body.gates.length > 0,
-          state,
-          createdAt: sql`NOW()`,
-        })) as unknown as [{ insertId: number }];
-        const postId = Number(p.insertId);
+        const postId = insertIdOf(
+          await tx.insert(posts).values({
+            threadId: thread.id,
+            floor,
+            authorId,
+            bodyMd: body.publicMd,
+            replyToPostId: replyTo,
+            hasGate: body.gates.length > 0,
+            state,
+            createdAt: sql`NOW()`,
+          }),
+        );
 
         // @提及（M8）：仅 visible 发（待审不可见）；上限 10 人
         const replyMentionIds =

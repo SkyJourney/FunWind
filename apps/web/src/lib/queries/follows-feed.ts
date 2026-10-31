@@ -3,7 +3,7 @@ import { follows, getWebDb, posts, threads, users } from "@funwind/db";
 import type { Subject } from "@/lib/authz/types";
 import { THREADS_PER_PAGE, selectList, threadCols, toItem, type HomeFeedItem } from "./threads";
 import { extractFeedMedia } from "./feed-media";
-import { clampPage } from "./paging";
+import { pageBounds } from "./paging";
 import { buildViewerScope, visiblePredicate } from "./visibility";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
 import { publicUserDeleted } from "./public-identity";
@@ -89,8 +89,7 @@ export async function getFollowFeed(
 
   const [nRow] = await getWebDb().select({ n: count() }).from(threads).where(where);
   const total = Number(nRow?.n ?? 0);
-  const totalPages = Math.max(1, Math.ceil(total / THREADS_PER_PAGE));
-  const page = clampPage(rawPage, totalPages);
+  const { page, totalPages, offset } = pageBounds(total, rawPage, THREADS_PER_PAGE);
 
   const rows =
     total === 0
@@ -98,7 +97,7 @@ export async function getFollowFeed(
       : await selectList(where)
           .orderBy(desc(threads.lastPostedAt), desc(threads.id))
           .limit(THREADS_PER_PAGE)
-          .offset((page - 1) * THREADS_PER_PAGE);
+          .offset(offset);
 
   const items = rows.map((r) => toItem(r));
 

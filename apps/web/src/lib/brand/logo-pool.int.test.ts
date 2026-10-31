@@ -8,12 +8,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { auditLog, getWebDb } from "@funwind/db";
+import { eq } from "drizzle-orm";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { addLogo, readLogoBytes } from "./logo-pool-fs";
 import { getLogoPoolRaw, removeLogo, setActiveLogo } from "./logo-pool";
 
-let tdb: TempDb;
-let logoDir: string;
+let tdb: TempDb | undefined;
+let logoDir: string | undefined;
+const previousStorageDir = process.env.STORAGE_DIR;
 
 let png: Uint8Array;
 
@@ -26,9 +29,14 @@ beforeAll(async () => {
   process.env.STORAGE_DIR = logoDir;
 });
 
-afterAll(() => {
-  rmSync(logoDir, { recursive: true, force: true });
-  tdb?.teardown();
+afterAll(async () => {
+  try {
+    if (logoDir) rmSync(logoDir, { recursive: true, force: true });
+  } finally {
+    if (previousStorageDir === undefined) delete process.env.STORAGE_DIR;
+    else process.env.STORAGE_DIR = previousStorageDir;
+    await tdb?.teardown();
+  }
 });
 
 describe.skipIf(skipDb)("LOGO 池（M10.5）", () => {
@@ -39,6 +47,11 @@ describe.skipIf(skipDb)("LOGO 池（M10.5）", () => {
     expect(pool.items).toHaveLength(1);
     expect(pool.items[0]?.name).toBe("清爽侦探");
     expect(pool.active).toBe(pool.items[0]?.file);
+    const [uploadAudit] = await getWebDb()
+      .select({ actorId: auditLog.actorId, targetId: auditLog.targetId })
+      .from(auditLog)
+      .where(eq(auditLog.action, "admin.logo.upload"));
+    expect(uploadAudit).toMatchObject({ actorId: null, targetId: pool.items[0]?.file });
 
     const bad = await addLogo("不是图", new Uint8Array(16));
     expect(bad.ok).toBe(false);
@@ -58,9 +71,20 @@ describe.skipIf(skipDb)("LOGO 池（M10.5）", () => {
 
     await setActiveLogo(first);
     expect((await getLogoPoolRaw()).active).toBe(first);
+    const activeAudits = await getWebDb()
+      .select({ id: auditLog.id })
+      .from(auditLog)
+      .where(eq(auditLog.action, "admin.logo.activate"));
+    expect(activeAudits).toHaveLength(1);
 
     await setActiveLogo("logo-unknown.png");
     expect((await getLogoPoolRaw()).active).toBe(first);
+    expect(
+      await getWebDb()
+        .select({ id: auditLog.id })
+        .from(auditLog)
+        .where(eq(auditLog.action, "admin.logo.activate")),
+    ).toHaveLength(1); // 无变化不记审计
     void second;
   });
 
@@ -75,7 +99,7 @@ describe.skipIf(skipDb)("LOGO 池（M10.5）", () => {
     expect(await readLogoBytes()).not.toBeNull(); // 无参 = 当前项
 
     // 池内有记录但磁盘被清 → null（容错，不抛错）
-    rmSync(join(logoDir, "site", active));
+    rmSync(join(logoDir!, "site", active));
     expect(await readLogoBytes(active)).toBeNull();
     void pool;
   });
@@ -99,5 +123,10 @@ describe.skipIf(skipDb)("LOGO 池（M10.5）", () => {
     const after = await getLogoPoolRaw();
     expect(after.items).toHaveLength(0);
     expect(after.active).toBeNull();
+    const removeAudits = await getWebDb()
+      .select({ id: auditLog.id })
+      .from(auditLog)
+      .where(eq(auditLog.action, "admin.logo.remove"));
+    expect(removeAudits).toHaveLength(files.length);
   });
 });

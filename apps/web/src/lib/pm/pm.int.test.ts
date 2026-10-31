@@ -4,7 +4,7 @@
  * 通知指针聚合（pm.received conv:{id}:pm）、打开会话联动已读、额度限频、注销用户拒绝。
  */
 import "@/modules";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   accountDeletionRequests,
   conversations,
@@ -143,6 +143,31 @@ describe.skipIf(skipDb)("私信（M10）", () => {
     const conv = list.find((c) => c.otherId === DEMO.alice);
     expect(conv).toBeDefined();
     expect(await openConversation(DEMO.member, conv!.conversationId)).toBe(false);
+  });
+
+  it("并发额度：同一发送者同时发给不同收件人时只放行一条", async () => {
+    const sender = await loadSubject(DEMO.xiaoyi);
+    const bodyA = `pm-quota-race-a-${Date.now()}`;
+    const bodyB = `pm-quota-race-b-${Date.now()}`;
+    await setPmPerDay(1);
+    try {
+      const results = await Promise.all([
+        sendMessage(sender, DEMO.member, bodyA),
+        sendMessage(sender, DEMO.admin, bodyB),
+      ]);
+      expect(results.filter((result) => result.ok)).toHaveLength(1);
+      expect(results.find((result) => !result.ok)).toMatchObject({
+        ok: false,
+        code: "quota_exceeded",
+      });
+      const stored = await db()
+        .select({ body: messages.body })
+        .from(messages)
+        .where(and(eq(messages.senderId, DEMO.xiaoyi), inArray(messages.body, [bodyA, bodyB])));
+      expect(stored).toHaveLength(1);
+    } finally {
+      await setPmPerDay(50);
+    }
   });
 
   it("额度：pmPerDay 达上限后拒绝（0 = 不限）", async () => {

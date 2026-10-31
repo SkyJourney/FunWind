@@ -3,6 +3,7 @@ import { alias } from "drizzle-orm/mysql-core";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { getWebDb, inviteCodes, users } from "@funwind/db";
 import { writeAudit, type DbTx } from "@/lib/audit";
+import { pageBounds } from "@/lib/queries/paging";
 
 /**
  * 邀请码管理（M10.6b，docs/milestones/M10.6-feature-completion.md 批次 b）：
@@ -58,6 +59,8 @@ export type InvitePageFilters = {
 export async function listInvitesPage(filters: InvitePageFilters): Promise<{
   items: InviteRow[];
   total: number;
+  page: number;
+  totalPages: number;
 }> {
   const perPage = filters.perPage ?? 20;
   const conds = [];
@@ -76,31 +79,31 @@ export async function listInvitesPage(filters: InvitePageFilters): Promise<{
 
   const creator = alias(users, "invite_creator");
   const usedByUser = alias(users, "invite_used_by");
-  const [countRow, rows] = await Promise.all([
-    getWebDb()
-      .select({ total: sql<number>`COUNT(*)` })
-      .from(inviteCodes)
-      .where(where),
-    getWebDb()
-      .select({
-        code: inviteCodes.code,
-        createdBy: inviteCodes.createdBy,
-        createdByName: creator.username,
-        usedBy: inviteCodes.usedBy,
-        usedByName: usedByUser.username,
-        usedAt: inviteCodes.usedAt,
-        expiresAt: inviteCodes.expiresAt,
-        batch: inviteCodes.batch,
-        createdAt: inviteCodes.createdAt,
-      })
-      .from(inviteCodes)
-      .leftJoin(creator, eq(inviteCodes.createdBy, creator.id))
-      .leftJoin(usedByUser, eq(inviteCodes.usedBy, usedByUser.id))
-      .where(where)
-      .orderBy(desc(inviteCodes.createdAt))
-      .limit(perPage)
-      .offset((filters.page - 1) * perPage),
-  ]);
+  const [countRow] = await getWebDb()
+    .select({ total: sql<number>`COUNT(*)` })
+    .from(inviteCodes)
+    .where(where);
+  const total = Number(countRow?.total ?? 0);
+  const { page, totalPages, offset } = pageBounds(total, filters.page, perPage);
+  const rows = await getWebDb()
+    .select({
+      code: inviteCodes.code,
+      createdBy: inviteCodes.createdBy,
+      createdByName: creator.username,
+      usedBy: inviteCodes.usedBy,
+      usedByName: usedByUser.username,
+      usedAt: inviteCodes.usedAt,
+      expiresAt: inviteCodes.expiresAt,
+      batch: inviteCodes.batch,
+      createdAt: inviteCodes.createdAt,
+    })
+    .from(inviteCodes)
+    .leftJoin(creator, eq(inviteCodes.createdBy, creator.id))
+    .leftJoin(usedByUser, eq(inviteCodes.usedBy, usedByUser.id))
+    .where(where)
+    .orderBy(desc(inviteCodes.createdAt))
+    .limit(perPage)
+    .offset(offset);
 
   const now = Date.now();
   return {
@@ -113,7 +116,9 @@ export async function listInvitesPage(filters: InvitePageFilters): Promise<{
             ? "expired"
             : "available",
     })),
-    total: Number(countRow[0]?.total ?? 0),
+    total,
+    page,
+    totalPages,
   };
 }
 
