@@ -56,8 +56,12 @@
   appearance 页主题包选择（含「跟随站点默认」）+ ThemeMenu/用户菜单主题包分组（PATCH 即时切换）+ 服务端直出 data-pack；
   qy2010 先以骨架登记（`themes/qy2010.css` 仅浅色限定选择器，色板 Step 4 填）。
   验证：单测/集成测试（联动幂等、无图不触碰、独立切换、移除后重导入、素材缺失不抛错）+ E2E（外观页/顶栏即时切/后台默认三案）。
-- **Step 3 Hero 位**：brand-pool 泛化 + hero-pool 薄壳 + `/brand/hero` + `/admin/hero`（含无 JS 回退）+
-  chrome.heroActive + 首页渲染。验证：复刻 logo-pool 测试矩阵 + E2E（上传→设当前→首页呈现→移除）。
+- **Step 3 Hero 位** ✅：LOGO 池整体泛化为 brand-pool（DB 核心 / fs 核心 / serveBrandImage 公开输出 /
+  动作 schema 与 run 体下沉 pool-actions——两个静态守护要求动作文件保留字面 defineAction+auth，故不做转发导出），
+  logo/hero 各留薄壳；管理页泛化 BrandPoolAdmin（logo/hero 共用）+ BrandFileInput；`/brand/hero` + `/admin/hero`
+  （含无 JS 回退）+ chrome.heroActive + 首页渲染（无当前项不占位）；PATCH 偏好 fetch 抽 patchPreference。
+  验证：hero 单测/集成矩阵（像素上限、与 LOGO 池隔离、审计动作名）+ chrome 集成 + E2E（超限拒绝→上传→首页呈现→移除 404）；
+  重复棘轮 1985/211 低于基线（泛化反而下降）。
 - **Step 4 qy2010 主题包**：色板采样（站长素材）→ `themes/qy2010.css` + 注册表登记（含自带 LOGO 可选）
   + 采样对照记录。验证：三主题 /design 目视 + 站长对照旧站签字 + 设为站点默认实测 LOGO 联动。
 - **Step 5 暗色打磨走查**：关键页 × default-dark/qy2010(回退) 走查 + 门控块令牌化核查修复，记录入本文档。

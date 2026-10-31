@@ -78,6 +78,15 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
     <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
       <h1 className="sr-only">{chrome.identity.name}</h1>
 
+      {/* Hero 横幅位（M11 插槽 ⑤）：站长在后台上传的当前项；无当前项不占位。
+          容器内圆角卡片形态（与 BrandCard 同设计语言），宽幅图按容器宽度裁切居中 */}
+      {chrome.heroActive && (
+        <section aria-label="站点横幅" className="overflow-hidden rounded-xl border bg-card">
+          {/* eslint-disable-next-line @next/next/no-img-element -- 品牌位公开路由 /brand/hero，不经图片优化域 */}
+          <img src="/brand/hero" alt="" className="h-auto max-h-80 w-full object-cover" />
+        </section>
+      )}
+
       <Slot name="home.after-header" />
 
       <div className="mt-4 grid gap-8 xl:grid-cols-[minmax(0,1fr)_18rem]">

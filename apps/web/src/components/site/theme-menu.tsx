@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { THEME_OPTIONS, isThemeValue, type ThemeValue } from "@/lib/theme";
 import { THEME_PACKS, packLabel, type PackId } from "@/lib/theme-packs";
+import { patchPreference } from "@/lib/api/settings-pref";
 import { cn } from "@/lib/utils";
 
 const ICONS = { Sun, Moon, Monitor } as const;
@@ -52,11 +53,7 @@ function usePackSwitch(pref: PackPref) {
     document.documentElement.dataset.pack = next ?? pref.site;
     startTransition(async () => {
       try {
-        const res = await fetch("/api/settings/preferences", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ kind: "themePack", pack: next }),
-        });
+        const res = await patchPreference({ kind: "themePack", pack: next });
         if (!res.ok) throw new Error(String(res.status));
       } catch {
         setUser(prev);

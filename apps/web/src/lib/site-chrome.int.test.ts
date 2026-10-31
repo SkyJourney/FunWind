@@ -25,6 +25,7 @@ describe.skipIf(skipDb)("站点框架配置（site-chrome）", () => {
       links: [],
       footerText: "",
       logoActive: null,
+      heroActive: null, // M11：Hero 池无当前项 → 首页不占位
       identity: { name: SITE_NAME, tagline: SITE_TAGLINE, url: SITE_URL }, // M10.6：身份可配（含访问地址），空库回默认
       themePack: "default", // M11：全站默认主题包未配置 → default
     });
@@ -84,6 +85,32 @@ describe.skipIf(skipDb)("站点框架配置（site-chrome）", () => {
     expect((await getSiteChrome()).footerText).toBe("© 新");
     await db().delete(siteSettings).where(eq(siteSettings.key, "site.nav"));
     await db().delete(siteSettings).where(eq(siteSettings.key, "site.footer"));
+    invalidateSiteChrome();
+  });
+
+  it("品牌素材池当前项（site.logo / site.hero）：前缀校验 + 必须在清单内；跨池文件名不串台", async () => {
+    await db()
+      .insert(siteSettings)
+      .values([
+        {
+          key: "site.hero",
+          value: { items: [{ file: "hero-aaaa.png", name: "横幅" }], active: "hero-aaaa.png" },
+          updatedAt: sql`NOW()`,
+        },
+        {
+          key: "site.logo",
+          value: { items: [{ file: "logo-bbbb.png", name: "LOGO" }], active: "hero-aaaa.png" },
+          updatedAt: sql`NOW()`,
+        },
+      ])
+      .onDuplicateKeyUpdate({ set: { value: sql`VALUES(value)` } });
+    invalidateSiteChrome();
+    const chrome = await getSiteChrome();
+    expect(chrome.heroActive).toBe("hero-aaaa.png");
+    expect(chrome.logoActive).toBeNull(); // logo 池 active 指向 hero 文件名 → 悬空
+    for (const k of ["site.hero", "site.logo"]) {
+      await db().delete(siteSettings).where(eq(siteSettings.key, k));
+    }
     invalidateSiteChrome();
   });
 

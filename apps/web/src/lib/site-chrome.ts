@@ -25,6 +25,8 @@ export interface SiteChrome {
   footerText: string;
   /** 当前品牌 LOGO（LOGO 池 active 文件名）；null = 无（回退占位图标） */
   logoActive: string | null;
+  /** 首页 Hero 横幅当前项（M11 插槽 ⑤，Hero 池 active 文件名）；null = 无（首页不占位） */
+  heroActive: string | null;
   /** 站点身份（M10.6b）：名称/副标题；未配置回退 SITE_NAME/SITE_TAGLINE */
   identity: SiteIdentity;
   /** 全站默认主题包（M11，site.theme）：用户未设偏好时生效；未配置/未知 id 回退 default */
@@ -43,6 +45,7 @@ const EMPTY: SiteChrome = {
   links: [],
   footerText: "",
   logoActive: null,
+  heroActive: null,
   identity: { name: SITE_NAME, tagline: SITE_TAGLINE, url: SITE_URL },
   themePack: DEFAULT_PACK,
 };
@@ -66,7 +69,8 @@ export async function getSiteChrome(): Promise<SiteChrome> {
       nav: parseNav(byKey.get("site.nav")),
       links: parseLinks(byKey.get("site.links")),
       footerText: parseFooter(byKey.get("site.footer")),
-      logoActive: parseLogo(byKey.get("site.logo")),
+      logoActive: parseBrandActive(byKey.get("site.logo"), "logo"),
+      heroActive: parseBrandActive(byKey.get("site.hero"), "hero"),
       identity: parseIdentity(byKey.get("site.identity")),
       themePack: parseThemePack(byKey.get("site.theme")),
     };
@@ -108,12 +112,12 @@ export async function bannerAnnouncement(loggedIn: boolean): Promise<{
   return row ?? null;
 }
 
-/** LOGO 池当前项（site.logo JSON 的 active；文件名校验与 lib/brand/logo-pool 同口径） */
-function parseLogo(raw: unknown): string | null {
+/** 品牌素材池当前项（site.logo / site.hero JSON 的 active；文件名校验与 lib/brand/brand-pool 同口径） */
+function parseBrandActive(raw: unknown, prefix: "logo" | "hero"): string | null {
   const o = raw as { items?: unknown; active?: unknown } | null;
   const items = Array.isArray(o?.items) ? (o.items as { file?: unknown }[]) : [];
   const active = typeof o?.active === "string" ? o.active : null;
-  if (!active || !/^logo-[a-z0-9]+\.png$/.test(active)) return null;
+  if (!active || !new RegExp(`^${prefix}-[a-z0-9]+\\.png$`).test(active)) return null;
   return items.some((i) => i.file === active) ? active : null;
 }
 
