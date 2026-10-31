@@ -83,7 +83,17 @@
 | `--fw-font-display` | 宋体系栈 | 2010 时代宋体标题气质（站名等品牌位） |
 | 板块卡插槽 | 硬边界无遮罩：`--band-mask-display:none`、`--band-angle:90deg`、`--band-fade:0%`、图区 8.5rem | 旧站板块图（165×100）完整展示，无渐隐遮罩 |
 | 附带考古 | `data/style/*.php` 风格配置（wind8black 黑底先例、wind8green 等）；`data/bbscache/qingyi_qingyi.css` 为 0 字节空壳（自建风格未启用） | — |
-- **Step 5 暗色打磨走查**：关键页 × default-dark/qy2010(回退) 走查 + 门控块令牌化核查修复，记录入本文档。
+- **Step 5 暗色打磨走查** ✅：
+  静态扫描：组件层仅 6 处非语义色——2 处弹层遮罩 `bg-black/50`（双模式合理保留）、ui/button 与 ui/badge 的
+  destructive 变体 `text-white`（shadcn 配方 `dark:bg-destructive/60` 半透明暗红 + 白字 6.4:1，正确保留）、
+  2 处手写实心 `bg-destructive text-white` 确认按钮（暗色亮红 400 配白字仅 3.2:1）→ 改
+  `text-destructive-foreground`（对齐 settings/delete-account 既有配方；亮=白/暗=gray-950，双模式达标）。
+  邮件模板 hex（邮件恒浅色）与 global-error（无主题上下文）不动。门控块三件（锁卡片/「已购买」/「管理员可见」）
+  全语义令牌，无需改动。
+  目视走查（Playwright 真实会话夹具 + localStorage theme=dark，桌面 12 页）：首页 / 板块 / 门控帖（游客锁定 +
+  member「已购买」两态）/ 发帖选版 / 外观设置 / 私信 / 我的 / 登录 / 后台看板 / 站点配置（含默认主题卡）/ LOGO 管理 /
+  表情管理——零缺陷；门控块与关键文字实测对比度 7.5–19:1（远超 AA 4.5）。移动端暗色抽查随站长真机清单（仓库惯例）；
+  qy2010 暗色 = 回退默认暗色（设计即如此），随 Step 6 截图基线复核。
 - **Step 6 视觉回归基线**：Playwright `toHaveScreenshot` 三主题 × 关键页面基线入库（本机运行，CI 跳过）
   + DOM 不变断言进常规 E2E。
 - **Step 7 PWA**：`app/manifest.ts` + `public/sw.js` 离线壳 + 注册组件 + `/offline` + middleware matcher 核查。
