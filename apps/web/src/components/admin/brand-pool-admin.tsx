@@ -100,7 +100,7 @@ export function BrandPoolAdmin({
           <p className="mt-1 text-xs text-warning">{removeDescription}</p>
           <form action={actions.remove} className="mt-3 flex gap-2">
             <input type="hidden" name="file" value={confirmRemove.file} />
-            <SubmitButton className="rounded-lg bg-destructive px-4 py-1.5 text-sm font-medium text-white hover:bg-destructive/90 disabled:opacity-60">
+            <SubmitButton className="rounded-lg bg-destructive px-4 py-1.5 text-sm font-medium text-destructive-foreground hover:bg-destructive/90 disabled:opacity-60">
               确认移除
             </SubmitButton>
           </form>
