@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isThemeValue, resolveDataTheme, THEME_OPTIONS } from "./theme";
+import { isThemeValue, resolveDataMode, THEME_OPTIONS } from "./theme";
 
 describe("THEME_OPTIONS", () => {
   it("包含浅色/暗色/跟随系统三态", () => {
@@ -20,18 +20,18 @@ describe("isThemeValue", () => {
   });
 });
 
-describe("resolveDataTheme", () => {
+describe("resolveDataMode", () => {
   it("显式主题直接生效", () => {
-    expect(resolveDataTheme("dark", false)).toBe("dark");
-    expect(resolveDataTheme("light", true)).toBe("light");
+    expect(resolveDataMode("dark", false)).toBe("dark");
+    expect(resolveDataMode("light", true)).toBe("light");
   });
 
   it("system 跟随系统偏好", () => {
-    expect(resolveDataTheme("system", true)).toBe("dark");
-    expect(resolveDataTheme("system", false)).toBe("light");
+    expect(resolveDataMode("system", true)).toBe("dark");
+    expect(resolveDataMode("system", false)).toBe("light");
   });
 
   it("未知值按系统偏好兜底", () => {
-    expect(resolveDataTheme("blue", true)).toBe("dark");
+    expect(resolveDataMode("blue", true)).toBe("dark");
   });
 });

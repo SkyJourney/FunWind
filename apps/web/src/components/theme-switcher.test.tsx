@@ -6,7 +6,7 @@ import { ThemeSwitcher } from "./theme-switcher";
 
 function renderSwitcher() {
   return render(
-    <ThemeProvider attribute="data-theme" defaultTheme="light" enableSystem={false}>
+    <ThemeProvider attribute="data-mode" defaultTheme="light" enableSystem={false}>
       <ThemeSwitcher />
     </ThemeProvider>,
   );

@@ -10,10 +10,10 @@ test.describe("令牌演示页 · 主题切换", () => {
     await expect(page.getByRole("group", { name: "主题切换" })).toBeVisible();
   });
 
-  test("切换暗色 → html[data-theme=dark] 且语义类配色生效", async ({ page }) => {
+  test("切换暗色 → html[data-mode=dark] 且语义类配色生效", async ({ page }) => {
     await page.goto("/design");
     await page.getByTitle("暗色").click();
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
 
     // 语义令牌真实生效：背景为暗色值
     const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
@@ -23,16 +23,16 @@ test.describe("令牌演示页 · 主题切换", () => {
   test("刷新后主题持久化（localStorage）", async ({ page }) => {
     await page.goto("/design");
     await page.getByTitle("暗色").click();
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
 
     await page.reload();
-    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    await expect(page.locator("html")).toHaveAttribute("data-mode", "dark");
   });
 
   test("跟随系统档位可选中", async ({ page }) => {
     await page.goto("/design");
     await page.getByTitle("跟随系统").click();
-    const theme = await page.locator("html").getAttribute("data-theme");
+    const theme = await page.locator("html").getAttribute("data-mode");
     expect(["light", "dark"]).toContain(theme ?? "");
   });
 });

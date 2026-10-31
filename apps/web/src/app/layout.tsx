@@ -69,7 +69,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="zh-CN" suppressHydrationWarning>
       <body className="bg-background font-sans text-foreground antialiased">
         <ThemeProvider
-          attribute="data-theme"
+          attribute="data-mode"
           defaultTheme="system"
           enableSystem
           disableTransitionOnChange

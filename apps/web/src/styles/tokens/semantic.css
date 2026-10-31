@@ -44,4 +44,23 @@
   --shadow-1: var(--fw-shadow-1);
   --shadow-2: var(--fw-shadow-2);
   --shadow-3: var(--fw-shadow-3);
+
+  /* —— 插槽表面组（M11 主题插槽，docs/THEME-SYSTEM.md）：主题包可整体覆盖 ——
+     顶栏/底部 Tab 的背景、毛玻璃与描边；消费方 site-header.tsx / bottom-tab-bar.tsx */
+  --header-bg: color-mix(in srgb, var(--background) 80%, transparent);
+  --header-blur: 8px;
+  --header-border: var(--border);
+  --tabbar-bg: color-mix(in srgb, var(--background) 95%, transparent);
+  --tabbar-blur: 8px;
+
+  /* 页面背景（body 与 [data-fw-page] 包装）：默认纯色；主题包可给纹理/图案多层背景 */
+  --page-bg: var(--background);
+
+  /* 品牌渐变（消费方：无图板块水印，forum-directory.tsx） */
+  --gradient-brand: linear-gradient(
+    to bottom right,
+    color-mix(in srgb, var(--primary) 15%, transparent),
+    color-mix(in srgb, var(--accent) 20%, transparent),
+    color-mix(in srgb, var(--secondary) 30%, transparent)
+  );
 }

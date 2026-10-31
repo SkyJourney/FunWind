@@ -70,7 +70,7 @@ export function BrandCard({
         aria-label={`${siteName} 首页`}
       >
         <BrandMark size={96} logoUrl={logoUrl} />
-        <span className="text-lg font-bold tracking-tight">{siteName}</span>
+        <span className="font-display text-lg font-bold tracking-tight">{siteName}</span>
         <span className="text-xs text-muted-foreground">{tagline}</span>
       </Link>
     </section>
@@ -108,8 +108,9 @@ export function SiteHeader({
 
   return (
     // viewTransitionName：页面过渡期间顶栏固定不动、层级高于页面内容组（globals.css 的 fw-site-header）
+    // 表面（背景/毛玻璃/描边）走插槽令牌（M11，semantic.css 表面组），主题包可整体覆盖
     <header
-      className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur"
+      className="sticky top-0 z-40 border-b border-[var(--header-border)] bg-[var(--header-bg)] backdrop-blur-[var(--header-blur)]"
       style={{ viewTransitionName: "fw-site-header" }}
     >
       <div className="mx-auto flex h-16 max-w-6xl items-center gap-2 px-4 sm:gap-3 sm:px-6 md:h-14">
@@ -119,8 +120,8 @@ export function SiteHeader({
           className="flex min-w-0 shrink-0 items-center gap-2 font-semibold tracking-tight"
         >
           <BrandMark size={36} logoUrl={logoUrl} />
-          {/* 站点名全端常显（M10.5 站长反馈：移动顶栏没有站点名） */}
-          <span className="truncate text-[15px] md:text-base">{siteName}</span>
+          {/* 站点名全端常显（M10.5 站长反馈：移动顶栏没有站点名）；展示字体插槽（--fw-font-display） */}
+          <span className="truncate font-display text-[15px] md:text-base">{siteName}</span>
         </Link>
         <MainNav items={navLinks} className="hidden md:flex" />
         <div className="ml-auto flex items-center gap-0.5 sm:gap-1">
