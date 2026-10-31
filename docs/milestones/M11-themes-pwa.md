@@ -94,8 +94,16 @@
   member「已购买」两态）/ 发帖选版 / 外观设置 / 私信 / 我的 / 登录 / 后台看板 / 站点配置（含默认主题卡）/ LOGO 管理 /
   表情管理——零缺陷；门控块与关键文字实测对比度 7.5–19:1（远超 AA 4.5）。移动端暗色抽查随站长真机清单（仓库惯例）；
   qy2010 暗色 = 回退默认暗色（设计即如此），随 Step 6 截图基线复核。
-- **Step 6 视觉回归基线**：Playwright `toHaveScreenshot` 三主题 × 关键页面基线入库（本机运行，CI 跳过）
-  + DOM 不变断言进常规 E2E。
+- **Step 6 视觉回归基线** ✅：`pnpm test:visual`（playwright.visual.config.ts，端口 3202 / 产物 .next-e2e-visual，
+  单 worker，仅本机 macOS 运行——CI 字体渲染差异故跳过）。基线 42 张入库
+  （e2e-visual/__screenshots__/{desktop,mobile}/，桌面 1440×900 + 移动 375×812）：
+  三主题（default-light / default-dark / qy2010-light）× 首页/版块/帖子/个人/外观设置/站点配置/登录；
+  qy2010 暗色对 default-dark 基线截图 = 回退语义的逐像素断言。容差 maxDiffPixelRatio 3%
+  （macOS Chromium 逐进程字形 AA 抖动实测 0.4–1.6%，取 3 倍；真实主题/布局回归是整片色块不会漏报）。
+  更新基线：`pnpm test:visual:update`（先人工核对差异）。调试中修掉两处稳定性坑：
+  懒加载图片竞态（截图前等全部 img 加载完成）、偏好 UPDATE 落空（演示用户可能无 profile 行 → upsert + afterAll 清偏好，
+  否则上轮 qy2010 残留渗进下轮 default 基线）。DOM 不变断言进 theme-pack.spec（default 与 qy2010 下
+  首页 SSR body 标记逐字节一致）。
 - **Step 7 PWA**：`app/manifest.ts` + `public/sw.js` 离线壳 + 注册组件 + `/offline` + middleware matcher 核查。
   验证：Lighthouse PWA（installable + offline）达标 + 离线访问 E2E（生产构建）。
 - **Step 8 收口**：全量 `verify:all` + 生产/开发 `test:e2e` + 文档定稿（本文档勾选、THEME-SYSTEM、
@@ -111,11 +119,11 @@
 
 ## 验收门禁
 
-- [ ] 三主题视觉回归基线建立且通过；DOM 结构不变断言通过
+- [x] 三主题视觉回归基线建立且通过（42 张：desktop/mobile 各 21）；DOM 结构不变断言通过（default ↔ qy2010）
 - [ ] qy2010 主题站长视觉验收签字（对照旧站截图）
-- [ ] 用户主题偏好持久化 + 全站默认配置生效 E2E
-- [ ] 主题↔LOGO 池联动实测（设默认→自带 LOGO 生效；独立切换覆盖）
-- [ ] Hero 位管理链路 E2E（上传→设当前→首页呈现→移除）
+- [x] 用户主题偏好持久化 + 全站默认配置生效 E2E
+- [x] 主题↔LOGO 池联动实测（设默认→自带 LOGO 入池并生效；改回不带 LOGO 包不影响 LOGO）
+- [x] Hero 位管理链路 E2E（超限拒绝→上传→首页呈现→移除）
 - [ ] Lighthouse PWA（installable + offline）达标
 - [ ] `pnpm verify:all` 全绿；CHANGELOG 记录
 

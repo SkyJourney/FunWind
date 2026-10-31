@@ -145,3 +145,27 @@ test("后台全站默认：保存即生效 + 自带 LOGO 联动入池；游客�
     await guest.close();
   }
 });
+
+test("换肤不换 DOM：客户端切包只改 data-pack 与 CSS 变量，页面节点结构与文本不变", async ({
+  page,
+}) => {
+  await loginAs(page.context(), USERS.member);
+  await page.goto("/");
+  await expect(page.locator("html")).toHaveAttribute("data-pack", "default");
+
+  const before = await page.locator("main").evaluate((root) => ({
+    structure: [...root.querySelectorAll("*")].map((el) => `${el.tagName}:${el.children.length}`),
+    text: root.textContent,
+  }));
+
+  // 菜单交互即时切换 pack（PATCH 已由上一用例覆盖）；不导航、不重建 React 页面树
+  await page.getByRole("button", { name: "主题切换" }).click();
+  await page.locator('[data-pack-option="qy2010"]').click();
+  await expect(page.locator("html")).toHaveAttribute("data-pack", "qy2010");
+
+  const after = await page.locator("main").evaluate((root) => ({
+    structure: [...root.querySelectorAll("*")].map((el) => `${el.tagName}:${el.children.length}`),
+    text: root.textContent,
+  }));
+  expect(after).toEqual(before);
+});
