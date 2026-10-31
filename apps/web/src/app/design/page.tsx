@@ -531,8 +531,9 @@ export default function TokensPage() {
 
       <footer className="flex items-center justify-between border-t pt-6 text-sm text-muted-foreground">
         <span>
-          M10.5 · S3 色彩定稿 —— 主题包 <code className="text-xs">default</code> 与{" "}
-          <code className="text-xs">dark</code> 已就绪，「复刻·青翼2010」于 M11 交付
+          M11 · 主题包 <code className="text-xs">default</code> /{" "}
+          <code className="text-xs">dark</code> / <code className="text-xs">qy2010</code>{" "}
+          已就绪（qy2010 仅浅色，暗色回退默认暗色）
         </span>
         <a
           className="inline-flex items-center gap-1 text-primary hover:underline"

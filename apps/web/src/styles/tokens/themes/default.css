@@ -14,4 +14,5 @@
   --band-fade: 50%;
   --band-mask-color: var(--card);
   --band-dim-opacity: 0.85;
+  --band-mask-display: block; /* 遮罩层开关：qy2010 情怀包给 none（硬边界全展示） */
 }

@@ -62,8 +62,27 @@
   （含无 JS 回退）+ chrome.heroActive + 首页渲染（无当前项不占位）；PATCH 偏好 fetch 抽 patchPreference。
   验证：hero 单测/集成矩阵（像素上限、与 LOGO 池隔离、审计动作名）+ chrome 集成 + E2E（超限拒绝→上传→首页呈现→移除 404）；
   重复棘轮 1985/211 低于基线（泛化反而下降）。
-- **Step 4 qy2010 主题包**：色板采样（站长素材）→ `themes/qy2010.css` + 注册表登记（含自带 LOGO 可选）
-  + 采样对照记录。验证：三主题 /design 目视 + 站长对照旧站签字 + 设为站点默认实测 LOGO 联动。
+- **Step 4 qy2010 主题包** ✅（色板落地；站长视觉签字与可选自带 LOGO 待站长输入，见 4c）：
+  旧站 webroot 只读考古（`/Volumes/Docker/data/qingyisub/wwwroot/www.qingyisub.top`，PHP 源码与资源俱在），
+  `themes/qy2010.css` 按下方「采样对照」落色板 + 插槽示范（板块卡硬边界无遮罩、方角、宋体站名、纸感底纹）。
+  验证：三主题 /design 目视 + 首页目视；LOGO 联动的「无图不触碰」分支已有集成测试（qy2010 暂无自带 LOGO）。
+
+### 采样对照（Step 4，只取色值、不搬任何旧站位图/文件）
+
+| 语义令牌 / 插槽 | qy2010 落地值 | 旧站来源 |
+|---|---|---|
+| `--primary` / `--ring` | `#147ba9` | whitesimple 天蓝链接 `#2197d5`（加深至白字 4.6:1） |
+| `--background` / `--page-bg` | `#f6f3e7` + 极淡横纹纸感 | kiminitodoke 米黄系 + wood「固定纹理底」气质（CSS 渐变，不用 bg.jpg 位图） |
+| `--card` | `#fffdf4` 暖白 | whitesimple / wood 白色内容卡 `#fff` |
+| `--secondary` / `--secondary-foreground` | `#f3edc8` / `#6d4a0f` | kiminitodoke 淡黄表格 `#EFE9B5` + 棕字 `#783E00` |
+| `--accent` / `--accent-foreground` | `#e7f1e4` / `#33613f` | kiminitodoke 若叶绿 `#9bcba5` 淡调 |
+| `--destructive` | `#a3425b` | kiminitodoke 樱红 |
+| `--warning` | `#b8770a` | phpwind 橙按钮 `#ff8800`（加深可读） |
+| `--header-bg` / `--header-blur` | `#f8f5e8` / `0px` | kiminitodoke 头部 `#F7F8E0`；旧顶栏不透明无毛玻璃 |
+| `--radius` | `var(--fw-radius-sm)` | 旧论坛卡片近直角（情怀方角，全站圆角随之收紧） |
+| `--fw-font-display` | 宋体系栈 | 2010 时代宋体标题气质（站名等品牌位） |
+| 板块卡插槽 | 硬边界无遮罩：`--band-mask-display:none`、`--band-angle:90deg`、`--band-fade:0%`、图区 8.5rem | 旧站板块图（165×100）完整展示，无渐隐遮罩 |
+| 附带考古 | `data/style/*.php` 风格配置（wind8black 黑底先例、wind8green 等）；`data/bbscache/qingyi_qingyi.css` 为 0 字节空壳（自建风格未启用） | — |
 - **Step 5 暗色打磨走查**：关键页 × default-dark/qy2010(回退) 走查 + 门控块令牌化核查修复，记录入本文档。
 - **Step 6 视觉回归基线**：Playwright `toHaveScreenshot` 三主题 × 关键页面基线入库（本机运行，CI 跳过）
   + DOM 不变断言进常规 E2E。

@@ -2,12 +2,75 @@
  * 主题包：qy2010（复刻·青翼2010）—— 仅浅色
  * 选择器限定 :not([data-mode="dark"])：暗色模式下本包不生效，自动回退默认暗色
  * （SSR 首帧无 data-mode 时视为浅色，正好命中）。
- * 色板来源：旧皮肤 whitesimple / wood_phpwind / black_phpwind + template/kiminitodoke 采样
- * （M11 Step 4 填入；本文件现为骨架，仅声明元信息）。
- * 插槽示范（Step 4）：--band-* 改硬边界无遮罩（data-band-mask 由组件按主题读取）、复古表面。
+ * 暗色适配档见文件末尾注释。
+ *
+ * —— 色板采样（M11 Step 4，旧站 webroot 只读考古；只取色值，不搬任何旧站位图/文件）——
+ * 来源 A kiminitodoke（data/style/kiminitodoke.php + data/bbscache/kiminitodoke_kiminitodoke.css）：
+ *   页面底 #9bcba5（若叶绿）/ 头部 #F7F8E0（米黄）/ 表格 #EFE9B5、#F3F2B3（淡黄）/
+ *   棕字 #783E00、#5D3A07 / 樱红 #A3425B / 正文与链接 #333
+ * 来源 B whitesimple（themes/site/whitesimple/css/dev/style.css）：
+ *   白底 #fff / 天蓝链接 #2197d5 / 正文 #333 / 12px Tahoma 紧凑气质
+ * 来源 C wood_phpwind（themes/site/wood_phpwind/css/dev/common.css）：
+ *   固定木纹底 #99593d + 白色内容卡 / 暖灰阶 #f7f7f7–#e3e3e3 ——「纸感底 + 白卡」气质参考，
+ *   纹理用纯 CSS 渐变模拟，不搬旧站 bg.jpg 位图
+ * 落地映射表见 docs/milestones/M11-themes-pwa.md「采样对照」。
  * ============================================================ */
 :root[data-pack="qy2010"]:not([data-mode="dark"]) {
   --theme-name: "qy2010";
+
+  /* —— 语义层覆盖（组件只经语义令牌感知本包）—— */
+  --background: #f6f3e7; /* 米黄纸底（kiminitodoke 米黄系淡化） */
+  --foreground: #33332f; /* 旧站正文 #333 微暖 */
+  --card: #fffdf4; /* 暖白卡（旧站白卡 + 米黄渗入） */
+  --card-foreground: var(--foreground);
+  --popover: #fffdf4;
+  --popover-foreground: var(--foreground);
+  /* whitesimple 天蓝链接 #2197d5 加深到白字 4.6:1（情怀色相、AA 对比） */
+  --primary: #147ba9;
+  --primary-foreground: #ffffff;
+  --secondary: #f3edc8; /* kiminitodoke 淡黄 #EFE9B5 减饱和 */
+  --secondary-foreground: #6d4a0f; /* kiminitodoke 棕字 #783E00 邻近 */
+  --muted: #efe9d6;
+  --muted-foreground: #8a8265;
+  --accent: #e7f1e4; /* 若叶绿 #9bcba5 淡调 */
+  --accent-foreground: #33613f;
+  --destructive: #a3425b; /* kiminitodoke 樱红 */
+  --destructive-foreground: #ffffff;
+  --success: var(--fw-green-600);
+  --warning: #b8770a; /* phpwind 橙 #ff8800 加深可读 */
+  --info: var(--fw-blue-500);
+  --border: #e0d9c0;
+  --input: #e0d9c0;
+  --ring: #147ba9;
+  --radius: var(
+    --fw-radius-sm
+  ); /* 情怀方角：旧论坛卡片近直角（radius-sm..xl 全随 --radius 收紧） */
+  --shadow-1: 0 1px 2px rgb(120 100 40 / 0.1);
+  --shadow-2: 0 4px 12px rgb(120 100 40 / 0.14);
+  --shadow-3: 0 12px 32px rgb(120 100 40 / 0.2);
+
+  /* —— 插槽表面组 —— */
+  --header-bg: #f8f5e8; /* 旧站头部 #F7F8E0，不透明 */
+  --header-blur: 0px; /* 旧顶栏无毛玻璃 */
+  --header-border: #ddd5b4;
+  --tabbar-bg: #f8f5e8;
+  --tabbar-blur: 0px;
+  /* 纸感底：极淡横纹模拟纸纹（wood「固定纹理底」的 CSS 化，不用位图） */
+  --page-bg:
+    repeating-linear-gradient(0deg, rgb(148 130 60 / 0.025) 0 1px, transparent 1px 3px), #f6f3e7;
+  --gradient-brand: linear-gradient(120deg, #9bcba5 0%, #efe9b5 100%); /* 若叶绿→淡黄 */
+
+  /* —— 板块卡插槽示范（M11 插槽协议；默认值见 themes/default.css）——
+     硬边界无遮罩（旧站板块图完整展示）、图区加宽、无斜切 */
+  --band-width: 8.5rem;
+  --band-angle: 90deg; /* 垂直硬边界（默认 105deg 斜切梯形） */
+  --band-fade: 0%; /* 无渐隐 */
+  --band-mask-color: var(--card);
+  --band-dim-opacity: 1;
+  --band-mask-display: none; /* 整层去掉渐隐遮罩 */
+
+  /* 展示字体（primitives 的 --fw-font-display）：宋体系复刻 2010 气质，站名等品牌位生效 */
+  --fw-font-display: "Songti SC", "STSong", SimSun, Georgia, serif;
 }
 
 /* 暗色适配档（预留）：需要 qy2010 暗色版时在此覆盖，并去掉上方的 :not 限定 */
