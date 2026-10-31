@@ -1,0 +1,14 @@
+/* ============================================================
+ * 主题包：qy2010（复刻·青翼2010）—— 仅浅色
+ * 选择器限定 :not([data-mode="dark"])：暗色模式下本包不生效，自动回退默认暗色
+ * （SSR 首帧无 data-mode 时视为浅色，正好命中）。
+ * 色板来源：旧皮肤 whitesimple / wood_phpwind / black_phpwind + template/kiminitodoke 采样
+ * （M11 Step 4 填入；本文件现为骨架，仅声明元信息）。
+ * 插槽示范（Step 4）：--band-* 改硬边界无遮罩（data-band-mask 由组件按主题读取）、复古表面。
+ * ============================================================ */
+:root[data-pack="qy2010"]:not([data-mode="dark"]) {
+  --theme-name: "qy2010";
+}
+
+/* 暗色适配档（预留）：需要 qy2010 暗色版时在此覆盖，并去掉上方的 :not 限定 */
+/* :root[data-pack="qy2010"][data-mode="dark"] { } */

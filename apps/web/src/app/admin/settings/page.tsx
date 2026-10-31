@@ -4,8 +4,9 @@ import { requireAdmin } from "@/lib/authz/require-admin";
 import { getEmailVerificationMode, getRegisterMode } from "@/lib/auth/settings";
 import { getDigestHour, securityEmailEnabled } from "@/lib/notifications/email";
 import { getLimitsConfig } from "@/lib/limits/load";
-import { getSiteIdentity } from "@/lib/site-chrome";
+import { getSiteChrome, getSiteIdentity } from "@/lib/site-chrome";
 import { SITE_URL } from "@/lib/site";
+import { THEME_PACKS } from "@/lib/theme-packs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import {
@@ -15,6 +16,7 @@ import {
   saveIdentityAction,
   saveLimitsAction,
   saveRegisterModeAction,
+  saveThemePackAction,
   sendTestMailAction,
 } from "./actions";
 
@@ -27,6 +29,9 @@ const FLASH: Record<string, string> = {
   limits: "频控配置已保存。",
   email_verification: "邮箱验证策略已保存。",
   mail_sent: "测试邮件已发出——请查收（dev 若用 Mailpit 则进 Mailpit，否则进真实邮箱）。",
+  theme: "全站默认主题已保存并即时生效（该主题不带 LOGO，LOGO 保持不变）。",
+  theme_logo:
+    "全站默认主题已保存，并已把 LOGO 切换为该主题自带图——需要时可在「LOGO 管理」独立改回任意一枚。",
 };
 
 const MAIL_ERROR: Record<string, string> = {
@@ -59,7 +64,7 @@ const ROLE_FIELDS = [
 
 /**
  * 站点配置（M10.6b）：身份（site.identity）/注册模式（register.mode）/频控（limits）。
- * 写入全走 setSetting（自带审计）；全站默认主题键位留 M11 随主题选择落地。
+ * 写入全走 setSetting（自带审计）；M11 加全站默认主题（site.theme，含主题↔LOGO 联动）。
  */
 export default async function SiteSettingsPage({
   searchParams,
@@ -68,7 +73,7 @@ export default async function SiteSettingsPage({
 }) {
   // 入口鉴权约定：第一个 await 必须是 requireAdmin（admin-entry-guard 静态守护）
   const admin = await requireAdmin("site.admin");
-  const [identity, mode, limits, verificationMode, securityMail, digestHour, adminRow, sp] =
+  const [identity, mode, limits, verificationMode, securityMail, digestHour, adminRow, sp, chrome] =
     await Promise.all([
       getSiteIdentity(),
       getRegisterMode(),
@@ -82,6 +87,7 @@ export default async function SiteSettingsPage({
         .where(eq(users.id, admin.userId))
         .limit(1),
       searchParams,
+      getSiteChrome(),
     ]);
   const adminEmail = adminRow[0]?.email ?? null;
   const flash = sp.saved ? FLASH[sp.saved] : undefined;
@@ -97,7 +103,7 @@ export default async function SiteSettingsPage({
       <header>
         <h2 className="text-lg font-bold tracking-tight">站点配置</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          站点身份、注册策略与发帖频控；全部修改写入审计日志。全站默认主题将在 M11 随主题选择提供。
+          站点身份、全站默认主题、注册策略与发帖频控；全部修改写入审计日志。
         </p>
       </header>
 
@@ -105,6 +111,7 @@ export default async function SiteSettingsPage({
       <nav aria-label="配置分区" className="flex flex-wrap gap-2 text-sm">
         {[
           ["identity", "站点身份"],
+          ["theme", "默认主题"],
           ["register", "注册策略"],
           ["email", "邮件"],
           ["limits", "发帖频控"],
@@ -138,6 +145,14 @@ export default async function SiteSettingsPage({
           className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
         >
           频控配置校验未通过（每个角色项必须写全且不超上限），请检查后重试。
+        </p>
+      )}
+      {sp.err === "theme" && (
+        <p
+          role="alert"
+          className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
+        >
+          未知的主题包，请重新选择。
         </p>
       )}
 
@@ -186,6 +201,43 @@ export default async function SiteSettingsPage({
           <p className="mt-2 text-xs text-muted-foreground">
             生效范围：顶栏与品牌卡、页面标题、邮件主题与落款、邮件里的链接地址、sitemap；缓存最多 30
             秒收敛。 访问地址只影响对外链接——Cookie 安全属性等部署拓扑始终由服务器环境变量决定。
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* 全站默认主题（M11）：用户未自选主题包时生效；有自带 LOGO 的包保存时联动切 LOGO */}
+      <Card id="theme">
+        <CardHeader>
+          <CardTitle>全站默认主题</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form action={saveThemePackAction} className="space-y-2 text-sm">
+            {THEME_PACKS.map((pack) => (
+              <label key={pack.id} className="flex items-start gap-2">
+                <input
+                  type="radio"
+                  name="pack"
+                  value={pack.id}
+                  defaultChecked={chrome.themePack === pack.id}
+                  className="mt-1 size-4"
+                />
+                <span>
+                  <span className="font-medium">{pack.label}</span>
+                  <span className="text-muted-foreground">
+                    {pack.logo ? "——自带 LOGO，设为默认时自动切换" : "——不带 LOGO，不影响当前 LOGO"}
+                  </span>
+                </span>
+              </label>
+            ))}
+            <div>
+              <SubmitButton className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
+                保存默认主题
+              </SubmitButton>
+            </div>
+          </form>
+          <p className="mt-2 text-xs text-muted-foreground">
+            生效范围：未在「外观」里自选主题包的用户与全部游客；用户自选优先于站点默认。主题自带
+            LOGO 入池后可在「LOGO 管理」独立切换任意一枚（补充关系，非绑定）。缓存最多 30 秒收敛。
           </p>
         </CardContent>
       </Card>

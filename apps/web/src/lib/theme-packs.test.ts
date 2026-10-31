@@ -5,11 +5,24 @@ describe("THEME_PACKS", () => {
   it("default 包始终在册（CSS themes/default.css 与注册表一一对应）", () => {
     expect(THEME_PACKS.map((p) => p.id)).toContain("default");
   });
+
+  it("qy2010 在册（themes/qy2010.css；Step 4 填色板）且 id 全局唯一", () => {
+    const ids = THEME_PACKS.map((p) => p.id);
+    expect(ids).toContain("qy2010");
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("自带 LOGO 字段为 null 或 public/logo 下的文件名（不带路径）", () => {
+    for (const p of THEME_PACKS) {
+      if (p.logo !== null) expect(p.logo).toMatch(/^[a-z0-9][a-z0-9-]*\.png$/);
+    }
+  });
 });
 
 describe("isPackValue", () => {
   it("识别合法包 id", () => {
     expect(isPackValue("default")).toBe(true);
+    expect(isPackValue("qy2010")).toBe(true);
   });
 
   it("拒绝非法值", () => {
@@ -23,6 +36,7 @@ describe("isPackValue", () => {
 describe("packLabel", () => {
   it("返回注册表中的中文标签", () => {
     expect(packLabel("default")).toBe("现代浅色");
+    expect(packLabel("qy2010")).toBe("复刻·青翼2010");
   });
 
   it("未知 id 原样返回（不抛错）", () => {

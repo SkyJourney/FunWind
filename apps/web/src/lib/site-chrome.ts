@@ -1,6 +1,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { announcements, getWebDb, siteSettings } from "@funwind/db";
 import { SITE_NAME, SITE_TAGLINE, SITE_URL } from "@/lib/site";
+import { DEFAULT_PACK, isPackValue, type PackId } from "@/lib/theme-packs";
 
 /**
  * 站点框架配置（M9，site_settings JSON，不建独立表）：导航/友链/页脚。
@@ -26,6 +27,8 @@ export interface SiteChrome {
   logoActive: string | null;
   /** 站点身份（M10.6b）：名称/副标题；未配置回退 SITE_NAME/SITE_TAGLINE */
   identity: SiteIdentity;
+  /** 全站默认主题包（M11，site.theme）：用户未设偏好时生效；未配置/未知 id 回退 default */
+  themePack: PackId;
 }
 
 export interface SiteIdentity {
@@ -41,6 +44,7 @@ const EMPTY: SiteChrome = {
   footerText: "",
   logoActive: null,
   identity: { name: SITE_NAME, tagline: SITE_TAGLINE, url: SITE_URL },
+  themePack: DEFAULT_PACK,
 };
 const TTL_MS = 30_000;
 
@@ -64,6 +68,7 @@ export async function getSiteChrome(): Promise<SiteChrome> {
       footerText: parseFooter(byKey.get("site.footer")),
       logoActive: parseLogo(byKey.get("site.logo")),
       identity: parseIdentity(byKey.get("site.identity")),
+      themePack: parseThemePack(byKey.get("site.theme")),
     };
     g.__fwSiteChrome = { value: chrome, at: Date.now() };
     return chrome;
@@ -126,6 +131,12 @@ export function parseIdentity(raw: unknown): SiteIdentity {
 /** 站点身份便捷读取（走 chrome 的 TTL 缓存；管理保存后 invalidate 即时生效） */
 export async function getSiteIdentity(): Promise<SiteIdentity> {
   return (await getSiteChrome()).identity;
+}
+
+/** 全站默认主题包（site.theme JSON {pack}）：未配置或不在注册表 → default（导出供单测） */
+export function parseThemePack(raw: unknown): PackId {
+  const pack = (raw as { pack?: unknown } | null)?.pack;
+  return typeof pack === "string" && isPackValue(pack) ? pack : DEFAULT_PACK;
 }
 
 function parseNav(raw: unknown): NavItem[] {

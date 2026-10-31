@@ -26,6 +26,7 @@ describe.skipIf(skipDb)("站点框架配置（site-chrome）", () => {
       footerText: "",
       logoActive: null,
       identity: { name: SITE_NAME, tagline: SITE_TAGLINE, url: SITE_URL }, // M10.6：身份可配（含访问地址），空库回默认
+      themePack: "default", // M11：全站默认主题包未配置 → default
     });
     await db()
       .insert(siteSettings)
@@ -83,6 +84,26 @@ describe.skipIf(skipDb)("站点框架配置（site-chrome）", () => {
     expect((await getSiteChrome()).footerText).toBe("© 新");
     await db().delete(siteSettings).where(eq(siteSettings.key, "site.nav"));
     await db().delete(siteSettings).where(eq(siteSettings.key, "site.footer"));
+    invalidateSiteChrome();
+  });
+
+  it("全站默认主题（M11，site.theme）：合法包读回；不在注册表回 default；invalidate 即时生效", async () => {
+    await db()
+      .insert(siteSettings)
+      .values({ key: "site.theme", value: { pack: "qy2010" }, updatedAt: sql`NOW()` })
+      .onDuplicateKeyUpdate({ set: { value: sql`VALUES(value)` } });
+    invalidateSiteChrome();
+    expect((await getSiteChrome()).themePack).toBe("qy2010");
+
+    await db()
+      .update(siteSettings)
+      .set({ value: { pack: "retired-pack" }, updatedAt: sql`NOW()` })
+      .where(eq(siteSettings.key, "site.theme"));
+    expect((await getSiteChrome()).themePack).toBe("qy2010"); // TTL 内旧值
+    invalidateSiteChrome();
+    expect((await getSiteChrome()).themePack).toBe("default"); // 未知 id 回退
+
+    await db().delete(siteSettings).where(eq(siteSettings.key, "site.theme"));
     invalidateSiteChrome();
   });
 

@@ -5,7 +5,7 @@ import { NotificationBell } from "@/components/notifications/notification-bell";
 import type { SessionUser } from "@/lib/auth/session";
 import type { NavItem } from "@/lib/site-chrome";
 import { MainNav, type NavLink } from "@/components/site/main-nav";
-import { ThemeMenu } from "@/components/site/theme-menu";
+import { ThemeMenu, type PackPref } from "@/components/site/theme-menu";
 import { UserMenu } from "@/components/site/user-menu";
 
 /**
@@ -85,6 +85,7 @@ export function SiteHeader({
   notificationsOn,
   showAdmin,
   logoUrl,
+  packPref,
   logoutAction,
 }: {
   user: SessionUser | null;
@@ -97,6 +98,8 @@ export function SiteHeader({
   showAdmin: boolean;
   /** LOGO 池当前项输出地址（/brand/logo）；null = 无池项（回退静态素材/占位） */
   logoUrl?: string | null;
+  /** 主题包偏好（M11）：登录用户传入，顶栏菜单与用户菜单可即时切换；游客 null */
+  packPref?: PackPref | null;
   logoutAction: (formData: FormData) => Promise<void>;
 }) {
   const navLinks: NavLink[] = [
@@ -133,14 +136,15 @@ export function SiteHeader({
             <Search className="size-4" aria-hidden />
           </Link>
           {notificationsOn && <NotificationBell />}
-          {/* 主题切换全端可用（M10.5 站长反馈：移动端看不到快速切主题入口） */}
-          <ThemeMenu />
+          {/* 主题切换全端可用（M10.5 站长反馈：移动端看不到快速切主题入口）；登录用户含主题包分组 */}
+          <ThemeMenu packPref={packPref ?? null} />
           {user ? (
             <UserMenu
               username={user.username}
               avatarUrl={avatarUrl ?? null}
               profileHref={`/u/${user.id}`}
               showAdmin={showAdmin}
+              packPref={packPref ?? null}
               logoutAction={logoutAction}
             />
           ) : (

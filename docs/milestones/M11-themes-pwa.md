@@ -47,14 +47,15 @@
 
 ## 实施步骤（每步完成汇报确认后推进）
 
-- **Step 1 架构地基** ✅（本步）：data-mode/data-pack 拆分迁移；令牌扩展与 `--band-*` 归位；
+- **Step 1 架构地基** ✅：data-mode/data-pack 拆分迁移；令牌扩展与 `--band-*` 归位；
   site-header/bottom-tab-bar/forum-directory 接令牌；`lib/theme-packs.ts` 注册表（先 default）；
   /design 页新增「主题包与插槽」演示区；THEME-SYSTEM.md 设计稿 + 三份里程碑/ROADMAP 文档。
   验证：verify:all 绿 + e2e-dev/theme.spec 适配 + /design 目视。
-- **Step 2 偏好持久化 + 主题↔LOGO 联动**：`user_profiles.theme_pack`（v2.5 迁移）+ 读写 action；
+- **Step 2 偏好持久化 + 主题↔LOGO 联动** ✅：`user_profiles.theme_pack`（v2.5 迁移 0020）+ 读写 action；
   `site.theme` 站点默认；池项 `pack` 字段 + `applyPackLogo` 幂等联动 + 管理页徽标；
-  appearance 页主题包选择（含「跟随站点默认」）+ ThemeMenu 主题包分组 + 服务端直出 data-pack。
-  验证：单测/集成测试（联动幂等、无图不触碰、移除后重导入）+ E2E。
+  appearance 页主题包选择（含「跟随站点默认」）+ ThemeMenu/用户菜单主题包分组（PATCH 即时切换）+ 服务端直出 data-pack；
+  qy2010 先以骨架登记（`themes/qy2010.css` 仅浅色限定选择器，色板 Step 4 填）。
+  验证：单测/集成测试（联动幂等、无图不触碰、独立切换、移除后重导入、素材缺失不抛错）+ E2E（外观页/顶栏即时切/后台默认三案）。
 - **Step 3 Hero 位**：brand-pool 泛化 + hero-pool 薄壳 + `/brand/hero` + `/admin/hero`（含无 JS 回退）+
   chrome.heroActive + 首页渲染。验证：复刻 logo-pool 测试矩阵 + E2E（上传→设当前→首页呈现→移除）。
 - **Step 4 qy2010 主题包**：色板采样（站长素材）→ `themes/qy2010.css` + 注册表登记（含自带 LOGO 可选）

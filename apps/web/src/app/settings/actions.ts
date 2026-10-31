@@ -22,6 +22,8 @@ import {
   sendMail,
 } from "@/lib/auth/mailer";
 import { getSiteIdentity } from "@/lib/site-chrome";
+import { isPackValue } from "@/lib/theme-packs";
+import { setUserThemePack } from "@/lib/theme-pref";
 import { hashEmailKey, issueEmailToken } from "@/lib/auth/tokens";
 import { changeEmailAddress } from "@/lib/auth/email-change";
 import { verifyEmailMail } from "@/lib/auth/mailer";
@@ -286,5 +288,23 @@ export const toggleNotifPrefAction = defineAction({
       .onDuplicateKeyUpdate({ set: { enabled } });
     revalidatePath("/settings/notifications");
     redirect("/settings/notifications");
+  },
+});
+
+/** 外观页的主题包偏好（M11）：表单提交版（无 JS 可用）；"site" = 跟随站点默认（存 NULL）。顶栏即时切换走 PATCH API。 */
+export const updateThemePackAction = defineAction({
+  name: "settings.theme_pack",
+  auth: "user",
+  input: z.object({ pack: z.string().max(32) }),
+  async run(ctx, input) {
+    const user = await getCurrentUser();
+    if (!user) redirect("/login");
+    if (input.pack !== "site" && !isPackValue(input.pack)) {
+      redirect(errHop("appearance", "未知的主题包"));
+    }
+    await setUserThemePack(ctx.userId!, input.pack === "site" ? null : input.pack);
+    // root layout 直出 html[data-pack]：整站布局失效，下一请求即新主题
+    revalidatePath("/", "layout");
+    redirect("/settings/appearance?saved=1");
   },
 });

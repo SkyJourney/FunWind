@@ -9,8 +9,17 @@
  */
 export const THEME_PACKS = [
   { id: "default", label: "现代浅色", logo: null },
-  // qy2010（复刻·青翼2010）随 Step 4 的 themes/qy2010.css 一并登记
-] as const;
+  // CSS 在 themes/qy2010.css：Step 2 先登记骨架（仅浅色限定选择器），Step 4 采样旧皮肤填色板与插槽示范；
+  // logo 随站长素材到位后填入 public/logo/ 下的文件名
+  { id: "qy2010", label: "复刻·青翼2010", logo: null },
+] as const satisfies readonly ThemePack[];
+
+export interface ThemePack {
+  readonly id: string;
+  readonly label: string;
+  /** 自带 LOGO 文件名（apps/web/public/logo/ 下的 PNG）；null = 不带 */
+  readonly logo: string | null;
+}
 
 export type PackId = (typeof THEME_PACKS)[number]["id"];
 

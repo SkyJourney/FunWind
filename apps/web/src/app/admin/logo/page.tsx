@@ -6,6 +6,7 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 import { LogoFileInput } from "@/components/admin/logo-file-input";
 import { AdminFlash } from "@/components/admin/admin-flash";
+import { isPackValue, packLabel } from "@/lib/theme-packs";
 import { removeLogoAction, setActiveLogoAction, uploadLogoAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -122,6 +123,14 @@ export default async function LogoAdminPage({
                   />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{item.name}</p>
+                    {/* 主题包自带 LOGO（M11 联动入池）：移除后再次设该主题为默认会重新导入 */}
+                    {item.pack && (
+                      <p className="mt-0.5 text-xs">
+                        <span className="rounded bg-accent px-1 text-accent-foreground">
+                          {isPackValue(item.pack) ? packLabel(item.pack) : item.pack} 自带
+                        </span>
+                      </p>
+                    )}
                     {active && (
                       <p className="mt-0.5 flex items-center gap-0.5 text-xs text-primary">
                         <CheckCircle2 className="size-3.5 shrink-0" aria-hidden /> 当前生效中

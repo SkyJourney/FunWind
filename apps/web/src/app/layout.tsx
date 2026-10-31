@@ -17,6 +17,7 @@ import { getCurrentSubject } from "@/lib/authz/subject";
 import { checkPermission, getModeratedForumIds } from "@/lib/authz/service";
 import { unreadPmTotal } from "@/lib/pm/queries";
 import { bannerAnnouncement, getSiteChrome, getSiteIdentity } from "@/lib/site-chrome";
+import { getUserThemePack, resolveEffectivePack } from "@/lib/theme-pref";
 import { QueryToast } from "@/components/feedback/query-toast";
 // 模块注册表求值（注册 + 封板）：任何内核调用前加载
 import "@/modules";
@@ -45,7 +46,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const enabled = user !== null ? await getEnabledModuleIds() : null;
   const notificationsOn = enabled?.has("notifications") ?? false;
   const pmOn = enabled?.has("pm") ?? false;
-  const [chrome, banner, pmUnread, showAdmin, avatarKey] = await Promise.all([
+  const [chrome, banner, pmUnread, showAdmin, avatarKey, userPack] = await Promise.all([
     getSiteChrome(),
     bannerAnnouncement(user !== null),
     pmOn && user ? unreadPmTotal(user.id) : Promise.resolve(0),
@@ -62,11 +63,17 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       : Promise.resolve(false),
     // 顶栏头像（M10.6d 站长反馈：菜单里应显示头像图，无头像才回退首字母）
     user ? avatarKeyOf(user.id) : Promise.resolve(null),
+    // 主题包偏好（M11）：登录用户读 profile；游客 null → 跟随站点默认
+    user ? getUserThemePack(user.id) : Promise.resolve(null),
   ]);
   const avatarUrl = avatarKey ? fileUrl(avatarKey) : null;
+  // html[data-pack] 服务端直出（用户偏好 → 站点默认 → default）：SSR 首帧即正确，无主题闪烁；
+  // data-mode（明暗）仍由 next-themes 客户端脚本写入，两者正交（docs/THEME-SYSTEM.md §2）
+  const themePack = resolveEffectivePack(userPack, chrome.themePack);
+  const packPref = user ? { user: userPack, site: chrome.themePack } : null;
 
   return (
-    <html lang="zh-CN" suppressHydrationWarning>
+    <html lang="zh-CN" data-pack={themePack} suppressHydrationWarning>
       <body className="bg-background font-sans text-foreground antialiased">
         <ThemeProvider
           attribute="data-mode"
@@ -84,6 +91,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             notificationsOn={notificationsOn}
             showAdmin={showAdmin}
             logoUrl={chrome.logoActive ? "/brand/logo" : null}
+            packPref={packPref}
             logoutAction={logoutAction}
           />
           {children}

@@ -3,7 +3,7 @@
  * LOGO 池集成测试（M10.5 阶段 C）：addLogo 魔数/大小/入池、setActive/remove 语义、
  * readLogoBytes 池内校验。文件落 STORAGE_DIR（测试指向系统临时目录，用后清理）。
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
@@ -11,8 +11,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { auditLog, getWebDb } from "@funwind/db";
 import { eq } from "drizzle-orm";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
-import { addLogo, readLogoBytes } from "./logo-pool-fs";
+import { addLogo, applyPackLogo, readLogoBytes } from "./logo-pool-fs";
 import { getLogoPoolRaw, removeLogo, setActiveLogo } from "./logo-pool";
+import type { ThemePack } from "@/lib/theme-packs";
 
 let tdb: TempDb | undefined;
 let logoDir: string | undefined;
@@ -128,5 +129,120 @@ describe.skipIf(skipDb)("LOGO 池（M10.5）", () => {
       .from(auditLog)
       .where(eq(auditLog.action, "admin.logo.remove"));
     expect(removeAudits).toHaveLength(files.length);
+  });
+});
+
+/**
+ * 主题↔LOGO 联动（M11，docs/THEME-SYSTEM.md §5）：注册表与素材目录注入，不依赖真实 public/logo。
+ * 上一组用例结束时池已清空，这里从空池起步。
+ */
+describe.skipIf(skipDb)("applyPackLogo · 主题↔LOGO 联动", () => {
+  const packs: readonly ThemePack[] = [
+    { id: "nologo", label: "无图包", logo: null },
+    { id: "withlogo", label: "带图包", logo: "pack-withlogo.png" },
+    { id: "missing", label: "缺素材包", logo: "nope.png" },
+  ];
+  let assetDir: string;
+  const themeActor = { userId: 90004, via: "theme" as const };
+
+  const uploads = () =>
+    getWebDb()
+      .select({ id: auditLog.id, after: auditLog.afterJson })
+      .from(auditLog)
+      .where(eq(auditLog.action, "admin.logo.upload"));
+  const activates = () =>
+    getWebDb()
+      .select({ id: auditLog.id, after: auditLog.afterJson })
+      .from(auditLog)
+      .where(eq(auditLog.action, "admin.logo.activate"));
+
+  beforeAll(() => {
+    assetDir = mkdtempSync(join(tmpdir(), "fw-pack-logo-"));
+    writeFileSync(join(assetDir, "pack-withlogo.png"), png);
+  });
+
+  afterAll(() => {
+    rmSync(assetDir, { recursive: true, force: true });
+  });
+
+  it("未知包 / 无图包：不触碰池、不记审计", async () => {
+    const uploadsBefore = (await uploads()).length;
+    expect(await applyPackLogo("nope", themeActor, { packs, assetDir })).toEqual({
+      applied: false,
+      reason: "unknown-pack",
+    });
+    expect(await applyPackLogo("nologo", themeActor, { packs, assetDir })).toEqual({
+      applied: false,
+      reason: "no-logo",
+    });
+    expect((await getLogoPoolRaw()).items).toHaveLength(0);
+    expect(await uploads()).toHaveLength(uploadsBefore);
+  });
+
+  it("带图包首次设默认：素材导入池（带 pack 标签）并设为当前；审计 via=theme", async () => {
+    const uploadsBefore = (await uploads()).length;
+    const r = await applyPackLogo("withlogo", themeActor, { packs, assetDir });
+    expect(r).toMatchObject({ applied: true, imported: true });
+    const pool = await getLogoPoolRaw();
+    expect(pool.items).toHaveLength(1);
+    expect(pool.items[0]).toMatchObject({ name: "带图包", pack: "withlogo" });
+    expect(pool.active).toBe(pool.items[0]!.file);
+    expect(await readLogoBytes()).toEqual(png);
+    const all = await uploads();
+    expect(all).toHaveLength(uploadsBefore + 1);
+    expect(all.at(-1)!.after).toMatchObject({ via: "theme" });
+  });
+
+  it("再次设默认：幂等——不重复导入、无变化不记审计", async () => {
+    const uploadsBefore = (await uploads()).length;
+    const activatesBefore = (await activates()).length;
+    const r = await applyPackLogo("withlogo", themeActor, { packs, assetDir });
+    expect(r).toMatchObject({ applied: true, imported: false });
+    expect((await getLogoPoolRaw()).items).toHaveLength(1);
+    expect(await uploads()).toHaveLength(uploadsBefore);
+    expect(await activates()).toHaveLength(activatesBefore);
+  });
+
+  it("站长独立切到别的 LOGO 后再设默认：只切回当前项，不重复导入（补充关系）", async () => {
+    const manual = await addLogo("手动上传", png);
+    if (!manual.ok) throw new Error(manual.code);
+    expect((await getLogoPoolRaw()).active).toBe(manual.pool.active); // 手动上传自动成为当前
+    const activatesBefore = (await activates()).length;
+
+    const r = await applyPackLogo("withlogo", themeActor, { packs, assetDir });
+    expect(r).toMatchObject({ applied: true, imported: false });
+    const pool = await getLogoPoolRaw();
+    expect(pool.items).toHaveLength(2);
+    expect(pool.active).toBe(pool.items.find((i) => i.pack === "withlogo")!.file);
+    const all = await activates();
+    expect(all).toHaveLength(activatesBefore + 1);
+    expect(all.at(-1)!.after).toMatchObject({ via: "theme" });
+
+    // 独立切换仍随时可用：切回手动项不受联动约束
+    await setActiveLogo(manual.pool.active!);
+    expect((await getLogoPoolRaw()).active).toBe(manual.pool.active);
+  });
+
+  it("移除主题自带项后再设默认：重新导入（新文件、同 pack 标签）", async () => {
+    const before = await getLogoPoolRaw();
+    const packItem = before.items.find((i) => i.pack === "withlogo")!;
+    await removeLogo(packItem.file);
+    expect((await getLogoPoolRaw()).items.some((i) => i.pack === "withlogo")).toBe(false);
+
+    const r = await applyPackLogo("withlogo", themeActor, { packs, assetDir });
+    expect(r).toMatchObject({ applied: true, imported: true });
+    const after = await getLogoPoolRaw();
+    const reimported = after.items.find((i) => i.pack === "withlogo")!;
+    expect(reimported.file).not.toBe(packItem.file);
+    expect(after.active).toBe(reimported.file);
+  });
+
+  it("素材缺失：返回原因不抛错、池不变（主题保存本身不受影响）", async () => {
+    const before = await getLogoPoolRaw();
+    expect(await applyPackLogo("missing", themeActor, { packs, assetDir })).toEqual({
+      applied: false,
+      reason: "missing-asset",
+    });
+    expect(await getLogoPoolRaw()).toEqual(before);
   });
 });

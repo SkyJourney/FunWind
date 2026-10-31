@@ -4,11 +4,12 @@
 /* dark: 变体跟随 <html data-mode>（next-themes attribute 模式，M11 起明暗与主题包 data-pack 正交）；否则 dark: 走 prefers-color-scheme 双轨脱节 */
 @custom-variant dark (&:is([data-mode="dark"] *));
 
-/* 三层令牌（决策见 docs/FRONTEND-DESIGN.md）：原子 → 语义 → 主题包 */
+/* 三层令牌（决策见 docs/FRONTEND-DESIGN.md / THEME-SYSTEM.md）：原子 → 语义 → 明暗（data-mode）→ 主题包（data-pack） */
 @import "../styles/tokens/primitives.css";
 @import "../styles/tokens/semantic.css";
 @import "../styles/tokens/themes/default.css";
 @import "../styles/tokens/themes/dark.css";
+@import "../styles/tokens/themes/qy2010.css";
 
 /* 语义令牌 → Tailwind 工具类映射（组件只允许语义层命名，如 bg-background / text-muted-foreground） */
 @theme inline {

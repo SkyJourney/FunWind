@@ -9,10 +9,11 @@ export type DbExecutor = Db | DbTx;
 /**
  * 配置类写操作（模块启停、站点设置）的操作者：Web 管理后台有登录用户；
  * 命令行脚本与开发接口没有，此时 userId 为 null，via 标明来源，写进审计的 after_json。
+ * theme：站长设全站默认主题时由主题↔LOGO 联动触发的池写入（M11，docs/THEME-SYSTEM.md §5）。
  */
 export interface ConfigActor {
   userId: number | null;
-  via: "admin" | "cli" | "dev-api";
+  via: "admin" | "cli" | "dev-api" | "theme";
   ip?: string | null;
 }
 
