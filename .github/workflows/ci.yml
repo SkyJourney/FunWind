@@ -1,5 +1,5 @@
 # CI：与本地 pre-push / verify:all 同一套门禁，外加自包含 E2E。
-#   verify —— 秘密扫描 / lint / 格式 / 类型 / 单测（含真实 MySQL 集成测试与覆盖率门槛）/ 构建
+#   verify —— 秘密扫描 / lint / 格式 / 重复棘轮 / 类型 / 单测（含真实 MySQL 集成测试与覆盖率门槛）/ 构建；knip 报告非阻塞入 artifact
 #   e2e    —— Playwright：生产构建跑功能全量，dev 服务器只跑 /api/dev/*、/design 冒烟；两阶段隔离重置库。
 # 不使用任何仓库密钥；MySQL 口令是只存在于 CI 容器里的一次性值。
 name: CI
@@ -56,10 +56,23 @@ jobs:
         run: pnpm check:secrets && pnpm test:scripts
       - run: pnpm lint
       - run: pnpm format:check
+      - name: 重复代码棘轮门禁（jscpd 对照 scripts/duplication-baseline.json，只许持平或下降）
+        run: pnpm check:duplication
       - run: pnpm typecheck
       - name: 单元与集成测试（含覆盖率门槛）
         run: pnpm test
       - run: pnpm build
+      - name: 未使用导出扫描（knip，非阻塞，报告入 artifact 供审查参考）
+        continue-on-error: true
+        run: npx knip --reporter json > knip-report.json || true
+      - name: 上传 knip 报告
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: knip-report
+          path: knip-report.json
+          if-no-files-found: ignore
+          retention-days: 7
 
   e2e:
     runs-on: ubuntu-latest

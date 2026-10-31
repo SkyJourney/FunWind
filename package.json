@@ -30,8 +30,10 @@
     "migrate": "pnpm --filter @funwind/db build && pnpm --filter @funwind/content build && pnpm --filter @funwind/migration migrate",
     "verify:migration": "pnpm --filter @funwind/db build && pnpm --filter @funwind/content build && pnpm --filter @funwind/migration verify && pnpm --filter @funwind/web verify:render && pnpm --filter @funwind/web verify:fidelity",
     "check:secrets": "node scripts/check-secrets.mjs",
+    "check:duplication": "node scripts/check-duplication.mjs",
+    "duplication:baseline": "node scripts/check-duplication.mjs --update-baseline",
     "test:scripts": "node --test scripts/*.test.mjs",
-    "verify:all": "pnpm check:secrets && pnpm test:scripts && pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm build"
+    "verify:all": "pnpm check:secrets && pnpm test:scripts && pnpm lint && pnpm format:check && pnpm check:duplication && pnpm typecheck && pnpm test && pnpm build"
   },
   "lint-staged": {
     "*.{ts,tsx,js,mjs,cjs,css,json,yaml,yml}": [
@@ -40,6 +42,8 @@
   },
   "devDependencies": {
     "husky": "^9.1.7",
+    "jscpd": "5.4.2",
+    "knip": "6.44.0",
     "lint-staged": "^17.6.0",
     "prettier": "^3.9.10",
     "prettier-plugin-tailwindcss": "^0.8.1"

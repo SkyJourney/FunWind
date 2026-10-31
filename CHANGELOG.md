@@ -5,6 +5,11 @@
 
 ## [Unreleased]
 
+### Changed（工程门禁）
+
+- **重复代码棘轮门禁**：`jscpd`（固定 5.4.2）扫描 `apps/web/src`、`packages/*/src`、`migration/src`——仅 ts/tsx、排除测试、`minTokens=40`（配置见 `.jscpd.json`）；`scripts/check-duplication.mjs` 对照入库基线 `scripts/duplication-baseline.json`（当前 2,005 行 / 214 克隆，449 个源文件），重复只许持平或下降；刻意接受新增重复时用 `pnpm duplication:baseline` 重新锚定（基线 diff 在提交里可见）。脚本自带 6 项单测并入 `test:scripts`；接入 pre-push、CI verify 与 `verify:all`，新增重复的红/绿双向实测通过。**knip** 未使用导出扫描以非阻塞方式进入 CI verify（JSON 报告入 artifact，保留 7 天），供代码审查参考，存量清理后再升级为阻塞门禁。
+- **pre-push 钩子补齐静态检查**：在原有的秘密扫描 + 类型检查 + 全量测试之前插入 `lint`、`format:check`、`check:duplication`，本地推送门禁与 CI verify 完全对齐。
+
 ### Added（M9.6：用户治理体系）
 
 设计与进度见 [docs/milestones/M9.6-user-governance.md](docs/milestones/M9.6-user-governance.md)。

@@ -1,0 +1,7 @@
+{
+  "minTokens": 40,
+  "formats": ["typescript", "tsx"],
+  "reporters": ["json"],
+  "output": "./node_modules/.cache/jscpd",
+  "ignore": ["**/*.test.ts", "**/*.test.tsx", "**/*.int.test.ts", "**/*.int.test.tsx"]
+}
