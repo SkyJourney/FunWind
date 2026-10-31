@@ -9,9 +9,9 @@
  */
 export const THEME_PACKS = [
   { id: "default", label: "现代浅色", logo: null },
-  // CSS 在 themes/qy2010.css：Step 2 先登记骨架（仅浅色限定选择器），Step 4 采样旧皮肤填色板与插槽示范；
-  // logo 随站长素材到位后填入 public/logo/ 下的文件名
-  { id: "qy2010", label: "复刻·青翼2010", logo: null },
+  // CSS 在 themes/qy2010.css（Step 4 旧站采样色板 + 插槽示范）；自带 LOGO = 站长定稿的「清爽侦探」青色半翼
+  // （与 LOGO 池当前项同一文件，public/logo/qy2010.png）——设为全站默认时联动入池（docs/THEME-SYSTEM.md §5）
+  { id: "qy2010", label: "复刻·青翼2010", logo: "qy2010.png" },
 ] as const satisfies readonly ThemePack[];
 
 export interface ThemePack {

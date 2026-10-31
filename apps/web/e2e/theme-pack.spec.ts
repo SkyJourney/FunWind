@@ -19,7 +19,7 @@ const dataPack = (page: Page) => page.locator("html").getAttribute("data-pack");
 
 const resetAll = () =>
   withE2eDb(async (q) => {
-    await q.exec("DELETE FROM site_settings WHERE `key` = 'site.theme'");
+    await q.exec("DELETE FROM site_settings WHERE `key` IN ('site.theme', 'site.logo')");
     await q.exec("UPDATE user_profiles SET theme_pack = NULL WHERE user_id IN (?, ?)", [
       USERS.member,
       USERS.admin,
@@ -85,23 +85,32 @@ test("顶栏菜单即时切换：改 data-pack 零重载 + PATCH 持久化 → �
   expect(await dataPack(page)).toBe("default");
 });
 
-test("后台全站默认：保存即生效，游客跟随；用户自选优先；改回后复原", async ({ browser }) => {
+test("后台全站默认：保存即生效 + 自带 LOGO 联动入池；游客跟随；用户自选优先；改回后主题复原而 LOGO 保留（补充关系）", async ({
+  browser,
+}) => {
   const admin = await browser.newContext();
   const guest = await browser.newContext();
   try {
     await loginAs(admin, USERS.admin);
     const adminPage = await admin.newPage();
+    // 起点：LOGO 池为空（resetAll 清过），/brand/logo 404
+    expect((await adminPage.request.get("/brand/logo")).status()).toBe(404);
+
     await adminPage.goto("/admin/settings");
     await adminPage.getByRole("radio", { name: /复刻·青翼2010/ }).check();
     await adminPage.getByRole("button", { name: "保存默认主题" }).click();
-    await adminPage.waitForURL("**/admin/settings?saved=theme");
-    await expect(adminPage.getByText("全站默认主题已保存并即时生效")).toBeVisible();
-    // qy2010 不带 LOGO：flash 文案明示 LOGO 保持不变（联动"无图不触碰"分支）
-    await expect(adminPage.getByText("LOGO 保持不变")).toBeVisible();
+    // qy2010 自带 LOGO（public/logo/qy2010.png）：联动导入池并设为当前，flash 走 theme_logo 分支
+    await adminPage.waitForURL("**/admin/settings?saved=theme_logo");
+    await expect(adminPage.getByText("已把 LOGO 切换为该主题自带图")).toBeVisible();
+    expect((await adminPage.request.get("/brand/logo")).status()).toBe(200);
+    await adminPage.goto("/admin/logo");
+    await expect(adminPage.getByText("复刻·青翼2010 自带")).toBeVisible();
+    await expect(adminPage.getByText("当前生效中")).toBeVisible();
 
     const guestPage = await guest.newPage();
     await guestPage.goto("/");
     expect(await dataPack(guestPage)).toBe("qy2010");
+    await expect(guestPage.locator('header img[src="/brand/logo"]')).toBeVisible();
     // 游客无主题包切换入口（无持久化载体）：菜单里不出现主题包选项
     await guestPage.getByRole("button", { name: "主题切换" }).click();
     await expect(guestPage.locator("[data-pack-option]")).toHaveCount(0);
@@ -121,10 +130,13 @@ test("后台全站默认：保存即生效，游客跟随；用户自选优先�
       await member.close();
     }
 
+    // 改回不带 LOGO 的默认包：主题复原，LOGO 不被触碰（补充关系，非绑定）
     await adminPage.goto("/admin/settings");
     await adminPage.getByRole("radio", { name: /现代浅色/ }).check();
     await adminPage.getByRole("button", { name: "保存默认主题" }).click();
     await adminPage.waitForURL("**/admin/settings?saved=theme");
+    await expect(adminPage.getByText("LOGO 保持不变")).toBeVisible();
+    expect((await adminPage.request.get("/brand/logo")).status()).toBe(200);
     await guestPage.reload();
     expect(await dataPack(guestPage)).toBe("default");
   } finally {

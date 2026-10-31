@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_PACK, isPackValue, packLabel, THEME_PACKS } from "./theme-packs";
 
@@ -6,16 +8,20 @@ describe("THEME_PACKS", () => {
     expect(THEME_PACKS.map((p) => p.id)).toContain("default");
   });
 
-  it("qy2010 在册（themes/qy2010.css；Step 4 填色板）且 id 全局唯一", () => {
+  it("qy2010 在册（themes/qy2010.css）且 id 全局唯一", () => {
     const ids = THEME_PACKS.map((p) => p.id);
     expect(ids).toContain("qy2010");
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("自带 LOGO 字段为 null 或 public/logo 下的文件名（不带路径）", () => {
+  it("自带 LOGO 字段为 null 或 public/logo 下真实存在的文件名（不带路径；防注册表悬空）", () => {
     for (const p of THEME_PACKS) {
-      if (p.logo !== null) expect(p.logo).toMatch(/^[a-z0-9][a-z0-9-]*\.png$/);
+      if (p.logo === null) continue;
+      expect(p.logo).toMatch(/^[a-z0-9][a-z0-9-]*\.png$/);
+      // vitest cwd = apps/web（与 next 运行时的 process.cwd() 同口径，lib/brand/logo-pool-fs 据此定位素材）
+      expect(existsSync(join(process.cwd(), "public", "logo", p.logo))).toBe(true);
     }
+    expect(THEME_PACKS.find((p) => p.id === "qy2010")?.logo).toBe("qy2010.png");
   });
 });
 
