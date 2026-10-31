@@ -6,6 +6,8 @@ node_modules/
 .next-e2e-step7-*/
 # Playwright MCP 浏览器自动化的临时产物（快照 / 控制台日志 / 截图）
 .playwright-mcp/
+# 目视验收截图证据（本地留存，不入库）
+/gui-test-screenshots/
 out/
 dist/
 coverage/
