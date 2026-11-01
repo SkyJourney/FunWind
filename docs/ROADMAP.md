@@ -32,7 +32,7 @@
 | [M10.9](milestones/M10.9-emoji.md) | **表情体系**（旧 50 枚复原入表、后台表情管理、编辑器面板接入图片表情页签；schema v2.2） | M10.8 | 三·完善 | ✅ 2026-10-29（门禁实测：verify:all 全绿、E2E dev 328 + 生产 20、临时库演练 113 项全绿；旧帖 alt 清洗已在开发库执行；真机清单待站长勾选） |
 | [M9.5](milestones/M9.5-admin-ux.md) | **后台管理体验专项**（PC 侧栏布局重做、列表分页/筛选基建、确认保护与空态等交互基线统一、关键服务层查询性能修正、平板/手机三断点巡检；**内容治理体系：disabled 封禁终态 + /admin/contents 内容管理 + 锁定/置顶/精华写入口 + 审核历史时间线；旧板块图 32 枚复原——schema v2.4（forums.icon_key）+ 前台板块卡片左图区右向渐隐（斜率可调，M11 遮罩插槽骨架）**） | M9 / M10.5–M10.9 | 三·完善 | ✅ 2026-10-29（Step 1–8 全部交付；verify:all 全绿实测、E2E 见里程碑 §7；真机清单待站长勾选） |
 | [M9.6](milestones/M9.6-user-governance.md) | **用户治理体系**（账号生命周期与自助注销、凭据/邮箱状态、全站/板块限制、RBAC 与旧特殊组/团队徽章边界、前后台行为/可见性矩阵、用户管理与审计通知） | M4 / M5 / M7 / M9 / M9.5 / M10.6 / M10.9 | 三·完善 | 🟡 实施中（核心规则已确认；Step 0–6 完成，当前 Step 7 矩阵测试与发布门禁） |
-| [M11](milestones/M11-themes-pwa.md) | **主题包与 PWA**（qy2010 情怀包、主题插槽体系：表面/背景/板块卡/Hero、主题↔LOGO 池联动、暗色打磨、视觉回归基线；设计稿 [THEME-SYSTEM](THEME-SYSTEM.md)） | M12 | 三·完善 | 🟡 实施中（2026-10-31 开工，Step 1 架构地基） |
+| [M11](milestones/M11-themes-pwa.md) | **主题包与 PWA**（qy2010 情怀包、主题插槽体系：表面/背景/板块卡/Hero、主题↔LOGO 池联动、暗色打磨、视觉回归基线；设计稿 [THEME-SYSTEM](THEME-SYSTEM.md)） | M12 | 三·完善 | 🟡 收口中（Step 1–7 完成；Step 8 最终 PR / CI） |
 | [M11.1](milestones/M11.1-festival-decor.md) | **节日装扮与自动切换**（装扮方案 site.decor.plan 打包 pack/logo/hero/banner、时间窗惰性调度、顶栏挂件位、节日主题包） | M11 | 三·完善 | ⬜ |
 | [M12](milestones/M12-install-wizard.md) | 安装向导与零数据部署 | 数据层基建 | 三·完善 | ⬜ |
 | [M13](milestones/M13-launch.md) | 部署与社区重启 | P4 | 三·上线 | ⬜ |

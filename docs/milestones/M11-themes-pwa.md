@@ -130,7 +130,17 @@
 - [x] 主题↔LOGO 池联动实测（设默认→自带 LOGO 入池并生效；改回不带 LOGO 包不影响 LOGO）
 - [x] Hero 位管理链路 E2E（超限拒绝→上传→首页呈现→移除）
 - [x] Lighthouse 11.7 PWA 100/100；生产离线 fallback E2E 通过（动态/个性化页面不缓存）
-- [ ] `pnpm verify:all` 全绿；CHANGELOG 记录
+- [x] `pnpm verify:all` 全绿；CHANGELOG 已记录 M11 全阶段交付与门禁
+
+## 站长真机验收清单（Step 8 发布前，待手工勾选）
+
+自动化验证覆盖 Chromium 桌面/移动视口；以下项目需在真实设备确认（iOS Safari / Android Chrome）：
+
+- [ ] iOS Safari：添加到主屏幕后以 standalone 启动；状态栏 / 图标正常；`/offline.html` 文案与按钮可用。
+- [ ] Android Chrome：出现系统安装入口（manifest 图标 / 名称正确）；安装后 standalone 启动。
+- [ ] qy2010：顶栏、页面纸纹、板块卡方角与无遮罩、宋体品牌位；切到暗色回退默认暗色；主题↔LOGO 联动显示当前清爽侦探半翼。
+- [ ] 离线：先联网打开站点，再断网导航到任意动态路由；只显示通用离线壳，不泄露先前用户页；恢复网络后重试正常。
+- [ ] 手机断点：底部 Tab / safe-area / 键盘 / Hero 横幅裁切与明暗模式对比度无异常。
 
 ## 遗留事项
 

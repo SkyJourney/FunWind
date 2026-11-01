@@ -142,6 +142,7 @@ test("admin 全流程：建组 → 上传 → /emoji 可访问 → 改名/关键
   // 并发管理时，审计 before 必须读取行锁后的最新值。
   const intermediateName = "E2E 并发中间值";
   let rowLocked!: () => void;
+  let blockingTrxId = "";
   const rowLockedPromise = new Promise<void>((resolve) => {
     rowLocked = resolve;
   });
@@ -153,6 +154,11 @@ test("admin 全流程：建组 → 上传 → /emoji 可访问 → 改名/关键
     await q.exec("START TRANSACTION");
     try {
       await q.query("SELECT id FROM emojis WHERE id = ? FOR UPDATE", [id1]);
+      const [trx] = await q.query<{ trxId: string }>(
+        "SELECT trx_id AS trxId FROM information_schema.innodb_trx " +
+          "WHERE trx_mysql_thread_id = CONNECTION_ID()",
+      );
+      blockingTrxId = String(trx!.trxId);
       rowLocked();
       await releasePromise;
       await q.exec("UPDATE emojis SET name = ?, updated_at = NOW() WHERE id = ?", [
@@ -178,11 +184,29 @@ test("admin 全流程：建组 → 上传 → /emoji 可访问 → 改名/关键
   const concurrentSave = concurrentRow.getByRole("button", { name: "保存" }).click();
   try {
     await actionRequest;
-    await concurrentPage.waitForTimeout(250);
+    // 不用固定 sleep 猜事务已进入锁等待：确认有事务正等本测试持有的那把行锁，
+    // 避免慢 CI 下提前释放、使审计 before 读到旧值（performance_schema 为 MySQL 8 基线）。
+    await expect
+      .poll(
+        () =>
+          withE2eDb(async (q) => {
+            const waits = await q.query<{ trxId: string }>(
+              "SELECT REQUESTING_ENGINE_TRANSACTION_ID AS trxId " +
+                "FROM performance_schema.data_lock_waits " +
+                "WHERE BLOCKING_ENGINE_TRANSACTION_ID = ?",
+              [blockingTrxId],
+            );
+            return waits.length;
+          }),
+        { timeout: 8_000, intervals: [25, 50, 100, 250] },
+      )
+      .toBeGreaterThan(0);
   } finally {
     releaseRow();
   }
   await Promise.all([concurrentMutation, concurrentSave]);
+  // Server Action 的 click Promise 只保证事件派发；显式等 redirect，确保事务+审计已提交后再读日志。
+  await expect(concurrentPage).toHaveURL(/saved=emoji-renamed/);
   const [latestUpdateAudit] = await withE2eDb((q) =>
     q.query<{ beforeName: string | null }>(
       "SELECT JSON_UNQUOTE(JSON_EXTRACT(before_json, '$.name')) AS beforeName FROM audit_log WHERE action = ? AND target_type = ? AND target_id = ? ORDER BY id DESC LIMIT 1",

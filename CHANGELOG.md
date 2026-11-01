@@ -5,6 +5,18 @@
 
 ## [Unreleased]
 
+### Added（M11：主题包、主题插槽与 PWA）
+
+设计与分步进度见 [docs/milestones/M11-themes-pwa.md](docs/milestones/M11-themes-pwa.md)、插槽设计见 [docs/THEME-SYSTEM.md](docs/THEME-SYSTEM.md)，节日装扮自动化后续见 [M11.1](docs/milestones/M11.1-festival-decor.md)。
+
+- **主题包 × 明暗模式正交**：`html[data-mode]`（next-themes，保留原 localStorage 键 `theme`）× `html[data-pack]`；注册表 `lib/theme-packs.ts`；`user_profiles.theme_pack`（schema v2.5 / 迁移 0020，NULL 跟随 `site.theme`）。全站默认主题在 `/admin/settings` 配置，用户在外观页或顶栏菜单即时自选；服务端直出 data-pack，刷新无闪烁。
+- **主题↔LOGO 池补充联动**：qy2010 自带当前「清爽侦探」青色半翼；设为全站默认时按 pack 标签幂等入 LOGO 池并激活，之后仍可独立切换；改回无自带 LOGO 的主题不会动现有 LOGO。日志保留 `via=theme` 来源标记。
+- **主题插槽与 qy2010**：新增顶栏/底部 Tab 表面、页面背景、品牌渐变、展示字体语义令牌；板块卡 `--band-*` 默认参数移出内联样式，qy2010 以无遮罩硬边界、情怀方角、宋体站名、纸感底纹示范。旧站 PHP 配置与 CSS 只读采样色板，不搬旧站资源文件。
+- **首页 Hero 横幅池**：LOGO 池泛化为 brand-pool，提供 `/admin/hero`、`/brand/hero` 与首页 Hero 插槽；PNG ≤2MB、≤1920×1080，支持无 JS 回退和审计；无当前项不占位。
+- **暗色打磨与视觉回归**：两处实心 destructive 按钮改用 `text-destructive-foreground`；42 张 Playwright 基线（桌面/移动，三主题）入库，`pnpm test:visual` / `pnpm test:visual:update` 仅本机 macOS 跑；常规 E2E 断言切主题包不改页面节点结构。
+- **PWA**：动态 manifest（站点身份/主题色 + LOGO 池图标，192/512/maskable）、生产 Service Worker、通用 `/offline.html` 离线壳。SW 只缓存通用离线壳与公共不可变静态资源；不缓存动态 HTML/RSC、API、`/files`、`/brand`，避免账号内容跨会话残留。
+- **门禁实测**：`pnpm verify:all` 全绿（Web 1,912、DB 72、content 55、migration 270）；生产 E2E 358 + dev E2E 8；重复度 1,985 行 / 211 克隆（棘轮 2,005 / 214）；视觉基线 6 组通过；Lighthouse 11.7.1 PWA 100/100；PWA 离线 E2E 2/2。
+
 ### Changed（工程门禁）
 
 - **重复代码棘轮门禁**：`jscpd`（固定 5.4.2）扫描 `apps/web/src`、`packages/*/src`、`migration/src`——仅 ts/tsx、排除测试、`minTokens=40`（配置见 `.jscpd.json`）；`scripts/check-duplication.mjs` 对照入库基线 `scripts/duplication-baseline.json`（当前 2,005 行 / 214 克隆，449 个源文件），重复只许持平或下降；刻意接受新增重复时用 `pnpm duplication:baseline` 重新锚定（基线 diff 在提交里可见）。脚本自带 6 项单测并入 `test:scripts`；接入 pre-push、CI verify 与 `verify:all`，新增重复的红/绿双向实测通过。**knip** 未使用导出扫描以非阻塞方式进入 CI verify（JSON 报告入 artifact，保留 7 天），供代码审查参考，存量清理后再升级为阻塞门禁。
