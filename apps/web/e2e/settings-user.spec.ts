@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { withE2eDb } from "./support/db";
+import { snapshotMailIds, waitForNewMail, expectNoNewMail } from "./support/mailpit";
 import { USERS, loginAs } from "./support/session";
 
 /**
@@ -124,24 +125,8 @@ test("S1 安全类邮件：改密触发通知；后台关闭后停发", async ({
   await loginAs(memberCtx, USERS.member);
   const member = await memberCtx.newPage();
 
-  // 只统计本次改密动作之后到达的邮件（Mailpit 跨运行保留历史）
-  let since = Date.now() - 1000;
-  const countMail = async (): Promise<number> => {
-    const list = (await (
-      await member.request.get("http://127.0.0.1:8025/api/v1/messages")
-    ).json()) as {
-      messages: { To: { Address: string }[]; Subject: string; Created: string }[];
-    };
-    return list.messages.filter(
-      (m) =>
-        m.Subject.includes("密码已修改") &&
-        m.To.some((t) => t.Address === "member@demo.local") &&
-        Date.parse(m.Created) >= since,
-    ).length;
-  };
-  const resetSince = () => {
-    since = Date.now() - 1000;
-  };
+  // 邮件到达断言用 ID 快照差集（Mailpit 容器时钟会漂移，禁用宿主机时间窗过滤）
+  const knownMails = await snapshotMailIds("member@demo.local", "密码已修改");
 
   // 后台先关闭安全类邮件 → 改密 → 无邮件
   const adminCtx = await browser.newContext();
@@ -169,9 +154,7 @@ test("S1 安全类邮件：改密触发通知；后台关闭后停发", async ({
   await member.getByRole("button", { name: "设置新密码" }).click();
   await respPw;
   await member.waitForURL("**/settings/password?saved=1");
-  await member.waitForTimeout(1500);
-  resetSince(); // 只看此后是否出现（OFF 段期望 0：无新邮件可计）
-  expect(await countMail()).toBe(0);
+  await expectNoNewMail("member@demo.local", "密码已修改", knownMails);
 
   // 后台重新开启 → 再改密（改回原密码）→ 收到「密码已修改」
   await admin.goto("/admin/settings");
@@ -192,8 +175,7 @@ test("S1 安全类邮件：改密触发通知；后台关闭后停发", async ({
   await member.getByRole("button", { name: "设置新密码" }).click();
   await respPw2;
   await member.waitForURL("**/settings/password?saved=1");
-  resetSince();
-  await expect.poll(countMail, { timeout: 15_000 }).toBeGreaterThan(0);
+  await waitForNewMail("member@demo.local", "密码已修改", knownMails);
 
   await adminCtx.close();
   await memberCtx.close();

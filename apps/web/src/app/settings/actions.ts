@@ -124,6 +124,11 @@ export const updatePasswordAction = defineAction({
       await sendUserEmail(ctx.userId!, ({ siteName }) => passwordChangedMail(siteName));
     }
     revalidatePath("/", "layout");
+    // 强制换密（双轨首登）：pending 已清零，当前受限 session 自然升级为普通会话——直接回首页；
+    // 主动改密（已登录）留在设置页展示「已保存」。
+    if (ctx.passwordChangeOnly) {
+      redirect("/?notice=password-changed");
+    }
     redirect("/settings/password?saved=1");
   },
 });
