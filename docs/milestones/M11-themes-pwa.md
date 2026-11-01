@@ -111,8 +111,8 @@
   验证：生产 PWA E2E 2/2（manifest/图标/SW 控制/离线回退/动态响应不入 CacheStorage）+ Lighthouse 11.7.1 PWA 100/100
   （installable manifest、theme-color、maskable icon、splash screen 全通过）。本地复跑：生产站点启动后运行
   `pnpm pwa:lighthouse http://127.0.0.1:<端口>`（Lighthouse 12 已移除 PWA 类别，脚本固定 11.7.1）。
-- **Step 8 收口**：全量 `verify:all` + 生产/开发 `test:e2e` + 文档定稿（本文档勾选、THEME-SYSTEM、
-  ROADMAP、CHANGELOG）+ 站长真机清单 + 合并 main + 合并后 CI 确认（不 force push）。
+- **Step 8 收口** ✅：全量 `verify:all`、生产/开发 `test:e2e`、视觉基线与 Lighthouse 复核通过；CHANGELOG / ROADMAP / THEME-SYSTEM 定稿；PR #3（`c3c4985…ca240c6`）已合并至 main（merge commit `f213cce`），GitHub Actions CI run `41269765611` 的 `verify` / `e2e` 均通过；未 force push，旧默认库 `qysub_next` 未触碰。
+  **待站长手工签收**：下方真实设备清单与 qy2010 对照旧站视觉签字；它们不是自动化门禁，确认后再将 M11 里程碑状态改为最终完成。
 
 ## 测试规则
 
