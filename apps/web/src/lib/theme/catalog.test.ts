@@ -1,0 +1,111 @@
+import { describe, expect, it } from "vitest";
+import {
+  getThemeCatalog,
+  invalidateThemeCatalog,
+  isKnownPackId,
+  refreshThemeCatalog,
+  resolveEffectivePackValidated,
+  type ThemeCatalogReadDb,
+} from "./catalog";
+
+/** 可注入的目录读取 fake：覆盖 DB 启用/停用、LOGO 资产引用、读库失败三条分支 */
+const rows =
+  (list: { id: string; name: string; enabled: boolean; assets?: unknown }[]): ThemeCatalogReadDb =>
+  async () =>
+    list;
+
+describe("主题包目录（catalog，纯函数层）", () => {
+  it("目录 = 静态注册表 ∪ DB 启用包；停用包不进目录；同名静态包不被 DB 覆盖", async () => {
+    const packs = await refreshThemeCatalog({
+      readDb: rows([
+        { id: "xmas", name: "圣诞青翼", enabled: true },
+        { id: "legacy", name: "旧包", enabled: false },
+        { id: "default", name: "同名 default", enabled: true },
+      ]),
+    });
+    const ids = packs.map((p) => p.id);
+    expect(ids).toContain("default");
+    expect(ids).toContain("qy2010");
+    expect(ids).toContain("xmas");
+    expect(ids).not.toContain("legacy");
+    expect(ids.filter((id) => id === "default")).toHaveLength(1);
+    expect(packs.find((p) => p.id === "default")?.source).toBe("static");
+    expect(packs.find((p) => p.id === "xmas")?.source).toBe("db");
+  });
+
+  it("数据包自带 LOGO：assets 内 kind=logo 的 poolFile 被识别；非法 assets 不炸", async () => {
+    const packs = await refreshThemeCatalog({
+      readDb: rows([
+        {
+          id: "xmas",
+          name: "圣诞",
+          enabled: true,
+          assets: [{ kind: "logo", poolFile: "logo-xmas.png" }],
+        },
+        { id: "noassets", name: "无资源", enabled: true, assets: "not-an-array" },
+      ]),
+    });
+    expect(packs.find((p) => p.id === "xmas")?.logo).toBe("logo-xmas.png");
+    expect(packs.find((p) => p.id === "noassets")?.logo).toBeNull();
+  });
+
+  it("TTL 缓存：TTL 内直接返回缓存目录（不重读库）；失效后重读", async () => {
+    let calls = 0;
+    const readDb: ThemeCatalogReadDb = async () => {
+      calls++;
+      return [{ id: "xmas", name: "圣诞", enabled: true }];
+    };
+    let clock = 1_000_000;
+    const now = () => clock;
+    invalidateThemeCatalog();
+    await getThemeCatalog({ readDb, now });
+    expect(calls).toBe(1);
+    await getThemeCatalog({ readDb, now });
+    expect(calls).toBe(1); // TTL 内命中缓存
+    clock += 31_000; // 超过 30s TTL
+    await getThemeCatalog({ readDb, now });
+    expect(calls).toBe(2);
+  });
+
+  it("读库失败：冷启动回静态注册表并记日志；已有缓存时沿用上次目录", async () => {
+    const failing: ThemeCatalogReadDb = async () => {
+      throw new Error("db down");
+    };
+    const cold = await refreshThemeCatalog({ readDb: failing });
+    expect(cold.map((p) => p.id)).toEqual(["default", "qy2010"]);
+
+    // 已有缓存后读库失败 → 沿用上次目录（不空目录）
+    await refreshThemeCatalog({
+      readDb: rows([{ id: "xmas", name: "圣诞", enabled: true }]),
+    });
+    const cached = await getThemeCatalog({ readDb: failing });
+    expect(cached.map((p) => p.id)).toContain("xmas");
+  });
+
+  it("isKnownPackId：静态/启用 DB 包有效；停用与未知 id 无效", async () => {
+    const readDb = rows([
+      { id: "xmas", name: "圣诞", enabled: true },
+      { id: "legacy", name: "旧包", enabled: false },
+    ]);
+    expect(await isKnownPackId("default", { readDb })).toBe(true);
+    expect(await isKnownPackId("xmas", { readDb })).toBe(true);
+    expect(await isKnownPackId("legacy", { readDb })).toBe(false);
+    expect(await isKnownPackId("no-such", { readDb })).toBe(false);
+  });
+
+  it("回退链：用户偏好有效 → 站点默认有效 → default；无效项逐级跳过", async () => {
+    const known = async (id: string) => id === "xmas" || id === "site-pk" || id === "default";
+    expect(
+      await resolveEffectivePackValidated(known, { userPref: "xmas", siteDefault: "site-pk" }),
+    ).toBe("xmas");
+    expect(
+      await resolveEffectivePackValidated(known, { userPref: "stopped", siteDefault: "site-pk" }),
+    ).toBe("site-pk");
+    expect(await resolveEffectivePackValidated(known, { userPref: null, siteDefault: null })).toBe(
+      "default",
+    );
+    expect(
+      await resolveEffectivePackValidated(known, { userPref: "stopped", siteDefault: "stopped" }),
+    ).toBe("default");
+  });
+});

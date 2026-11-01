@@ -1,11 +1,13 @@
 import { cache } from "react";
 import { eq } from "drizzle-orm";
 import { getWebDb, userProfiles } from "@funwind/db";
-import { DEFAULT_PACK, isPackValue, type PackId } from "@/lib/theme-packs";
+import { DEFAULT_PACK, type PackId } from "@/lib/theme-packs";
+import { isKnownPackId } from "@/lib/theme/catalog";
 
 /**
  * 用户主题包偏好（M11，user_profiles.theme_pack；docs/THEME-SYSTEM.md §2）：
- * null = 跟随站点默认（site.theme）。读取侧对未知 id 视为 null（注册表删包不需迁移数据）。
+ * null = 跟随站点默认（site.theme）。读取侧经目录校验——未知 id 或已停用包都视为 null
+ * （删包/停用不需迁移数据；同 id 重导前旧偏好不复活）。
  * 生效值由 resolveEffectivePack 合成后在 root layout 直出到 html[data-pack]。
  */
 
@@ -16,7 +18,8 @@ export const getUserThemePack = cache(async (userId: number): Promise<PackId | n
     .where(eq(userProfiles.userId, userId))
     .limit(1);
   const v = row?.themePack;
-  return typeof v === "string" && isPackValue(v) ? v : null;
+  if (typeof v !== "string") return null;
+  return (await isKnownPackId(v)) ? (v as PackId) : null;
 });
 
 /** 写偏好（本人外观设置 / 顶栏即时切换）：profile 行缺失时补建（与资料更新同款 upsert） */
@@ -27,7 +30,7 @@ export async function setUserThemePack(userId: number, pack: PackId | null): Pro
     .onDuplicateKeyUpdate({ set: { themePack: pack } });
 }
 
-/** 生效主题包：用户偏好 → 站点默认 → default（纯函数，供单测） */
+/** 生效主题包：用户偏好 → 站点默认 → default（纯函数；目录校验版见 catalog.resolveEffectivePackValidated） */
 export function resolveEffectivePack(
   userPref: PackId | null | undefined,
   siteDefault: PackId | null | undefined,
