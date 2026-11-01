@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### Fixed（M10.6c：双轨密码默认迁移接线）
+
+- `pnpm migrate` 现于 `users` 后默认运行 `legacy-password`；`pnpm migrate users` 自动联动，保留独立补跑命令。旧库仍只读，只把有效 phpwind MD5+salt 材料写入 `legacy_password_hash` / `legacy_password_pending`，现代 `password_hash` 仍只存 Argon2id。
+- 迁移重跑保护：目标库已有现代密码的已认领账号不再参与旧 users/profile/avatar UPSERT，且回填谓词要求 modern/legacy hash 都为空，避免清空新密码或重开旧密码登录。
+- 回填核心抽成可注入 fake-query 函数；覆盖旧库只读、材料校验、非 active / 已认领 / 已回填跳过、游标分页与重复运行幂等。恢复 `qysub_next` 后单独补跑 legacy-password：10,698 条有效旧密码材料回填；SkyJourney 账号 pending 已核验（不记录哈希/邮箱）。
+
 ### Added（M11：主题包、主题插槽与 PWA）
 
 设计与分步进度见 [docs/milestones/M11-themes-pwa.md](docs/milestones/M11-themes-pwa.md)、插槽设计见 [docs/THEME-SYSTEM.md](docs/THEME-SYSTEM.md)，节日装扮自动化后续见 [M11.1](docs/milestones/M11.1-festival-decor.md)。

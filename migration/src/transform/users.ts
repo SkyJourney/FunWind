@@ -72,6 +72,22 @@ export interface UserTransformResult {
   };
 }
 
+/**
+ * 重跑用户迁移时，目标库里已有 Argon2 密码表示账号已认领；不能再用旧站资料覆盖凭据、资料或头像。
+ * 这些 uid 仍由调用方保留在 ctx.userIds，供主题/帖子等迁移步骤引用。
+ */
+export function preserveModernPasswordAccounts(
+  users: UserRow[],
+  profiles: ProfileRow[],
+  existingModernPasswordIds: ReadonlySet<number>,
+): { users: UserRow[]; profiles: ProfileRow[]; preserved: number } {
+  return {
+    users: users.filter((user) => !existingModernPasswordIds.has(user.id)),
+    profiles: profiles.filter((profile) => !existingModernPasswordIds.has(profile.userId)),
+    preserved: users.filter((user) => existingModernPasswordIds.has(user.id)).length,
+  };
+}
+
 const EMAIL_RE = /^[^\s@'"<>]+@[^\s@'"<>]+\.[^\s@'"<>]+$/;
 
 /** 旧站头像路径算法（与 apps/web/src/lib/auth/avatar.ts 一致）：avatar/{3位}/{2位}/{2位}/{uid}.jpg */
@@ -189,7 +205,7 @@ export function transformUsers(
       usernameKey: key,
       email: hasEmail ? emailRaw!.trim() : null,
       emailKey: hasEmail ? normalizeKey(emailRaw!) : null,
-      passwordHash: null, // 红线：旧哈希不迁移，上线走邮件认领/重置
+      passwordHash: null, // 旧格式不放进 Argon2 字段；后续 legacy-password 步骤单独回填双轨材料
       emailVerifiedAt: null,
       state: "active",
       createdAt,

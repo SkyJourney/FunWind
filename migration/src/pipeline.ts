@@ -2,6 +2,7 @@ import {
   authzStep,
   forumPrefixesStep,
   forumsStep,
+  legacyPasswordStep,
   restrictionsStep,
   settingsStep,
   usersStep,
@@ -28,6 +29,7 @@ export const STEPS: Step[] = [
   forumsStep,
   forumPrefixesStep,
   usersStep,
+  legacyPasswordStep,
   restrictionsStep,
   authzStep,
   settingsStep,
@@ -49,3 +51,16 @@ export const STEPS: Step[] = [
 export const FILE_GROUP: readonly string[] = ["users", "content", "badges", "files"];
 /** content 重跑会整表替换 threads（缓存计数列被重置），counters 必须跟随重算（M9.5 教训） */
 export const COUNTER_FOLLOW: readonly string[] = ["content", "counters"];
+
+/**
+ * 展开用户指定的部分迁移步骤及联动：文件依赖组、计数重算、users → legacy-password。
+ * 独立导出供单测锁定顺序，避免只跑 users 时漏掉凭据回填。
+ */
+export function selectMigrationSteps(only: readonly string[]): Step[] {
+  const selected = new Set(only);
+  if (FILE_GROUP.some((name) => selected.has(name)))
+    FILE_GROUP.forEach((name) => selected.add(name));
+  if (selected.has("users")) selected.add("legacy-password");
+  if (COUNTER_FOLLOW.slice(0, -1).some((name) => selected.has(name))) selected.add("counters");
+  return only.length > 0 ? STEPS.filter((step) => selected.has(step.name)) : STEPS;
+}
