@@ -5,6 +5,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { config, toDatetime } from "./config.js";
+import { backfillLegacyPasswordHashes } from "./backfill-legacy-password.js";
 import {
   bumpAutoIncrement,
   load,
@@ -37,6 +38,7 @@ import {
   filterCompletedAccountDeletions,
   filterCompletedDeletionNotes,
   legacyAvatarKey,
+  preserveModernPasswordAccounts,
   transformUsers,
 } from "./transform/users.js";
 import { transformRestrictions } from "./transform/restrictions.js";
@@ -184,9 +186,6 @@ export const usersStep: Step = {
       completedDeletionIds,
     );
     const n = filterCompletedDeletionNotes(result.notes, completedDeletionIds);
-    const avatarCountToImport = preserved.profiles.filter(
-      (profile) => profile.avatarSource !== null,
-    ).length;
     const [registerModes, verificationModes] = await Promise.all([
       newQuery<{ mode: string }>(
         "SELECT JSON_UNQUOTE(JSON_EXTRACT(value, '$.mode')) AS mode FROM site_settings WHERE `key` = 'register.mode' LIMIT 1",
@@ -199,15 +198,32 @@ export const usersStep: Step = {
       registerModes[0]?.mode === "open" || verificationModes[0]?.mode === "always";
     const importedIds = preserved.users.map((user) => user.id);
     const existingActiveIds = new Set<number>();
+    const existingModernPasswordIds = new Set<number>();
     for (let offset = 0; offset < importedIds.length; offset += 500) {
       const batch = importedIds.slice(offset, offset + 500);
       const placeholders = batch.map(() => "?").join(",");
-      const existing = await newQuery<{ id: number }>(
-        `SELECT id FROM users WHERE state = 'active' AND id IN (${placeholders})`,
+      const existing = await newQuery<{
+        id: number;
+        state: "active" | "deleted";
+        passwordHash: string | null;
+      }>(
+        `SELECT id, state, password_hash AS passwordHash FROM users WHERE id IN (${placeholders})`,
         batch,
       );
-      for (const row of existing) existingActiveIds.add(Number(row.id));
+      for (const row of existing) {
+        const id = Number(row.id);
+        if (row.state === "active") existingActiveIds.add(id);
+        if (row.passwordHash !== null) existingModernPasswordIds.add(id);
+      }
     }
+    const importable = preserveModernPasswordAccounts(
+      preserved.users,
+      preserved.profiles,
+      existingModernPasswordIds,
+    );
+    const avatarCountToImport = importable.profiles.filter(
+      (profile) => profile.avatarSource !== null,
+    ).length;
     const usersNeedingVerification = emailVerificationRequired
       ? importedIds.filter((id) => !existingActiveIds.has(id))
       : [];
@@ -225,7 +241,7 @@ export const usersStep: Step = {
         "created_at",
         "last_login_at",
       ],
-      preserved.users.map((u) => ({
+      importable.users.map((u) => ({
         id: u.id,
         username: u.username,
         username_key: u.usernameKey,
@@ -250,7 +266,7 @@ export const usersStep: Step = {
     await upsert(
       "user_profiles",
       ["user_id", "bio", "location", "website", "gender", "birthday", "signature_md"],
-      preserved.profiles.map((p) => ({
+      importable.profiles.map((p) => ({
         user_id: p.userId,
         bio: p.bio,
         location: p.location,
@@ -264,14 +280,16 @@ export const usersStep: Step = {
     await bumpAutoIncrement("users");
     ctx.userIds = new Set(preserved.users.map((u) => u.id));
     ctx.avatarSources = new Map(
-      preserved.profiles.flatMap((p) =>
+      importable.profiles.flatMap((p) =>
         p.avatarSource ? [[p.userId, p.avatarSource] as const] : [],
       ),
     );
 
     const s = ctx.report.section("用户");
     s.line(
-      `旧站用户 ${result.users.length} 人；已完成注销 ${preserved.skipped} 人保留匿名终态、不回填旧资料；spam 账号 ${n.excluded} 个不迁移；入库头像 ${avatarCountToImport} 人；密码一律不迁移（password_hash=NULL，走邮件认领/重置）。`,
+      `旧站用户 ${result.users.length} 人；已完成注销 ${preserved.skipped} 人保留匿名终态、不回填旧资料；` +
+        `已有现代密码的 ${importable.preserved} 人保留凭据/资料/头像，不被旧资料覆盖；spam 账号 ${n.excluded} 个不迁移；` +
+        `入库头像 ${avatarCountToImport} 人。旧站密码材料由后续 legacy-password 步骤单独回填（不写入 password_hash）。`,
     );
     s.bullets([
       `用户名归一化冲突 ${n.usernameCollisions.length} 个${
@@ -309,8 +327,31 @@ export const usersStep: Step = {
       n.duplicateEmails.map((d) => [d.email, d.keptUid, d.clearedUids.join("、")]),
     );
     return {
-      rows: preserved.users.length,
-      note: `${n.excluded} spam 未迁 / ${avatarCountToImport} 头像待入库 / ${preserved.skipped} 注销用户保留终态`,
+      rows: importable.users.length,
+      note:
+        `${n.excluded} spam 未迁 / ${avatarCountToImport} 头像待入库 / ` +
+        `${importable.preserved} 已认领用户保留 / ${preserved.skipped} 注销用户保留终态`,
+    };
+  },
+};
+
+/** 默认迁移随用户导入自动回填旧密码双轨材料；旧库只读，目标更新有状态谓词且幂等。 */
+export const legacyPasswordStep: Step = {
+  name: "legacy-password",
+  async run(ctx) {
+    const stats = await backfillLegacyPasswordHashes();
+    ctx.report
+      .section("旧密码双轨")
+      .line(
+        `候选 ${stats.candidates}；扫描 ${stats.scanned}；回填 ${stats.backfilled}；` +
+          `无材料跳过 ${stats.skippedNoMaterial}；目标已有凭据/非活动跳过 ${stats.skippedTarget}；` +
+          `当前 pending ${stats.pending}。`,
+      );
+    return {
+      rows: stats.backfilled,
+      note:
+        `候选 ${stats.candidates} / 回填 ${stats.backfilled} / ` +
+        `无材料 ${stats.skippedNoMaterial} / 目标保护跳过 ${stats.skippedTarget}`,
     };
   },
 };

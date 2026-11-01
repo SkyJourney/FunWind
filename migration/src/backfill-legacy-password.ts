@@ -1,72 +1,124 @@
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 import { affectedRowsOf } from "@funwind/db";
-import { oldQuery, newQuery } from "./db.js";
+import { oldQuery, newQuery, closePools } from "./db.js";
 import { config } from "./config.js";
 
 /**
- * 双轨密码回填（M10.6c，docs/PASSWORD-DUAL-TRACK.md 唯一合法写入方）：
- * 旧库 nw_windid_user（phpwind 口径 md5(md5(pwd)+salt)，salt 6 位）→ 新库 users 两列
- * （legacy_password_hash = `md5$<hash>$<salt>`，legacy_password_pending = 1）。
+ * 双轨密码回填核心（M10.6c）：旧库 nw_windid_user 的 phpwind MD5 哈希/盐
+ * → 新库 users.legacy_password_hash / legacy_password_pending。
  *
- * 边界：只读旧库（db.ts 红线）；幂等（已有材料或已设密(password_hash)的账号跳过）；
- * 只回填新库存在的 active 账号。跑完输出对账计数，供 verify.ts 核验。
- *
- * 运行：pnpm --filter @funwind/migration exec tsx src/backfill-legacy-password.ts
+ * 安全边界：oldQuery 只执行 SELECT；目标仅写 active 且 password_hash 与 legacy hash 均为空的账号；
+ * 每条 UPDATE 原子且幂等，中断后安全重跑。默认迁移通过 legacy-password step 调用；
+ * 本文件直接运行时保留独立回填命令，供恢复/补跑使用。
  */
 
-const BATCH = 2000;
+const DEFAULT_BATCH_SIZE = 2000;
 
-async function main() {
-  const [{ total }] = (await newQuery(
+type OldQuery = (sql: string, params?: unknown[]) => Promise<unknown[]>;
+type NewQuery = (sql: string, params?: unknown[]) => Promise<unknown>;
+
+export interface LegacyPasswordBackfillStats {
+  candidates: number;
+  scanned: number;
+  backfilled: number;
+  skippedNoMaterial: number;
+  skippedTarget: number;
+  pending: number;
+}
+
+export interface LegacyPasswordBackfillOptions {
+  oldQuery?: OldQuery;
+  newQuery?: NewQuery;
+  batchSize?: number;
+  onProgress?: (message: string) => void;
+}
+
+/** 可注入数据库查询器，以便使用 fake-query 测试，不连接真实旧库。 */
+export async function backfillLegacyPasswordHashes(
+  options: LegacyPasswordBackfillOptions = {},
+): Promise<LegacyPasswordBackfillStats> {
+  const readOld = options.oldQuery ?? oldQuery;
+  const writeNew = options.newQuery ?? newQuery;
+  const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
+  const log = options.onProgress ?? (() => {});
+  if (!Number.isSafeInteger(batchSize) || batchSize < 1) {
+    throw new RangeError("legacy password backfill batchSize must be a positive integer");
+  }
+
+  const [{ total: rawCandidates = 0 } = {}] = (await writeNew(
     "SELECT COUNT(*) AS total FROM users WHERE state = 'active' AND password_hash IS NULL",
-  )) as { total: number }[];
-  console.log(`[backfill] 候选：新库 active 且无密码的账号 ${total} 个`);
-
+  )) as { total?: number }[];
+  const candidates = Number(rawCandidates);
   let scanned = 0;
   let backfilled = 0;
   let skippedNoMaterial = 0;
+  let skippedTarget = 0;
   let maxUid = 0;
 
+  log(`[backfill] 新库 active 且无现代密码的候选账号 ${candidates} 个`);
   for (;;) {
-    const rows = (await oldQuery(
+    const rows = (await readOld(
       "SELECT uid, password, salt FROM nw_windid_user WHERE uid > ? ORDER BY uid LIMIT ?",
-      [maxUid, BATCH],
-    )) as { uid: number; password: string; salt: string }[];
+      [maxUid, batchSize],
+    )) as { uid: number; password: string | null; salt: string | null }[];
     if (rows.length === 0) break;
-    for (const r of rows) {
-      maxUid = r.uid;
+
+    for (const row of rows) {
+      const uid = Number(row.uid);
+      maxUid = uid;
       scanned++;
-      if (!r.password || r.password.length !== 32 || !r.salt) {
+      if (!row.password || !/^[0-9a-f]{32}$/i.test(row.password) || !row.salt) {
         skippedNoMaterial++;
         continue;
       }
-      const stored = `md5$${r.password}$${r.salt}`;
-      // pool.query 的 UPDATE 结果是 ResultSetHeader（非行数组）
+
+      const stored = `md5$${row.password}$${row.salt}`;
       const affectedRows = affectedRowsOf(
-        await newQuery(
+        await writeNew(
           "UPDATE users SET legacy_password_hash = ?, legacy_password_pending = 1 " +
             "WHERE id = ? AND state = 'active' AND password_hash IS NULL AND legacy_password_hash IS NULL",
-          [stored, r.uid],
+          [stored, uid],
         ),
       );
-      backfilled += affectedRows > 0 ? 1 : 0;
+      if (affectedRows > 0) backfilled++;
+      else skippedTarget++;
     }
-    console.log(`[backfill] 已扫描到 uid=${maxUid}（本批 ${rows.length}）`);
+    log(`[backfill] 已扫描到 uid=${maxUid}（本批 ${rows.length}）`);
   }
 
-  const [{ done }] = (await newQuery(
+  const [{ done: rawPending = 0 } = {}] = (await writeNew(
     "SELECT COUNT(*) AS done FROM users WHERE legacy_password_pending = 1",
-  )) as { done: number }[];
-  console.log(
-    `[backfill] 完成：扫描 ${scanned}，回填 ${backfilled}，无材料跳过 ${skippedNoMaterial}；新库 pending 总数 ${done}`,
+  )) as { done?: number }[];
+  const stats = {
+    candidates,
+    scanned,
+    backfilled,
+    skippedNoMaterial,
+    skippedTarget,
+    pending: Number(rawPending),
+  };
+  log(
+    `[backfill] 完成：候选 ${candidates}，扫描 ${scanned}，回填 ${backfilled}，` +
+      `无旧材料跳过 ${skippedNoMaterial}，目标状态不符/已有凭据跳过 ${skippedTarget}；` +
+      `新库 pending 总数 ${stats.pending}`,
   );
-  console.log(
-    `[backfill] 核验口径（verify.ts）：pending 总数应等于「active+无密码+旧库有材料」的交集数；`,
-  );
-  console.log(`[backfill] 目标库 ${config.newDb.database}`);
-  process.exit(0);
+  return stats;
 }
 
-main().catch((e) => {
-  console.error("[backfill] 失败：", e);
-  process.exit(1);
-});
+async function main(): Promise<void> {
+  try {
+    await backfillLegacyPasswordHashes({ onProgress: console.log });
+    console.log(`[backfill] 目标库 ${config.newDb.database}`);
+  } finally {
+    await closePools();
+  }
+}
+
+const entryPath = process.argv[1] ? path.resolve(process.argv[1]) : null;
+if (entryPath === fileURLToPath(import.meta.url)) {
+  void main().catch((error: unknown) => {
+    console.error("[backfill] 失败：", error);
+    process.exitCode = 1;
+  });
+}

@@ -100,7 +100,7 @@
 ### 2.3 红线
 
 1. 旧库 `qingyisub` **全程只读**（仅 SELECT/DESC/SHOW）。
-2. 旧密码（md5+salt，phpwind 私有流程）**不迁移**：新库 `password_hash=NULL`，上线用邮件重置召回。
+2. 旧密码不写入现代 `password_hash`（保持 NULL 等待 Argon2 新凭据）；默认迁移在 `users` 后通过 `legacy-password` step 将 phpwind md5+salt 材料写入独立 `legacy_password_hash` / `legacy_password_pending`，首次旧密码登录强制换密。旧库只读，迁移重跑保护已认领用户。
 3. 迁移程序幂等：可重复执行（保留旧主键 + UPSERT）。
 4. 新内容统一 utf8mb4。
 5. **时区约定**：库内 DATETIME 一律为北京墙面时间——连接层 `timezone: "+08:00"` + `dateStrings`（packages/db/client.ts），web 侧解析必须经 `apps/web/src/lib/datetime.ts` 的 parseDbDateTime（显式 +08:00），禁止裸 new Date(字符串)。

@@ -4,6 +4,7 @@ import {
   filterCompletedDeletionNotes,
   legacyAvatarKey,
   placeholderUsername,
+  preserveModernPasswordAccounts,
   transformPlaceholders,
   transformUsers,
   type OldUser,
@@ -282,5 +283,52 @@ describe("transformPlaceholders · 已注销用户占位账号", () => {
 
   it("输入为空时返回空", () => {
     expect(transformPlaceholders(new Map())).toEqual({ users: [], profiles: [] });
+  });
+});
+
+describe("preserveModernPasswordAccounts（迁移重跑凭据保护）", () => {
+  const user = (id: number) => ({
+    id,
+    username: `user${id}`,
+    usernameKey: `user${id}`,
+    email: `user${id}@example.com`,
+    emailKey: `user${id}@example.com`,
+    passwordHash: null,
+    emailVerifiedAt: null,
+    state: "active" as const,
+    createdAt: "2012-01-01 00:00:00",
+    lastLoginAt: null,
+  });
+  const profile = (userId: number) => ({
+    userId,
+    bio: null,
+    location: "旧资料",
+    website: "",
+    gender: 0,
+    birthday: null,
+    signatureMd: null,
+    avatarSource: `avatar/${userId}.jpg`,
+  });
+
+  it("已存在现代密码的 uid 不参与 users/profile/头像旧资料 upsert；其他用户照常导入", () => {
+    const users = [user(1), user(2)];
+    const profiles = [profile(1), profile(2)];
+    const result = preserveModernPasswordAccounts(users, profiles, new Set([1]));
+
+    expect(result).toEqual({
+      users: [user(2)],
+      profiles: [profile(2)],
+      preserved: 1,
+    });
+    expect(users).toEqual([user(1), user(2)]); // helper 不修改输入
+    expect(profiles).toEqual([profile(1), profile(2)]);
+  });
+
+  it("无现代密码账号全部保留在迁移输入", () => {
+    expect(preserveModernPasswordAccounts([user(1)], [profile(1)], new Set())).toEqual({
+      users: [user(1)],
+      profiles: [profile(1)],
+      preserved: 0,
+    });
   });
 });
