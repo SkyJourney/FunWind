@@ -14,7 +14,9 @@ export default defineConfig({
   workers: 1,
   retries: 0,
   reporter: [["list"]],
-  use: { baseURL: "http://127.0.0.1:3201" },
+  // 普通功能测试允许用 page.route 模拟网络失败；阻止 SW 避免它先接管请求、绕过路由拦截。
+  // e2e/pwa.spec.ts 用 test.use({ serviceWorkers: "allow" }) 显式打开真实 SW。
+  use: { baseURL: "http://127.0.0.1:3201", serviceWorkers: "block" },
   projects: [
     // 桌面：除 mobile-*.spec.ts 之外的全部功能用例（与 dev 配置同口径）
     {

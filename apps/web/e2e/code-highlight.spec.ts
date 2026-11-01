@@ -51,8 +51,8 @@ test("编辑区高亮 + 语言下拉；发布后正文高亮；无语言围栏�
   // 第二个围栏没写语言：纯文本
   await expect(page.locator(".content-md pre").nth(1).locator('[class*="hljs-"]')).toHaveCount(0);
 
-  // 暗色：关键字颜色随令牌换成另一套
-  await page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"));
+  // 暗色：关键字颜色随令牌换成另一套（M11 起 data-mode）
+  await page.evaluate(() => document.documentElement.setAttribute("data-mode", "dark"));
   const dark = await colors();
   expect(dark.kw).not.toBe(light.kw);
 });

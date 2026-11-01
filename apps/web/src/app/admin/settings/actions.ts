@@ -13,6 +13,8 @@ import { eq } from "drizzle-orm";
 import { getWebDb, users as usersTable } from "@funwind/db";
 import { sendMail, testMail } from "@/lib/auth/mailer";
 import { getSiteIdentity } from "@/lib/site-chrome";
+import { isPackValue } from "@/lib/theme-packs";
+import { applyPackLogo } from "@/lib/brand/logo-pool-fs";
 
 /**
  * 站点配置动作（M10.6b，docs/milestones/M10.6-feature-completion.md 批次 b）：
@@ -20,9 +22,29 @@ import { getSiteIdentity } from "@/lib/site-chrome";
  * 频控编辑器只 merge 它认识的字段（member/admin 两角色 + 站点级两项），其余角色原值保留，
  * 保存前整体过 limitsConfigSchema 校验——写坏配置会整体回落默认值（load.ts 口径），必须在这里拦住。
  * 邮件组（M10.6 收尾）：验证策略入 site_settings；SMTP 凭据按红线留在 env 不入库，后台只做状态展示与测试发信。
+ * 全站默认主题（M11）：site.theme + 主题↔LOGO 联动（docs/THEME-SYSTEM.md §5）。
  */
 
 const done = (key: string): never => redirect(`/admin/settings?saved=${key}`);
+
+/**
+ * 全站默认主题包：保存后触发联动——有自带 LOGO 的包自动入池并设为当前（幂等），无图不触碰 LOGO 池；
+ * 素材缺失等只影响联动结果（flash 文案区分），不阻断主题保存本身。
+ */
+export const saveThemePackAction = defineAction({
+  name: "admin.settings.theme",
+  auth: { admin: "site.admin" },
+  input: z.object({ pack: z.string().max(32) }),
+  async run(ctx, input) {
+    if (!isPackValue(input.pack)) redirect("/admin/settings?err=theme");
+    const actor = { userId: ctx.userId ?? null, via: "admin" as const, ip: ctx.ip };
+    await setSetting("site.theme", { pack: input.pack }, actor);
+    const logo = await applyPackLogo(input.pack, { ...actor, via: "theme" });
+    invalidateSiteChrome();
+    revalidatePath("/", "layout");
+    done(logo.applied ? "theme_logo" : "theme");
+  },
+});
 
 export const saveIdentityAction = defineAction({
   name: "admin.settings.identity",

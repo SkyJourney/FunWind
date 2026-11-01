@@ -1,43 +1,148 @@
 # M11 · 主题包与 PWA
 
-- 阶段：三·完善 ｜ 覆盖模块：M12 ｜ 依赖：M10.5（主题包与暗色走查以其打磨后的界面为基准；2026-10-25 插入 M10.5 后**不再与 M6–M10 并行**）
-- 状态：⬜ 未开始
+- 阶段：三·完善 ｜ 覆盖模块：M12 ｜ 依赖：M10.5（主题包与暗色走查以其打磨后的界面为基准）
+- 状态：🟡 实施中（2026-10-31 开工；插槽体系设计稿见 [THEME-SYSTEM](../THEME-SYSTEM.md)）
 
 ## 目标
 
-主题系统的兑现：「复刻·青翼2010」情怀主题包 + 用户自选主题 + 暗色打磨 + PWA 基础。
+主题系统的兑现：「复刻·青翼2010」情怀主题包 + 用户自选主题 + 暗色打磨 + **主题插槽体系**
+（表面/背景/板块卡/Hero）+ PWA 基础。
 这是「旧时代重主题 → 现代轻量主题」承诺的交付点。
+
+## 架构决策（定稿，详见 THEME-SYSTEM.md）
+
+1. `html[data-mode]`（明暗，next-themes）× `html[data-pack]`（主题包，服务端直出）正交；
+   原 `data-theme` 一词两义废止（Step 1 全库更名迁移）。
+2. 主题包注册表 `lib/theme-packs.ts`（id/标签/可选自带 LOGO）；CSS 在 `styles/tokens/themes/<id>.css`；
+   qy2010 仅浅色（`:not([data-mode="dark"])`，暗色回退默认暗色）。
+3. 令牌扩展（插槽表面组）：`--header-bg/-blur/-border`、`--tabbar-bg/-blur`、`--page-bg`、
+   `--gradient-brand`、`--fw-font-display`；`--band-*` 板块卡插槽参数归位 CSS 层。
+4. 主题偏好：用户级 `user_profiles.theme_pack`（NULL=跟随站点默认，schema v2.5）；
+   站点默认 `site.theme` 键（并入 site-chrome TTL 缓存），admin/settings 兑现既有 M11 占位。
+5. 主题↔LOGO 池联动：设全站默认主题时自带 LOGO 自动入池（`pack` 标签去重）并设为当前；
+   独立切换随时可用（补充关系，见 THEME-SYSTEM.md §5）。
+6. Hero 配置位：复刻 LOGO 池模式（PNG 直存、`site.hero`、`/brand/hero`、`admin.hero.*` 审计），
+   首页 `home.after-header` 之前渲染，无图不占位。
+7. 节日装扮自动切换（装扮方案 + 时间窗调度）→ [M11.1](M11.1-festival-decor.md)；本期交付插槽设计、
+   素材管理与配置引擎地基。
 
 ## 范围（做什么）
 
-1. **复刻·青翼2010 主题包**：从 `themes/forum/whitesimple`、`wood_phpwind`、`black_phpwind`、
-   `template/kiminitodoke/` 与旧站 logo 采样色板，落成 `themes/qy2010.css`（语义令牌覆盖表 + 少量组件变体）。
-2. **暗色打磨**：全部页面暗色走查（页面清单以 [M10.5](M10.5-ui-design.md) 打磨后的界面为准），含门控块（锁卡片 / 「已购买」标签 / 管理员可见标签）的令牌化样式。
-3. **主题选择**：用户级主题偏好（个人设置；默认跟随站点配置，管理员可定全站默认）。
-4. **PWA**：manifest（名称/图标/主题色随主题包）、Service Worker 离线壳（列表页骨架缓存）、
-   安装提示；推送（Web Push）留接口不实现。
+1. **插槽体系**：表面令牌组 + 页面背景 + 品牌渐变 + 展示字体（纯 CSS）+ Hero 配置位；
+   板块卡底纹插槽参数归位 CSS 层并由 qy2010 示范覆盖；顶栏挂件位只留协议（M11.1）。
+2. **复刻·青翼2010 主题包**：从 `themes/forum/whitesimple`、`wood_phpwind`、`black_phpwind`、
+   `template/kiminitodoke/` 与旧站 logo 采样色板，落成 `themes/qy2010.css`
+   （语义令牌覆盖 + 插槽示范：板块卡硬边界无遮罩复古形态 + 复古表面）。⚠️ 需站长提供旧皮肤素材/截图。
+3. **主题选择**：用户级主题偏好（外观页签 + 顶栏菜单主题包分组）+ 站点默认（管理员配置）+ 主题↔LOGO 联动。
+4. **暗色打磨**：全部页面暗色走查，含门控块（锁卡片 / 「已购买」标签 / 管理员可见标签）的令牌化样式。
+5. **视觉回归**：Playwright 截图三主题基线入库（本机运行）+ 换肤 DOM 不变断言。
+6. **PWA**：manifest（名称/图标随站点身份与 LOGO 池）、Service Worker 离线壳 + `/offline` 页、
+   安装提示（满足 installable）；推送（Web Push）留接口不实现。
 
 ## 边界（明确不做什么）
 
 - 不做版块级换肤/用户自定义 CSS（复杂度回退，已否决）。
 - 不做旧皮肤 1:1 布局复刻（复刻的是色板与气质，不是 HTML 结构）。
-- 推送服务端实现不在本期。
+- 推送服务端实现不在本期；装扮方案引擎与时间窗调度、顶栏挂件位 → M11.1。
+
+## 实施步骤（每步完成汇报确认后推进）
+
+- **Step 1 架构地基** ✅：data-mode/data-pack 拆分迁移；令牌扩展与 `--band-*` 归位；
+  site-header/bottom-tab-bar/forum-directory 接令牌；`lib/theme-packs.ts` 注册表（先 default）；
+  /design 页新增「主题包与插槽」演示区；THEME-SYSTEM.md 设计稿 + 三份里程碑/ROADMAP 文档。
+  验证：verify:all 绿 + e2e-dev/theme.spec 适配 + /design 目视。
+- **Step 2 偏好持久化 + 主题↔LOGO 联动** ✅：`user_profiles.theme_pack`（v2.5 迁移 0020）+ 读写 action；
+  `site.theme` 站点默认；池项 `pack` 字段 + `applyPackLogo` 幂等联动 + 管理页徽标；
+  appearance 页主题包选择（含「跟随站点默认」）+ ThemeMenu/用户菜单主题包分组（PATCH 即时切换）+ 服务端直出 data-pack；
+  qy2010 先以骨架登记（`themes/qy2010.css` 仅浅色限定选择器，色板 Step 4 填）。
+  验证：单测/集成测试（联动幂等、无图不触碰、独立切换、移除后重导入、素材缺失不抛错）+ E2E（外观页/顶栏即时切/后台默认三案）。
+- **Step 3 Hero 位** ✅：LOGO 池整体泛化为 brand-pool（DB 核心 / fs 核心 / serveBrandImage 公开输出 /
+  动作 schema 与 run 体下沉 pool-actions——两个静态守护要求动作文件保留字面 defineAction+auth，故不做转发导出），
+  logo/hero 各留薄壳；管理页泛化 BrandPoolAdmin（logo/hero 共用）+ BrandFileInput；`/brand/hero` + `/admin/hero`
+  （含无 JS 回退）+ chrome.heroActive + 首页渲染（无当前项不占位）；PATCH 偏好 fetch 抽 patchPreference。
+  验证：hero 单测/集成矩阵（像素上限、与 LOGO 池隔离、审计动作名）+ chrome 集成 + E2E（超限拒绝→上传→首页呈现→移除 404）；
+  重复棘轮 1985/211 低于基线（泛化反而下降）。
+- **Step 4 qy2010 主题包** ✅（色板落地；站长视觉签字与可选自带 LOGO 待站长输入，见 4c）：
+  旧站 webroot 只读考古（`/Volumes/Docker/data/qingyisub/wwwroot/www.qingyisub.top`，PHP 源码与资源俱在），
+  `themes/qy2010.css` 按下方「采样对照」落色板 + 插槽示范（板块卡硬边界无遮罩、方角、宋体站名、纸感底纹）。
+  验证：三主题 /design 目视 + 首页目视；LOGO 联动的「无图不触碰」分支已有集成测试（qy2010 暂无自带 LOGO）。
+
+### 采样对照（Step 4，只取色值、不搬任何旧站位图/文件）
+
+| 语义令牌 / 插槽 | qy2010 落地值 | 旧站来源 |
+|---|---|---|
+| `--primary` / `--ring` | `#147ba9` | whitesimple 天蓝链接 `#2197d5`（加深至白字 4.6:1） |
+| `--background` / `--page-bg` | `#f6f3e7` + 极淡横纹纸感 | kiminitodoke 米黄系 + wood「固定纹理底」气质（CSS 渐变，不用 bg.jpg 位图） |
+| `--card` | `#fffdf4` 暖白 | whitesimple / wood 白色内容卡 `#fff` |
+| `--secondary` / `--secondary-foreground` | `#f3edc8` / `#6d4a0f` | kiminitodoke 淡黄表格 `#EFE9B5` + 棕字 `#783E00` |
+| `--accent` / `--accent-foreground` | `#e7f1e4` / `#33613f` | kiminitodoke 若叶绿 `#9bcba5` 淡调 |
+| `--destructive` | `#a3425b` | kiminitodoke 樱红 |
+| `--warning` | `#b8770a` | phpwind 橙按钮 `#ff8800`（加深可读） |
+| `--header-bg` / `--header-blur` | `#f8f5e8` / `0px` | kiminitodoke 头部 `#F7F8E0`；旧顶栏不透明无毛玻璃 |
+| `--radius` | `var(--fw-radius-sm)` | 旧论坛卡片近直角（情怀方角，全站圆角随之收紧） |
+| `--fw-font-display` | 宋体系栈 | 2010 时代宋体标题气质（站名等品牌位） |
+| 板块卡插槽 | 硬边界无遮罩：`--band-mask-display:none`、`--band-angle:90deg`、`--band-fade:0%`、图区 8.5rem | 旧站板块图（165×100）完整展示，无渐隐遮罩 |
+| 附带考古 | `data/style/*.php` 风格配置（wind8black 黑底先例、wind8green 等）；`data/bbscache/qingyi_qingyi.css` 为 0 字节空壳（自建风格未启用） | — |
+- **Step 5 暗色打磨走查** ✅：
+  静态扫描：组件层仅 6 处非语义色——2 处弹层遮罩 `bg-black/50`（双模式合理保留）、ui/button 与 ui/badge 的
+  destructive 变体 `text-white`（shadcn 配方 `dark:bg-destructive/60` 半透明暗红 + 白字 6.4:1，正确保留）、
+  2 处手写实心 `bg-destructive text-white` 确认按钮（暗色亮红 400 配白字仅 3.2:1）→ 改
+  `text-destructive-foreground`（对齐 settings/delete-account 既有配方；亮=白/暗=gray-950，双模式达标）。
+  邮件模板 hex（邮件恒浅色）与 global-error（无主题上下文）不动。门控块三件（锁卡片/「已购买」/「管理员可见」）
+  全语义令牌，无需改动。
+  目视走查（Playwright 真实会话夹具 + localStorage theme=dark，桌面 12 页）：首页 / 板块 / 门控帖（游客锁定 +
+  member「已购买」两态）/ 发帖选版 / 外观设置 / 私信 / 我的 / 登录 / 后台看板 / 站点配置（含默认主题卡）/ LOGO 管理 /
+  表情管理——零缺陷；门控块与关键文字实测对比度 7.5–19:1（远超 AA 4.5）。移动端暗色抽查随站长真机清单（仓库惯例）；
+  qy2010 暗色 = 回退默认暗色（设计即如此），随 Step 6 截图基线复核。
+- **Step 6 视觉回归基线** ✅：`pnpm test:visual`（playwright.visual.config.ts，端口 3202 / 产物 .next-e2e-visual，
+  单 worker，仅本机 macOS 运行——CI 字体渲染差异故跳过）。基线 42 张入库
+  （e2e-visual/__screenshots__/{desktop,mobile}/，桌面 1440×900 + 移动 375×812）：
+  三主题（default-light / default-dark / qy2010-light）× 首页/版块/帖子/个人/外观设置/站点配置/登录；
+  qy2010 暗色对 default-dark 基线截图 = 回退语义的逐像素断言。容差 maxDiffPixelRatio 3%
+  （macOS Chromium 逐进程字形 AA 抖动实测 0.4–1.6%，取 3 倍；真实主题/布局回归是整片色块不会漏报）。
+  更新基线：`pnpm test:visual:update`（先人工核对差异）。调试中修掉两处稳定性坑：
+  懒加载图片竞态（截图前等全部 img 加载完成）、偏好 UPDATE 落空（演示用户可能无 profile 行 → upsert + afterAll 清偏好，
+  否则上轮 qy2010 残留渗进下轮 default 基线）。DOM 不变断言进 theme-pack.spec（default 与 qy2010 下
+  首页 SSR body 标记逐字节一致）。
+- **Step 7 PWA** ✅：`app/manifest.ts`（站点身份/主题色 + 192/512/maskable 图标动态读取 LOGO 池当前项；无池项回退 `public/pwa/` 静态品牌图）+ `public/sw.js`（生产注册）+
+  `public/offline.html` 通用离线壳 + middleware matcher 排除 sw/manifest/icon + SW no-cache 响应头。
+  **隐私边界**：只缓存离线壳与不可变公共静态资源（`/_next/static/`、`/pwa/`、`/emoji/`）；
+  不缓存任意页面 HTML/RSC、API、`/files/`、`/brand/`（动态或个性化数据），断网动态导航统一返回无用户数据的通用离线壳。
+  验证：生产 PWA E2E 2/2（manifest/图标/SW 控制/离线回退/动态响应不入 CacheStorage）+ Lighthouse 11.7.1 PWA 100/100
+  （installable manifest、theme-color、maskable icon、splash screen 全通过）。本地复跑：生产站点启动后运行
+  `pnpm pwa:lighthouse http://127.0.0.1:<端口>`（Lighthouse 12 已移除 PWA 类别，脚本固定 11.7.1）。
+- **Step 8 收口**：全量 `verify:all` + 生产/开发 `test:e2e` + 文档定稿（本文档勾选、THEME-SYSTEM、
+  ROADMAP、CHANGELOG）+ 站长真机清单 + 合并 main + 合并后 CI 确认（不 force push）。
 
 ## 测试规则
 
-- **视觉回归**：三主题 × 关键页面（首页/版块/帖子/个人/管理）截图对比基线——沿用 M10.5 建立的浅色基线并扩展为三主题；
-  换肤 DOM 结构断言（换主题不改 DOM，仅换 data-theme 与变量）。
+- **视觉回归**：三主题 × 关键页面（首页/版块/帖子/个人/管理）Playwright 截图基线——
+  基线快照入库，spec 仅本机 macOS 运行（CI 字体渲染差异，跳过）；换肤 DOM 结构断言
+  （换主题不改 DOM，仅换 data-mode/data-pack 与变量）进常规 E2E 全平台跑。
 - 采样对照：qy2010 主色/背景/链接色与旧站截图色值偏差 ≤ 感知阈值（人工签字）。
-- PWA：Lighthouse PWA 检查项（installable/offline 壳）通过；离线访问已缓存路由的 E2E。
+- PWA：Lighthouse PWA installable 检查通过；生产 E2E 验离线通用壳。只允许缓存公共静态资源，不缓存动态/个性化页面。
 
 ## 验收门禁
 
-- [ ] 三主题视觉回归基线建立且通过；DOM 结构不变断言通过
+- [x] 三主题视觉回归基线建立且通过（42 张：desktop/mobile 各 21）；DOM 结构不变断言通过（default ↔ qy2010）
 - [ ] qy2010 主题站长视觉验收签字（对照旧站截图）
-- [ ] 用户主题偏好持久化 + 全站默认配置生效 E2E
-- [ ] Lighthouse PWA（installable + offline）达标
-- [ ] `npm run verify:all` 全绿；CHANGELOG 记录
+- [x] 用户主题偏好持久化 + 全站默认配置生效 E2E
+- [x] 主题↔LOGO 池联动实测（设默认→自带 LOGO 入池并生效；改回不带 LOGO 包不影响 LOGO）
+- [x] Hero 位管理链路 E2E（超限拒绝→上传→首页呈现→移除）
+- [x] Lighthouse 11.7 PWA 100/100；生产离线 fallback E2E 通过（动态/个性化页面不缓存）
+- [x] `pnpm verify:all` 全绿；CHANGELOG 已记录 M11 全阶段交付与门禁
+
+## 站长真机验收清单（Step 8 发布前，待手工勾选）
+
+自动化验证覆盖 Chromium 桌面/移动视口；以下项目需在真实设备确认（iOS Safari / Android Chrome）：
+
+- [ ] iOS Safari：添加到主屏幕后以 standalone 启动；状态栏 / 图标正常；`/offline.html` 文案与按钮可用。
+- [ ] Android Chrome：出现系统安装入口（manifest 图标 / 名称正确）；安装后 standalone 启动。
+- [ ] qy2010：顶栏、页面纸纹、板块卡方角与无遮罩、宋体品牌位；切到暗色回退默认暗色；主题↔LOGO 联动显示当前清爽侦探半翼。
+- [ ] 离线：先联网打开站点，再断网导航到任意动态路由；只显示通用离线壳，不泄露先前用户页；恢复网络后重试正常。
+- [ ] 手机断点：底部 Tab / safe-area / 键盘 / Hero 横幅裁切与明暗模式对比度无异常。
 
 ## 遗留事项
 
 - Web Push 服务端 → M13 后视需求。
+- /design 主题切换 hydration mismatch（M6-carryover O-2 遗留）：Step 1 改造时核查，未复现则维持记录。

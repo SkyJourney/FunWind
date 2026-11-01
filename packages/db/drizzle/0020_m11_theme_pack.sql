@@ -1,0 +1,1 @@
+ALTER TABLE `user_profiles` ADD `theme_pack` varchar(32);

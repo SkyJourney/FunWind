@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
+import { patchPreference } from "@/lib/api/settings-pref";
 
 /**
  * 通知偏好开关（M10.6d 站长反馈 → M10.7 Step 5d 改为真正的 Switch）：一格一个控件——点击在开/关间切换，
@@ -33,11 +34,7 @@ export function PrefToggleButton({
     setEnabled(next); // 乐观更新
     startTransition(async () => {
       try {
-        const res = await fetch("/api/settings/preferences", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ kind: "notif", type, channel, enabled: next }),
-        });
+        const res = await patchPreference({ kind: "notif", type, channel, enabled: next });
         if (!res.ok) throw new Error(String(res.status));
         toast.success(next ? onLabel : offLabel);
       } catch {

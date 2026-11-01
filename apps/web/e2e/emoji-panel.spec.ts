@@ -59,7 +59,7 @@ test("零数据：面板只有 Unicode 页签；/api/emojis 返回空", async ({
 
   await openEmojiPanel(page);
   await expect(page.getByRole("tab", { name: GROUP_A })).toHaveCount(0);
-  expect(page.getByRole("tab", { name: "笑脸与情绪" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "笑脸与情绪" })).toBeVisible();
 });
 
 test("有数据：表情包独立页签（标题图作图标）、点开即该包网格；停用不出现、合并搜索、插入行内图片并发布渲染", async ({

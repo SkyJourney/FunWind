@@ -88,6 +88,8 @@
     "Hiragino Kaku Gothic ProN", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei",
     "Microsoft JhengHei", sans-serif;
   --fw-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* 展示字体（M11 主题插槽）：站名等品牌展示位；主题包可覆盖（如情怀衬线），默认回退正文字体 */
+  --fw-font-display: var(--fw-font-sans);
 
   /* 动效令牌（S4，docs/M10.5-S4-VISUAL-MOTION.md）：业务组件只许用这组时长/曲线，禁止裸写 */
   --fw-dur-fast: 150ms; /* 微交互：按压/开关/色变 */

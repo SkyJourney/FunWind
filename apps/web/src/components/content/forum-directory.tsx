@@ -6,18 +6,11 @@ import type { Directory } from "@/lib/queries/forums";
  * 数据在查询层已按访客权限过滤，这里不做权限判断。
  *
  * 板块卡片形态（M9.5 §3.4.4 站长定稿）：左侧图区铺板块图，遮罩向右渐隐（105deg 斜切梯形），
- * 文本区右移让出展示空间；无图板块用同参数纯渐变 + 板块名首字符水印。
- * 遮罩插槽参数集（M11 主题插槽骨架）：主题包只改下面这组 CSS 变量即可换
- * 遮罩方向/斜率/渐隐宽度/透明度/不遮罩——.forum-card-band 类消费这些变量，此处不定死样式。
+ * 文本区右移让出展示空间；无图板块用品牌渐变 + 板块名首字符水印。
+ * 遮罩插槽参数集（M11 主题插槽协议）：--band-* 默认值在 themes/default.css，主题包覆盖即可换
+ * 遮罩方向/斜率/渐隐宽度/透明度/不遮罩——.forum-card-band 类消费这些变量，组件不定死样式，
+ * 也不再内联默认值（内联变量优先级会压过主题包）。
  */
-const BAND_STYLE_VARS = {
-  "--band-width": "7rem",
-  "--band-angle": "105deg",
-  "--band-fade": "50%",
-  "--band-mask-color": "var(--card)",
-  "--band-dim-opacity": "0.85",
-} as const;
-
 export function ForumDirectory({ dir }: { dir: Directory }) {
   return (
     <section className="space-y-6">
@@ -33,7 +26,6 @@ export function ForumDirectory({ dir }: { dir: Directory }) {
               <div
                 key={forum.id}
                 className="forum-card-band relative flex overflow-hidden rounded-xl border bg-card transition-colors hover:border-primary/40"
-                style={BAND_STYLE_VARS as React.CSSProperties}
               >
                 {/* 左图区：板块图（cover）或首字符水印，右缘由遮罩渐隐（.forum-card-band 的全局样式） */}
                 <div className="forum-card-band__img relative w-[var(--band-width)] shrink-0">
@@ -49,7 +41,7 @@ export function ForumDirectory({ dir }: { dir: Directory }) {
                     <>
                       <div
                         aria-hidden
-                        className="absolute inset-0 bg-gradient-to-br from-primary/15 via-accent/20 to-secondary/30"
+                        className="absolute inset-0 bg-[image:var(--gradient-brand)]"
                       />
                       <span
                         aria-hidden

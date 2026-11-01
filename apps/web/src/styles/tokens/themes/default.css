@@ -1,8 +1,18 @@
 /* ============================================================
  * 主题包：default（现代浅色）
- * 浅色值内建于 semantic.css；本层声明主题元信息与色彩方案。
+ * 浅色值内建于 semantic.css；本层声明主题元信息与插槽参数。
  * ============================================================ */
 :root {
   /* 元信息：供脚本与文档枚举主题包 */
   --theme-name: "default";
+
+  /* 板块卡底纹插槽默认参数（M9.5 §3.4.4 站长定稿）：
+     消费方 components/content/forum-directory.tsx 与 globals.css 的 .forum-card-band。
+     主题包改这组变量即可换遮罩方向/斜率/渐隐宽度/形态（M11 插槽协议），组件不定死样式 */
+  --band-width: 7rem;
+  --band-angle: 105deg;
+  --band-fade: 50%;
+  --band-mask-color: var(--card);
+  --band-dim-opacity: 0.85;
+  --band-mask-display: block; /* 遮罩层开关：qy2010 情怀包给 none（硬边界全展示） */
 }

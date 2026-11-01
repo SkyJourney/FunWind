@@ -20,7 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { LogoutForm } from "@/components/auth/logout-form";
-import { ThemeOptionsRow } from "@/components/site/theme-menu";
+import { PackOptionsRow, ThemeOptionsRow, type PackPref } from "@/components/site/theme-menu";
 
 /**
  * 顶栏用户菜单：低频入口（积分/动态/私信/设置/管理/主题/退出）聚合处，
@@ -31,6 +31,7 @@ export function UserMenu({
   avatarUrl,
   profileHref,
   showAdmin,
+  packPref,
   logoutAction,
 }: {
   username: string;
@@ -38,6 +39,8 @@ export function UserMenu({
   avatarUrl?: string | null;
   profileHref: string;
   showAdmin: boolean;
+  /** 主题包偏好（M11）：服务端传入，菜单内即时切换 */
+  packPref?: PackPref | null;
   logoutAction: (formData: FormData) => Promise<void>;
 }) {
   const items = [
@@ -75,6 +78,7 @@ export function UserMenu({
         ))}
         <DropdownMenuSeparator />
         <ThemeOptionsRow />
+        {packPref && <PackOptionsRow pref={packPref} />}
         <DropdownMenuSeparator />
         <div className="px-2 py-1.5">
           <LogoutForm action={logoutAction}>

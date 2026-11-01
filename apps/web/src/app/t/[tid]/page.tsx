@@ -323,7 +323,7 @@ export default async function ThreadPage({ params, searchParams }: Params) {
             <MessageSquare className="size-3.5" />
             {thread.replyCount}
           </span>
-          <span className="inline-flex items-center gap-1">
+          <span className="inline-flex items-center gap-1" data-testid="thread-view-count">
             <Eye className="size-3.5" />
             {thread.viewCount}
           </span>

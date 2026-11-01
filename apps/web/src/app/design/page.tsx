@@ -36,6 +36,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { THEME_PACKS } from "@/lib/theme-packs";
 
 export const metadata: Metadata = { title: "设计令牌" };
 
@@ -120,6 +121,16 @@ const TEXT_SIZES = [
   ["--fw-text-3xl", "36px"],
 ] as const;
 
+/** 插槽表面组（M11，semantic.css）：主题包可整体覆盖的表面令牌 */
+const SURFACE_SLOTS = [
+  ["--header-bg", "顶栏背景（默认 background/80）"],
+  ["--header-blur", "顶栏毛玻璃强度"],
+  ["--header-border", "顶栏描边"],
+  ["--tabbar-bg", "底部 Tab 背景（移动端）"],
+  ["--tabbar-blur", "底部 Tab 毛玻璃强度"],
+  ["--page-bg", "页面背景（可多层纹理/图案）"],
+] as const;
+
 function Section({
   id,
   title,
@@ -151,8 +162,8 @@ export default function TokensPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">FunWind 设计令牌</h1>
           <p className="mt-1 text-muted-foreground">
-            三层令牌 · M1 基线 —— 原子层（primitives）→ 语义层（semantic）→ 主题包（default /
-            dark）·{" "}
+            三层令牌 —— 原子层（primitives）→ 语义层（semantic）→ 主题包与明暗（data-pack ×
+            data-mode 正交）·{" "}
             <Link href="/design/motion" className="text-primary hover:underline">
               动效演示（S4）→
             </Link>
@@ -308,8 +319,96 @@ export default function TokensPage() {
       </Section>
 
       <Section
+        id="theme-packs"
+        title="6. 主题包与插槽（M11）"
+        subtitle="html[data-mode]（明暗）× html[data-pack]（主题包）正交；组件只经语义令牌与插槽变量着色，换主题不换 DOM"
+      >
+        <div className="space-y-5">
+          <div>
+            <p className="mb-2 text-sm font-medium">
+              主题包注册表（lib/theme-packs.ts；CSS 在 styles/tokens/themes/&lt;id&gt;.css）
+            </p>
+            <div className="rounded-xl border bg-card">
+              {THEME_PACKS.map((pack) => (
+                <div
+                  key={pack.id}
+                  className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b px-4 py-2.5 last:border-b-0"
+                >
+                  <code className="text-xs">data-pack=&quot;{pack.id}&quot;</code>
+                  <span className="text-sm">{pack.label}</span>
+                  <span className="ml-auto text-xs text-muted-foreground">
+                    {pack.logo ? `自带 LOGO：${pack.logo}` : "无自带 LOGO"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="mb-2 text-sm font-medium">插槽表面组（顶栏 / 底部 Tab / 页面背景）</p>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {SURFACE_SLOTS.map(([token, usage]) => (
+                <div key={token} className="flex items-center gap-3 rounded-lg border p-2.5">
+                  <span
+                    aria-hidden
+                    className="size-8 shrink-0 rounded-md border"
+                    style={{ background: `var(${token.replace("-blur", "-bg")})` }}
+                  />
+                  <div className="min-w-0">
+                    <code className="text-xs">{token}</code>
+                    <p className="truncate text-xs text-muted-foreground">{usage}</p>
+                  </div>
+                </div>
+              ))}
+              <div className="flex items-center gap-3 rounded-lg border p-2.5">
+                <span
+                  aria-hidden
+                  className="size-8 shrink-0 rounded-md border"
+                  style={{ background: "var(--gradient-brand)" }}
+                />
+                <div className="min-w-0">
+                  <code className="text-xs">--gradient-brand</code>
+                  <p className="truncate text-xs text-muted-foreground">品牌渐变（无图板块水印）</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 rounded-lg border p-2.5">
+                <span
+                  aria-hidden
+                  className="grid size-8 shrink-0 place-items-center rounded-md border font-display text-sm font-bold"
+                >
+                  翼
+                </span>
+                <div className="min-w-0">
+                  <code className="text-xs">--fw-font-display</code>
+                  <p className="truncate text-xs text-muted-foreground">展示字体（站名等品牌位）</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <p className="mb-2 text-sm font-medium">
+              板块卡底纹插槽（--band-* 默认值在 themes/default.css，主题包覆盖即可换形态）
+            </p>
+            <div className="forum-card-band relative flex h-24 max-w-sm overflow-hidden rounded-xl border bg-card">
+              <div className="forum-card-band__img relative w-[var(--band-width)] shrink-0">
+                <div aria-hidden className="absolute inset-0 bg-[image:var(--gradient-brand)]" />
+                <span
+                  aria-hidden
+                  className="absolute inset-0 grid place-items-center text-3xl font-bold text-foreground/15 select-none"
+                >
+                  翼
+                </span>
+              </div>
+              <div className="flex flex-1 items-center p-4 text-sm text-muted-foreground">
+                左图区右向渐隐 · 遮罩角度/斜率/形态全由 --band-* 驱动
+              </div>
+            </div>
+          </div>
+        </div>
+      </Section>
+
+      <Section
         id="components"
-        title="6. 组件样例（shadcn/ui 首批 10 件）"
+        title="7. 组件样例（shadcn/ui 首批 10 件）"
         subtitle="全部经由语义令牌着色，随主题即时切换"
       >
         <div className="grid gap-6 lg:grid-cols-2">
@@ -432,8 +531,9 @@ export default function TokensPage() {
 
       <footer className="flex items-center justify-between border-t pt-6 text-sm text-muted-foreground">
         <span>
-          M10.5 · S3 色彩定稿 —— 主题包 <code className="text-xs">default</code> 与{" "}
-          <code className="text-xs">dark</code> 已就绪，「复刻·青翼2010」于 M11 交付
+          M11 · 主题包 <code className="text-xs">default</code> /{" "}
+          <code className="text-xs">dark</code> / <code className="text-xs">qy2010</code>{" "}
+          已就绪（qy2010 仅浅色，暗色回退默认暗色）
         </span>
         <a
           className="inline-flex items-center gap-1 text-primary hover:underline"

@@ -34,3 +34,24 @@ describe("parseLogoPool（LOGO 池元数据校验）", () => {
     expect(parseLogoPool("junk")).toEqual({ items: [], active: null });
   });
 });
+
+describe("parseLogoPool · 主题包标签 pack（M11 联动）", () => {
+  it("合法保留；非法/非字符串丢标签但保留项", () => {
+    expect(
+      parseLogoPool({
+        items: [
+          { file: "logo-a.png", name: "A", pack: "qy2010" },
+          { file: "logo-b.png", name: "B", pack: "../x" },
+          { file: "logo-c.png", name: "C", pack: 7 },
+          { file: "logo-d.png", name: "D" },
+        ],
+        active: null,
+      }).items,
+    ).toEqual([
+      { file: "logo-a.png", name: "A", pack: "qy2010" },
+      { file: "logo-b.png", name: "B" },
+      { file: "logo-c.png", name: "C" },
+      { file: "logo-d.png", name: "D" },
+    ]);
+  });
+});

@@ -88,7 +88,7 @@ export default async function ForumsAdminPage({
           </p>
           <form action={deleteForumAction} className="mt-3 flex gap-2">
             <input type="hidden" name="fid" value={confirmDelete.id} />
-            <SubmitButton className="rounded-lg bg-destructive px-4 py-1.5 text-sm font-medium text-white hover:bg-destructive/90 disabled:opacity-60">
+            <SubmitButton className="rounded-lg bg-destructive px-4 py-1.5 text-sm font-medium text-destructive-foreground hover:bg-destructive/90 disabled:opacity-60">
               确认删除
             </SubmitButton>
           </form>

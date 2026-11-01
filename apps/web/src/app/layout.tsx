@@ -17,7 +17,9 @@ import { getCurrentSubject } from "@/lib/authz/subject";
 import { checkPermission, getModeratedForumIds } from "@/lib/authz/service";
 import { unreadPmTotal } from "@/lib/pm/queries";
 import { bannerAnnouncement, getSiteChrome, getSiteIdentity } from "@/lib/site-chrome";
+import { getUserThemePack, resolveEffectivePack } from "@/lib/theme-pref";
 import { QueryToast } from "@/components/feedback/query-toast";
+import { ServiceWorkerRegistration } from "@/components/pwa/service-worker-registration";
 // 模块注册表求值（注册 + 封板）：任何内核调用前加载
 import "@/modules";
 import "./globals.css";
@@ -31,13 +33,19 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export const viewport: Viewport = {
-  // 移动端探测三件套：缺 width=device-width 时手机按 ~980px 桌面视口渲染整页缩小（S5-B 修复）
-  width: "device-width",
-  initialScale: 1,
-  // iOS 刘海屏：允许内容延伸到安全区，底部 Tab 自行让位（env(safe-area-inset-bottom)）
-  viewportFit: "cover",
-};
+export async function generateViewport(): Promise<Viewport> {
+  const chrome = await getSiteChrome();
+  // 地址栏状态栏色随全站默认主题包（与 manifest.theme_color 同口径）；明暗模式仍可由浏览器 UI 跟随系统。
+  const themeColor = chrome.themePack === "qy2010" ? "#147ba9" : "#0e7490";
+  return {
+    // 移动端探测三件套：缺 width=device-width 时手机按 ~980px 桌面视口渲染整页缩小（S5-B 修复）
+    width: "device-width",
+    initialScale: 1,
+    // iOS 刘海屏：允许内容延伸到安全区，底部 Tab 自行让位（env(safe-area-inset-bottom)）
+    viewportFit: "cover",
+    themeColor,
+  };
+}
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const user = await getCurrentUser();
@@ -45,7 +53,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const enabled = user !== null ? await getEnabledModuleIds() : null;
   const notificationsOn = enabled?.has("notifications") ?? false;
   const pmOn = enabled?.has("pm") ?? false;
-  const [chrome, banner, pmUnread, showAdmin, avatarKey] = await Promise.all([
+  const [chrome, banner, pmUnread, showAdmin, avatarKey, userPack] = await Promise.all([
     getSiteChrome(),
     bannerAnnouncement(user !== null),
     pmOn && user ? unreadPmTotal(user.id) : Promise.resolve(0),
@@ -62,18 +70,25 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       : Promise.resolve(false),
     // 顶栏头像（M10.6d 站长反馈：菜单里应显示头像图，无头像才回退首字母）
     user ? avatarKeyOf(user.id) : Promise.resolve(null),
+    // 主题包偏好（M11）：登录用户读 profile；游客 null → 跟随站点默认
+    user ? getUserThemePack(user.id) : Promise.resolve(null),
   ]);
   const avatarUrl = avatarKey ? fileUrl(avatarKey) : null;
+  // html[data-pack] 服务端直出（用户偏好 → 站点默认 → default）：SSR 首帧即正确，无主题闪烁；
+  // data-mode（明暗）仍由 next-themes 客户端脚本写入，两者正交（docs/THEME-SYSTEM.md §2）
+  const themePack = resolveEffectivePack(userPack, chrome.themePack);
+  const packPref = user ? { user: userPack, site: chrome.themePack } : null;
 
   return (
-    <html lang="zh-CN" suppressHydrationWarning>
+    <html lang="zh-CN" data-pack={themePack} suppressHydrationWarning>
       <body className="bg-background font-sans text-foreground antialiased">
         <ThemeProvider
-          attribute="data-theme"
+          attribute="data-mode"
           defaultTheme="system"
           enableSystem
           disableTransitionOnChange
         >
+          <ServiceWorkerRegistration />
           <AnnouncementBanner banner={banner} />
           <NavKindCapture />
           <SiteHeader
@@ -84,6 +99,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             notificationsOn={notificationsOn}
             showAdmin={showAdmin}
             logoUrl={chrome.logoActive ? "/brand/logo" : null}
+            packPref={packPref}
             logoutAction={logoutAction}
           />
           {children}

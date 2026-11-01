@@ -24,7 +24,7 @@
 | 表 | 要点 |
 |----|------|
 | `users` | `id`（保留 uid）、`username`、`username_key`（trim+小写，唯一）、`email`、`email_key`（唯一，可空）、`password_hash`、`email_verified_at`、`email_verification_required`（注册时固定写入验证门）、`state(active\|deleted)`、`created_at`、`last_login_at`。已注销账号保留行与 UID，清个人信息；真实注销以 `account_deletion_requests.status=completed` 留 tombstone，迁移占位不使用运行时迁移标记 |
-| `user_profiles` | `bio`、`location`、`website`、`gender`、`birthday`、`signature_md`、`avatar_file_id` |
+| `user_profiles` | `bio`、`location`、`website`、`gender`、`birthday`、`signature_md`、`avatar_file_id`、`pm_policy`（M10.5 私信权限）、`theme_pack`（M11 schema v2.5：主题包偏好，lib/theme-packs 注册表 id；NULL = 跟随站点默认 `site.theme`） |
 | `user_stats` | 可重算的计数缓存：主题/帖子/精华/粉丝数、最后发帖时间 |
 | `user_restrictions` | `kind(ban\|forum_ban\|mute\|no_avatar\|no_signature)`、`scope_id`、起止时间、理由、操作者；`ban` 全站，`forum_ban` 按板块子树禁入 |
 | `sessions`、`email_tokens`、`invite_codes`、`site_settings` | 认证与站点配置；`email_tokens.email_key_snapshot` 绑定令牌签发地址 |

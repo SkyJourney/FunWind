@@ -43,5 +43,8 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|brand/|logo/).*)"],
+  // PWA 公开入口不能被强制换密门重定向：SW/manifest/icons 属静态公共资源，不含用户数据。
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|brand/|logo/|pwa/|sw.js|manifest.webmanifest).*)",
+  ],
 };

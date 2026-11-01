@@ -3,16 +3,25 @@
 import { useState } from "react";
 
 /**
- * LOGO 上传文件输入（M9.5）：选文件即校验大小与类型，不合格直接清空选择并就地提示——
- * 替代「提交后才报错、让管理员线下跑脚本」的断裂链路（服务端魔数+大小校验仍兜底）。
+ * 品牌素材上传文件输入（M9.5 LOGO 版起，M11 泛化给 Hero 共用）：选文件即校验大小与类型，
+ * 不合格直接清空选择并就地提示——替代「提交后才报错、让管理员线下跑脚本」的断裂链路
+ * （服务端魔数 + 大小 + 像素校验仍兜底）。
  */
-export function LogoFileInput({ maxBytes }: { maxBytes: number }) {
+export function BrandFileInput({
+  maxBytes,
+  hint,
+}: {
+  maxBytes: number;
+  /** 超限提示里的尺寸建议，如「建议 224×224 内」 */
+  hint: string;
+}) {
   const [error, setError] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const kb = Math.round(maxBytes / 1024);
+  const limit = kb >= 1024 ? `${Math.round(kb / 1024)}MB` : `${kb}KB`;
   return (
     <label className="grid flex-1 gap-1 text-sm">
-      PNG 文件（≤{kb}KB）
+      PNG 文件（≤{limit}）
       <input
         type="file"
         name="file"
@@ -33,7 +42,7 @@ export function LogoFileInput({ maxBytes }: { maxBytes: number }) {
           }
           if (f.size > maxBytes) {
             setError(
-              `「${f.name}」约 ${Math.round(f.size / 1024)}KB 超过 ${kb}KB——请压缩后重试（建议 224×224 内）`,
+              `「${f.name}」约 ${Math.round(f.size / 1024)}KB 超过 ${limit}——请压缩后重试（${hint}）`,
             );
             e.target.value = "";
             setFileName(null);

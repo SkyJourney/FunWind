@@ -1,14 +1,15 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-/* dark: 变体跟随 <html data-theme>（next-themes attribute 模式），与令牌层同轨；否则 dark: 走 prefers-color-scheme 双轨脱节 */
-@custom-variant dark (&:is([data-theme="dark"] *));
+/* dark: 变体跟随 <html data-mode>（next-themes attribute 模式，M11 起明暗与主题包 data-pack 正交）；否则 dark: 走 prefers-color-scheme 双轨脱节 */
+@custom-variant dark (&:is([data-mode="dark"] *));
 
-/* 三层令牌（决策见 docs/FRONTEND-DESIGN.md）：原子 → 语义 → 主题包 */
+/* 三层令牌（决策见 docs/FRONTEND-DESIGN.md / THEME-SYSTEM.md）：原子 → 语义 → 明暗（data-mode）→ 主题包（data-pack） */
 @import "../styles/tokens/primitives.css";
 @import "../styles/tokens/semantic.css";
 @import "../styles/tokens/themes/default.css";
 @import "../styles/tokens/themes/dark.css";
+@import "../styles/tokens/themes/qy2010.css";
 
 /* 语义令牌 → Tailwind 工具类映射（组件只允许语义层命名，如 bg-background / text-muted-foreground） */
 @theme inline {
@@ -42,6 +43,8 @@
 
   --font-sans: var(--fw-font-sans);
   --font-mono: var(--fw-font-mono);
+  /* 展示字体（M11 主题插槽）：站名等品牌展示位，主题包可覆盖 */
+  --font-display: var(--fw-font-display);
 
   /* 动效曲线 → Tailwind ease-* 工具类（ease-out-soft / ease-spring / ease-exit / ease-inout） */
   --ease-out-soft: var(--fw-ease-out);
@@ -84,7 +87,9 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background font-sans text-foreground antialiased;
+    @apply font-sans text-foreground antialiased;
+    /* 页面背景走插槽令牌（默认=纯色 --background；主题包可给纹理多层背景） */
+    background: var(--page-bg);
     line-height: var(--fw-leading-normal);
   }
 }
@@ -298,9 +303,10 @@
   animation: var(--fw-dur-slow) var(--fw-ease-out) both vt-page-in-left;
 }
 /* 页面快照只含包装 div：body 的背景属于 root，不在快照里。扩散 / 收起时新旧页叠在一起，若包装没有不透明背景，
-   圆内新页的空白区域会透出旧页（实测：列表页的「每日签到」与主题标题叠在一起），所以包装 div 必须自带背景 */
+   圆内新页的空白区域会透出旧页（实测：列表页的「每日签到」与主题标题叠在一起），所以包装 div 必须自带背景——
+   走 --page-bg 插槽令牌（默认不透明纯色；M11 起纹理主题同样整页铺满） */
 [data-fw-page] {
-  background-color: var(--background);
+  background: var(--page-bg);
 }
 
 /* tab-next / tab-prev Tab 切换（同级，按左右顺序）：旧页向反方向滑出（250ms），新页错开一小段再滑入（400ms，从全透明），
@@ -648,7 +654,7 @@ html[data-vt="expand"]::view-transition-new(root) {
       right center / 12px 100% no-repeat scroll;
 }
 
-/* 代码高亮配色（M10.8 Step 5）：渲染侧与编辑区共用 hljs-* 类；亮 / 暗两套随 data-theme 切换，只用于 <code> 内 */
+/* 代码高亮配色（M10.8 Step 5）：渲染侧与编辑区共用 hljs-* 类；亮 / 暗两套随 data-mode 切换，只用于 <code> 内 */
 .content-md code {
   --fw-hl-comment: #6b7280;
   --fw-hl-keyword: #b4237a;
@@ -660,7 +666,7 @@ html[data-vt="expand"]::view-transition-new(root) {
   --fw-hl-add: #17803d;
   --fw-hl-del: #b91c1c;
 }
-[data-theme="dark"] .content-md code {
+[data-mode="dark"] .content-md code {
   --fw-hl-comment: #9ca3af;
   --fw-hl-keyword: #f472b6;
   --fw-hl-string: #86efac;
@@ -814,11 +820,13 @@ html[data-vt="expand"]::view-transition-new(root) {
   position: relative;
 }
 /* 遮罩层：只盖图区，渐变终点色 = 卡片底色（与文本区背景无缝衔接）——
-   角度即斜率（90deg 垂直边界=矩形；105deg 右缘斜切=梯形）；渐隐带宽 = fade（相对图区） */
+   角度即斜率（90deg 垂直边界=矩形；105deg 右缘斜切=梯形）；渐隐带宽 = fade（相对图区）；
+   display 走变量（主题包可整层关掉，qy2010 硬边界档） */
 .forum-card-band__img::after {
   content: "";
   position: absolute;
   inset: -1px -1px -1px 0;
+  display: var(--band-mask-display, block);
   background: linear-gradient(
     var(--band-angle),
     transparent calc(100% - var(--band-fade)),

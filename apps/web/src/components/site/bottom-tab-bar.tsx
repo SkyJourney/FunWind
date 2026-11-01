@@ -93,7 +93,8 @@ export function BottomTabBar({
   return (
     <nav
       aria-label="移动端主导航"
-      className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
+      // 表面（背景/毛玻璃）走插槽令牌（M11，semantic.css 表面组），与顶栏同轨、主题包可覆盖
+      className="fixed inset-x-0 bottom-0 z-40 border-t bg-[var(--tabbar-bg)] pb-[env(safe-area-inset-bottom)] backdrop-blur-[var(--tabbar-blur)] md:hidden"
       // 页面过渡期间底部 Tab 固定不动、层级高于页面内容组（globals.css 的 fw-bottom-tabs）
       style={{ viewTransitionName: "fw-bottom-tabs" }}
     >

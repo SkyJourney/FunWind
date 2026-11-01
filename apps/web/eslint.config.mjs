@@ -9,6 +9,7 @@ const config = [
       ".next-e2e/**",
       ".next-e2e-prod/**",
       ".next-e2e-step7-*/**",
+      ".next-e2e-visual/**",
       "coverage/**",
       "node_modules/**",
       "next-env.d.ts",

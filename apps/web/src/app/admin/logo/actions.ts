@@ -1,61 +1,45 @@
 "use server";
 
 import { defineAction } from "@/lib/actions/define-action";
-import type { ConfigActor } from "@/lib/audit";
-import { z } from "zod";
-import { addLogo } from "@/lib/brand/logo-pool-fs";
-import { removeLogo, setActiveLogo } from "@/lib/brand/logo-pool";
-import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import {
+  activateInBrandPool,
+  brandFileInput,
+  brandUploadInput,
+  removeBrandPoolItem,
+  uploadToBrandPool,
+} from "@/lib/brand/pool-actions";
+import { logoFs } from "@/lib/brand/logo-pool-fs";
+import { logoPool } from "@/lib/brand/logo-pool";
 
 /**
  * LOGO 池管理动作（M10.5，docs/LOGO-POOL.md）：门禁 site.admin；
  * 上传为 PNG（≤512KB，服务端验魔数），池元数据进 site_settings，切换即失效 chrome 缓存。
+ * schema 与 run 体在 lib/brand/pool-actions（M11 泛化）；此处保留字面 defineAction 供两个静态守护审计。
  */
-
-const backInput = z.object({ back: z.string().max(200).default("/admin/logo") });
-const logoActor = (ctx: { userId: number | null; ip: string | null }): ConfigActor => ({
-  userId: ctx.userId,
-  via: "admin",
-  ip: ctx.ip,
-});
 
 export const uploadLogoAction = defineAction({
   name: "admin.logo.upload",
   auth: { admin: "site.admin" },
-  input: z.object({
-    name: z.string().max(40).default(""),
-    file: z.instanceof(File),
-    back: backInput.shape.back,
-  }),
+  input: brandUploadInput("/admin/logo"),
   async run(ctx, input) {
-    const bytes = new Uint8Array(await input.file.arrayBuffer());
-    const r = await addLogo(input.name, bytes, logoActor(ctx));
-    if (!r.ok) redirect(`/admin/logo?err=${r.code}`);
-    revalidatePath("/admin/logo");
-    // 带 added 回跳：新入池项高亮（M9.5）
-    redirect(`/admin/logo?added=${encodeURIComponent(r.pool.active ?? "")}`);
+    return uploadToBrandPool(logoFs, ctx, input, "/admin/logo");
   },
 });
 
 export const setActiveLogoAction = defineAction({
   name: "admin.logo.activate",
   auth: { admin: "site.admin" },
-  input: z.object({ file: z.string().max(64), back: backInput.shape.back }),
+  input: brandFileInput("/admin/logo"),
   async run(ctx, input) {
-    await setActiveLogo(input.file, logoActor(ctx));
-    revalidatePath("/admin/logo");
-    redirect(input.back);
+    return activateInBrandPool(logoPool, ctx, input, "/admin/logo");
   },
 });
 
 export const removeLogoAction = defineAction({
   name: "admin.logo.remove",
   auth: { admin: "site.admin" },
-  input: z.object({ file: z.string().max(64), back: backInput.shape.back }),
+  input: brandFileInput("/admin/logo"),
   async run(ctx, input) {
-    await removeLogo(input.file, logoActor(ctx));
-    revalidatePath("/admin/logo");
-    redirect(input.back);
+    return removeBrandPoolItem(logoPool, ctx, input, "/admin/logo");
   },
 });

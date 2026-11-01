@@ -15,9 +15,19 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ["127.0.0.1", "localhost", "192.168.50.253"],
   // 不暴露框架标识
   poweredByHeader: false,
-  // 全站安全响应头（含 CSP Report-Only），见 src/lib/security-headers.ts
+  // 全站安全响应头（含 CSP Report-Only），见 src/lib/security-headers.ts。
+  // SW 脚本必须每次重新校验更新，不能被浏览器长缓存；注册范围固定根路径。
   async headers() {
-    return buildSecurityHeaders({ NODE_ENV: process.env.NODE_ENV, APP_URL: process.env.APP_URL });
+    return [
+      ...buildSecurityHeaders({ NODE_ENV: process.env.NODE_ENV, APP_URL: process.env.APP_URL }),
+      {
+        source: "/sw.js",
+        headers: [
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+          { key: "Service-Worker-Allowed", value: "/" },
+        ],
+      },
+    ];
   },
   // 非密钥常量内联进服务端 bundle（密钥类变量禁止走此通道，M5 另行处理）
   env: {

@@ -118,6 +118,9 @@ export const userProfiles = mysqlTable(
     /** 私信权限（M10.5 站长功能补全）：all=所有人（默认）/ following=仅我关注的人 / off=关闭私信。
      * 判定在 pm service；写路径仅「本人偏好设置」。 */
     pmPolicy: mysqlEnum("pm_policy", ["all", "following", "off"]).notNull().default("all"),
+    /** 主题包偏好（M11，schema v2.5）：lib/theme-packs 注册表 id；NULL = 跟随站点默认（site.theme）。
+     * 写路径仅「本人外观设置」；未知 id 在读取侧回退站点默认（注册表瘦身不需迁移数据）。 */
+    themePack: varchar("theme_pack", { length: 32 }),
   },
   (t) => [primaryKey({ columns: [t.userId] })],
 );

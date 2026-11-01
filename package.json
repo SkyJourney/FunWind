@@ -33,6 +33,9 @@
     "check:duplication": "node scripts/check-duplication.mjs",
     "duplication:baseline": "node scripts/check-duplication.mjs --update-baseline",
     "test:scripts": "node --test scripts/*.test.mjs",
+    "test:visual": "node scripts/prepare-e2e-storage.mjs && export STORAGE_DIR=\"$(pwd -P)/storage-e2e-step7\" SMTP_URL=\"smtp://127.0.0.1:1025\" MAIL_FROM=\"青翼字幕组 <noreply@qingyisub.top>\" && pnpm db:build && NEW_DB_NAME=qysub_next_e2e pnpm --filter @funwind/db exec tsx scripts/e2e-reset.ts && NEW_DB_NAME=qysub_next_e2e pnpm db:bootstrap && NEW_DB_NAME=qysub_next_e2e pnpm db:seed && NEW_DB_NAME=qysub_next_e2e pnpm db:e2e-fixtures && NEW_DB_NAME=qysub_next_e2e pnpm --filter @funwind/web test:visual",
+    "test:visual:update": "node scripts/prepare-e2e-storage.mjs && export STORAGE_DIR=\"$(pwd -P)/storage-e2e-step7\" SMTP_URL=\"smtp://127.0.0.1:1025\" MAIL_FROM=\"青翼字幕组 <noreply@qingyisub.top>\" && pnpm db:build && NEW_DB_NAME=qysub_next_e2e pnpm --filter @funwind/db exec tsx scripts/e2e-reset.ts && NEW_DB_NAME=qysub_next_e2e pnpm db:bootstrap && NEW_DB_NAME=qysub_next_e2e pnpm db:seed && NEW_DB_NAME=qysub_next_e2e pnpm db:e2e-fixtures && NEW_DB_NAME=qysub_next_e2e pnpm --filter @funwind/web test:visual:update",
+    "pwa:lighthouse": "node scripts/lighthouse-pwa.mjs",
     "verify:all": "pnpm check:secrets && pnpm test:scripts && pnpm lint && pnpm format:check && pnpm check:duplication && pnpm db:build && pnpm typecheck && pnpm test && pnpm build"
   },
   "lint-staged": {
