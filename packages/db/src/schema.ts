@@ -285,6 +285,31 @@ export const siteSettings = mysqlTable(
   (t) => [primaryKey({ columns: [t.key] })],
 );
 
+/**
+ * 主题包（M11.1，schema v2.7）：完整主题包引擎的包目录。
+ * definition 是经 surface-schema strict 校验后的 Surface 定义集（JSON）；assets 引用 decor 池文件
+ * （不嵌二进制）。内置包（is_builtin）可编辑 definition、不可删除；`default` 另外不可停用。
+ * 站点默认与用户偏好只存包 id（site.theme / user_profiles.theme_pack），回退链 default。
+ * 唯一写方 = /admin/themes 管理动作（事务 + 审计 + revision 乐观锁）与 bootstrap 幂等种子（只补缺）。
+ */
+export const themePackages = mysqlTable(
+  "theme_packages",
+  {
+    id: varchar("id", { length: 32 }).notNull(),
+    name: varchar("name", { length: 60 }).notNull(),
+    description: varchar("description", { length: 200 }).notNull().default(""),
+    schemaVersion: smallint("schema_version").notNull().default(1),
+    definition: json("definition").notNull(),
+    assets: json("assets").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    isBuiltin: boolean("is_builtin").notNull().default(false),
+    revision: int("revision", { unsigned: true }).notNull().default(1),
+    createdAt: dt("created_at").notNull(),
+    updatedAt: dt("updated_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.id] }), index("idx_theme_packages_enabled").on(t.enabled)],
+);
+
 // ============================================================
 // 版块
 // ============================================================

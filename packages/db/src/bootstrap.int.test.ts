@@ -17,6 +17,7 @@ import {
 import { bootstrapDb, PATCHES, seedSystemData } from "./bootstrap.js";
 import { createDb, createPool } from "./client.js";
 import { newDbConfig } from "./env.js";
+import { BUILTIN_THEME_PACK_SEEDS } from "./theme-pack-seeds.js";
 import { DEMO, seedDemoData } from "./seed-data.js";
 import {
   contentReviews,
@@ -31,6 +32,7 @@ import {
   roleGrants,
   roles,
   siteSettings,
+  themePackages,
   threads,
   userRoles,
   users,
@@ -74,7 +76,7 @@ describe.skipIf(skip)("bootstrap / seed 集成（临时库）", () => {
     }
   };
 
-  it("bootstrap 建出 schema v2.x 全部 51 张表，且列级排序规则补丁生效", async () => {
+  it("bootstrap 建出 schema v2.x 全部 52 张表（含 theme_packages），且列级排序规则补丁生效", async () => {
     const pool = createPool(config);
     try {
       const [tables] = await pool.query<RowDataPacket[]>(
@@ -82,7 +84,7 @@ describe.skipIf(skip)("bootstrap / seed 集成（临时库）", () => {
          WHERE TABLE_SCHEMA = ? AND TABLE_NAME <> '__drizzle_migrations'`,
         [dbName],
       );
-      expect(Number(tables[0]?.n)).toBe(51);
+      expect(Number(tables[0]?.n)).toBe(52);
       for (const p of PATCHES) {
         const [rows] = await pool.query<RowDataPacket[]>(
           `SELECT COLLATION_NAME AS c FROM information_schema.COLUMNS
@@ -170,14 +172,37 @@ describe.skipIf(skip)("bootstrap / seed 集成（临时库）", () => {
     const before = await withTestDb(async (db) => ({
       grants: (await db.select().from(roleGrants)).length,
       perms: (await db.select().from(permissions)).length,
+      themePacks: (await db.select().from(themePackages)).length,
     }));
     await bootstrapDb(config, (m) => logs.push(m));
     await bootstrapDb(config, (m) => logs.push(m));
     const after = await withTestDb(async (db) => ({
       grants: (await db.select().from(roleGrants)).length,
       perms: (await db.select().from(permissions)).length,
+      themePacks: (await db.select().from(themePackages)).length,
     }));
     expect(after).toEqual(before);
+  });
+
+  it("内置主题包种子：只补缺不覆盖（站长编辑/revision 在重跑后保持）", async () => {
+    await withTestDb(async (db) => {
+      // 内置包按种子就位且 default 保护位正确
+      const packs = await db.select().from(themePackages).orderBy(themePackages.id);
+      expect(packs.map((p) => p.id)).toEqual(BUILTIN_THEME_PACK_SEEDS.map((s) => s.id));
+      const fallback = packs.find((p) => p.id === "default");
+      expect(fallback?.isBuiltin).toBe(true);
+      expect(fallback?.enabled).toBe(true);
+      // 模拟站长编辑：改名 + revision 提升
+      await db
+        .update(themePackages)
+        .set({ name: "站长改过的默认包", revision: 9 })
+        .where(eq(themePackages.id, "default"));
+      // 重跑种子：不覆盖人工编辑
+      await seedSystemData(db);
+      const [after] = await db.select().from(themePackages).where(eq(themePackages.id, "default"));
+      expect(after?.name).toBe("站长改过的默认包");
+      expect(after?.revision).toBe(9);
+    });
   });
 
   it("管理员调整过的授权不会被重跑 bootstrap 恢复（基线仅首次写入）", async () => {

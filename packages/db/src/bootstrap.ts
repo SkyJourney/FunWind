@@ -16,10 +16,11 @@ import {
   PERMISSION_DEFINITIONS,
   ROLE_DEFINITIONS,
 } from "./authz-vocab.js";
+import { BUILTIN_THEME_PACK_SEEDS } from "./theme-pack-seeds.js";
 import { createDb, createPool, type Db } from "./client.js";
 import { newDbConfig } from "./env.js";
 import { incoming } from "./sql.js";
-import { permissions, roleGrants, roles, siteSettings } from "./schema.js";
+import { permissions, roleGrants, roles, siteSettings, themePackages } from "./schema.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const migrationsFolder = join(here, "../drizzle");
@@ -74,7 +75,7 @@ export async function bootstrapDb(
 
     const summary = await seedSystemData(db);
     log(
-      `✔ 系统种子（幂等）：角色 ${summary.roles} / 权限点 ${summary.permissions} / 新增基线授权 ${summary.grantsInserted} / 新增默认设置 ${summary.settingsInserted}`,
+      `✔ 系统种子（幂等）：角色 ${summary.roles} / 权限点 ${summary.permissions} / 新增基线授权 ${summary.grantsInserted} / 新增默认设置 ${summary.settingsInserted} / 内置主题包 ${summary.themePacksInserted}`,
     );
   } finally {
     await pool.end();
@@ -86,6 +87,7 @@ export interface SystemSeedSummary {
   permissions: number;
   grantsInserted: number;
   settingsInserted: number;
+  themePacksInserted: number;
 }
 
 /**
@@ -165,10 +167,34 @@ export async function seedSystemData(db: Db): Promise<SystemSeedSummary> {
   }
   const settingsInserted = missing.length;
 
+  // 内置主题包种子（M11.1）：只补缺（INSERT IGNORE 语义），站长在 /admin/themes 的编辑不被覆盖；
+  // `default` 为系统回退包（不可删除/停用），qy2010 为内置情怀包（可编辑 definition）。
+  let themePacksInserted = 0;
+  for (const seed of BUILTIN_THEME_PACK_SEEDS) {
+    const inserted = await db
+      .insert(themePackages)
+      .values({
+        id: seed.id,
+        name: seed.name,
+        description: seed.description,
+        schemaVersion: 1,
+        definition: seed.definition,
+        assets: [],
+        enabled: true,
+        isBuiltin: true,
+        revision: 1,
+        createdAt: sql`NOW()`,
+        updatedAt: sql`NOW()`,
+      })
+      .onDuplicateKeyUpdate({ set: { id: seed.id } });
+    if (inserted[0]?.affectedRows) themePacksInserted += Number(inserted[0].affectedRows);
+  }
+
   return {
     roles: ROLE_DEFINITIONS.length,
     permissions: PERMISSION_DEFINITIONS.length,
     grantsInserted,
     settingsInserted,
+    themePacksInserted,
   };
 }
