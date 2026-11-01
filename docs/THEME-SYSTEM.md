@@ -3,7 +3,7 @@
 > 目标：把「节日装扮」「情怀主题」这类运营诉求，拆成**主题包（表现）× 站点配置（内容）**两个正交机制，
 > 各自保持简单；插槽位是页面上预留的挂载点，插槽内容由主题包（CSS 表现）与站点配置（素材内容）共同决定。
 > 本文档是 M11（[milestones/M11-themes-pwa.md](milestones/M11-themes-pwa.md)）与 M11.1
-> （[milestones/M11.1-festival-decor.md](milestones/M11.1-festival-decor.md)）的共同设计基准。
+> （[milestones/M11.1-theme-engine.md](milestones/M11.1-theme-engine.md) 与 [milestones/M11.2-theme-switching.md](milestones/M11.2-theme-switching.md)）的共同设计基准。
 
 ## 1. 分层模型
 
