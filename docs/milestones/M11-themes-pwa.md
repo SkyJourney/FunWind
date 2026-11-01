@@ -104,8 +104,13 @@
   懒加载图片竞态（截图前等全部 img 加载完成）、偏好 UPDATE 落空（演示用户可能无 profile 行 → upsert + afterAll 清偏好，
   否则上轮 qy2010 残留渗进下轮 default 基线）。DOM 不变断言进 theme-pack.spec（default 与 qy2010 下
   首页 SSR body 标记逐字节一致）。
-- **Step 7 PWA**：`app/manifest.ts` + `public/sw.js` 离线壳 + 注册组件 + `/offline` + middleware matcher 核查。
-  验证：Lighthouse PWA（installable + offline）达标 + 离线访问 E2E（生产构建）。
+- **Step 7 PWA** ✅：`app/manifest.ts`（站点身份/主题色 + 192/512/maskable 图标动态读取 LOGO 池当前项；无池项回退 `public/pwa/` 静态品牌图）+ `public/sw.js`（生产注册）+
+  `public/offline.html` 通用离线壳 + middleware matcher 排除 sw/manifest/icon + SW no-cache 响应头。
+  **隐私边界**：只缓存离线壳与不可变公共静态资源（`/_next/static/`、`/pwa/`、`/emoji/`）；
+  不缓存任意页面 HTML/RSC、API、`/files/`、`/brand/`（动态或个性化数据），断网动态导航统一返回无用户数据的通用离线壳。
+  验证：生产 PWA E2E 2/2（manifest/图标/SW 控制/离线回退/动态响应不入 CacheStorage）+ Lighthouse 11.7.1 PWA 100/100
+  （installable manifest、theme-color、maskable icon、splash screen 全通过）。本地复跑：生产站点启动后运行
+  `pnpm pwa:lighthouse http://127.0.0.1:<端口>`（Lighthouse 12 已移除 PWA 类别，脚本固定 11.7.1）。
 - **Step 8 收口**：全量 `verify:all` + 生产/开发 `test:e2e` + 文档定稿（本文档勾选、THEME-SYSTEM、
   ROADMAP、CHANGELOG）+ 站长真机清单 + 合并 main + 合并后 CI 确认（不 force push）。
 
@@ -115,7 +120,7 @@
   基线快照入库，spec 仅本机 macOS 运行（CI 字体渲染差异，跳过）；换肤 DOM 结构断言
   （换主题不改 DOM，仅换 data-mode/data-pack 与变量）进常规 E2E 全平台跑。
 - 采样对照：qy2010 主色/背景/链接色与旧站截图色值偏差 ≤ 感知阈值（人工签字）。
-- PWA：Lighthouse PWA 检查项（installable/offline 壳）通过；离线访问已缓存路由的 E2E。
+- PWA：Lighthouse PWA installable 检查通过；生产 E2E 验离线通用壳。只允许缓存公共静态资源，不缓存动态/个性化页面。
 
 ## 验收门禁
 
@@ -124,7 +129,7 @@
 - [x] 用户主题偏好持久化 + 全站默认配置生效 E2E
 - [x] 主题↔LOGO 池联动实测（设默认→自带 LOGO 入池并生效；改回不带 LOGO 包不影响 LOGO）
 - [x] Hero 位管理链路 E2E（超限拒绝→上传→首页呈现→移除）
-- [ ] Lighthouse PWA（installable + offline）达标
+- [x] Lighthouse 11.7 PWA 100/100；生产离线 fallback E2E 通过（动态/个性化页面不缓存）
 - [ ] `pnpm verify:all` 全绿；CHANGELOG 记录
 
 ## 遗留事项

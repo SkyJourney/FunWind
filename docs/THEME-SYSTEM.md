@@ -105,7 +105,7 @@
 | 个人偏好改包 | 不改站点 LOGO | LOGO 属站点身份 |
 | Hero 素材管线 | 复刻 LOGO 池：PNG-only 直存 `STORAGE_DIR/site/`，不进 files 表 | 模式已验证、链路最短；上限 ≤1920×1080 / ≤2MB |
 | 池类配置泛化 | brand-pool 核心（DB 事务+审计 / fs 验真落盘 / 公开输出 / 动作骨架）logo/hero 共用薄壳 | 已落地（lib/brand/brand-pool*）；静态守护（use-server-exports/admin-entry-guard）要求动作文件保留字面 defineAction+auth，故动作不做转发导出 |
-| 池类配置泛化 | logo/hero 共用 brand-pool 核心（parse/校验/事务+审计），薄壳差异 | 防重复棘轮恶化；复用性优先 |
+| PWA 离线缓存 | 只缓存通用 offline.html 与不可变公共静态资源；不缓存 HTML/RSC/API/files/brand；manifest 图标动态读取 LOGO 池当前项、空池回退静态图 | 页面动态且包含用户态数据；避免登出/换号后读到旧账号缓存；切主题默认时 manifest theme-color 与 LOGO 联动 |
 | 装扮自动调度 | M11.1（配置引擎 + 时间窗），本期插槽设计与管理先行 | 站长定稿 2026-10-31 |
 | 视觉回归基线 | 仅本机 macOS 跑（`pnpm test:visual`），容差 3% 吸收字形 AA 抖动；换基线须人工核对 | CI 字体渲染差异不可跨平台对比 |
 | 顶栏挂件位 | 协议预留，M11.1 实现 | 交互/无障碍细节值得单独一轮 |

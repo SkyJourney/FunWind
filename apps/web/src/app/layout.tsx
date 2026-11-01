@@ -19,6 +19,7 @@ import { unreadPmTotal } from "@/lib/pm/queries";
 import { bannerAnnouncement, getSiteChrome, getSiteIdentity } from "@/lib/site-chrome";
 import { getUserThemePack, resolveEffectivePack } from "@/lib/theme-pref";
 import { QueryToast } from "@/components/feedback/query-toast";
+import { ServiceWorkerRegistration } from "@/components/pwa/service-worker-registration";
 // 模块注册表求值（注册 + 封板）：任何内核调用前加载
 import "@/modules";
 import "./globals.css";
@@ -32,13 +33,19 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export const viewport: Viewport = {
-  // 移动端探测三件套：缺 width=device-width 时手机按 ~980px 桌面视口渲染整页缩小（S5-B 修复）
-  width: "device-width",
-  initialScale: 1,
-  // iOS 刘海屏：允许内容延伸到安全区，底部 Tab 自行让位（env(safe-area-inset-bottom)）
-  viewportFit: "cover",
-};
+export async function generateViewport(): Promise<Viewport> {
+  const chrome = await getSiteChrome();
+  // 地址栏状态栏色随全站默认主题包（与 manifest.theme_color 同口径）；明暗模式仍可由浏览器 UI 跟随系统。
+  const themeColor = chrome.themePack === "qy2010" ? "#147ba9" : "#0e7490";
+  return {
+    // 移动端探测三件套：缺 width=device-width 时手机按 ~980px 桌面视口渲染整页缩小（S5-B 修复）
+    width: "device-width",
+    initialScale: 1,
+    // iOS 刘海屏：允许内容延伸到安全区，底部 Tab 自行让位（env(safe-area-inset-bottom)）
+    viewportFit: "cover",
+    themeColor,
+  };
+}
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const user = await getCurrentUser();
@@ -81,6 +88,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           enableSystem
           disableTransitionOnChange
         >
+          <ServiceWorkerRegistration />
           <AnnouncementBanner banner={banner} />
           <NavKindCapture />
           <SiteHeader
