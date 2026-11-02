@@ -47,8 +47,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "src"),
-      cn: path.resolve(__dirname, "src/lib/utils.ts"),
+      "@": path.resolve(import.meta.dirname, "src"),
+      cn: path.resolve(import.meta.dirname, "src/lib/utils.ts"),
     },
   },
 });
