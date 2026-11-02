@@ -1,17 +1,17 @@
-import { and, eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getWebDb, notificationPreferences, userProfiles } from "@funwind/db";
+import { getWebDb, notificationPreferences } from "@funwind/db";
 import { getCurrentUser } from "@/lib/auth/session";
+import { takePreferenceRateLimit } from "@/lib/auth/preference-ratelimit";
 import { isSameOrigin } from "@/lib/net/same-origin";
-import { isKnownPackId } from "@/lib/theme/catalog";
+import { setUserPmPolicy } from "@/lib/pm/policy";
 import { setUserThemePack } from "@/lib/theme-pref";
 
 /**
  * 设置中心开关类偏好 API（M10.6d 站长反馈：通知/私信偏好变更应即时生效 + toast，不整页跳转）。
- * PATCH { channel?, type, enabled } 切通知偏好单格；PATCH { pmPolicy } 切私信三态；
+ * PATCH { kind: "notif", channel, type, enabled } 切通知偏好单格；{ kind: "pmPolicy", pmPolicy } 切私信三态；
  * PATCH { kind: "themePack", pack } 切主题包偏好（M11；null = 跟随站点默认，顶栏/用户菜单即时切换用）。
- * 会话鉴权 + 同源校验；返回更新后的值，客户端乐观渲染。
+ * 会话鉴权、同源与结构校验后共用偏好写入额度；返回更新后的值，客户端乐观渲染。
  */
 
 const patchSchema = z.union([
@@ -43,13 +43,16 @@ export async function PATCH(request: Request): Promise<Response> {
     return NextResponse.json({ error: "bad_request" }, { status: 400 });
   }
 
-  if (body.kind === "themePack" && body.pack !== null && !(await isKnownPackId(body.pack))) {
-    return NextResponse.json({ error: "bad_request" }, { status: 400 });
+  const quota = takePreferenceRateLimit(user.id);
+  if (!quota.allowed) {
+    return NextResponse.json(
+      { error: "rate_limited" },
+      { status: 429, headers: { "Retry-After": String(quota.retryAfterSec) } },
+    );
   }
 
-  const db = getWebDb();
   if (body.kind === "notif") {
-    await db
+    await getWebDb()
       .insert(notificationPreferences)
       .values({
         userId: user.id,
@@ -68,13 +71,12 @@ export async function PATCH(request: Request): Promise<Response> {
 
   if (body.kind === "themePack") {
     const pack = body.pack;
-    await setUserThemePack(user.id, pack);
+    if (!(await setUserThemePack(user.id, pack))) {
+      return NextResponse.json({ error: "bad_request" }, { status: 400 });
+    }
     return NextResponse.json({ ok: true, pack });
   }
 
-  await db
-    .update(userProfiles)
-    .set({ pmPolicy: body.pmPolicy })
-    .where(and(eq(userProfiles.userId, user.id), sql`1=1`));
+  await setUserPmPolicy(user.id, body.pmPolicy);
   return NextResponse.json({ ok: true, pmPolicy: body.pmPolicy });
 }

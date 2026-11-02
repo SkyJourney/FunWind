@@ -12,8 +12,8 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { eq } from "drizzle-orm";
 import { getWebDb, users as usersTable } from "@funwind/db";
 import { getMailBrand, sendMail, testMail } from "@/lib/mail";
-import { isKnownPackId } from "@/lib/theme/catalog";
-import { applyThemePackLogo } from "@/lib/theme/apply-pack-logo";
+import { setSiteDefaultThemePack } from "@/lib/theme/packs";
+import { tryApplyThemePackLogo } from "@/lib/theme/apply-pack-logo";
 
 /**
  * 站点配置动作（M10.6b，docs/milestones/M10.6-feature-completion.md 批次 b）：
@@ -35,13 +35,15 @@ export const saveThemePackAction = defineAction({
   auth: { admin: "site.admin" },
   input: z.object({ pack: z.string().max(32) }),
   async run(ctx, input) {
-    if (!(await isKnownPackId(input.pack))) redirect("/admin/settings?err=theme");
     const actor = { userId: ctx.userId ?? null, via: "admin" as const, ip: ctx.ip };
-    await setSetting("site.theme", { pack: input.pack }, actor);
-    const logo = await applyThemePackLogo(input.pack, { ...actor, via: "theme" });
+    const result = await setSiteDefaultThemePack(input.pack, actor);
+    if (!result.ok) redirect("/admin/settings?err=theme");
+    const logo = await tryApplyThemePackLogo(input.pack, { ...actor, via: "theme" });
     invalidateSiteChrome();
+    revalidatePath("/admin/themes");
     revalidatePath("/", "layout");
-    done(logo.applied ? "theme_logo" : "theme");
+    const saved = logo.status === "applied" ? "theme_logo" : "theme";
+    redirect(`/admin/settings?saved=${saved}${logo.status === "failed" ? "&warn=logo" : ""}`);
   },
 });
 

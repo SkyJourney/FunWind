@@ -2,7 +2,7 @@ import { and, eq, inArray, notExists, sql } from "drizzle-orm";
 import { accountDeletionRequests, follows, getWebDb, forums, userStats, users } from "@funwind/db";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import type { DbTx } from "@/lib/audit";
-import { enqueueEventInTx, sweepPending } from "@/lib/events/outbox";
+import { dispatchOutboxRows, enqueueEventInTx, sweepPending } from "@/lib/events/outbox";
 import { isDuplicateKey } from "@/lib/auth/register";
 import { checkPermission } from "@/lib/authz/service";
 import { loadSubject } from "@/lib/authz/subject";
@@ -70,7 +70,7 @@ export async function toggleFollow(
   }
   const db = getWebDb();
 
-  const race = await db.transaction(async (tx): Promise<{ race: boolean } | null> => {
+  const result = await db.transaction(async (tx) => {
     if (!(await targetExists(tx, targetType, targetId))) return null;
 
     const [existing] = await tx
@@ -118,17 +118,18 @@ export async function toggleFollow(
         .set({ followerCount: sql`${userStats.followerCount} + 1` })
         .where(eq(userStats.userId, targetId));
     }
-    await enqueueEventInTx(
+    const event = await enqueueEventInTx(
       tx,
       "user.followed",
       { userId, targetType, targetId },
       { actorId: userId, source: "interact" },
     );
-    return { race: false };
+    return { race: false, event };
   });
 
-  if (race === null) return { ok: false, code: "not_found" };
-  if (!race.race) await sweepPending();
+  if (result === null) return { ok: false, code: "not_found" };
+  if (!result.race && result.event) await dispatchOutboxRows([result.event]);
+  if (!result.race) await sweepPending();
   return { ok: true, following: await isFollowing(userId, targetType, targetId) };
 }
 

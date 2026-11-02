@@ -13,9 +13,11 @@ import {
   createThemePack,
   deleteThemePack,
   getDecorUsage,
+  getEnabledThemePackCount,
   getSiteDefaultThemePack,
   getThemePack,
   listThemePacks,
+  MAX_ENABLED_THEME_PACKS,
   parseThemePackAssets,
   setSiteDefaultThemePack,
   setThemePackLogo,
@@ -39,6 +41,12 @@ beforeAll(async () => {
 afterEach(async () => {
   await getWebDb().delete(themePackages).where(eq(themePackages.id, "demo-pk"));
   await getWebDb().delete(themePackages).where(eq(themePackages.id, "demo-pk-copy"));
+  await getWebDb()
+    .delete(themePackages)
+    .where(
+      sql`${themePackages.id} in ('capacity-a', 'capacity-b', 'capacity-c', 'capacity-d', 'capacity-e', 'capacity-copy')`,
+    );
+  await setThemePackEnabled("qy2010", true, actor);
   await getWebDb().delete(siteSettings).where(eq(siteSettings.key, "site.theme"));
   invalidateThemeCatalog();
 });
@@ -368,6 +376,76 @@ describe.skipIf(skipDb)("主题包写服务（M11.1 Step 5a）", () => {
     await setThemePackEnabled("demo-pk", false, actor);
     const rejected = await setSiteDefaultThemePack("demo-pk", actor);
     expect(rejected).toMatchObject({ ok: false, code: "protected" });
+  });
+
+  it("启用容量最多五包，创建并发、复制与重新启用均在事务内受限", async () => {
+    expect(await getEnabledThemePackCount()).toBe(2);
+    await createThemePack({ id: "capacity-a", name: "容量 A", definition: DEF, actor });
+    await createThemePack({ id: "capacity-b", name: "容量 B", definition: DEF, actor });
+
+    const [first, second] = await Promise.all([
+      createThemePack({ id: "capacity-c", name: "容量 C", definition: DEF, actor }),
+      createThemePack({ id: "capacity-d", name: "容量 D", definition: DEF, actor }),
+    ]);
+    const results = [first, second];
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(results.filter((result) => result.code === "enabled-limit")).toHaveLength(1);
+    expect(await getEnabledThemePackCount()).toBe(MAX_ENABLED_THEME_PACKS);
+
+    const rejectedId = first.ok ? "capacity-d" : "capacity-c";
+    expect(await getThemePack(rejectedId)).toBeNull();
+    const [failedAudit] = await getWebDb()
+      .select({ id: auditLog.id })
+      .from(auditLog)
+      .where(eq(auditLog.targetId, rejectedId));
+    expect(failedAudit).toBeUndefined();
+
+    const enabledId = first.ok ? "capacity-c" : "capacity-d";
+    expect(await setThemePackEnabled(enabledId, false, actor)).toMatchObject({ ok: true });
+    expect(
+      await createThemePack({ id: "capacity-e", name: "容量 E", definition: DEF, actor }),
+    ).toMatchObject({ ok: true });
+    expect(await getEnabledThemePackCount()).toBe(MAX_ENABLED_THEME_PACKS);
+    const beforeRetry = await getThemePack(enabledId);
+    expect(await setThemePackEnabled(enabledId, true, actor)).toMatchObject({
+      ok: false,
+      code: "enabled-limit",
+    });
+    expect(await getThemePack(enabledId)).toEqual(beforeRetry);
+    expect(await setThemePackEnabled("capacity-e", true, actor)).toMatchObject({ ok: true });
+
+    expect(await copyThemePack("capacity-e", "capacity-copy", actor)).toMatchObject({
+      ok: false,
+      code: "enabled-limit",
+    });
+    expect(await getThemePack("capacity-copy")).toBeNull();
+  });
+
+  it("两个停用包并发启用竞争最后名额，只写入一份状态变更与审计", async () => {
+    for (const id of ["capacity-a", "capacity-b", "capacity-c"]) {
+      expect(await createThemePack({ id, name: id, definition: DEF, actor })).toMatchObject({
+        ok: true,
+      });
+    }
+    await setThemePackEnabled("capacity-a", false, actor);
+    await setThemePackEnabled("capacity-b", false, actor);
+    expect(
+      await createThemePack({ id: "capacity-d", name: "补位", definition: DEF, actor }),
+    ).toMatchObject({ ok: true });
+    expect(await getEnabledThemePackCount()).toBe(4);
+    const auditsBefore = await getWebDb().select({ id: auditLog.id }).from(auditLog);
+
+    const results = await Promise.all([
+      setThemePackEnabled("capacity-a", true, actor),
+      setThemePackEnabled("capacity-b", true, actor),
+    ]);
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(results.filter((result) => result.code === "enabled-limit")).toHaveLength(1);
+    expect(await getEnabledThemePackCount()).toBe(MAX_ENABLED_THEME_PACKS);
+    const auditsAfter = await getWebDb().select({ id: auditLog.id }).from(auditLog);
+    expect(auditsAfter.length - auditsBefore.length).toBe(1);
+    const loser = await getThemePack(results[0].ok ? "capacity-b" : "capacity-a");
+    expect(loser).toMatchObject({ enabled: false, revision: 2 });
   });
 
   it("包列表：内置包在前；返回摘要含 surfaces 计数", async () => {

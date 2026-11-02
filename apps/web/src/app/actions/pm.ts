@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { defineAction } from "@/lib/actions/define-action";
+import { takePreferenceRateLimit } from "@/lib/auth/preference-ratelimit";
+import { setUserPmPolicy } from "@/lib/pm/policy";
 import { sendMessage } from "@/lib/pm/service";
 
 /** 私信 Server Action（M10）：失败带码回跳（错误码走 URL，不带正文）。 */
@@ -40,19 +42,17 @@ const policyInput = z.object({
   back: z.string().max(200).default("/me"),
 });
 
-/** 本人私信权限偏好（M10.5 功能补全）：唯一写路径；判定在 pm service。
+/** 本人私信权限偏好的表单入口：与 PATCH 共用写服务和额度；接收权限判定仍在 pm service。
  * 成功回 /me?notice=pm-policy-saved → QueryToast 弹提示（M10.6d 站长反馈：不要整页刷新跳转）。 */
 export const updatePmPolicyAction = defineAction({
   name: "pm.policy.update",
   auth: "user",
   input: policyInput,
   async run(ctx, input) {
-    const { getWebDb, userProfiles } = await import("@funwind/db");
-    const { eq } = await import("drizzle-orm");
-    await getWebDb()
-      .update(userProfiles)
-      .set({ pmPolicy: input.policy })
-      .where(eq(userProfiles.userId, ctx.subject.userId!));
+    if (!takePreferenceRateLimit(ctx.subject.userId!).allowed) {
+      redirect("/settings/pm?notice=preferences-rate");
+    }
+    await setUserPmPolicy(ctx.subject.userId!, input.policy);
     revalidatePath("/me");
     redirect("/me?notice=pm-policy-saved");
   },

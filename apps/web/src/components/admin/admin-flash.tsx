@@ -1,11 +1,12 @@
 import { X } from "lucide-react";
 import Link from "next/link";
 
-export type AdminFlashKind = "success" | "error" | "info";
+export type AdminFlashKind = "success" | "error" | "warning" | "info";
 
 const KIND_CLS: Record<AdminFlashKind, string> = {
   success: "border-success/30 bg-success/10 text-success",
   error: "border-destructive/30 bg-destructive/10 text-destructive",
+  warning: "border-warning/30 bg-warning/10 text-warning",
   info: "border-border bg-muted text-foreground",
 };
 
@@ -26,7 +27,7 @@ export function AdminFlash({
 }) {
   return (
     <p
-      role={kind === "error" ? "alert" : "status"}
+      role={kind === "error" || kind === "warning" ? "alert" : "status"}
       className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm ${KIND_CLS[kind]}`}
     >
       <span className="min-w-0">{children}</span>

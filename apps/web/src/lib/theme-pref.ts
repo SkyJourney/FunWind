@@ -22,12 +22,14 @@ export const getUserThemePack = cache(async (userId: number): Promise<string | n
   return (await isKnownPackId(v)) ? v : null;
 });
 
-/** 写偏好（本人外观设置 / 顶栏即时切换）：profile 行缺失时补建（与资料更新同款 upsert） */
-export async function setUserThemePack(userId: number, pack: string | null): Promise<void> {
+/** 写主题包偏好：目录中未知或停用的包返回 false 且不写入；有效值补建缺失的 profile，数据库错误原样抛出。 */
+export async function setUserThemePack(userId: number, pack: string | null): Promise<boolean> {
+  if (pack !== null && !(await isKnownPackId(pack))) return false;
   await getWebDb()
     .insert(userProfiles)
     .values({ userId, themePack: pack })
     .onDuplicateKeyUpdate({ set: { themePack: pack } });
+  return true;
 }
 
 /** 生效主题包：用户偏好 → 站点默认 → default（纯函数；目录校验版见 catalog.resolveEffectivePackValidated） */

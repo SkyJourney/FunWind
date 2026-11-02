@@ -10,6 +10,7 @@ import { defineAction } from "@/lib/actions/define-action";
 import { errorHop } from "@/lib/actions/hop";
 import { writeAudit } from "@/lib/audit";
 import { rateLimit } from "@/lib/auth/ratelimit";
+import { takePreferenceRateLimit } from "@/lib/auth/preference-ratelimit";
 import { checkPermission } from "@/lib/authz/service";
 import { getCurrentUser, getPasswordChangeUser } from "@/lib/auth/session";
 import { hashPassword, verifyLegacyPassword, verifyPassword } from "@/lib/auth/password";
@@ -24,7 +25,6 @@ import {
   trySendMail,
   verifyEmailMail,
 } from "@/lib/mail";
-import { isKnownPackId } from "@/lib/theme/catalog";
 import { setUserThemePack } from "@/lib/theme-pref";
 import { hashEmailKey, issueEmailToken } from "@/lib/auth/tokens";
 import { changeEmailAddress } from "@/lib/auth/email-change";
@@ -284,8 +284,9 @@ export const toggleNotifPrefAction = defineAction({
     enabled: z.enum(["on", "off"]),
   }),
   async run(ctx, input) {
-    const user = await getCurrentUser();
-    if (!user) redirect("/login");
+    if (!takePreferenceRateLimit(ctx.userId!).allowed) {
+      redirect("/settings/notifications?notice=preferences-rate");
+    }
     const enabled = input.enabled === "on";
     await getWebDb()
       .insert(notificationPreferences)
@@ -302,12 +303,12 @@ export const updateThemePackAction = defineAction({
   auth: "user",
   input: z.object({ pack: z.string().max(32) }),
   async run(ctx, input) {
-    const user = await getCurrentUser();
-    if (!user) redirect("/login");
-    if (input.pack !== "site" && !(await isKnownPackId(input.pack))) {
+    if (!takePreferenceRateLimit(ctx.userId!).allowed) {
+      redirect(errorHop("/settings/appearance", "操作过于频繁，请稍后再试"));
+    }
+    if (!(await setUserThemePack(ctx.userId!, input.pack === "site" ? null : input.pack))) {
       redirect(errorHop("/settings/appearance", "未知的主题包"));
     }
-    await setUserThemePack(ctx.userId!, input.pack === "site" ? null : input.pack);
     // root layout 直出 html[data-pack]：整站布局失效，下一请求即新主题
     revalidatePath("/", "layout");
     redirect("/settings/appearance?saved=1");

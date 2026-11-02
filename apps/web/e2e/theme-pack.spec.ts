@@ -135,7 +135,12 @@ test("后台全站默认：保存即生效 + 自带 LOGO 联动入池；游客�
     await adminPage.getByRole("radio", { name: /现代浅色/ }).check();
     await adminPage.getByRole("button", { name: "保存默认主题" }).click();
     await adminPage.waitForURL("**/admin/settings?saved=theme");
-    await expect(adminPage.getByText("LOGO 保持不变")).toBeVisible();
+    await expect(
+      adminPage.getByText("全站默认主题已保存并即时生效。", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      adminPage.getByRole("alert").filter({ hasText: "自带 LOGO 未能切换" }),
+    ).toHaveCount(0);
     expect((await adminPage.request.get("/brand/logo")).status()).toBe(200);
     await guestPage.reload();
     expect(await dataPack(guestPage)).toBe("default");

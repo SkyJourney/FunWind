@@ -1,5 +1,11 @@
 import { requireAdmin } from "@/lib/authz/require-admin";
-import { getSiteDefaultThemePack, getThemePack, listThemePacks } from "@/lib/theme/packs";
+import {
+  getEnabledThemePackCount,
+  getSiteDefaultThemePack,
+  getThemePack,
+  listThemePacks,
+  MAX_ENABLED_THEME_PACKS,
+} from "@/lib/theme/packs";
 import { SURFACES } from "@/lib/theme/surface-schema";
 import { Card, CardContent } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
@@ -41,6 +47,8 @@ const ERR_TEXT: Record<string, string> = {
   "bad-archive": "主题包文件损坏、版本不支持或包含不安全内容。",
   "archive-too-large": "主题包文件为空或超过 20MB 上限。",
   "asset-import": "包内图片未通过素材池校验，主题包未创建。",
+  "enabled-limit": `全站最多启用 ${MAX_ENABLED_THEME_PACKS} 个主题包（含内置包）；请先停用一个，再重试。`,
+  "capacity-unavailable": "系统回退主题包缺失，无法校验容量；请先完成数据库初始化。",
 };
 
 /**
@@ -49,15 +57,16 @@ const ERR_TEXT: Record<string, string> = {
  * 门禁 site.admin；写操作走 lib/theme/packs（事务 + 审计 + revision 乐观锁）。
  */
 export default async function ThemesAdminPage(props: {
-  searchParams: Promise<{ saved?: string; err?: string; id?: string }>;
+  searchParams: Promise<{ saved?: string; err?: string; id?: string; warn?: string }>;
 }) {
   // 入口鉴权约定：第一个 await 必须是 requireAdmin（admin-entry-guard 静态守护）
   await requireAdmin("site.admin");
   const sp = await props.searchParams;
-  const [packs, defaultPackId, starterPack] = await Promise.all([
+  const [packs, defaultPackId, starterPack, enabledPackCount] = await Promise.all([
     listThemePacks(),
     getSiteDefaultThemePack(),
     getThemePack("default"),
+    getEnabledThemePackCount(),
   ]);
 
   return (
@@ -81,6 +90,21 @@ export default async function ThemesAdminPage(props: {
           {ERR_TEXT[sp.err] ?? "操作失败，请重试。"}
         </AdminFlash>
       )}
+      {sp.warn === "import-cleanup" && (
+        <AdminFlash kind="warning" dismissHref="/admin/themes">
+          {sp.saved === "imported"
+            ? "主题包已导入，但素材池当前项恢复失败；请检查服务器日志及素材池设置。"
+            : "主题包未创建，且部分素材清理或素材池当前项恢复失败；请检查服务器日志及素材池。"}
+        </AdminFlash>
+      )}
+      {sp.warn === "logo" && (
+        <AdminFlash kind="warning" dismissHref="/admin/themes">
+          默认主题已保存，但自带 LOGO 未能切换；可在 LOGO 管理中手动设置。
+        </AdminFlash>
+      )}
+      <p className="text-sm text-muted-foreground" data-testid="theme-pack-capacity">
+        已启用主题包：{enabledPackCount} / {MAX_ENABLED_THEME_PACKS}
+      </p>
 
       {/* 新建 */}
       <Card>

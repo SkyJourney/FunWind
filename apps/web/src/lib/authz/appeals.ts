@@ -9,7 +9,7 @@ import {
 } from "@funwind/db";
 import { writeAudit, type ConfigActor } from "@/lib/audit";
 import { restrictionActive } from "@/lib/authz/restrictions";
-import { verifyPassword } from "@/lib/auth/password";
+import { type PasswordVerifier, verifyAccountPassword } from "@/lib/auth/password";
 import { publicUserDeleted, publicUsername } from "@/lib/queries/public-identity";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
 import {
@@ -143,17 +143,26 @@ export async function submitAppealWithPassword(
   password: string,
   reason: string,
   ip: string | null,
+  deps: { verify?: PasswordVerifier } = {},
 ): Promise<AppealSubmission> {
   const key = identifier.trim().toLowerCase();
   const trimmed = reason.trim();
-  if (!key || !password) throw new AppealError("invalid_credentials");
+  if (!key || !password) {
+    await verifyAccountPassword(null, password, deps.verify);
+    throw new AppealError("invalid_credentials");
+  }
   if (!trimmed) throw new AppealError("result_required");
   const [candidate] = await getWebDb()
     .select({ id: users.id, passwordHash: users.passwordHash })
     .from(users)
     .where(sql`(${users.usernameKey} = ${key} OR ${users.emailKey} = ${key})`)
     .limit(1);
-  if (!candidate?.passwordHash || !(await verifyPassword(candidate.passwordHash, password))) {
+  const passwordOk = await verifyAccountPassword(
+    candidate?.passwordHash ?? null,
+    password,
+    deps.verify,
+  );
+  if (!candidate || !passwordOk) {
     throw new AppealError("invalid_credentials");
   }
 

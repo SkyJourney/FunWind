@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { getWebDb, posts, reactions, threads, users } from "@funwind/db";
 import type { DbTx } from "@/lib/audit";
-import { enqueueEventInTx, sweepPending } from "@/lib/events/outbox";
+import { dispatchOutboxRows, enqueueEventInTx, sweepPending } from "@/lib/events/outbox";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import { isDuplicateKey } from "@/lib/auth/register";
 import { checkPermission } from "@/lib/authz/service";
@@ -44,7 +44,7 @@ export async function toggleLike(userId: number, postId: number): Promise<Toggle
   if (viewer.userId === null) return { ok: false, code: "not_found" };
   const db = getWebDb();
 
-  const race = await db.transaction(async (tx): Promise<{ race: boolean } | null> => {
+  const result = await db.transaction(async (tx) => {
     const target = await visiblePostOrNull(tx, postId);
     if (!target) return null;
     if (!(await checkPermission(viewer, "forum.read", { forumId: target.forumId })).allowed) {
@@ -90,20 +90,21 @@ export async function toggleLike(userId: number, postId: number): Promise<Toggle
       .update(posts)
       .set({ likeCount: sql`${posts.likeCount} + 1` })
       .where(eq(posts.id, postId));
-    await enqueueEventInTx(
+    const event = await enqueueEventInTx(
       tx,
       "reaction.added",
       { userId, postId, kind: "like" },
       { actorId: userId, source: "interact" },
     );
-    return { race: false };
+    return { race: false, event };
   });
 
-  if (race === null) return { ok: false, code: "not_found" };
-  if (race.race) {
+  if (result === null) return { ok: false, code: "not_found" };
+  if (result.race) {
     // 并发撞键：状态与计数以库内明细/缓存为准
     return { ok: true, liked: true, likeCount: await likeCountOf(postId) };
   }
+  if (result.event) await dispatchOutboxRows([result.event]);
   await sweepPending();
   return { ok: true, liked: await isLikedBy(userId, postId), likeCount: await likeCountOf(postId) };
 }

@@ -8,13 +8,22 @@ import { getWebDb, users } from "@funwind/db";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { LOGIN_LIMITS, MAX_IDENTIFIER_LENGTH, attemptLogin } from "./login";
-import { hashPassword, verifyPassword } from "./password";
+import {
+  buildLegacyStorage,
+  hashPassword,
+  legacyHashHex,
+  verifyLegacyPassword,
+  verifyPassword,
+} from "./password";
 import { rateLimiterSize, resetRateLimiter } from "./ratelimit";
 import { registerUser } from "./register";
 
 let tdb: TempDb;
 const PW = "correct-horse-battery";
+const LEGACY_PW = "legacy-only-password";
+const LEGACY_HASH = buildLegacyStorage(legacyHashHex(LEGACY_PW, "Ab3dEf"), "Ab3dEf");
 let aliceId: number;
+let legacyId: number;
 
 const login = (
   identifier: string,
@@ -49,6 +58,16 @@ describe.skipIf(skipDb)("登录判定 · 真实 MySQL", () => {
       invite: null,
     });
     await getWebDb().update(users).set({ state: "deleted" }).where(eq(users.id, gone));
+    legacyId = await registerUser({
+      username: "legacy_s2",
+      email: "legacy-s2@example.com",
+      passwordHash: hash,
+      invite: null,
+    });
+    await getWebDb()
+      .update(users)
+      .set({ passwordHash: null, legacyPasswordHash: LEGACY_HASH, legacyPasswordPending: true })
+      .where(eq(users.id, legacyId));
   });
   afterAll(async () => {
     await tdb?.teardown();
@@ -61,9 +80,12 @@ describe.skipIf(skipDb)("登录判定 · 真实 MySQL", () => {
       ["有密码的账号 · 密码对", "alice_s2", PW],
       ["用户不存在", "no-such-user", PW],
       ["密码哈希为 NULL（迁移账号）", "nohash_s2", PW],
+      ["仅旧密码 · 密码对", "legacy_s2", LEGACY_PW],
+      ["仅旧密码 · 密码错", "legacy_s2", "wrong-legacy"],
       ["已注销账号", "gone_s2", PW],
       ["用邮箱登录", "alice-s2@example.com", PW],
       ["空标识符", "", PW],
+      ["空密码", "alice_s2", ""],
       ["超长标识符", "x".repeat(MAX_IDENTIFIER_LENGTH + 1), PW],
     ];
     for (const [name, ident, pw] of CASES) {
@@ -83,12 +105,16 @@ describe.skipIf(skipDb)("登录判定 · 真实 MySQL", () => {
       await login("alice_s2", PW, "198.51.100.1", spy);
       await login("no-such-user", PW, "198.51.100.1", spy);
       await login("nohash_s2", PW, "198.51.100.1", spy);
-      const [real, dummy1, dummy2] = seen;
+      await login("legacy_s2", LEGACY_PW, "198.51.100.1", spy);
+      await login("gone_s2", PW, "198.51.100.1", spy);
+      const [real, dummy1, dummy2, legacyDummy, deletedDummy] = seen;
       expect(real).toMatch(/^\$argon2id\$/);
       expect(dummy1).toMatch(/^\$argon2id\$/);
       expect(dummy1).not.toBe(real);
-      // 假哈希进程内只生成一次
+      // 缺失账号、无现代密码、仅旧密码和被状态过滤的账号共用同一假哈希
       expect(dummy2).toBe(dummy1);
+      expect(legacyDummy).toBe(dummy1);
+      expect(deletedDummy).toBe(dummy1);
       // 参数段（$argon2id$v=19$m=19456,t=2,p=1$）一致：两类账号的校验开销相同
       const params = (h: string) => h.split("$").slice(1, 4).join("$");
       expect(params(dummy1!)).toBe(params(real!));
@@ -106,6 +132,96 @@ describe.skipIf(skipDb)("登录判定 · 真实 MySQL", () => {
       });
     });
 
+    it("双轨边界：现代密码优先，旧密码仅在 pending 且有旧材料时兜底", async () => {
+      const modernHash = await hashPassword(PW);
+      const cases = [
+        {
+          hash: null,
+          pending: true,
+          legacy: LEGACY_HASH,
+          password: LEGACY_PW,
+          oldCalls: 1,
+          changed: true,
+        },
+        {
+          hash: null,
+          pending: true,
+          legacy: LEGACY_HASH,
+          password: "wrong",
+          oldCalls: 1,
+          changed: null,
+        },
+        {
+          hash: null,
+          pending: false,
+          legacy: LEGACY_HASH,
+          password: LEGACY_PW,
+          oldCalls: 0,
+          changed: null,
+        },
+        {
+          hash: null,
+          pending: true,
+          legacy: null,
+          password: LEGACY_PW,
+          oldCalls: 0,
+          changed: null,
+        },
+        {
+          hash: modernHash,
+          pending: true,
+          legacy: LEGACY_HASH,
+          password: PW,
+          oldCalls: 0,
+          changed: false,
+        },
+        {
+          hash: modernHash,
+          pending: true,
+          legacy: LEGACY_HASH,
+          password: LEGACY_PW,
+          oldCalls: 1,
+          changed: true,
+        },
+      ];
+      try {
+        for (const c of cases) {
+          resetRateLimiter();
+          await getWebDb()
+            .update(users)
+            .set({
+              passwordHash: c.hash,
+              legacyPasswordPending: c.pending,
+              legacyPasswordHash: c.legacy,
+            })
+            .where(eq(users.id, legacyId));
+          const verify = vi.fn(verifyPassword);
+          const verifyLegacy = vi.fn(verifyLegacyPassword);
+          const result = await attemptLogin(
+            { identifier: "legacy_s2", password: c.password, ip: "198.51.100.1" },
+            { verify, verifyLegacy },
+          );
+          expect(result).toEqual(
+            c.changed === null
+              ? { ok: false, reason: "invalid" }
+              : { ok: true, userId: legacyId, mustChangePassword: c.changed },
+          );
+          expect(verify).toHaveBeenCalledTimes(1);
+          const [target, password] = verify.mock.calls[0]!;
+          expect(password).toBe(c.password);
+          if (c.hash) expect(target).toBe(c.hash);
+          else expect(target).toMatch(/^\$argon2id\$v=19\$m=19456,t=2,p=1\$/);
+          expect(verifyLegacy).toHaveBeenCalledTimes(c.oldCalls);
+          if (c.oldCalls) expect(verifyLegacy).toHaveBeenCalledWith(LEGACY_HASH, c.password);
+        }
+      } finally {
+        await getWebDb()
+          .update(users)
+          .set({ passwordHash: null, legacyPasswordHash: LEGACY_HASH, legacyPasswordPending: true })
+          .where(eq(users.id, legacyId));
+      }
+    });
+
     it("对照：真实校验下，对的密码通过、错的不通过；已注销账号不能登录", async () => {
       expect(await login("alice_s2", PW)).toEqual({
         ok: true,
@@ -118,6 +234,50 @@ describe.skipIf(skipDb)("登录判定 · 真实 MySQL", () => {
   });
 
   describe("C2 · 频控", () => {
+    it("账号总桶拒绝时仍只做一次 dummy，且不能用正确旧密码绕过", async () => {
+      const verify = vi.fn(verifyPassword);
+      const verifyLegacy = vi.fn(verifyLegacyPassword);
+      for (let i = 0; i < LOGIN_LIMITS.user.max; i++) {
+        expect(
+          await attemptLogin(
+            { identifier: "legacy_s2", password: "wrong", ip: `198.18.1.${i}` },
+            { verify, verifyLegacy },
+          ),
+        ).toEqual({ ok: false, reason: "invalid" });
+      }
+      verify.mockClear();
+      verifyLegacy.mockClear();
+      expect(
+        await attemptLogin(
+          { identifier: "legacy_s2", password: LEGACY_PW, ip: "198.18.2.1" },
+          { verify, verifyLegacy },
+        ),
+      ).toEqual({ ok: false, reason: "invalid" });
+      expect(verify).toHaveBeenCalledTimes(1);
+      expect(verify.mock.calls[0]![0]).toMatch(/^\$argon2id\$/);
+      expect(verifyLegacy).not.toHaveBeenCalled();
+    });
+
+    it("标识符桶超限在查账号之前拒绝，不额外执行现代或旧密码校验", async () => {
+      const verify = vi.fn(verifyPassword);
+      const verifyLegacy = vi.fn(verifyLegacyPassword);
+      for (let i = 0; i < LOGIN_LIMITS.pair.max; i++) {
+        await attemptLogin(
+          { identifier: "legacy_s2", password: "wrong", ip: "198.18.3.1" },
+          { verify, verifyLegacy },
+        );
+      }
+      verify.mockClear();
+      verifyLegacy.mockClear();
+      expect(
+        await attemptLogin(
+          { identifier: "legacy_s2", password: LEGACY_PW, ip: "198.18.3.1" },
+          { verify, verifyLegacy },
+        ),
+      ).toEqual({ ok: false, reason: "throttled" });
+      expect(verify).not.toHaveBeenCalled();
+      expect(verifyLegacy).not.toHaveBeenCalled();
+    });
     it("成功登录不消耗额度：同一 IP 连续成功 40 次都通过（对照：失败 5 次后即被挡）", async () => {
       for (let i = 0; i < 40; i++) expect(await login("alice_s2", PW)).toMatchObject({ ok: true });
       resetRateLimiter();

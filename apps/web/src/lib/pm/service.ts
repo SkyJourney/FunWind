@@ -19,7 +19,12 @@ import { nowBeijingWallTime } from "@/lib/datetime";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
 import { limitsFor } from "@/lib/limits/load";
 import { publicUserId } from "@/lib/queries/public-identity";
-import { enqueueEventInTx, sweepPending } from "@/lib/events/outbox";
+import {
+  dispatchOutboxRows,
+  enqueueEventInTx,
+  sweepPending,
+  type EnqueuedEvent,
+} from "@/lib/events/outbox";
 import { isDuplicateKey } from "@/lib/auth/register";
 import { pageBounds } from "@/lib/queries/paging";
 
@@ -120,143 +125,151 @@ export async function sendMessage(
   const limits = await limitsFor(viewer);
   const perDay = limits.pmPerDay ?? 0;
 
-  const failure = await withDeadlockRetry(() =>
-    getWebDb().transaction(async (tx): Promise<SendResult | null> => {
-      const lockedUsers = await tx
-        .select({ id: users.id, state: users.state })
-        .from(users)
-        .where(inArray(users.id, [senderId, recipientId]))
-        .orderBy(users.id)
-        .for("update");
-      if (lockedUsers.length !== 2 || lockedUsers.some((user) => user.state !== "active")) {
-        return { ok: false, code: "not_found", message: "对方不存在或已注销" };
-      }
-
-      // 日配额在持有发送者行锁后判定：事务外计数会被并发请求同时通过（击穿每日上限）
-      if (perDay > 0) {
-        const [{ n }] = await tx
-          .select({ n: sql<number>`COUNT(*)` })
-          .from(messages)
-          .where(
-            and(eq(messages.senderId, senderId), sql`DATE(${messages.createdAt}) = CURDATE()`),
-          );
-        if (Number(n) >= perDay) {
-          return { ok: false, code: "quota_exceeded", message: `今日私信已达上限（${perDay} 条）` };
+  const result = await withDeadlockRetry(() =>
+    getWebDb().transaction(
+      async (
+        tx,
+      ): Promise<
+        | Extract<SendResult, { ok: false }>
+        | { ok: true; conversationId: number; event: EnqueuedEvent }
+      > => {
+        const lockedUsers = await tx
+          .select({ id: users.id, state: users.state })
+          .from(users)
+          .where(inArray(users.id, [senderId, recipientId]))
+          .orderBy(users.id)
+          .for("update");
+        if (lockedUsers.length !== 2 || lockedUsers.some((user) => user.state !== "active")) {
+          return { ok: false, code: "not_found", message: "对方不存在或已注销" };
         }
-      }
 
-      const [recipientClosure] = await tx
-        .select({ id: accountDeletionRequests.id })
-        .from(accountDeletionRequests)
-        .where(
-          and(
-            eq(accountDeletionRequests.userId, recipientId),
-            inArray(accountDeletionRequests.status, ["pending", "completed"]),
-          ),
-        )
-        .for("update");
-      if (recipientClosure) {
-        return { ok: false, code: "not_found", message: "对方暂时无法接收私信" };
-      }
+        // 日配额在持有发送者行锁后判定：事务外计数会被并发请求同时通过（击穿每日上限）
+        if (perDay > 0) {
+          const [{ n }] = await tx
+            .select({ n: sql<number>`COUNT(*)` })
+            .from(messages)
+            .where(
+              and(eq(messages.senderId, senderId), sql`DATE(${messages.createdAt}) = CURDATE()`),
+            );
+          if (Number(n) >= perDay) {
+            return {
+              ok: false,
+              code: "quota_exceeded",
+              message: `今日私信已达上限（${perDay} 条）`,
+            };
+          }
+        }
 
-      const activeRestrictions = await tx
-        .select({ userId: userRestrictions.userId, kind: userRestrictions.kind })
-        .from(userRestrictions)
-        .where(
-          and(
-            inArray(userRestrictions.userId, [senderId, recipientId]),
-            eq(userRestrictions.scopeId, 0),
-            eq(userRestrictions.kind, "ban"),
-            restrictionActive,
-          ),
-        )
-        .for("update");
-      if (
-        activeRestrictions.some(
-          (restriction) => restriction.userId === recipientId && restriction.kind === "ban",
-        )
-      ) {
-        return { ok: false, code: "not_found", message: "对方暂时无法接收私信" };
-      }
-      if (activeRestrictions.some((restriction) => restriction.userId === senderId)) {
-        return {
-          ok: false,
-          code: "forbidden",
-          message: "你没有发送私信的权限（可能被禁言）",
-        };
-      }
+        const [recipientClosure] = await tx
+          .select({ id: accountDeletionRequests.id })
+          .from(accountDeletionRequests)
+          .where(
+            and(
+              eq(accountDeletionRequests.userId, recipientId),
+              inArray(accountDeletionRequests.status, ["pending", "completed"]),
+            ),
+          )
+          .for("update");
+        if (recipientClosure) {
+          return { ok: false, code: "not_found", message: "对方暂时无法接收私信" };
+        }
 
-      let conversationId: number;
-      const [existing] = await tx
-        .select({ id: conversations.id })
-        .from(conversations)
-        .where(eq(conversations.pairKey, pairKey))
-        .limit(1);
-      if (existing) {
-        conversationId = existing.id;
-      } else {
-        try {
-          const [created] = (await tx
-            .insert(conversations)
-            .values({ pairKey, createdAt: nowBeijingWallTime() })) as unknown as [
-            { insertId: number },
-          ];
-          conversationId = Number(created.insertId);
-          await tx.insert(conversationMembers).values([
-            { conversationId, userId: senderId },
-            { conversationId, userId: recipientId },
-          ]);
-        } catch (e) {
-          // 并发首信：撞 uq_conv_pair → 读回既有会话并补齐成员（幂等 upsert）
-          if (!isDuplicateKey(e)) throw e;
-          const [raced] = await tx
-            .select({ id: conversations.id })
-            .from(conversations)
-            .where(eq(conversations.pairKey, pairKey))
-            .limit(1);
-          if (!raced) throw e;
-          conversationId = raced.id;
-          await tx
-            .insert(conversationMembers)
-            .values([
+        const activeRestrictions = await tx
+          .select({ userId: userRestrictions.userId, kind: userRestrictions.kind })
+          .from(userRestrictions)
+          .where(
+            and(
+              inArray(userRestrictions.userId, [senderId, recipientId]),
+              eq(userRestrictions.scopeId, 0),
+              eq(userRestrictions.kind, "ban"),
+              restrictionActive,
+            ),
+          )
+          .for("update");
+        if (
+          activeRestrictions.some(
+            (restriction) => restriction.userId === recipientId && restriction.kind === "ban",
+          )
+        ) {
+          return { ok: false, code: "not_found", message: "对方暂时无法接收私信" };
+        }
+        if (activeRestrictions.some((restriction) => restriction.userId === senderId)) {
+          return {
+            ok: false,
+            code: "forbidden",
+            message: "你没有发送私信的权限（可能被禁言）",
+          };
+        }
+
+        let conversationId: number;
+        const [existing] = await tx
+          .select({ id: conversations.id })
+          .from(conversations)
+          .where(eq(conversations.pairKey, pairKey))
+          .limit(1);
+        if (existing) {
+          conversationId = existing.id;
+        } else {
+          try {
+            const [created] = (await tx
+              .insert(conversations)
+              .values({ pairKey, createdAt: nowBeijingWallTime() })) as unknown as [
+              { insertId: number },
+            ];
+            conversationId = Number(created.insertId);
+            await tx.insert(conversationMembers).values([
               { conversationId, userId: senderId },
               { conversationId, userId: recipientId },
-            ])
-            .onDuplicateKeyUpdate({ set: { userId: sql`${conversationMembers.userId}` } });
+            ]);
+          } catch (e) {
+            // 并发首信：撞 uq_conv_pair → 读回既有会话并补齐成员（幂等 upsert）
+            if (!isDuplicateKey(e)) throw e;
+            const [raced] = await tx
+              .select({ id: conversations.id })
+              .from(conversations)
+              .where(eq(conversations.pairKey, pairKey))
+              .limit(1);
+            if (!raced) throw e;
+            conversationId = raced.id;
+            await tx
+              .insert(conversationMembers)
+              .values([
+                { conversationId, userId: senderId },
+                { conversationId, userId: recipientId },
+              ])
+              .onDuplicateKeyUpdate({ set: { userId: sql`${conversationMembers.userId}` } });
+          }
         }
-      }
 
-      const messageId = insertIdOf(
-        await tx.insert(messages).values({
-          conversationId,
-          senderId,
-          body: text,
-          createdAt: nowBeijingWallTime(),
-        }),
-      );
-      await tx
-        .update(conversations)
-        .set({ lastMessageAt: nowBeijingWallTime() })
-        .where(eq(conversations.id, conversationId));
+        const messageId = insertIdOf(
+          await tx.insert(messages).values({
+            conversationId,
+            senderId,
+            body: text,
+            createdAt: nowBeijingWallTime(),
+          }),
+        );
+        await tx
+          .update(conversations)
+          .set({ lastMessageAt: nowBeijingWallTime() })
+          .where(eq(conversations.id, conversationId));
 
-      await enqueueEventInTx(
-        tx,
-        "message.sent",
-        { conversationId, messageId, senderId, recipientId },
-        { actorId: senderId, source: "pm" },
-      );
-      return null;
-    }, POINTS_TX_OPTIONS),
+        const event = await enqueueEventInTx(
+          tx,
+          "message.sent",
+          { conversationId, messageId, senderId, recipientId },
+          { actorId: senderId, source: "pm" },
+        );
+        return { ok: true, conversationId, event };
+      },
+      POINTS_TX_OPTIONS,
+    ),
   );
-  if (failure) return failure;
+  if (!result.ok) return result;
 
-  const [conv] = await getWebDb()
-    .select({ id: conversations.id })
-    .from(conversations)
-    .where(eq(conversations.pairKey, pairKey))
-    .limit(1);
+  await dispatchOutboxRows([result.event]);
   await sweepPending();
-  return { ok: true, conversationId: conv?.id ?? 0 };
+  return { ok: true, conversationId: result.conversationId };
 }
 
 /** 打开会话：成员校验 + 联动已读（指针推进 + 该会话未读 pm.received 清零，同事务）。返回是否成员。 */

@@ -40,7 +40,7 @@ import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
 import { deletePointAccountInTx } from "@/lib/points/account";
 import { deleteUserUploadHistoryInTx } from "@/lib/uploads/store";
 import { restrictionActive } from "@/lib/authz/restrictions";
-import { verifyPassword } from "./password";
+import { type PasswordVerifier, verifyAccountPassword, verifyPassword } from "./password";
 import { generateToken, hashToken } from "./token";
 import { hashEmailKey } from "./tokens";
 import { createSessionInTx } from "./session";
@@ -531,15 +531,20 @@ export async function startOrOpenAccountDeletionWithPassword(
   identifier: string,
   password: string,
   ip: string | null,
+  deps: { verify?: PasswordVerifier } = {},
 ): Promise<{ requestId: number; accessToken: string; started: boolean } | null> {
   const key = identifier.trim().toLowerCase();
-  if (!key || !password) return null;
+  if (!key || !password) {
+    await verifyAccountPassword(null, password, deps.verify);
+    return null;
+  }
   const [user] = await getWebDb()
     .select({ id: users.id, passwordHash: users.passwordHash })
     .from(users)
     .where(sql`(${users.usernameKey} = ${key} OR ${users.emailKey} = ${key})`)
     .limit(1);
-  if (!user?.passwordHash || !(await verifyPassword(user.passwordHash, password))) return null;
+  const passwordOk = await verifyAccountPassword(user?.passwordHash ?? null, password, deps.verify);
+  if (!user || !passwordOk) return null;
 
   const enqueued: EnqueuedEvent[] = [];
   const result = await getWebDb().transaction(async (tx) => {

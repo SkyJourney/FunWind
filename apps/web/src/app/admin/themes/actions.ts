@@ -5,7 +5,7 @@ import { defineAction } from "@/lib/actions/define-action";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { applyThemePackLogo } from "@/lib/theme/apply-pack-logo";
+import { tryApplyThemePackLogo } from "@/lib/theme/apply-pack-logo";
 import { getDecorPoolRaw } from "@/lib/brand/decor-pool";
 import { invalidateSiteChrome } from "@/lib/site-chrome";
 import {
@@ -169,10 +169,11 @@ export const setDefaultThemePackAction = defineAction({
     const actor = actorOf(ctx);
     const result = await setSiteDefaultThemePack(input.id, actor);
     if (!result.ok) redirect(`/admin/themes?err=${result.code}`);
-    const logo = await applyThemePackLogo(input.id, { ...actor, via: "theme" });
+    const logo = await tryApplyThemePackLogo(input.id, { ...actor, via: "theme" });
     invalidateSiteChrome();
     revalidatePath("/admin/themes");
     revalidatePath("/", "layout");
-    redirect(`/admin/themes?saved=${logo.applied ? "default_logo" : "default"}`);
+    const saved = logo.status === "applied" ? "default_logo" : "default";
+    redirect(`/admin/themes?saved=${saved}${logo.status === "failed" ? "&warn=logo" : ""}`);
   },
 });

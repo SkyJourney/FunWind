@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { count, eq, sql } from "drizzle-orm";
 import { getWebDb, siteSettings, themePackages } from "@funwind/db";
 import { writeAudit, type ConfigActor, type DbTx } from "@/lib/audit";
 import { invalidateThemeCatalog } from "@/lib/theme/catalog";
@@ -16,6 +16,8 @@ import { parseThemePackDefinition, type ThemePackDefinition } from "@/lib/theme/
  */
 
 export const THEME_PACK_ID_RE = /^[a-z0-9][a-z0-9_-]{1,31}$/;
+/** 全站启用包总数上限，包含内置包；停用包仍可保留和编辑。 */
+export const MAX_ENABLED_THEME_PACKS = 5;
 /** 保留字：default 是系统回退包；dark/system 与明暗模式轴冲突，不做包 id */
 export const RESERVED_PACK_IDS = new Set(["default", "dark", "system"]);
 
@@ -43,6 +45,8 @@ export type ThemePackErrorCode =
   | "conflict"
   | "protected"
   | "invalid-definition"
+  | "enabled-limit"
+  | "capacity-unavailable"
   | "duplicate-id";
 
 export interface ThemePackResult<T = ThemePackSummary> {
@@ -84,6 +88,44 @@ async function lockThemePack(tx: DbTx, id: string): Promise<ThemePackRow | null>
     .limit(1)
     .for("update");
   return row ?? null;
+}
+
+/** 启用容量变更统一先锁不可删除的 default，再锁目标包，避免并发计数突破上限。 */
+async function lockThemeCapacity(tx: DbTx): Promise<boolean> {
+  return (await lockThemePack(tx, "default")) !== null;
+}
+
+async function themeCapacityReached(tx: DbTx): Promise<boolean> {
+  const [row] = await tx
+    .select({ enabled: count() })
+    .from(themePackages)
+    .where(eq(themePackages.enabled, true));
+  return Number(row.enabled) >= MAX_ENABLED_THEME_PACKS;
+}
+
+/** 管理页显示当前启用包数量；容量写入检查仍必须在事务锁内完成。 */
+export async function getEnabledThemePackCount(): Promise<number> {
+  const [row] = await getWebDb()
+    .select({ enabled: count() })
+    .from(themePackages)
+    .where(eq(themePackages.enabled, true));
+  return Number(row.enabled);
+}
+
+/** 容量事务计数须读取前序提交，且新 id 检查不得持有间隙锁。 */
+const THEME_CAPACITY_TX_OPTIONS = { isolationLevel: "read committed" } as const;
+
+async function withThemeCapacity<T = ThemePackSummary>(
+  run: (tx: DbTx) => Promise<ThemePackResult<T>>,
+): Promise<ThemePackResult<T>> {
+  const result = await getWebDb().transaction(async (tx) => {
+    if (!(await lockThemeCapacity(tx))) {
+      return { ok: false as const, code: "capacity-unavailable" as const };
+    }
+    return run(tx);
+  }, THEME_CAPACITY_TX_OPTIONS);
+  if (result.ok) invalidateThemeCatalog();
+  return result;
 }
 
 async function auditThemePackChange(
@@ -263,9 +305,12 @@ export async function createThemePack(input: CreateThemePackInput): Promise<Them
   const parsed = parseThemePackDefinition(input.definition);
   if (!parsed.ok) return { ok: false, code: "invalid-definition", errors: parsed.errors };
 
-  const value = await getWebDb().transaction(async (tx) => {
+  return withThemeCapacity(async (tx) => {
     if (await lockThemePack(tx, input.id)) {
       return { ok: false as const, code: "duplicate-id" as const };
+    }
+    if (await themeCapacityReached(tx)) {
+      return { ok: false as const, code: "enabled-limit" as const };
     }
 
     await tx.insert(themePackages).values({
@@ -289,8 +334,6 @@ export async function createThemePack(input: CreateThemePackInput): Promise<Them
     });
     return { ok: true as const, value: toSummary(row) };
   });
-  if (value.ok) invalidateThemeCatalog();
-  return value;
 }
 
 export interface UpdateThemePackInput {
@@ -362,11 +405,14 @@ export async function setThemePackEnabled(
   enabled: boolean,
   actor: ConfigActor,
 ): Promise<ThemePackResult> {
-  const value = await getWebDb().transaction(async (tx) => {
+  return withThemeCapacity(async (tx) => {
     const row = await lockThemePack(tx, id);
     if (!row) return { ok: false as const, code: "not-found" as const };
     if (!enabled && id === "default") return { ok: false as const, code: "protected" as const };
     if (row.enabled === enabled) return { ok: true as const, value: toSummary(row) };
+    if (enabled && (await themeCapacityReached(tx))) {
+      return { ok: false as const, code: "enabled-limit" as const };
+    }
     await tx
       .update(themePackages)
       .set({ enabled, revision: row.revision + 1, updatedAt: sql`NOW()` })
@@ -375,8 +421,6 @@ export async function setThemePackEnabled(
     await auditThemePackToggle(tx, actor, id, row, updated, enabled);
     return { ok: true as const, value: toSummary(updated) };
   });
-  if (value.ok) invalidateThemeCatalog();
-  return value;
 }
 
 /** 删除：内置包不可删；default 不可删 */
@@ -384,7 +428,7 @@ export async function deleteThemePack(
   id: string,
   actor: ConfigActor,
 ): Promise<ThemePackResult<{ id: string; name: string }>> {
-  const value = await getWebDb().transaction(async (tx) => {
+  return withThemeCapacity(async (tx) => {
     const row = await lockThemePack(tx, id);
     if (!row) return { ok: false as const, code: "not-found" as const };
     if (row.isBuiltin || id === "default")
@@ -397,8 +441,6 @@ export async function deleteThemePack(
     });
     return { ok: true as const, value: { id, name: row.name } };
   });
-  if (value.ok) invalidateThemeCatalog();
-  return value;
 }
 
 /** 复制：以现有包为模板新建一个自定义包（新 id） */

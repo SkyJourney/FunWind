@@ -29,7 +29,7 @@ const FLASH: Record<string, string> = {
   limits: "频控配置已保存。",
   email_verification: "邮箱验证策略已保存。",
   mail_sent: "测试邮件已发出——请查收（dev 若用 Mailpit 则进 Mailpit，否则进真实邮箱）。",
-  theme: "全站默认主题已保存并即时生效（该主题不带 LOGO，LOGO 保持不变）。",
+  theme: "全站默认主题已保存并即时生效。",
   theme_logo:
     "全站默认主题已保存，并已把 LOGO 切换为该主题自带图——需要时可在「LOGO 管理」独立改回任意一枚。",
 };
@@ -69,7 +69,7 @@ const ROLE_FIELDS = [
 export default async function SiteSettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ saved?: string; err?: string; mail_error?: string }>;
+  searchParams: Promise<{ saved?: string; err?: string; mail_error?: string; warn?: string }>;
 }) {
   // 入口鉴权约定：第一个 await 必须是 requireAdmin（admin-entry-guard 静态守护）
   const admin = await requireAdmin("site.admin");
@@ -140,6 +140,14 @@ export default async function SiteSettingsPage({
       {flash && (
         <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
           {flash}
+        </p>
+      )}
+      {sp.warn === "logo" && (
+        <p
+          role="alert"
+          className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
+        >
+          默认主题已成功保存，但自带 LOGO 未能切换；可在 LOGO 管理中手动设置。
         </p>
       )}
       {mailError && (

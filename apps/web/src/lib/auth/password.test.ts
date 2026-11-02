@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildLegacyStorage,
   hashPassword,
   legacyHashHex,
+  verifyAccountPassword,
   verifyLegacyPassword,
   verifyPassword,
 } from "./password";
@@ -28,6 +29,46 @@ describe("password (argon2id)", () => {
 
   it("损坏哈希串返回 false 而非抛错", async () => {
     expect(await verifyPassword("not-a-hash", "x")).toBe(false);
+  });
+});
+
+describe("标识符密码复验 · 共用现代哈希入口", () => {
+  it("真实哈希恰好校验一次并原样传入密码，默认校验器保留真实往返", async () => {
+    const password = "共用入口Pass42!";
+    const hash = await hashPassword(password);
+    const verifier = vi.fn(verifyPassword);
+    expect(await verifyAccountPassword(hash, password, verifier)).toBe(true);
+    expect(verifier).toHaveBeenCalledExactlyOnceWith(hash, password);
+    expect(await verifyAccountPassword(hash, password)).toBe(true);
+    expect(await verifyAccountPassword(hash, "wrong-password")).toBe(false);
+  });
+
+  it.each([null, ""])(
+    "现代哈希缺失（%s）时只校验一次同参数 dummy，且不能认证成功",
+    async (hash) => {
+      const password = "missing-password";
+      const verifier = vi.fn(verifyPassword);
+      expect(await verifyAccountPassword(hash, password, verifier)).toBe(false);
+      expect(verifier).toHaveBeenCalledTimes(1);
+      const [dummy, receivedPassword] = verifier.mock.calls[0]!;
+      expect(receivedPassword).toBe(password);
+      expect(dummy).toMatch(/^\$argon2id\$v=19\$m=19456,t=2,p=1\$/);
+      const real = await hashPassword(password);
+      expect(dummy.split("$").slice(1, 4)).toEqual(real.split("$").slice(1, 4));
+      expect(dummy).not.toBe(real);
+    },
+  );
+
+  it("dummy 即使实际匹配，或校验器恒返回 true，缺少现代哈希仍拒绝", async () => {
+    const verifier = vi.fn(verifyPassword);
+    const dummyPassword = "funwind-public-dummy-password-check";
+    expect(await verifyAccountPassword(null, dummyPassword, verifier)).toBe(false);
+    expect(verifier).toHaveBeenCalledTimes(1);
+    expect(await verifier.mock.results[0]!.value).toBe(true);
+
+    const alwaysTrue = vi.fn(async () => true);
+    expect(await verifyAccountPassword(null, "任何密码", alwaysTrue)).toBe(false);
+    expect(alwaysTrue).toHaveBeenCalledTimes(1);
   });
 });
 

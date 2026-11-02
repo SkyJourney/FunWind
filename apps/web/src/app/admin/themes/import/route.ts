@@ -63,6 +63,17 @@ function remapDefinition(
 export async function POST(request: Request): Promise<Response> {
   if (!isSameOrigin(request)) return new Response("Forbidden", { status: 403 });
   const actor = await requireAdmin("site.admin");
+  let packId: string | null = null;
+  type AssetContext = { kind: "decor" | "logo"; file: string | null };
+  const logFailure = (stage: string, asset: AssetContext | null, reason: unknown) => {
+    console.error("[theme-pack-import] 主题包导入异常", {
+      packId,
+      actorId: actor.userId,
+      stage,
+      asset,
+      reason,
+    });
+  };
   const contentLength = Number(request.headers.get("content-length"));
   if (Number.isFinite(contentLength) && contentLength > MAX_THEME_PACK_ARCHIVE_BYTES + 64 * 1024) {
     return redirectTo("err=archive-too-large");
@@ -71,7 +82,8 @@ export async function POST(request: Request): Promise<Response> {
   let form: FormData;
   try {
     form = await request.formData();
-  } catch {
+  } catch (error) {
+    logFailure("parse-form", null, error);
     return redirectTo("err=bad-archive");
   }
   const upload = form.get("archive");
@@ -84,6 +96,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const id = idInput.trim().toLowerCase();
+  packId = id;
   const idError = validatePackId(id);
   if (idError) return redirectTo(`err=${idError}`);
   if (await getThemePack(id)) return redirectTo("err=duplicate-id");
@@ -91,35 +104,47 @@ export async function POST(request: Request): Promise<Response> {
   let pack: ReturnType<typeof parseThemePackArchive>;
   try {
     pack = parseThemePackArchive(new Uint8Array(await upload.arrayBuffer()));
-  } catch {
+  } catch (error) {
+    logFailure("parse-archive", null, error);
     return redirectTo("err=bad-archive");
   }
 
   const actorConfig = { userId: actor.userId, via: "admin" as const, ip: actor.ip };
-  const decorBefore = await getDecorPoolRaw();
-  const logoBefore = await getLogoPoolRaw();
+  let decorActiveBefore: string | null = null;
+  let logoActiveBefore: string | null = null;
   const addedDecor: string[] = [];
   const addedLogo: string[] = [];
   const fileMap = new Map<string, string>();
   let created = false;
   let errorCode = "asset-import";
+  let stage = "read-decor-pool";
+  let currentAsset: AssetContext | null = null;
 
   try {
+    decorActiveBefore = (await getDecorPoolRaw()).active;
+    stage = "read-logo-pool";
+    logoActiveBefore = (await getLogoPoolRaw()).active;
     for (const asset of pack.assets) {
+      stage = `import-${asset.kind}`;
+      currentAsset = { kind: asset.kind, file: asset.poolFile };
       const displayName = `${pack.name} · ${asset.kind === "decor" ? "装饰" : "LOGO"}`;
       if (asset.kind === "decor") {
         const result = await addDecor(displayName, asset.bytes, actorConfig);
-        if (!result.ok || !result.pool.active) throw new Error("decor-import-failed");
+        if (!result.ok) throw new Error(result.code);
+        if (!result.pool.active) throw new Error("decor-import-missing-active");
         fileMap.set(asset.poolFile, result.pool.active);
         addedDecor.push(result.pool.active);
       } else {
         const result = await addLogo(displayName, asset.bytes, actorConfig, { pack: id });
-        if (!result.ok || !result.pool.active) throw new Error("logo-import-failed");
+        if (!result.ok) throw new Error(result.code);
+        if (!result.pool.active) throw new Error("logo-import-missing-active");
         fileMap.set(asset.poolFile, result.pool.active);
         addedLogo.push(result.pool.active);
       }
     }
 
+    stage = "create-pack";
+    currentAsset = null;
     const definition = remapDefinition(pack.definition, fileMap);
     const assets = pack.assets.map((asset) => ({
       kind: asset.kind,
@@ -137,25 +162,56 @@ export async function POST(request: Request): Promise<Response> {
     });
     if (!result.ok) {
       errorCode = result.code ?? "asset-import";
+      logFailure(stage, currentAsset, errorCode);
     } else {
       created = true;
     }
-  } catch {
+  } catch (error) {
+    logFailure(stage, currentAsset, error);
     errorCode = "asset-import";
   }
 
+  let cleanupFailed = false;
+  // 补偿逐项隔离，某一素材清理失败也必须继续处理后续素材与两个池的当前项。
+  const compensate = async (phase: string, asset: AssetContext, run: () => Promise<void>) => {
+    try {
+      await run();
+    } catch (error) {
+      cleanupFailed = true;
+      logFailure(phase, asset, error);
+    }
+  };
   if (!created) {
-    for (const file of addedDecor) await removeDecor(file, actorConfig).catch(() => {});
-    for (const file of addedLogo) await removeLogo(file, actorConfig).catch(() => {});
+    for (const file of addedDecor) {
+      await compensate("remove-decor", { kind: "decor", file }, () =>
+        removeDecor(file, actorConfig),
+      );
+    }
+    for (const file of addedLogo) {
+      await compensate("remove-logo", { kind: "logo", file }, () => removeLogo(file, actorConfig));
+    }
   }
-  const restorePools: Promise<void>[] = [];
-  if (addedDecor.length > 0) restorePools.push(setActiveDecor(decorBefore.active, actorConfig));
-  if (addedLogo.length > 0) restorePools.push(setActiveLogo(logoBefore.active, actorConfig));
-  await Promise.allSettled(restorePools);
+  if (addedDecor.length > 0) {
+    await compensate("restore-decor", { kind: "decor", file: decorActiveBefore }, async () => {
+      await setActiveDecor(decorActiveBefore, actorConfig);
+      if ((await getDecorPoolRaw()).active !== decorActiveBefore) {
+        throw new Error("active-restore-mismatch");
+      }
+    });
+  }
+  if (addedLogo.length > 0) {
+    await compensate("restore-logo", { kind: "logo", file: logoActiveBefore }, async () => {
+      await setActiveLogo(logoActiveBefore, actorConfig);
+      if ((await getLogoPoolRaw()).active !== logoActiveBefore) {
+        throw new Error("active-restore-mismatch");
+      }
+    });
+  }
 
-  if (!created) return redirectTo(`err=${errorCode}`);
+  const warning = cleanupFailed ? "&warn=import-cleanup" : "";
+  if (!created) return redirectTo(`err=${errorCode}${warning}`);
   revalidatePath("/admin/themes");
   revalidatePath("/admin/decor");
   revalidatePath("/admin/logo");
-  return redirectTo(`saved=imported&id=${encodeURIComponent(id)}`);
+  return redirectTo(`saved=imported&id=${encodeURIComponent(id)}${warning}`);
 }
