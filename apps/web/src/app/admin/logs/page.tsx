@@ -4,6 +4,7 @@ import { queryAuditLogs, queryEventLogs } from "@/lib/admin/logs";
 import { pageBounds } from "@/lib/queries/paging";
 import { JsonViewerButton } from "@/components/admin/json-viewer";
 import { Pagination } from "@/components/content/pagination";
+import { AdminListMeta, AdminTable } from "@/components/admin/admin-list";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "审计日志" };
@@ -88,69 +89,58 @@ export default async function AdminLogsPage({ searchParams }: Params) {
         </div>
       </div>
 
-      <p className="text-xs text-muted-foreground">
-        共 {result.total} 条 · 第 {safePage}/{totalPages} 页
-      </p>
+      <AdminListMeta total={result.total} page={safePage} totalPages={totalPages} />
       <Pagination basePath={baseQuery({ page: "" })} page={safePage} totalPages={totalPages} />
 
-      <div className="overflow-x-auto rounded-xl border bg-card">
-        <table className="w-full text-left text-xs">
-          <thead className="border-b text-muted-foreground">
-            <tr>
-              <th className="px-3 py-2">id</th>
-              <th className="px-3 py-2">时间</th>
-              <th className="px-3 py-2">{tab === "events" ? "事件名" : "动作"}</th>
-              <th className="px-3 py-2">actor</th>
-              {tab === "audit" ? (
-                <>
-                  <th className="hidden px-3 py-2 md:table-cell">目标</th>
-                  <th className="hidden px-3 py-2 sm:table-cell">详情</th>
-                </>
-              ) : (
-                <th className="px-3 py-2">source / 错误</th>
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {tab === "audit"
-              ? (result as Awaited<ReturnType<typeof queryAuditLogs>>).items.map((r) => (
-                  <tr key={r.id} className="border-t">
-                    <td className="px-3 py-1.5 tabular-nums">{r.id}</td>
-                    <td className="px-3 py-1.5 whitespace-nowrap">{r.createdAt}</td>
-                    <td className="px-3 py-1.5 font-mono">{r.action}</td>
-                    <td className="px-3 py-1.5 tabular-nums">{r.actorId ?? "—"}</td>
-                    <td className="hidden px-3 py-1.5 md:table-cell">
-                      {r.targetType}:{r.targetId}
-                    </td>
-                    <td className="hidden px-3 py-1.5 sm:table-cell">
-                      <JsonViewerButton label="查看" json={r.afterJson ?? r.beforeJson ?? {}} />
-                    </td>
-                  </tr>
-                ))
-              : (result as Awaited<ReturnType<typeof queryEventLogs>>).items.map((r) => (
-                  <tr key={r.id} className="border-t">
-                    <td className="px-3 py-1.5 tabular-nums">{r.id}</td>
-                    <td className="px-3 py-1.5 whitespace-nowrap">{r.createdAt}</td>
-                    <td className="px-3 py-1.5 font-mono">{r.eventName}</td>
-                    <td className="px-3 py-1.5 tabular-nums">{r.actorId ?? "—"}</td>
-                    <td className="px-3 py-1.5">
-                      {r.source ?? "—"}
-                      {r.errorJson ? (
-                        <span className="ml-1 text-destructive">（有错误）</span>
-                      ) : null}
-                    </td>
-                  </tr>
-                ))}
-            {result.items.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">
-                  无记录。
-                </td>
-              </tr>
+      <AdminTable
+        colSpan={6}
+        hasRows={result.items.length > 0}
+        head={
+          <>
+            <th className="px-3 py-2">id</th>
+            <th className="px-3 py-2">时间</th>
+            <th className="px-3 py-2">{tab === "events" ? "事件名" : "动作"}</th>
+            <th className="px-3 py-2">actor</th>
+            {tab === "audit" ? (
+              <>
+                <th className="hidden px-3 py-2 md:table-cell">目标</th>
+                <th className="hidden px-3 py-2 sm:table-cell">详情</th>
+              </>
+            ) : (
+              <th className="px-3 py-2">source / 错误</th>
             )}
-          </tbody>
-        </table>
-      </div>
+          </>
+        }
+        rows={
+          tab === "audit"
+            ? (result as Awaited<ReturnType<typeof queryAuditLogs>>).items.map((r) => (
+                <tr key={r.id} className="border-t">
+                  <td className="px-3 py-1.5 tabular-nums">{r.id}</td>
+                  <td className="px-3 py-1.5 whitespace-nowrap">{r.createdAt}</td>
+                  <td className="px-3 py-1.5 font-mono">{r.action}</td>
+                  <td className="px-3 py-1.5 tabular-nums">{r.actorId ?? "—"}</td>
+                  <td className="hidden px-3 py-1.5 md:table-cell">
+                    {r.targetType}:{r.targetId}
+                  </td>
+                  <td className="hidden px-3 py-1.5 sm:table-cell">
+                    <JsonViewerButton label="查看" json={r.afterJson ?? r.beforeJson ?? {}} />
+                  </td>
+                </tr>
+              ))
+            : (result as Awaited<ReturnType<typeof queryEventLogs>>).items.map((r) => (
+                <tr key={r.id} className="border-t">
+                  <td className="px-3 py-1.5 tabular-nums">{r.id}</td>
+                  <td className="px-3 py-1.5 whitespace-nowrap">{r.createdAt}</td>
+                  <td className="px-3 py-1.5 font-mono">{r.eventName}</td>
+                  <td className="px-3 py-1.5 tabular-nums">{r.actorId ?? "—"}</td>
+                  <td className="px-3 py-1.5">
+                    {r.source ?? "—"}
+                    {r.errorJson ? <span className="ml-1 text-destructive">（有错误）</span> : null}
+                  </td>
+                </tr>
+              ))
+        }
+      />
       <p className="text-xs text-muted-foreground md:hidden">
         窄屏隐藏「目标/详情」列，完整数据请导出 CSV。
       </p>

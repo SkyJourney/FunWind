@@ -64,6 +64,7 @@ const NAV_GROUPS: { label: string; items: NavEntry[] }[] = [
       { href: "/admin/points", label: "积分", need: { admin: "admin.points" } },
       { href: "/admin/badges", label: "徽章", need: { admin: "admin.badges" } },
       { href: "/admin/logs", label: "审计日志", need: { admin: "admin.logs" } },
+      { href: "/admin/mail", label: "邮件", need: { admin: "admin.logs" } },
     ],
   },
   {

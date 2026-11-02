@@ -41,6 +41,14 @@ export default async function EmailSettingsPage({
           验证链接已发送，请查收当前邮箱。
         </p>
       )}
+      {sp.verification === "failed" && (
+        <p
+          role="alert"
+          className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
+        >
+          验证邮件发送失败，请稍后点「重新发送验证邮件」再试；持续失败请联系站点管理。
+        </p>
+      )}
       {sp.error && (
         <p
           role="alert"

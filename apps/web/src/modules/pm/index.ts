@@ -7,7 +7,7 @@ import {
   userActiveRecently,
   userEmailEnabled,
 } from "@/lib/notifications/email";
-import { pmReceivedMail } from "@/lib/auth/mailer";
+import { pmReceivedMail } from "@/lib/mail";
 import { getWebDb, messages, users } from "@funwind/db";
 
 /**
@@ -50,15 +50,14 @@ export const pmModule = defineModule({
           .where(eq(messages.conversationId, p.conversationId))
           .orderBy(desc(messages.id))
           .limit(1);
-        await sendUserEmail(p.recipientId, ({ siteName, siteUrl }) =>
+        await sendUserEmail(p.recipientId, ({ brand }) =>
           pmReceivedMail(
             {
               senderName: sender?.username ?? "用户",
               preview: latest?.body ?? "",
               conversationId: p.conversationId,
-              siteUrl,
             },
-            siteName,
+            brand,
           ),
         );
       }

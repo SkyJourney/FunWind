@@ -11,8 +11,7 @@ import { invalidateSiteChrome } from "@/lib/site-chrome";
 import { getCurrentUser } from "@/lib/auth/session";
 import { eq } from "drizzle-orm";
 import { getWebDb, users as usersTable } from "@funwind/db";
-import { sendMail, testMail } from "@/lib/auth/mailer";
-import { getSiteIdentity } from "@/lib/site-chrome";
+import { getMailBrand, sendMail, testMail } from "@/lib/mail";
 import { isKnownPackId } from "@/lib/theme/catalog";
 import { applyThemePackLogo } from "@/lib/theme/apply-pack-logo";
 
@@ -231,11 +230,9 @@ export const sendTestMailAction = defineAction({
     if (!row?.email) {
       redirect("/admin/settings?mail_error=no_email");
     }
-    const siteName = await getSiteIdentity()
-      .then((i) => i.name)
-      .catch(() => undefined);
+    const brand = await getMailBrand();
     try {
-      await sendMail(row.email, testMail(siteName));
+      await sendMail(row.email, testMail(brand), { userId: ctx.userId });
     } catch {
       redirect("/admin/settings?mail_error=send");
     }

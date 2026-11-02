@@ -30,9 +30,8 @@ import {
 } from "@/lib/auth/session";
 import { rateLimit } from "@/lib/auth/ratelimit";
 import { issueEmailToken, peekEmailTokenUserId } from "@/lib/auth/tokens";
-import { sendMail, verifyEmailMail } from "@/lib/auth/mailer";
+import { getMailBrand, trySendMail, verifyEmailMail } from "@/lib/mail";
 import { getRegisterMode, getEmailVerificationMode } from "@/lib/auth/settings";
-import { APP_URL } from "@/lib/site";
 
 /**
  * 认证 Server Actions（M4）。
@@ -256,14 +255,16 @@ export const registerAction = defineAction({
     inviteAttempt?.refund();
 
     // 邮箱验证要求已写入用户行；注册模式后续切换不会改变该账号的写权限门。
+    // 验证邮件不阻塞注册（F-05）：SMTP 故障时账号照常建立并登录，用户可在「设置 → 邮箱」重发；
+    // 失败已写入 email_log 发送记录。品牌在此预取（TTL 缓存命中），不在 after() 里做首个查询。
     if (requiresEmailVerification) {
       const token = await issueEmailToken(newId, "verify", email);
-      const { getSiteIdentity } = await import("@/lib/site-chrome");
-      const identity = await getSiteIdentity().catch(() => undefined);
-      await sendMail(
-        email,
-        verifyEmailMail(`${identity?.url ?? APP_URL}/verify/${token}`, identity?.name),
-      );
+      const brand = await getMailBrand();
+      after(async () => {
+        await trySendMail(email, verifyEmailMail(`${brand.siteUrl}/verify/${token}`, brand), {
+          userId: newId,
+        });
+      });
     }
 
     await establishLoginSession(newId, {

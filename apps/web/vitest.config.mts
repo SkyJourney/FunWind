@@ -29,7 +29,9 @@ export default defineConfig({
         "src/components/editor/insert-api.ts",
         "src/lib/stream/types.ts",
         "src/lib/gates/types.ts",
-        "src/lib/auth/mailer.ts",
+        // IO 壳（原 mailer.ts 排除项随批次 0 拆分迁移）：SMTP 发送与发送记录、品牌解析（读 chrome/主题目录缓存）——集成与 E2E 覆盖
+        "src/lib/mail/transport.ts",
+        "src/lib/mail/brand.ts",
         // 裁剪工具（M6.4d2）：react-image-crop 的拖拽与手柄是第三方交互壳，换算逻辑在 crop-math.ts 中单测，交互由 E2E 覆盖
         "src/components/upload/crop-body.tsx",
         "src/components/upload/crop-dialog.tsx",

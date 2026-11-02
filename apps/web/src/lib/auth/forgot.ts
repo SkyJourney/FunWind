@@ -1,8 +1,13 @@
 import { and, eq } from "drizzle-orm";
 import { getWebDb, normalizeKey, users } from "@funwind/db";
-import { APP_URL } from "@/lib/site";
-import { getSiteIdentity } from "@/lib/site-chrome";
-import { claimMail, resetPasswordMail, sendMail } from "./mailer";
+import {
+  claimMail,
+  FALLBACK_BRAND,
+  getMailBrand,
+  resetPasswordMail,
+  sendMail,
+  type MailBrand,
+} from "@/lib/mail";
 import { MAX_EMAIL_LENGTH } from "./email";
 import { rateLimit } from "./ratelimit";
 import { issueEmailToken } from "./tokens";
@@ -29,27 +34,27 @@ export const FORGOT_LIMITS = {
 export interface ForgotDeps {
   /** 响应之后执行的任务（生产：Next 的 after()）；单测注入以验证“响应不等发信” */
   defer: (task: () => Promise<void>) => void;
-  /** 为该用户签发令牌并发信；缺省走真实令牌与邮件（siteName 由调用方预取，避免 after() 内做首个 DB 查询） */
+  /** 为该用户签发令牌并发信；缺省走真实令牌与邮件（brand 由调用方预取，避免 after() 内做首个 DB 查询） */
   deliver?: (
     user: { id: number; hasPassword: boolean },
     email: string,
-    siteName?: string,
+    brand?: MailBrand,
   ) => Promise<void>;
 }
 
 async function defaultDeliver(
   user: { id: number; hasPassword: boolean },
   email: string,
-  siteName?: string,
-  siteUrl?: string,
+  brand: MailBrand = FALLBACK_BRAND,
 ) {
   const purpose = user.hasPassword ? "reset" : "claim";
   const token = await issueEmailToken(user.id, purpose, normalizeKey(email));
-  const link = `${siteUrl ?? APP_URL}/${purpose}/${token}`;
-  // 站点身份可配（M10.6b）：未取到（调用方读取失败）回退模板默认站名
+  const link = `${brand.siteUrl}/${purpose}/${token}`;
+  // sendMail 失败抛错（先记 email_log），由外层 defer 的 catch 统一记日志
   await sendMail(
     email,
-    purpose === "claim" ? claimMail(link, siteName) : resetPasswordMail(link, siteName),
+    purpose === "claim" ? claimMail(link, brand) : resetPasswordMail(link, brand),
+    { userId: user.id },
   );
 }
 
@@ -91,20 +96,13 @@ export async function requestAccountEmail(
   if (ip === null && !rateLimit("forgot-global", global.max, global.windowMs).allowed) return;
 
   const deliver = deps.deliver ?? defaultDeliver;
-  // 站点身份预取（M10.6c 教训）：chrome 有 30s TTL 全局缓存，放请求内是 ~0ms 命中；
+  // 邮件品牌预取（M10.6c 教训）：chrome / 主题目录都有 30s TTL 全局缓存，放请求内是 ~0ms 命中；
   // 放 after() 里会拖慢投递（dev 观测 30s+，首查迟到的连接初始化），E2E 找回轮询一度超时。
   // 对存在/不存在的邮箱一视同仁地读，防枚举时序不受影响。
-  const [siteName, siteUrl] = await getSiteIdentity()
-    .then((i) => [i.name, i.url] as const)
-    .catch(() => [undefined, undefined] as const);
+  const brand = await getMailBrand();
   deps.defer(async () => {
     try {
-      await deliver(
-        { id: user.id, hasPassword: user.passwordHash !== null },
-        email,
-        siteName,
-        siteUrl,
-      );
+      await deliver({ id: user.id, hasPassword: user.passwordHash !== null }, email, brand);
     } catch (e) {
       // 响应早已发出，这里只能记日志；用户重新申请即可
       console.error("[auth] 找回邮件发送失败:", e);

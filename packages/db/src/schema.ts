@@ -1044,6 +1044,40 @@ export const auditLog = mysqlTable(
   ],
 );
 
+/**
+ * 邮件发送记录（schema v2.8，邮件专项）：凡经 lib/mail 发出的邮件成败皆记一行，是邮件通道的审计日志。
+ * 只存收件人 / 主题 / 场景 / 结果，**不存正文**——验证类正文含一次性令牌链接。
+ * 保留期 90 天，由发送侧概率触发清理（lib/mail/transport.ts）。
+ */
+export const emailLog = mysqlTable(
+  "email_log",
+  {
+    id: bigint("id", { mode: "number", unsigned: true }).notNull().autoincrement(),
+    /** 类别：verify 验证令牌 / security 安全强制 / notice 场景通知 / digest 汇总 / system 系统 */
+    kind: varchar("kind", { length: 16 }).notNull(),
+    /** 场景标识 = 模板 id（如 verify-email、pm-received），后台按此筛选 */
+    scene: varchar("scene", { length: 48 }).notNull(),
+    toEmail: varchar("to_email", { length: 255 }).notNull(),
+    /** 收件用户（能解析到时记录；验证邮件发往未绑定地址时为空） */
+    userId: int("user_id", { unsigned: true }),
+    subject: varchar("subject", { length: 255 }).notNull(),
+    status: mysqlEnum("status", ["sent", "failed"]).notNull(),
+    /** 失败原因（SMTP 错误信息截断） */
+    error: varchar("error", { length: 500 }),
+    /** SMTP 返回的 Message-ID，便于到邮件服务商侧追查 */
+    messageId: varchar("message_id", { length: 255 }),
+    durationMs: int("duration_ms", { unsigned: true }),
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    index("idx_email_log_time").on(t.createdAt),
+    index("idx_email_log_user").on(t.userId, t.createdAt),
+    index("idx_email_log_status").on(t.status, t.createdAt),
+    index("idx_email_log_scene").on(t.scene, t.createdAt),
+  ],
+);
+
 // ============================================================
 // 表情体系（M10.9，schema v2.2）：分组 + 表情。旧站 50 枚以显式 id 120–169 入表
 // （/emoji/{id}.gif 是 URL 冻结约定，旧帖引用不能变）；后台上传的新表情自增接续，

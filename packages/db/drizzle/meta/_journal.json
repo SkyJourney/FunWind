@@ -155,6 +155,13 @@
       "when": 1793535770869,
       "tag": "0021_m11_theme_packages",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "5",
+      "when": 1793627011941,
+      "tag": "0022_m11_email_log",
+      "breakpoints": true
     }
   ]
 }

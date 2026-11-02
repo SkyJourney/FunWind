@@ -11,9 +11,7 @@ import {
 import { destroyCurrentSession, setClosureAccessCookie } from "@/lib/auth/session";
 import { rateLimit } from "@/lib/auth/ratelimit";
 import { getCurrentUser } from "@/lib/auth/session";
-import { accountDeletionVerificationMail, sendMail } from "@/lib/auth/mailer";
-import { getSiteIdentity } from "@/lib/site-chrome";
-import { APP_URL } from "@/lib/site";
+import { accountDeletionVerificationMail, getMailBrand, sendMail } from "@/lib/mail";
 
 const passwordText = z.string().max(1024).default("");
 
@@ -89,13 +87,12 @@ export const sendAccountDeletionRequestEmailAction = defineAction({
     }
     if (!challenge) redirect("/settings/delete-account?sent=1");
 
-    const identity = await getSiteIdentity().catch(() => undefined);
-    const url = `${identity?.url ?? APP_URL}/closure/verify?token=${encodeURIComponent(challenge.token)}`;
+    const brand = await getMailBrand();
+    const url = `${brand.siteUrl}/closure/verify?token=${encodeURIComponent(challenge.token)}`;
     try {
-      await sendMail(
-        challenge.email,
-        accountDeletionVerificationMail(url, "request", identity?.name),
-      );
+      await sendMail(challenge.email, accountDeletionVerificationMail(url, "request", brand), {
+        userId: ctx.userId,
+      });
     } catch {
       redirect("/settings/delete-account?error=邮件发送失败，请稍后重试");
     }

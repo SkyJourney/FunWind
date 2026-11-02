@@ -18,16 +18,15 @@ import { securityEmailEnabled, sendUserEmail } from "@/lib/notifications/email";
 import {
   emailChangedAlertMail,
   emailChangedConfirmMail,
+  getMailBrand,
   passwordChangedMail,
-  sendMail,
-} from "@/lib/auth/mailer";
-import { getSiteIdentity } from "@/lib/site-chrome";
+  trySendMail,
+  verifyEmailMail,
+} from "@/lib/mail";
 import { isKnownPackId } from "@/lib/theme/catalog";
 import { setUserThemePack } from "@/lib/theme-pref";
 import { hashEmailKey, issueEmailToken } from "@/lib/auth/tokens";
 import { changeEmailAddress } from "@/lib/auth/email-change";
-import { verifyEmailMail } from "@/lib/auth/mailer";
-import { APP_URL } from "@/lib/site";
 
 /**
  * 账号设置动作（M10.6c）：改密码（双轨强制换密同一入口）/ 改邮箱 / 资料。
@@ -121,7 +120,7 @@ export const updatePasswordAction = defineAction({
     (await cookies()).delete(MUST_CHANGE_COOKIE);
     // S1 安全强制类（后台统一开关；docs/EMAIL-SCENARIOS.md）：改密即告知
     if (await securityEmailEnabled()) {
-      await sendUserEmail(ctx.userId!, ({ siteName }) => passwordChangedMail(siteName));
+      await sendUserEmail(ctx.userId!, ({ brand }) => passwordChangedMail(brand));
     }
     revalidatePath("/", "layout");
     // 强制换密（双轨首登）：pending 已清零，当前受限 session 自然升级为普通会话——直接回首页；
@@ -175,18 +174,20 @@ export const updateEmailAction = defineAction({
     if (result.kind === "missing") redirect("/login");
     if (result.kind === "unchanged") redirect("/settings/email");
 
-    const identity = await getSiteIdentity().catch(() => undefined);
+    const brand = await getMailBrand();
     if (securityOn) {
+      // S2a/S2b 安全类尽力而为（失败已进 email_log）；验证邮件必须让用户知道结果
       if (result.emailChanged && result.beforeEmail) {
-        await sendMail(result.beforeEmail, emailChangedAlertMail(identity?.name)).catch(() => {});
+        await trySendMail(result.beforeEmail, emailChangedAlertMail(brand), { userId: ctx.userId });
       }
-      await sendMail(email, emailChangedConfirmMail(identity?.name)).catch(() => {});
+      await trySendMail(email, emailChangedConfirmMail(brand), { userId: ctx.userId });
     }
-    await sendMail(
+    const sent = await trySendMail(
       email,
-      verifyEmailMail(`${identity?.url ?? APP_URL}/verify/${result.verifyToken}`, identity?.name),
+      verifyEmailMail(`${brand.siteUrl}/verify/${result.verifyToken}`, brand, { email }),
+      { userId: ctx.userId },
     );
-    redirect("/settings/email?saved=1&verification=sent");
+    redirect(`/settings/email?saved=1&verification=${sent ? "sent" : "failed"}`);
   },
 });
 
@@ -221,12 +222,13 @@ export const resendEmailVerificationAction = defineAction({
     } catch {
       redirect(errHop("email", "邮箱已变更，请刷新页面后重试"));
     }
-    const identity = await getSiteIdentity().catch(() => undefined);
-    await sendMail(
+    const brand = await getMailBrand();
+    const sent = await trySendMail(
       row.email,
-      verifyEmailMail(`${identity?.url ?? APP_URL}/verify/${token}`, identity?.name),
+      verifyEmailMail(`${brand.siteUrl}/verify/${token}`, brand, { email: row.email }),
+      { userId: ctx.userId },
     );
-    redirect("/settings/email?verification=sent");
+    redirect(`/settings/email?verification=${sent ? "sent" : "failed"}`);
   },
 });
 

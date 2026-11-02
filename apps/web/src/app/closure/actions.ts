@@ -23,9 +23,7 @@ import {
   setClosureAccessCookie,
   setSessionCookie,
 } from "@/lib/auth/session";
-import { accountDeletionVerificationMail, sendMail } from "@/lib/auth/mailer";
-import { getSiteIdentity } from "@/lib/site-chrome";
-import { APP_URL } from "@/lib/site";
+import { accountDeletionVerificationMail, getMailBrand, trySendMail } from "@/lib/mail";
 
 const identifierText = z.string().trim().min(1).max(254);
 const passwordText = z.string().max(1024);
@@ -97,12 +95,10 @@ export const sendClosureAccessEmailAction = defineAction({
   async run(_ctx, input) {
     const challenge = await issueAccountDeletionAccessForEmail(input.email);
     if (challenge) {
-      const identity = await getSiteIdentity().catch(() => undefined);
-      const url = `${identity?.url ?? APP_URL}/closure/verify?token=${encodeURIComponent(challenge.token)}`;
-      await sendMail(
-        challenge.email,
-        accountDeletionVerificationMail(url, "access", identity?.name),
-      ).catch(() => {});
+      const brand = await getMailBrand();
+      const url = `${brand.siteUrl}/closure/verify?token=${encodeURIComponent(challenge.token)}`;
+      // 尽力而为：失败已进 email_log，页面的「已发送」提示保持中性（不泄露账号存在性）
+      await trySendMail(challenge.email, accountDeletionVerificationMail(url, "access", brand));
     }
     redirect("/closure?sent=1");
   },
@@ -129,12 +125,10 @@ export const sendClosureRequestEmailAction = defineAction({
   async run(_ctx, input) {
     const challenge = await issueAccountDeletionRequestForEmail(input.email);
     if (challenge) {
-      const identity = await getSiteIdentity().catch(() => undefined);
-      const url = `${identity?.url ?? APP_URL}/closure/verify?token=${encodeURIComponent(challenge.token)}`;
-      await sendMail(
-        challenge.email,
-        accountDeletionVerificationMail(url, "request", identity?.name),
-      ).catch(() => {});
+      const brand = await getMailBrand();
+      const url = `${brand.siteUrl}/closure/verify?token=${encodeURIComponent(challenge.token)}`;
+      // 尽力而为：失败已进 email_log，页面的「已发送」提示保持中性（不泄露账号存在性）
+      await trySendMail(challenge.email, accountDeletionVerificationMail(url, "request", brand));
     }
     redirect("/closure?sent=1");
   },

@@ -2,12 +2,7 @@ import { defineModule } from "../kernel/types";
 import { NOTIFICATION_TYPE_SPECS } from "@/lib/notifications/render";
 import { notify } from "@/lib/notifications/notify";
 import { securityEmailEnabled, sendUserEmail, userEmailEnabled } from "@/lib/notifications/email";
-import {
-  appealResultMail,
-  gateSoldMail,
-  restrictionMail,
-  contentApprovedMail,
-} from "@/lib/auth/mailer";
+import { appealResultMail, gateSoldMail, restrictionMail, contentApprovedMail } from "@/lib/mail";
 import { getForumModerators } from "@/lib/authz/service";
 import { publicUserDeleted } from "@/lib/queries/public-identity";
 import { forums, getWebDb, posts, roles, threads, userAppeals, users } from "@funwind/db";
@@ -138,9 +133,7 @@ export const notificationsModule = defineModule({
       });
       // S5 场景邮件：内容售出（用户偏好）
       if (await userEmailEnabled(p.authorId, "gate.sold")) {
-        await sendUserEmail(p.authorId, ({ siteName, siteUrl }) =>
-          gateSoldMail({ points: p.price, siteUrl }, siteName),
-        );
+        await sendUserEmail(p.authorId, ({ brand }) => gateSoldMail({ points: p.price }, brand));
       }
     },
     "points.changed": async (p) => {
@@ -229,8 +222,8 @@ export const notificationsModule = defineModule({
       });
       // S6 场景邮件：审核通过（用户偏好，docs/EMAIL-SCENARIOS.md）
       if (type === "content.approved" && (await userEmailEnabled(post.authorId, type))) {
-        await sendUserEmail(post.authorId, ({ siteName, siteUrl }) =>
-          contentApprovedMail({ threadId: post.threadId, siteUrl }, siteName),
+        await sendUserEmail(post.authorId, ({ brand }) =>
+          contentApprovedMail({ threadId: post.threadId }, brand),
         );
       }
     },
@@ -248,7 +241,7 @@ export const notificationsModule = defineModule({
       });
       // S3 安全强制类邮件（后台统一开关，docs/EMAIL-SCENARIOS.md）：处罚送达义务
       if (await securityEmailEnabled()) {
-        await sendUserEmail(p.userId, ({ siteName }) =>
+        await sendUserEmail(p.userId, ({ brand }) =>
           restrictionMail(
             {
               lifted: p.action !== "created",
@@ -256,7 +249,7 @@ export const notificationsModule = defineModule({
               reason: p.reason ?? "",
               endsAt: p.endsAt ?? null,
             },
-            siteName,
+            brand,
           ),
         );
       }
@@ -360,8 +353,8 @@ export const notificationsModule = defineModule({
         data: { result: appeal.result ?? "申诉已处理" },
       });
       if (user?.email && !user.deleted && (await securityEmailEnabled())) {
-        await sendUserEmail(p.userId, ({ siteName }) =>
-          appealResultMail(p.status, appeal.result ?? "申诉已处理", siteName),
+        await sendUserEmail(p.userId, ({ brand }) =>
+          appealResultMail(p.status, appeal.result ?? "申诉已处理", brand),
         );
       }
     },
