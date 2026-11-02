@@ -11,9 +11,24 @@
 - 迁移重跑保护：目标库已有现代密码的已认领账号不再参与旧 users/profile/avatar UPSERT，且回填谓词要求 modern/legacy hash 都为空，避免清空新密码或重开旧密码登录。
 - 回填核心抽成可注入 fake-query 函数；覆盖旧库只读、材料校验、非 active / 已认领 / 已回填跳过、游标分页与重复运行幂等。恢复 `qysub_next` 后单独补跑 legacy-password：10,698 条有效旧密码材料回填；SkyJourney 账号 pending 已核验（不记录哈希/邮箱）。
 
+### Added（M11.1：完整主题包引擎 + 管理闭环）
+
+施工手册见 [docs/milestones/M11.1-theme-engine.md](docs/milestones/M11.1-theme-engine.md)，装扮方案调度后续见 [M11.2](docs/milestones/M11.2-theme-switching.md)。
+
+- **后台主题工作区（Step 7）**：「站点管理 → 主题管理」侧栏入口；编辑页三区布局——Surface 属性表单 / 真实组件预览（浅深档 × 桌面移动）/ 内嵌素材库（上传、预览、删除、一键选用、引用徽标）。主题自带 LOGO 在工作区内上传/换绑/解绑（设默认时联动）。
+- **全站预览**：HMAC 签名 cookie 10 分钟内本人浏览器按该包渲染整站，不落库、不影响他人；「退出预览」即清。
+- **素材引用可见**：`/admin/decor` 与素材库卡片显示「被 N 个主题引用（区域）」；被引用素材删除被拒并给出清单。
+- **可编辑 Surface 主题包**：数据库包目录、区域能力白名单、浅/深档分别编辑与即时预览；fill/overlay 支持纯色、渐变多色标/alpha、素材图片位置与混合效果、边框/文字/blur/contentSlot。内置 default/qy2010 可编辑；删除/停用保护与 revision 乐观锁审计。
+- **主题素材 ZIP**：版本化 `theme.json` + decor/LOGO PNG 资源，SHA-256/CRC 校验、严格 ZIP 路径和大小限制、PNG 重新验真与导入资源 remap；拒绝坏包/外链/CSS 注入，被主题引用的装饰素材禁止移除。
+- **动态运行时**：启用 DB 包目录接入 SSR、ThemeMenu、外观页、站点默认和 PATCH；Surface CSS 由安全渲染器生成并在首帧注入，前台区域消费统一变量；显式 PWA 色值驱动 viewport/manifest 与 LOGO 图标底色。
+- **Fixed**：聊天页自动滚到底部后，若公告横幅在水合后出现会改变文档高度；下一帧校正滚动位置，避免最新消息和底部输入区脱离视口。
+- **Fixed（管理闭环断点）**：① Surface 图片 URL 从路径形式改为 `/brand/decor?file=` 查询参数（此前除首页 Hero 外所有主题图片 404）；② 图片遮罩的混合模式/透明度补全渲染与编辑器；③ ZIP 导入保留 PWA 元数据；④ 数据包明暗缺省档回退 default 包定义（SSR 与编辑器预览同口径）。
+- **制作规范文档**：新增 [docs/THEME-AUTHORING.md](docs/THEME-AUTHORING.md)——AI/人工可直读的主题制作口径：字段级 definition schema（配色/渐变/图片底纹/遮罩/内容插槽/PWA 色）、能力 × 区域矩阵、图片素材统一规格与上传/引用契约、ZIP 交付格式、三条制作路线与入库前自查清单。
+- **门禁实测（Step 7 后）**：`pnpm verify:all` 全绿（Web 1,979、DB 73、content 55、migration 278）；生产 E2E 365 + dev 8 全绿（1 例聊天滚动偶发 flake 复跑通过）；视觉矩阵 8/8（含 forum-band 图片底纹真实取图与编辑工作区基线）。站长真机目视签字仍待完成（清单见 THEME-SYSTEM.md §8）。
+
 ### Added（M11：主题包、主题插槽与 PWA）
 
-设计与分步进度见 [docs/milestones/M11-themes-pwa.md](docs/milestones/M11-themes-pwa.md)、插槽设计见 [docs/THEME-SYSTEM.md](docs/THEME-SYSTEM.md)，节日装扮自动化后续见 [M11.1](docs/milestones/M11.1-festival-decor.md)。
+设计与分步进度见 [docs/milestones/M11-themes-pwa.md](docs/milestones/M11-themes-pwa.md)、插槽设计见 [docs/THEME-SYSTEM.md](docs/THEME-SYSTEM.md)，完整主题引擎见 [M11.1](docs/milestones/M11.1-theme-engine.md)，切换调度后续见 [M11.2](docs/milestones/M11.2-theme-switching.md)。
 
 - **主题包 × 明暗模式正交**：`html[data-mode]`（next-themes，保留原 localStorage 键 `theme`）× `html[data-pack]`；注册表 `lib/theme-packs.ts`；`user_profiles.theme_pack`（schema v2.5 / 迁移 0020，NULL 跟随 `site.theme`）。全站默认主题在 `/admin/settings` 配置，用户在外观页或顶栏菜单即时自选；服务端直出 data-pack，刷新无闪烁。
 - **主题↔LOGO 池补充联动**：qy2010 自带当前「清爽侦探」青色半翼；设为全站默认时按 pack 标签幂等入 LOGO 池并激活，之后仍可独立切换；改回无自带 LOGO 的主题不会动现有 LOGO。日志保留 `via=theme` 来源标记。
@@ -310,7 +325,7 @@
 ### Tests（M6.3）
 
 - **单测**：编辑器目录 67 项（`components/editor/**`，含 jsdom 真实 Tiptap / CodeMirror 实例）；门控节点视图的事件归属与更新分支；工具栏命令逐个点击；预览成功 / 进行中 / HTTP 错误 / 网络异常 / 再次预览清错误；草稿读写清理与存储异常降级；提交暂存。`src/lib/posting/preview.test.ts`（含 `SECRET-PREVIEW` 泄露回归）、`roundtrip-check.test.ts`、`app/api/preview/route.test.ts`。
-- **覆盖率**（`vitest.config.ts`）：统计范围扩到 `src/components/editor/**`，阈值 行 90 / 分支 85 / 函数 90 / 语句 90；实测 语句 94.76 / 分支 90 / 函数 91.07 / 行 96.45。
+- **覆盖率**（`vitest.config.mts`）：统计范围扩到 `src/components/editor/**`，阈值 行 90 / 分支 85 / 函数 90 / 语句 90；实测 语句 94.76 / 分支 90 / 函数 91.07 / 行 96.45。
 - **E2E**：`e2e/support/editor.ts`（`bodyEditor` / `fillBody` / `fillSource`，按可访问名称定位，不依赖具体 DOM）；`edit.spec` 增加门控可视块、源码模式、往返不等价旧帖的说明与禁用切换；`reply.spec` 增加草稿恢复（含水合错误断言）与成功后不残留；`leak-sweep.spec` 增加五种视角的 `/api/preview` 扫描（带公开前言的正向对照）。
 - **验证**：`pnpm verify:all` 通过（web 单测 1023 项，包 251 项，lint / 格式 / 类型 / 构建）；`pnpm test:e2e` 通过（桌面 + 移动 131 项，生产冒烟 10 项，水合错误 0）；`pnpm check:secrets` 通过。
 - **未完成**：真机清单（iOS / Android 的拼音、手写、语音输入）尚待站长签字后勾选验收；M6.4 的图片上传与裁剪。

@@ -4,18 +4,19 @@
 > 各自保持简单；插槽位是页面上预留的挂载点，插槽内容由主题包（CSS 表现）与站点配置（素材内容）共同决定。
 > 本文档是 M11（[milestones/M11-themes-pwa.md](milestones/M11-themes-pwa.md)）与 M11.1
 > （[milestones/M11.1-theme-engine.md](milestones/M11.1-theme-engine.md) 与 [milestones/M11.2-theme-switching.md](milestones/M11.2-theme-switching.md)）的共同设计基准。
+> **要制作/生成主题包（AI 或人工），直接读字段级制作规范 [THEME-AUTHORING.md](THEME-AUTHORING.md)**。
 
 ## 1. 分层模型
 
 ```
-┌ 主题包 Theme Pack（CSS 层）———————————— 长什么样
-│   styles/tokens/themes/<id>.css：覆盖语义层变量 + 插槽参数（--band-* 等）
-│   注册表 lib/theme-packs.ts：id / 中文标签 / 可选自带 LOGO
-│   静态、随代码发布；用户个人偏好或站点默认二选一生效
+┌ 主题包 Theme Pack（表现层）———————————— 长什么样
+│   内置：styles/tokens/themes/<id>.css 静态兜底
+│   外源：theme_packages.definition（版本化 Surface JSON）+ assets（装饰/LOGO ZIP 资源）
+│   目录 = 静态注册表 ∪ DB 启用包；用户偏好或站点默认二选一生效
 ├ 站点素材位 Site Slots（DB 层）—————————— 挂什么
-│   site_settings JSON 键（site.logo 池 / site.hero 池 / …）+ 后台管理页
-│   运行时可换；site-chrome TTL 缓存（30s）+ 保存后 invalidate 即时生效
-└ 装扮方案 Decor Plan（M11.1）———————————— 打包运营
+│   site_settings JSON 键（site.logo 池 / site.hero 池 / site.decor 池 / …）+ 后台管理页
+│   运行时可换；目录与 site-chrome TTL 缓存（30s）+ 写后失效
+└ 装扮方案 Decor Plan（M11.2）———————————— 打包运营
     site.decor.plan：pack + logo + hero + banner 一次配置，带时间窗自动生效/到期回退
 ```
 
@@ -27,10 +28,10 @@
 | 属性 | 含义 | 写入方 | 值域 |
 |---|---|---|---|
 | `html[data-mode]` | 明暗模式 | next-themes 客户端脚本（attribute 模式，storageKey 保持默认 `"theme"` 不丢用户已选） | `light / dark` |
-| `html[data-pack]` | 主题包 | 服务端直出（root layout：用户偏好 → 站点默认 → default），SSR 即正确无闪烁；客户端切换同步 dataset + 持久化 | `default / qy2010 / …` |
+| `html[data-pack]` | 主题包 | 服务端直出（root layout：动态用户偏好 → 动态站点默认 → default），SSR 即正确无闪烁；客户端切换同步 dataset + 持久化 | 静态内置 ID + `theme_packages` 中启用的 DB ID |
 
 - 历史注：`data-mode` 由原 `data-theme` 更名（M11 Step 1 全库迁移）；`data-theme` 一词两义的旧状态废止。
-- CSS 选择器层级：语义层默认值在 `:root` → `[data-mode="dark"]` 暗色覆盖 → `[data-pack="<id>"]` 主题包覆盖。
+- CSS 选择器层级：语义层默认值在 `:root` → `[data-mode="dark"]` 暗色覆盖 → 内置包静态 CSS → 通过 Surface 渲染器安全生成的 `[data-pack="<id>"]` 变量；DB definition 只生成固定 `--sf-*` 键，不允许任意 CSS/JS。
 - **仅浅色主题包**（如 qy2010）用 `:root[data-pack="qy2010"]:not([data-mode="dark"])` 限定，
   暗色模式自动回退默认暗色；预留 `[data-pack="…"][data-mode="dark"]` 适配档，需要时再启用。
 
@@ -56,6 +57,8 @@
   ⑪ 全局页面背景（✅M11 令牌化：--page-bg，节日可给纹理/图案）
 ```
 
+M11.1 将上图中可见区域统一注册为 Surface（`header/hero-brand/banner-announce/forum-band/hero-image/tabbar/footer/auth/page`）；每个区域只消费自身 `--sf-<area>-*` 变量组。静态 `--band-*` 在 forum-band 保留兼容兜底。
+
 插槽协议（以 ⑥ 为样板，`globals.css` 的 `.forum-card-band`）：**组件只挂类名 +
 消费变量，变量默认值在 `themes/default.css`，主题包整组覆盖即可换形态**
 （渐隐 / 硬边界 `data-band-mask="none"` / 压暗 `dim`）。组件内联变量默认值是禁手——
@@ -71,22 +74,23 @@
 | `--gradient-brand` | primary→accent→secondary 渐变 | 无图板块水印（`forum-directory.tsx`） | 品牌渐变统一收口 |
 | `--fw-font-display`（primitives） | 回退 `--fw-font-sans` | 站名等品牌展示位（`font-display` 工具类） | 情怀衬线/圆体标题 |
 
+M11.1 的 Surface 运行时通过固定变量组消费填充、遮罩、描边、文字、blur 与 contentSlot；theme JSON 不携带 CSS 选择器或属性文本。PWA 的 `themeColor` / `backgroundColor` 是 definition 中单独校验的 hex 元数据，不从渐变或图片背景猜值。
+
 原三层令牌已有的非颜色维度（圆角、三档阴影、字阶、间距、动效时长/曲线、页面过渡位移）保持不变。
 
 ## 5. 主题包 ↔ LOGO 池联动（✅ 站长定稿 2026-10-31）
 
 **补充关系，非硬绑定**：
 
-1. 主题包可自带一枚 LOGO（`lib/theme-packs.ts` 的 `logo` 字段，素材放 `apps/web/public/logo/`），也可不带。
-2. 站长把某主题包**设为全站默认**时，若该包有自带 LOGO：自动导入 LOGO 池（池项带 `pack` 标签去重，
-   幂等——已在池则不重复导入）并**设为当前项**；无自带 LOGO 的包不触碰 LOGO 池。
+1. 内置静态包可声明 `lib/theme-packs.ts` 的 `logo`（素材放 `apps/web/public/logo/`）；DB 包在 `theme_packages.assets` 引用 LOGO 池文件，均可不带。
+2. 站长把某主题包**设为全站默认**时，若 DB 包引用池内 LOGO 则设为当前项；内置静态包仍自动从 public 目录幂等导入并设为当前项。无自带 LOGO 的包不触碰 LOGO 池。
 3. 之后站长仍可随时从 LOGO 池独立切换任意一枚；管理页对带 `pack` 标签的池项显示
    「〈主题名〉自带」徽标；被移除后再次设默认主题会重新导入。
 4. 联动**只在站长设站点默认主题时触发**；用户个人主题包偏好不改变站点 LOGO
    （LOGO 属站点身份，避免与池内独立切换互相踩）。
 5. 审计沿用 `admin.logo.upload` / `admin.logo.activate`，`after` 里记 `via: "theme"` 区分来源。
 
-## 6. 装扮方案引擎（M11.1 展望，本期不做）
+## 6. 装扮方案引擎（M11.2 展望，本期不做）
 
 `site.decor.plan`（site_settings JSON）：`{ name, pack, logo?, hero?, banner?, schedule?: { startsAt, endsAt } }`。
 后台一键「启用圣诞装扮」：按方案切主题默认、切 LOGO、切 Hero；带时间窗时请求侧惰性判断
@@ -105,7 +109,31 @@
 | 个人偏好改包 | 不改站点 LOGO | LOGO 属站点身份 |
 | Hero 素材管线 | 复刻 LOGO 池：PNG-only 直存 `STORAGE_DIR/site/`，不进 files 表 | 模式已验证、链路最短；上限 ≤1920×1080 / ≤2MB |
 | 池类配置泛化 | brand-pool 核心（DB 事务+审计 / fs 验真落盘 / 公开输出 / 动作骨架）logo/hero 共用薄壳 | 已落地（lib/brand/brand-pool*）；静态守护（use-server-exports/admin-entry-guard）要求动作文件保留字面 defineAction+auth，故动作不做转发导出 |
-| PWA 离线缓存 | 只缓存通用 offline.html 与不可变公共静态资源；不缓存 HTML/RSC/API/files/brand；manifest 图标动态读取 LOGO 池当前项、空池回退静态图 | 页面动态且包含用户态数据；避免登出/换号后读到旧账号缓存；切主题默认时 manifest theme-color 与 LOGO 联动 |
-| 装扮自动调度 | M11.1（配置引擎 + 时间窗），本期插槽设计与管理先行 | 站长定稿 2026-10-31 |
+| PWA 离线缓存 | 只缓存通用 offline.html 与不可变公共静态资源；不缓存 HTML/RSC/API/files/brand；manifest 图标动态读取 LOGO 池当前项、空池回退静态图；themeColor/backgroundColor 读取站点默认包的显式 PWA 元数据 | 页面动态且包含用户态数据；避免登出/换号后读到旧账号缓存；用户个人主题不改变站点级 PWA 色值 |
+| 装扮自动调度 | M11.2（配置引擎 + 时间窗），M11.1 先完成主题包引擎与 Surface 接线 | 站长定稿 2026-10-31 |
 | 视觉回归基线 | 仅本机 macOS 跑（`pnpm test:visual`），容差 3% 吸收字形 AA 抖动；换基线须人工核对 | CI 字体渲染差异不可跨平台对比 |
 | 顶栏挂件位 | 协议预留，M11.1 实现 | 交互/无障碍细节值得单独一轮 |
+
+## 8. 主题管理闭环（M11.1 Step 7，站长工作区）
+
+后台「站点管理 → 主题管理」是主题域的唯一管理入口；主题编辑页是集中工作区：
+
+1. **编辑工作区三区**：左 = Surface 区域导航 + 该区域可用能力的属性表单（浅/深档独立编辑）；
+   右上 = 按真实组件结构渲染的预览（消费与实站相同的 `--sf-*` 草稿变量，支持桌面/移动宽度切换）；
+   右下 = 内嵌素材库（上传 / 缩略图预览 / 删除 / 一键「用作底纹或内容图」）。
+2. **素材契约**：底纹与内容图引用 decor 池（`decorUrl` = `/brand/decor?file=<poolFile>`）；
+   被引用的素材在素材库与 `/admin/decor` 都显示引用徽标且拒绝删除；上传走同一 PNG 验真管线。
+3. **主题自带 LOGO**：工作区内上传（自动带本包 pack 标签入 LOGO 池）/ 从池换绑 / 解绑；
+   设为全站默认时自动设为当前 LOGO，之后可在「LOGO 管理」独立切换（补充关系，非绑定）。
+4. **全站预览**：编辑页「全站预览此主题」写入 HMAC 签名 cookie（`fw_theme_preview`，
+   `THEME_PREVIEW_SECRET` env 或进程内随机密钥），10 分钟内本人浏览器整站按该包渲染；
+   顶部条「退出预览」即清。不落库、不影响其他访客；cookie 失效/包停用自动回正常链。
+5. **站长真机验收清单**（勾选后 M11.1 收口）：
+   - [ ] 后台侧栏出现「主题管理」并能进入列表/编辑工作区
+   - [ ] 工作区内上传底纹 → 素材库出现 → 一键用作板块卡底纹 → 预览可见图片
+   - [ ] 浅/深档切换、桌面/移动宽度切换的预览均符合预期
+   - [ ] 「全站预览」逛首页/板块/帖子/登录页，退出后恢复
+   - [ ] 保存 → 设为全站默认 → 游客/未自选用户跟随；PWA manifest 两色正确
+   - [ ] 导出 ZIP → 删除包 → 重新导入，配置与素材完整还原
+   - [ ] 主题自带 LOGO 上传/换绑/解绑；设默认时 LOGO 联动、独立切换正常
+   - [ ] 被引用素材的移除被拒且显示引用主题清单
