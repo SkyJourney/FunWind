@@ -6,7 +6,7 @@ import { getDigestHour, securityEmailEnabled } from "@/lib/notifications/email";
 import { getLimitsConfig } from "@/lib/limits/load";
 import { getSiteChrome, getSiteIdentity } from "@/lib/site-chrome";
 import { SITE_URL } from "@/lib/site";
-import { THEME_PACKS } from "@/lib/theme-packs";
+import { getThemeCatalog } from "@/lib/theme/catalog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import {
@@ -73,22 +73,33 @@ export default async function SiteSettingsPage({
 }) {
   // 入口鉴权约定：第一个 await 必须是 requireAdmin（admin-entry-guard 静态守护）
   const admin = await requireAdmin("site.admin");
-  const [identity, mode, limits, verificationMode, securityMail, digestHour, adminRow, sp, chrome] =
-    await Promise.all([
-      getSiteIdentity(),
-      getRegisterMode(),
-      getLimitsConfig(),
-      getEmailVerificationMode(),
-      securityEmailEnabled(),
-      getDigestHour(),
-      getWebDb()
-        .select({ email: users.email })
-        .from(users)
-        .where(eq(users.id, admin.userId))
-        .limit(1),
-      searchParams,
-      getSiteChrome(),
-    ]);
+  const [
+    identity,
+    mode,
+    limits,
+    verificationMode,
+    securityMail,
+    digestHour,
+    adminRow,
+    sp,
+    chrome,
+    catalog,
+  ] = await Promise.all([
+    getSiteIdentity(),
+    getRegisterMode(),
+    getLimitsConfig(),
+    getEmailVerificationMode(),
+    securityEmailEnabled(),
+    getDigestHour(),
+    getWebDb()
+      .select({ email: users.email })
+      .from(users)
+      .where(eq(users.id, admin.userId))
+      .limit(1),
+    searchParams,
+    getSiteChrome(),
+    getThemeCatalog(),
+  ]);
   const adminEmail = adminRow[0]?.email ?? null;
   const flash = sp.saved ? FLASH[sp.saved] : undefined;
   const mailError = sp.mail_error ? MAIL_ERROR[sp.mail_error] : undefined;
@@ -212,7 +223,7 @@ export default async function SiteSettingsPage({
         </CardHeader>
         <CardContent>
           <form action={saveThemePackAction} className="space-y-2 text-sm">
-            {THEME_PACKS.map((pack) => (
+            {catalog.map((pack) => (
               <label key={pack.id} className="flex items-start gap-2">
                 <input
                   type="radio"

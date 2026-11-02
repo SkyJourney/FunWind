@@ -1,6 +1,7 @@
 "use server";
 
 import { defineAction } from "@/lib/actions/define-action";
+import { redirect } from "next/navigation";
 import {
   activateInBrandPool,
   brandFileInput,
@@ -10,6 +11,9 @@ import {
 } from "@/lib/brand/pool-actions";
 import { decorFs } from "@/lib/brand/decor-pool-fs";
 import { decorPool } from "@/lib/brand/decor-pool";
+import { getWebDb, themePackages } from "@funwind/db";
+import { getThemePackDecorRefs } from "@/lib/theme/packs";
+import { parseThemePackDefinition } from "@/lib/theme/surface-schema";
 
 /**
  * 主题装饰素材池管理动作（M11.1 Step 4）：门禁 site.admin；
@@ -41,6 +45,12 @@ export const removeDecorAction = defineAction({
   auth: { admin: "site.admin" },
   input: brandFileInput("/admin/decor"),
   async run(ctx, input) {
+    const rows = await getWebDb().select().from(themePackages);
+    const usedBy = rows.find((row) => {
+      const parsed = parseThemePackDefinition(row.definition);
+      return parsed.ok && getThemePackDecorRefs(parsed.value).includes(input.file);
+    });
+    if (usedBy) redirect(`/admin/decor?err=in-use&file=${encodeURIComponent(input.file)}`);
     return removeBrandPoolItem(decorPool, ctx, input, "/admin/decor");
   },
 });

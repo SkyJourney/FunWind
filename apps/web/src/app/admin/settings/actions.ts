@@ -13,8 +13,8 @@ import { eq } from "drizzle-orm";
 import { getWebDb, users as usersTable } from "@funwind/db";
 import { sendMail, testMail } from "@/lib/auth/mailer";
 import { getSiteIdentity } from "@/lib/site-chrome";
-import { isPackValue } from "@/lib/theme-packs";
-import { applyPackLogo } from "@/lib/brand/logo-pool-fs";
+import { isKnownPackId } from "@/lib/theme/catalog";
+import { applyThemePackLogo } from "@/lib/theme/apply-pack-logo";
 
 /**
  * 站点配置动作（M10.6b，docs/milestones/M10.6-feature-completion.md 批次 b）：
@@ -36,10 +36,10 @@ export const saveThemePackAction = defineAction({
   auth: { admin: "site.admin" },
   input: z.object({ pack: z.string().max(32) }),
   async run(ctx, input) {
-    if (!isPackValue(input.pack)) redirect("/admin/settings?err=theme");
+    if (!(await isKnownPackId(input.pack))) redirect("/admin/settings?err=theme");
     const actor = { userId: ctx.userId ?? null, via: "admin" as const, ip: ctx.ip };
     await setSetting("site.theme", { pack: input.pack }, actor);
-    const logo = await applyPackLogo(input.pack, { ...actor, via: "theme" });
+    const logo = await applyThemePackLogo(input.pack, { ...actor, via: "theme" });
     invalidateSiteChrome();
     revalidatePath("/", "layout");
     done(logo.applied ? "theme_logo" : "theme");
