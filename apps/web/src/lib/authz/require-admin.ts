@@ -49,7 +49,10 @@ export async function requireModerator(): Promise<AdminActor> {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
   const subject = await loadSubject(user.id);
-  const moderated = await getModeratedForumIds(subject);
-  if (moderated.length === 0) notFound();
+  const [siteAdmin, moderated] = await Promise.all([
+    checkPermission(subject, "site.admin"),
+    getModeratedForumIds(subject),
+  ]);
+  if (!siteAdmin.allowed && moderated.length === 0) notFound();
   return { userId: user.id, ip: clientIpFrom(await headers()) };
 }

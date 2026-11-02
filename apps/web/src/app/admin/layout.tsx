@@ -8,9 +8,9 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "后台" };
 
 /**
- * 后台门禁布局：site.admin 总开关；非 admin 直接 404（不暴露后台存在）。
- * 注意这只是第一道门：局部渲染可能跳过 layout，每个页面与 Server Action 仍须自己 requireAdmin。
- * 菜单可见性按权限集派生（不建菜单权限表）：站点级菜单看对应 admin.* 权限点；
+ * 后台门禁布局：site.admin 或任一版块版主可达，其余身份 404（不暴露后台存在）。
+ * 局部渲染可能跳过 layout，每个页面与 Server Action 仍须自行鉴权。
+ * 菜单可见性按权限集派生：站点级菜单先要求 site.admin，再叠加对应权限点；
  * 「内容审核」对版主开放（forum.moderate 作用域，队列内只显示所辖版块）。
  * 布局壳（侧栏/抽屉/当前态）在 AdminShell；这里只做门禁与按权限过滤菜单。
  */
@@ -47,7 +47,7 @@ const NAV_GROUPS: { label: string; items: NavEntry[] }[] = [
       { href: "/admin/contents", label: "内容管理", need: { moderate: true } },
       { href: "/admin/reports", label: "举报处理", need: { admin: "admin.reports" } },
       { href: "/admin/poll", label: "投票管理", need: { moderate: true } },
-      { href: "/admin/pm", label: "私信管理", need: { admin: "admin.logs" } },
+      { href: "/admin/pm", label: "私信管理", need: { admin: "site.admin" } },
     ],
   },
   {
@@ -60,7 +60,7 @@ const NAV_GROUPS: { label: string; items: NavEntry[] }[] = [
   {
     label: "系统",
     items: [
-      { href: "/admin/announcements", label: "公告", need: { moderate: true } },
+      { href: "/admin/announcements", label: "公告", need: { admin: "site.admin" } },
       { href: "/admin/points", label: "积分", need: { admin: "admin.points" } },
       { href: "/admin/badges", label: "徽章", need: { admin: "admin.badges" } },
       { href: "/admin/logs", label: "审计日志", need: { admin: "admin.logs" } },
@@ -100,6 +100,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       await Promise.all(
         group.items.map(async (entry) => {
           if ("admin" in entry.need) {
+            if (!siteAdmin.allowed) return null;
             return (await checkPermission(subject, entry.need.admin)).allowed ? entry : null;
           }
           // 版主可达：持有任一版块的 forum.moderate（scoped 授权必须数版主版块，不能裸 evaluate 全局）

@@ -15,6 +15,15 @@
 - **固定规范 + 守卫**：`lib/mail/mail-guard.test.ts`——nodemailer 唯一出口、发信唯一导入源、新模板必须登记预览样例；后台新列表页起用共享件 `lib/admin/query.ts`（buildAdminQuery / parseAdminPage，审查 F-19 落地起点）。
 - 测试：layout/templates/log-query 单测 + 守卫；E2E 新增 `admin-mail.spec`（会员 404 / 测试邮件落记录可筛选 / 预览页切换）；重复的 `lib/auth/mailer.test.ts`（与 password.test.ts 全同）删除。
 
+### Fixed（审查批次 1：P0 修复 + 错误路径回归）
+
+- **注销/申诉/删号线 500 修复（F-01）**：三线 18 处 `redirect("…?error=中文")` 把未编码文案直接拼进 URL，Next 把跳转地址原样写入响应头、Node 对非 Latin-1 头字符抛 `ERR_INVALID_CHAR`——用户在「输错密码」这类正常错误路径上撞 500（3100 实机复现）。新增 `lib/actions/hop.ts`（`errorHop` / `redirectWithError`）统一编码，全部调用点替换；settings 页移除局部 errHop，直接复用共享实现。
+- **版主后台断点（F-02）**：`/admin` 首页守卫从 `requireAdmin()`（site.admin）改为 `requireModerator()`，与布局总门同口径——纯版主从「管理后台」入口直达内容审核队列（原先 404、跳转分支是死代码）。
+- **菜单-守卫对齐（F-03/F-04）**：「公告」「私信管理」菜单 need 收紧为 `site.admin`，与两页守卫一致（原先版主/持 admin.logs 者可见菜单但点入 404）。
+- **守卫上线（G-01/G-07）**：`redirect-encoding-guard.test.ts` 用 TypeScript 语法树扫描全部 `use server` 文件（不依赖文件名），识别别名、Unicode 转义、emoji 与未编码的 error/err 动态值（显式 `.code` 为机器码例外）；`admin-nav-guard.test.ts` 解析全部 NAV_GROUPS 权限对象，与目标页面首个守卫逐项断言，内容管理仅接受完整作用域鉴权，不把“已登录”当授权。站点菜单额外要求 `site.admin`，与 `requireAdmin` 组合权限一致；后台总门显式放行无板块的新站站长。
+- **门禁实测**：`verify:all` 全绿（Web 2,021 / DB 73 / content 55 / migration 278）；全量 E2E 生产 375 + dev 8 全绿；重复度 2003 行 / 213 克隆，未上调基线。开发库幂等应用 0022 并二次复验，53 表与用户 10,763 未变，`db:verify` 全绿。
+- **E2E 错误路径回归（F-13/F-14）**：新增 `error-redirects.spec` 7 案——注销页输错密码见文案而非 500、同标识符频控、末位站长保护、设置内申请注销密码错误、申诉频控、关闭 JavaScript 的 303 编码跳转、版主落 `/admin/review` 且看不到站点管理组、会员 `/admin` 404。同步修正聊天上滑 E2E 的两帧初始布局校正竞态，保留 30→60 条与滚动锚点断言。
+
 ### Fixed（M10.6c：双轨密码默认迁移接线）
 
 - `pnpm migrate` 现于 `users` 后默认运行 `legacy-password`；`pnpm migrate users` 自动联动，保留独立补跑命令。旧库仍只读，只把有效 phpwind MD5+salt 材料写入 `legacy_password_hash` / `legacy_password_pending`，现代 `password_hash` 仍只存 Argon2id。

@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { redirect } from "next/navigation";
 import { defineAction } from "@/lib/actions/define-action";
+import { redirectWithError } from "@/lib/actions/hop";
 import { hashEmailKey } from "@/lib/auth/tokens";
 import { AppealError, submitAppealAsUser, submitAppealWithPassword } from "@/lib/authz/appeals";
 
@@ -36,13 +37,13 @@ export const submitAppealAction = defineAction({
           : `appeal:user:${ctx.userId}`,
       max: 5,
       windowMs: 60 * 60_000,
-      onLimit: () => redirect("/appeal?error=操作过于频繁，请稍后再试"),
+      onLimit: () => redirectWithError("/appeal", "操作过于频繁，请稍后再试"),
     },
     {
       key: (ctx) => (ctx.ip ? `appeal:ip:${ctx.ip}` : null),
       max: 10,
       windowMs: 60 * 60_000,
-      onLimit: () => redirect("/appeal?error=操作过于频繁，请稍后再试"),
+      onLimit: () => redirectWithError("/appeal", "操作过于频繁，请稍后再试"),
     },
   ],
   async run(ctx, input) {

@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { getWebDb, notificationPreferences, userProfiles, users } from "@funwind/db";
 import { defineAction } from "@/lib/actions/define-action";
+import { errorHop } from "@/lib/actions/hop";
 import { writeAudit } from "@/lib/audit";
 import { rateLimit } from "@/lib/auth/ratelimit";
 import { checkPermission } from "@/lib/authz/service";
@@ -35,9 +36,6 @@ import { changeEmailAddress } from "@/lib/auth/email-change";
 
 const PASSWORD_MAX = 1024;
 const text = (max: number) => z.string().max(max).default("");
-
-const errHop = (page: string, code: string) =>
-  `/settings/${page}?error=${encodeURIComponent(code)}`;
 
 /** 当前密码校验规则：有 argon2 哈希必验；旧哈希免验只允许专用的强制换密 session。 */
 async function requireCurrentOk(
@@ -88,13 +86,13 @@ export const updatePasswordAction = defineAction({
     const user = ctx.passwordChangeOnly ? await getPasswordChangeUser() : await getCurrentUser();
     if (!user || user.id !== ctx.userId) redirect("/login");
     if (input.password.length < 8) {
-      redirect(errHop("password", "新密码至少 8 位"));
+      redirect(errorHop("/settings/password", "新密码至少 8 位"));
     }
     if (input.password !== input.confirm) {
-      redirect(errHop("password", "两次输入的新密码不一致"));
+      redirect(errorHop("/settings/password", "两次输入的新密码不一致"));
     }
     const cur = await requireCurrentOk(ctx.userId!, input.current, ctx.passwordChangeOnly);
-    if (!cur.ok) redirect(errHop("password", cur.code));
+    if (!cur.ok) redirect(errorHop("/settings/password", cur.code));
 
     const currentToken = (await cookies()).get(SESSION_COOKIE)?.value ?? null;
     await getWebDb().transaction(async (tx) => {
@@ -145,7 +143,7 @@ export const updateEmailAction = defineAction({
       key: (ctx) => `email-change:${ctx.userId}`,
       max: 5,
       windowMs: 60 * 60_000,
-      onLimit: () => redirect(errHop("email", "操作过于频繁，请稍后再试")),
+      onLimit: () => redirect(errorHop("/settings/email", "操作过于频繁，请稍后再试")),
     },
   ],
   async run(ctx, input) {
@@ -153,10 +151,10 @@ export const updateEmailAction = defineAction({
     if (!user) redirect("/login");
     const email = input.email.trim();
     if (email === "" || !isValidEmail(email)) {
-      redirect(errHop("email", "邮箱格式不正确"));
+      redirect(errorHop("/settings/email", "邮箱格式不正确"));
     }
     const cur = await requireCurrentOk(ctx.userId!, input.current);
-    if (!cur.ok) redirect(errHop("email", cur.code));
+    if (!cur.ok) redirect(errorHop("/settings/email", cur.code));
 
     const key = email.toLowerCase();
     const securityOn = await securityEmailEnabled();
@@ -168,9 +166,9 @@ export const updateEmailAction = defineAction({
       () => rateLimit(`email-change-to:${hashEmailKey(key)}`, 5, 60 * 60_000).allowed,
     );
     if (result.kind === "rate_limited") {
-      redirect(errHop("email", "该地址的验证邮件发送过于频繁，请稍后再试"));
+      redirect(errorHop("/settings/email", "该地址的验证邮件发送过于频繁，请稍后再试"));
     }
-    if (result.kind === "taken") redirect(errHop("email", "该邮箱已被其他账号使用"));
+    if (result.kind === "taken") redirect(errorHop("/settings/email", "该邮箱已被其他账号使用"));
     if (result.kind === "missing") redirect("/login");
     if (result.kind === "unchanged") redirect("/settings/email");
 
@@ -199,9 +197,9 @@ export const resendEmailVerificationAction = defineAction({
     const user = await getCurrentUser();
     if (!user) redirect("/login");
     const cur = await requireCurrentOk(ctx.userId!, input.current);
-    if (!cur.ok) redirect(errHop("email", cur.code));
+    if (!cur.ok) redirect(errorHop("/settings/email", cur.code));
     if (!rateLimit(`email-verify:${ctx.userId}`, 3, 60 * 60_000).allowed) {
-      redirect(errHop("email", "验证邮件发送过于频繁，请稍后再试"));
+      redirect(errorHop("/settings/email", "验证邮件发送过于频繁，请稍后再试"));
     }
 
     const [row] = await getWebDb()
@@ -213,14 +211,14 @@ export const resendEmailVerificationAction = defineAction({
       .from(users)
       .where(eq(users.id, ctx.userId!))
       .limit(1);
-    if (!row?.email || !row.emailKey) redirect(errHop("email", "当前账号未绑定邮箱"));
+    if (!row?.email || !row.emailKey) redirect(errorHop("/settings/email", "当前账号未绑定邮箱"));
     if (row.emailVerifiedAt) redirect("/settings/email?saved=1");
 
     let token: string;
     try {
       token = await issueEmailToken(ctx.userId!, "verify", row.emailKey);
     } catch {
-      redirect(errHop("email", "邮箱已变更，请刷新页面后重试"));
+      redirect(errorHop("/settings/email", "邮箱已变更，请刷新页面后重试"));
     }
     const brand = await getMailBrand();
     const sent = await trySendMail(
@@ -248,16 +246,16 @@ export const updateProfileAction = defineAction({
     if (!user) redirect("/login");
     const website = input.website.trim();
     if (website !== "" && !/^https?:\/\//.test(website)) {
-      redirect(errHop("profile", "主页地址需以 http(s):// 开头"));
+      redirect(errorHop("/settings/profile", "主页地址需以 http(s):// 开头"));
     }
     const birthday = input.birthday.trim();
     if (birthday !== "" && !/^\d{4}-\d{2}-\d{2}$/.test(birthday)) {
-      redirect(errHop("profile", "生日格式应为 YYYY-MM-DD"));
+      redirect(errorHop("/settings/profile", "生日格式应为 YYYY-MM-DD"));
     }
     const canUseSignature = (await checkPermission(ctx.subject, "sign.use")).allowed;
     const signature = input.signature.trim();
     if (!canUseSignature && signature !== "") {
-      redirect(errHop("profile", "签名档当前受限，原内容将在限制解除后恢复"));
+      redirect(errorHop("/settings/profile", "签名档当前受限，原内容将在限制解除后恢复"));
     }
     const values = {
       bio: input.bio.trim() === "" ? null : input.bio.trim(),
@@ -307,7 +305,7 @@ export const updateThemePackAction = defineAction({
     const user = await getCurrentUser();
     if (!user) redirect("/login");
     if (input.pack !== "site" && !(await isKnownPackId(input.pack))) {
-      redirect(errHop("appearance", "未知的主题包"));
+      redirect(errorHop("/settings/appearance", "未知的主题包"));
     }
     await setUserThemePack(ctx.userId!, input.pack === "site" ? null : input.pack);
     // root layout 直出 html[data-pack]：整站布局失效，下一请求即新主题

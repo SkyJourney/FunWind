@@ -73,7 +73,11 @@ test.describe("聊天页上滑加载", () => {
     await expect.poll(() => atBottom(page)).toBe(true);
 
     // 滚到顶，同步量出首屏最旧一条（消息 46）此刻在视口中的位置，再等更早一批插入
-    const before = await page.evaluate(() => {
+    const before = await page.evaluate(async () => {
+      // 进入时还有两帧布局校正；等它们结束，避免测试的上滑被校正误当成初始定位覆盖。
+      for (let i = 0; i < 3; i++) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      }
       window.scrollTo(0, 0);
       const first = [...document.querySelectorAll("main ul > li")].find((li) =>
         li.textContent?.includes("消息 46"),

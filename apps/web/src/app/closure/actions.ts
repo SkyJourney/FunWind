@@ -4,6 +4,7 @@ import { z } from "zod";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { defineAction } from "@/lib/actions/define-action";
+import { redirectWithError } from "@/lib/actions/hop";
 import {
   closureCancelIpRateLimit,
   closureConsumeIpRateLimit,
@@ -43,13 +44,13 @@ export const startOrOpenClosureWithPasswordAction = defineAction({
         `closure-access-identifier:${hashEmailKey(input.identifier.toLowerCase())}`,
       max: 5,
       windowMs: 60 * 60_000,
-      onLimit: () => redirect("/closure?error=操作过于频繁，请稍后再试"),
+      onLimit: () => redirectWithError("/closure", "操作过于频繁，请稍后再试"),
     },
     {
       key: (ctx) => (ctx.ip ? `closure-access-ip:${ctx.ip}` : null),
       max: 10,
       windowMs: 60 * 60_000,
-      onLimit: () => redirect("/closure?error=操作过于频繁，请稍后再试"),
+      onLimit: () => redirectWithError("/closure", "操作过于频繁，请稍后再试"),
     },
   ],
   async run(ctx, input) {
@@ -59,15 +60,15 @@ export const startOrOpenClosureWithPasswordAction = defineAction({
         input.current,
         ctx.ip,
       );
-      if (!result) redirect("/closure?error=无法验证账号，请检查登录名和密码");
+      if (!result) redirectWithError("/closure", "无法验证账号，请检查登录名和密码");
       await setClosureAccessCookie(result.accessToken);
       redirect(result.started ? "/closure?requested=1" : "/closure");
     } catch (error) {
       if (error instanceof AccountDeletionError && error.code === "last_admin") {
-        redirect("/closure?error=这是最后一位有效站点管理员，不能申请注销");
+        redirectWithError("/closure", "这是最后一位有效站点管理员，不能申请注销");
       }
       if (error instanceof AccountDeletionError && error.code === "already_completed") {
-        redirect("/closure?error=该账号已完成注销");
+        redirectWithError("/closure", "该账号已完成注销");
       }
       throw error;
     }
@@ -144,7 +145,7 @@ export const consumeClosureEmailTokenAction = defineAction({
       key: (ctx) => closureConsumeIpRateLimit.key(ctx.ip),
       max: closureConsumeIpRateLimit.max,
       windowMs: closureConsumeIpRateLimit.windowMs,
-      onLimit: () => redirect("/closure/verify?error=操作过于频繁，请稍后再试"),
+      onLimit: () => redirectWithError("/closure/verify", "操作过于频繁，请稍后再试"),
     },
   ],
   async run(_ctx, input) {
@@ -153,11 +154,11 @@ export const consumeClosureEmailTokenAction = defineAction({
       result = await consumeAccountDeletionEmailToken(input.token);
     } catch (error) {
       if (error instanceof AccountDeletionError && error.code === "last_admin") {
-        redirect("/closure/verify?error=这是最后一位有效站点管理员，不能申请注销");
+        redirectWithError("/closure/verify", "这是最后一位有效站点管理员，不能申请注销");
       }
       throw error;
     }
-    if (!result) redirect("/closure/verify?error=链接无效或已过期，请重新发起验证");
+    if (!result) redirectWithError("/closure/verify", "链接无效或已过期，请重新发起验证");
     await setClosureAccessCookie(result.accessToken);
     redirect("scheduledAt" in result ? "/closure?requested=1" : "/closure");
   },
@@ -171,15 +172,15 @@ export const cancelAccountDeletionAction = defineAction({
       key: (ctx) => closureCancelIpRateLimit.key(ctx.ip),
       max: closureCancelIpRateLimit.max,
       windowMs: closureCancelIpRateLimit.windowMs,
-      onLimit: () => redirect("/closure?error=操作过于频繁，请稍后再试"),
+      onLimit: () => redirectWithError("/closure", "操作过于频繁，请稍后再试"),
     },
   ],
   async run(_ctx) {
     const token = (await cookies()).get(CLOSURE_ACCESS_COOKIE)?.value;
-    if (!token) redirect("/closure?error=请先重新验证身份");
+    if (!token) redirectWithError("/closure", "请先重新验证身份");
     try {
       const result = await cancelAccountDeletion(token);
-      if (!result) redirect("/closure?error=请重新验证身份或注销状态已变化");
+      if (!result) redirectWithError("/closure", "请重新验证身份或注销状态已变化");
       await clearClosureAccessCookie();
       if (result.sessionToken) {
         await setSessionCookie(result.sessionToken);
@@ -188,7 +189,7 @@ export const cancelAccountDeletionAction = defineAction({
       redirect("/appeal?accountDeletionCancelled=1");
     } catch (error) {
       if (error instanceof AccountDeletionError) {
-        redirect("/closure?error=冷静期已结束，当前不能撤销申请");
+        redirectWithError("/closure", "冷静期已结束，当前不能撤销申请");
       }
       throw error;
     }
