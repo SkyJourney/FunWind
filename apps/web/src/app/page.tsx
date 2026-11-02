@@ -12,6 +12,10 @@ import { getCurrentSubject } from "@/lib/authz/subject";
 import { getDirectory } from "@/lib/queries/forums";
 import { getHomeFeed, getHotThreads } from "@/lib/queries/threads";
 import { getSiteChrome, getSiteIdentity } from "@/lib/site-chrome";
+import { getThemeCatalog } from "@/lib/theme/catalog";
+import { decorUrl } from "@/lib/theme/decor-url";
+import { getUserThemePack, resolveEffectivePack } from "@/lib/theme-pref";
+import { themeSurfaceStyle } from "@/lib/theme/surface-style";
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getSiteIdentity()).name };
@@ -37,7 +41,21 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
   const page = Math.max(1, Math.trunc(Number(params.page)) || 1);
 
   const viewer = await getCurrentSubject();
-  const chrome = await getSiteChrome();
+  const [chrome, catalog, userPack] = await Promise.all([
+    getSiteChrome(),
+    getThemeCatalog(),
+    viewer.userId ? getUserThemePack(viewer.userId) : Promise.resolve(null),
+  ]);
+  const activePack = resolveEffectivePack(userPack, chrome.themePack);
+  const heroSlot = catalog.find((pack) => pack.id === activePack)?.definition?.surfaces[
+    "hero-image"
+  ];
+  const heroContent = heroSlot?.light.contentSlot ?? heroSlot?.dark?.contentSlot;
+  const heroSrc = heroContent?.image
+    ? decorUrl(heroContent.image)
+    : chrome.heroActive
+      ? "/brand/hero"
+      : null;
   const [tree, dir, feed, hot] = await Promise.all([
     getForumTree(),
     getDirectory(viewer),
@@ -80,10 +98,27 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
 
       {/* Hero 横幅位（M11 插槽 ⑤）：站长在后台上传的当前项；无当前项不占位。
           容器内圆角卡片形态（与 BrandCard 同设计语言），宽幅图按容器宽度裁切居中 */}
-      {chrome.heroActive && (
-        <section aria-label="站点横幅" className="overflow-hidden rounded-xl border bg-card">
-          {/* eslint-disable-next-line @next/next/no-img-element -- 品牌位公开路由 /brand/hero，不经图片优化域 */}
-          <img src="/brand/hero" alt="" className="h-auto max-h-80 w-full object-cover" />
+      {heroSrc && (
+        <section
+          aria-label="站点横幅"
+          data-surface="hero-image"
+          data-fw-theme-surface
+          className="overflow-hidden rounded-xl border bg-transparent"
+          style={themeSurfaceStyle("hero-image", {
+            background: "var(--card)",
+            borderColor: "var(--border)",
+            borderWidth: "1px",
+          })}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element -- 主题图片来自公开品牌素材池，不经图片优化域 */}
+          <img
+            src={heroSrc}
+            alt=""
+            className="h-auto max-h-80 w-full object-cover"
+            style={
+              heroContent?.imageHeightPx ? { height: `${heroContent.imageHeightPx}px` } : undefined
+            }
+          />
         </section>
       )}
 

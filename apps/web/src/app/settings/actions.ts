@@ -22,7 +22,7 @@ import {
   sendMail,
 } from "@/lib/auth/mailer";
 import { getSiteIdentity } from "@/lib/site-chrome";
-import { isPackValue } from "@/lib/theme-packs";
+import { isKnownPackId } from "@/lib/theme/catalog";
 import { setUserThemePack } from "@/lib/theme-pref";
 import { hashEmailKey, issueEmailToken } from "@/lib/auth/tokens";
 import { changeEmailAddress } from "@/lib/auth/email-change";
@@ -304,7 +304,7 @@ export const updateThemePackAction = defineAction({
   async run(ctx, input) {
     const user = await getCurrentUser();
     if (!user) redirect("/login");
-    if (input.pack !== "site" && !isPackValue(input.pack)) {
+    if (input.pack !== "site" && !(await isKnownPackId(input.pack))) {
       redirect(errHop("appearance", "未知的主题包"));
     }
     await setUserThemePack(ctx.userId!, input.pack === "site" ? null : input.pack);

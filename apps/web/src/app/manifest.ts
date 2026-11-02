@@ -1,12 +1,16 @@
 import type { MetadataRoute } from "next";
 import { getSiteChrome } from "@/lib/site-chrome";
+import { getThemeCatalog } from "@/lib/theme/catalog";
 
 /** PWA manifest：站点身份跟随后台配置；图标来自当前品牌「清爽侦探」青色半翼。 */
 export const dynamic = "force-dynamic";
 
 export default async function manifest(): Promise<MetadataRoute.Manifest> {
-  const chrome = await getSiteChrome();
-  const qy2010 = chrome.themePack === "qy2010";
+  const [chrome, catalog] = await Promise.all([getSiteChrome(), getThemeCatalog()]);
+  const colors = catalog.find((pack) => pack.id === chrome.themePack) ?? {
+    themeColor: "#0e7490",
+    backgroundColor: "#f8fafc",
+  };
   return {
     id: "/",
     name: chrome.identity.name,
@@ -19,8 +23,8 @@ export default async function manifest(): Promise<MetadataRoute.Manifest> {
     display: "standalone",
     display_override: ["standalone", "minimal-ui"],
     orientation: "any",
-    background_color: qy2010 ? "#f6f3e7" : "#f8fafc",
-    theme_color: qy2010 ? "#147ba9" : "#0e7490",
+    background_color: colors.backgroundColor,
+    theme_color: colors.themeColor,
     categories: ["social", "entertainment"],
     icons: [
       { src: "/brand/pwa-icon/192", sizes: "192x192", type: "image/png", purpose: "any" },

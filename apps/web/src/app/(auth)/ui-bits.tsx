@@ -2,6 +2,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordField } from "@/components/auth/password-field";
+import { themeSurfaceStyle } from "@/lib/theme/surface-style";
 
 export function AuthShell({
   title,
@@ -29,7 +30,18 @@ export function AuthShell({
           {message}
         </p>
       )}
-      <div className="rounded-xl border bg-card p-6">{children}</div>
+      <div
+        data-surface="auth"
+        data-fw-theme-surface
+        className="rounded-xl border bg-transparent p-6"
+        style={themeSurfaceStyle("auth", {
+          background: "var(--card)",
+          borderColor: "var(--border)",
+          borderWidth: "1px",
+        })}
+      >
+        {children}
+      </div>
       {footer && <div className="text-center text-sm text-muted-foreground">{footer}</div>}
     </main>
   );

@@ -850,3 +850,55 @@ html[data-vt="expand"]::view-transition-new(root) {
     transition: none !important;
   }
 }
+
+/* 统一 Surface 图层：背景填充与遮罩位于内容下方，opacity 不污染文字与交互。 */
+[data-fw-theme-surface] {
+  isolation: isolate;
+  border-color: var(--fw-surface-border-color, transparent);
+  border-width: var(--fw-surface-border-width, 0px);
+  border-style: var(--fw-surface-border-style, solid);
+  color: var(--fw-surface-text, inherit);
+}
+[data-surface="header"][data-fw-theme-surface],
+[data-surface="tabbar"][data-fw-theme-surface] {
+  backdrop-filter: blur(var(--fw-surface-blur, 0px));
+}
+[data-fw-theme-surface]:not(.fixed):not(.sticky) {
+  position: relative;
+}
+[data-fw-theme-surface]::before,
+[data-fw-theme-surface]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+[data-fw-theme-surface]::before {
+  z-index: -2;
+  background: var(--fw-surface-bg, transparent);
+  background-blend-mode: var(--fw-surface-bg-blend-mode, normal);
+  opacity: var(--fw-surface-bg-opacity, 1);
+}
+[data-fw-theme-surface]::after {
+  z-index: -1;
+  background: var(--fw-surface-overlay-bg, transparent);
+  background-blend-mode: var(--fw-surface-overlay-bg-blend-mode, normal);
+  /* 图片遮罩自身透明度 × 整层遮罩强度（两变量仅图片遮罩时由渲染器输出） */
+  opacity: calc(
+    var(--fw-surface-overlay-opacity, 1) * var(--fw-surface-overlay-bg-image-opacity, 1)
+  );
+}
+[data-fw-theme-surface] [data-surface-text="muted"] {
+  color: var(--fw-surface-text-muted, var(--muted-foreground));
+}
+[data-fw-theme-surface] [data-surface-text="link"] {
+  color: var(--fw-surface-text-link, inherit);
+}
+body[data-surface="page"][data-fw-theme-surface]::before,
+body[data-surface="page"][data-fw-theme-surface]::after {
+  position: fixed;
+}
+body[data-surface="page"][data-fw-theme-surface]::before {
+  z-index: -1;
+}

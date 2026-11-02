@@ -3,7 +3,7 @@ import { ThemeSwitcher } from "@/components/theme-switcher";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { getCurrentUser, getPasswordChangeUser } from "@/lib/auth/session";
 import { getSiteChrome } from "@/lib/site-chrome";
-import { THEME_PACKS, packLabel } from "@/lib/theme-packs";
+import { getThemeCatalog } from "@/lib/theme/catalog";
 import { getUserThemePack } from "@/lib/theme-pref";
 import { updateThemePackAction } from "../actions";
 
@@ -24,12 +24,14 @@ export default async function AppearanceSettingsPage({
     if (await getPasswordChangeUser()) redirect("/settings/password?force=1");
     redirect("/login");
   }
-  const [userPack, chrome, sp] = await Promise.all([
+  const [userPack, chrome, sp, catalog] = await Promise.all([
     getUserThemePack(user.id),
     getSiteChrome(),
     searchParams,
+    getThemeCatalog(),
   ]);
   const current = userPack ?? "site";
+  const siteLabel = catalog.find((pack) => pack.id === chrome.themePack)?.label ?? chrome.themePack;
 
   return (
     <div className="space-y-4">
@@ -61,7 +63,7 @@ export default async function AppearanceSettingsPage({
         <h2 className="text-sm font-semibold">主题包</h2>
         <p className="mt-1 text-xs text-muted-foreground">
           配色与气质整套切换，保存在账号、各设备同步；站点默认当前为「
-          {packLabel(chrome.themePack)}」。部分主题包仅提供浅色，暗色模式下自动回退默认暗色。
+          {siteLabel}」。部分主题包仅提供浅色，暗色模式下自动回退默认暗色。
         </p>
         <form action={updateThemePackAction} className="mt-3 space-y-2 text-sm">
           <label className="flex items-start gap-2">
@@ -77,7 +79,7 @@ export default async function AppearanceSettingsPage({
               <span className="text-muted-foreground">——站长切换默认主题时自动跟随</span>
             </span>
           </label>
-          {THEME_PACKS.map((pack) => (
+          {catalog.map((pack) => (
             <label key={pack.id} className="flex items-start gap-2">
               <input
                 type="radio"

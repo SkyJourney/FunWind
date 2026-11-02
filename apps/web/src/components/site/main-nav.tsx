@@ -28,6 +28,7 @@ export function MainNav({ items, className }: { items: NavLink[]; className?: st
             key={`${item.label}:${item.href}`}
             href={item.href}
             aria-current={active ? "page" : undefined}
+            data-surface-text="link"
             className={cn(
               "rounded-md px-2.5 py-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
               active && "bg-accent font-medium text-foreground",

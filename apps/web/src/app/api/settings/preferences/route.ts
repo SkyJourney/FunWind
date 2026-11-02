@@ -4,7 +4,7 @@ import { z } from "zod";
 import { getWebDb, notificationPreferences, userProfiles } from "@funwind/db";
 import { getCurrentUser } from "@/lib/auth/session";
 import { isSameOrigin } from "@/lib/net/same-origin";
-import { isPackValue } from "@/lib/theme-packs";
+import { isKnownPackId } from "@/lib/theme/catalog";
 import { setUserThemePack } from "@/lib/theme-pref";
 
 /**
@@ -27,11 +27,7 @@ const patchSchema = z.union([
   }),
   z.object({
     kind: z.literal("themePack"),
-    pack: z
-      .string()
-      .max(32)
-      .nullable()
-      .refine((v) => v === null || isPackValue(v), { message: "unknown pack" }),
+    pack: z.string().max(32).nullable(),
   }),
 ]);
 
@@ -44,6 +40,10 @@ export async function PATCH(request: Request): Promise<Response> {
   try {
     body = patchSchema.parse(await request.json());
   } catch {
+    return NextResponse.json({ error: "bad_request" }, { status: 400 });
+  }
+
+  if (body.kind === "themePack" && body.pack !== null && !(await isKnownPackId(body.pack))) {
     return NextResponse.json({ error: "bad_request" }, { status: 400 });
   }
 
@@ -67,7 +67,7 @@ export async function PATCH(request: Request): Promise<Response> {
   }
 
   if (body.kind === "themePack") {
-    const pack = body.pack !== null && isPackValue(body.pack) ? body.pack : null;
+    const pack = body.pack;
     await setUserThemePack(user.id, pack);
     return NextResponse.json({ ok: true, pack });
   }
