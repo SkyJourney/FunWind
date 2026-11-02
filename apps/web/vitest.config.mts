@@ -42,7 +42,12 @@ export default defineConfig({
         functions: 90,
         statements: 90,
         // 编辑器组件目录单独设阈值（站长既定：编辑器组件 ≥ 90%，M6-posting 测试规则）
-        "src/components/editor/**": { lines: 90, branches: 85, functions: 90, statements: 90 },
+        "src/{components/editor,lib/editor/markdown}/**": {
+          lines: 90,
+          branches: 85,
+          functions: 90,
+          statements: 90,
+        },
         "src/components/upload/**": { lines: 90, branches: 85, functions: 90, statements: 90 },
       },
     },
@@ -51,6 +56,11 @@ export default defineConfig({
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),
       cn: path.resolve(import.meta.dirname, "src/lib/utils.ts"),
+      // 测试进程不是 RSC 宿主；只替换标记，不切换 React 的解析条件。
+      "server-only": path.resolve(
+        import.meta.dirname,
+        "node_modules/next/dist/compiled/server-only/empty.js",
+      ),
     },
   },
 });

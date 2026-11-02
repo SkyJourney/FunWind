@@ -3,7 +3,7 @@ import { Search, Wind } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import type { SessionUser } from "@/lib/auth/session";
-import type { NavItem } from "@/lib/site-chrome";
+import type { NavItem } from "@/lib/chrome/site-chrome";
 import { MainNav, type NavLink } from "@/components/site/main-nav";
 import { ThemeMenu, type PackPref } from "@/components/site/theme-menu";
 import { UserMenu } from "@/components/site/user-menu";

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { EMOJI_MIME, emojiHeaders, parseEmojiFile, shaOfStorageKey } from "./emoji-serving";
+import { EMOJI_MIME, emojiHeaders, parseEmojiFile, shaOfStorageKey } from "./serving";
 
-/** 纯函数分支（解析 / 响应头 / storage_key 解析）；全流程的真实库分支见 emoji-serving.int.test.ts */
+/** 纯函数分支（解析 / 响应头 / storage_key 解析）；全流程的真实库分支见 serving.int.test.ts */
 describe("parseEmojiFile", () => {
   it("合式路径：id + 受控扩展名", () => {
     expect(parseEmojiFile("120.gif")).toEqual({ id: 120, ext: "gif" });

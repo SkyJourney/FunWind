@@ -18,7 +18,7 @@ import { findActiveGlobalBan, restrictionActive } from "@/lib/authz/restrictions
 import { nowBeijingWallTime } from "@/lib/datetime";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
 import { limitsFor } from "@/lib/limits/load";
-import { publicUserId } from "@/lib/queries/public-identity";
+import { publicUserId } from "@/lib/identity-expr";
 import {
   dispatchOutboxRows,
   enqueueEventInTx,
@@ -26,7 +26,7 @@ import {
   type EnqueuedEvent,
 } from "@/lib/events/outbox";
 import { isDuplicateKey } from "@/lib/auth/register";
-import { pageBounds } from "@/lib/queries/paging";
+import { pageBounds } from "@/lib/paging";
 
 /**
  * 私信（M10）：pairKey="小uid:大uid"（uq_conv_pair）一队一会话；发送事务=消息+成员 upsert+会话指针+

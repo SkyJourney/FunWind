@@ -1,3 +1,5 @@
+import "server-only";
+
 import { and, desc, eq, sql } from "drizzle-orm";
 import { announcements, getWebDb, siteSettings } from "@funwind/db";
 import { SITE_NAME, SITE_TAGLINE, SITE_URL } from "@/lib/site";

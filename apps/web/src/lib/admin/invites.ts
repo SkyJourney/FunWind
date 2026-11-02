@@ -3,7 +3,7 @@ import { alias } from "drizzle-orm/mysql-core";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { getWebDb, inviteCodes, users } from "@funwind/db";
 import { writeAudit, type DbTx } from "@/lib/audit";
-import { pageBounds } from "@/lib/queries/paging";
+import { pageBounds } from "@/lib/paging";
 
 /**
  * 邀请码管理（M10.6b，docs/milestones/M10.6-feature-completion.md 批次 b）：

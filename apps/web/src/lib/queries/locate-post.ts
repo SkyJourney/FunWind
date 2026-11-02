@@ -1,3 +1,5 @@
+import "server-only";
+
 import { and, count, eq, gt, lte } from "drizzle-orm";
 import { getWebDb, posts, threads } from "@funwind/db";
 import type { Subject } from "@/lib/authz/types";

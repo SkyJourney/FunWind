@@ -15,7 +15,7 @@ import {
   sweepPending,
   type EnqueuedEvent,
 } from "@/lib/events/outbox";
-import { invalidateSiteChrome } from "@/lib/site-chrome";
+import { invalidateSiteChrome } from "@/lib/chrome/site-chrome";
 import { POINTS_TX_OPTIONS } from "@/lib/points/retry";
 
 /**

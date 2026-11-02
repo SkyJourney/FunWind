@@ -2,9 +2,9 @@ import { redirect } from "next/navigation";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { getCurrentUser, getPasswordChangeUser } from "@/lib/auth/session";
-import { getSiteChrome } from "@/lib/site-chrome";
+import { getSiteChrome } from "@/lib/chrome/site-chrome";
 import { getThemeCatalog } from "@/lib/theme/catalog";
-import { getUserThemePack } from "@/lib/theme-pref";
+import { getUserThemePack } from "@/lib/theme/pref";
 import { updateThemePackAction } from "../actions";
 
 export const dynamic = "force-dynamic";

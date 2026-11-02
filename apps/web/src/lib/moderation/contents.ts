@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { forums, getWebDb, posts, threads, users } from "@funwind/db";
-import { publicUsername } from "@/lib/queries/public-identity";
-import { pageBounds } from "@/lib/queries/paging";
+import { publicUsername } from "@/lib/identity-expr";
+import { pageBounds } from "@/lib/paging";
 
 /**
  * 内容管理查询（M9.5 §9.2-A）：后台跨主题/回帖的**定位**能力——

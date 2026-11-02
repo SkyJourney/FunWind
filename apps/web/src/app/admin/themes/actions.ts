@@ -7,7 +7,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { tryApplyThemePackLogo } from "@/lib/theme/apply-pack-logo";
 import { getDecorPoolRaw } from "@/lib/brand/decor-pool";
-import { invalidateSiteChrome } from "@/lib/site-chrome";
+import { invalidateSiteChrome } from "@/lib/chrome/site-chrome";
 import {
   copyThemePack,
   createThemePack,

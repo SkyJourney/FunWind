@@ -153,6 +153,8 @@ export interface SlotContext {
   pathname?: string;
   /** 目标用户 id（profile.header = 资料页主人；thread.user-badge = 楼层作者） */
   userId?: number;
+  /** 签到槽位由宿主注入的 Server Action；缺失时只展示状态，不提供提交表单 */
+  checkinAction?: (formData: FormData) => Promise<void>;
 }
 
 export type SlotRenderer = (ctx: SlotContext) => Promise<ReactNode> | ReactNode;

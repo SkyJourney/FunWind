@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getWebDb, userProfiles } from "@funwind/db";
 import { isKnownPackId } from "@/lib/theme/catalog";
-import { resolveEffectivePack, setUserThemePack } from "./theme-pref";
+import { resolveEffectivePack, setUserThemePack } from "./pref";
 
 const writes = vi.hoisted(() => ({ insert: vi.fn(), values: vi.fn(), upsert: vi.fn() }));
 vi.mock("@funwind/db", async (importOriginal) => ({

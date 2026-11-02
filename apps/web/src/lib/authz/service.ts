@@ -1,3 +1,5 @@
+import "server-only";
+
 import { and, eq, inArray, isNull, notExists, or, sql } from "drizzle-orm";
 import { accountDeletionRequests, getWebDb, userRoles, users } from "@funwind/db";
 import {

@@ -27,13 +27,10 @@ import {
 import type { EventPayloads } from "@/modules/kernel/types";
 import { applyCounterDelta } from "./transition";
 import { counterDelta } from "./counters";
-import { lockForum, lockThread, lockUserStats } from "./locks";
-import {
-  IDEMPOTENCY_WINDOW_SEC,
-  dailyQuotaExceeded,
-  initialState,
-  intervalViolated,
-} from "./policy";
+import { lockUserStats } from "@/lib/locks";
+import { dailyQuotaExceeded } from "@/lib/limits/quota";
+import { lockForum, lockThread } from "./locks";
+import { IDEMPOTENCY_WINDOW_SEC, initialState, intervalViolated } from "./policy";
 import { checkBody, checkTitle } from "./text";
 
 /**

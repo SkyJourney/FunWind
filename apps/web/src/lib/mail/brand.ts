@@ -1,4 +1,4 @@
-import { getSiteChrome } from "@/lib/site-chrome";
+import { getSiteChrome } from "@/lib/chrome/site-chrome";
 import { getThemeCatalog } from "@/lib/theme/catalog";
 import { APP_URL, SITE_NAME, SITE_TAGLINE } from "@/lib/site";
 import type { MailBrand } from "./types";

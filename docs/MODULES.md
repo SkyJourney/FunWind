@@ -89,7 +89,7 @@ M9 后由管理后台管理）。
 | `thread.user-badge` | 帖子页作者行（UserBadge 内），ctx.userId=楼层作者 | ✅ M7（荣誉徽章位） |
 | `nav.right` | 顶部导航右侧 | 预留 |
 
-`SlotContext`（M7 扩展）：`pathname?` / `userId?`（profile.header=资料页主人；thread.user-badge=楼层作者）。
+`SlotContext`（M7 / 全项目审查批次 3 扩展）：`pathname?` / `userId?`（profile.header=资料页主人；thread.user-badge=楼层作者）/ `checkinAction?`（首页宿主注入的签到 Server Action）。模块注册图不得依赖 `app/**`；槽位需要请求专属入口动作时，由 Server Component 宿主通过 context 显式注入，缺省时模块必须安全降级，不渲染失效表单。
 扩展槽位/上下文 = 修改 kernel/types.ts 并更新本表（与事件清单同纪律）。
 
 ## 语义与边界
@@ -106,7 +106,7 @@ M9 后由管理后台管理）。
    调用方显式传 `deps.actorId` 时覆盖映射（如代操作场景）。
 4. **装卸**：注册（编译期，改 modules/index.ts）与启用（运行期，module_state）分离；禁用模块不渲染不消费，注册信息保留。
 5. **注册表封板**：modules/index.ts 求值完毕即封板，运行时注册抛错（无热插拔）。
-6. **API 路由与页面是两棵模块图**：任何使用内核的 route handler **与 Server Action** 必须自行 `import "@/modules"`（凡传递引用会触及内核的代码都算；`modules-import-guard.test.ts` 静态分析守护，漏写直接变红）。
+6. **API 路由与页面是两棵模块图**：任何使用内核的 route handler **与 Server Action** 必须在加载时静态求值 `@/modules`（凡传递引用会触及内核的代码都算）；动态 import 即使出现在渲染分支内也不能替代入口初始化。`modules-import-guard.test.ts` 基于 TypeScript 导入图检查静态与字面量动态依赖，并要求初始化依赖位于 eager import 闭包。
 7. **外部入口校验**：emit 本身是类型安全的内部 API；任何**外部**入口（dev API、未来的表单/开放接口）
    必须先经 `validateEventPayload`（REQUIRED_PAYLOAD_KEYS）校验 payload 必填键再派发。
 8. **事务性 outbox（M7 拍板）**：posting 事件族（`thread.created` / `thread.replied` / `content.submitted` /

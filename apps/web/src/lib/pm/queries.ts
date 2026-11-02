@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { conversations, conversationMembers, getWebDb, messages, users } from "@funwind/db";
-import { publicUserDeleted, publicUserId, publicUsername } from "@/lib/queries/public-identity";
-import { pageBounds } from "@/lib/queries/paging";
+import { publicUserDeleted, publicUserId, publicUsername } from "@/lib/identity-expr";
+import { pageBounds } from "@/lib/paging";
 
 export interface ConversationItem {
   conversationId: number;

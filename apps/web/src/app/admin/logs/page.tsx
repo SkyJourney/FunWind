@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { queryAuditLogs, queryEventLogs } from "@/lib/admin/logs";
-import { pageBounds } from "@/lib/queries/paging";
+import { pageBounds } from "@/lib/paging";
 import { JsonViewerButton } from "@/components/admin/json-viewer";
 import { Pagination } from "@/components/content/pagination";
 import { AdminListMeta, AdminTable } from "@/components/admin/admin-list";

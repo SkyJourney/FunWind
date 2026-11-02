@@ -1,3 +1,5 @@
+import "server-only";
+
 import { BUILTIN_THEME_COLORS, getWebDb, themePackages } from "@funwind/db";
 import { DEFAULT_PACK, THEME_PACKS } from "@/lib/theme-packs";
 import { parseThemePackDefinition, type ThemePackDefinition } from "./surface-schema";

@@ -13,7 +13,7 @@ import {
 import { AdminError } from "@/lib/authz/admin";
 import { isDuplicateKey } from "@/lib/auth/register";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
-import { publicUserId, publicUsername } from "@/lib/queries/public-identity";
+import { publicUserId, publicUsername } from "@/lib/identity-expr";
 
 /**
  * 荣誉徽章（M7）：badges / user_badges 展示 + 后台手动授予。纯装饰、零权限语义（docs/MODULES.md）。

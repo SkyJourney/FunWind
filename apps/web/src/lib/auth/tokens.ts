@@ -1,3 +1,5 @@
+import "server-only";
+
 import { createHash } from "node:crypto";
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { accountDeletionRequests, affectedRowsOf, emailTokens, getWebDb, users } from "@funwind/db";

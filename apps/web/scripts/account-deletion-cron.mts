@@ -3,7 +3,7 @@ import { processDueAccountDeletions } from "../src/lib/auth/account-deletion";
 
 /**
  * 账号注销到期任务：由系统 cron / launchd 周期调用；每次最多处理指定数量的到期申请。
- * 示例：cd apps/web && pnpm exec tsx scripts/account-deletion-cron.mts
+ * 示例：pnpm --filter @funwind/web account-deletion:drain（预加载服务端 marker 兼容层）
  */
 async function main() {
   loadRootEnv();

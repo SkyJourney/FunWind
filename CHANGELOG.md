@@ -32,6 +32,15 @@
 - **主题边界**：启用主题包最多 5 个（包含内置包），新建/复制/导入/重新启用在服务层同一事务锁下检查；满额不落包、不增加成功审计。主题列表显示启用数。ZIP 导入逐项记录补偿/恢复失败并显示警告；两个默认主题入口统一写服务，LOGO 联动失败不撤销主题保存，独立提示且有上下文日志，无 LOGO 的自定义包不误报未知。
 - **回归与规范**：新增偏好限流与不落库、密码校验次数、outbox 积压快路径、举报通知故障、主题并发容量、导入补偿/LOGO 部分失败的单元与临时库集成测试；默认主题两入口及主题容量错误路径补业务回归。主题系统与 AI 制作规范同步容量和失败语义。
 
+### Changed（审查批次 3：架构边界与服务端防线）
+
+- **模块与 Action 入口**：签到动作由首页/设计页槽位宿主显式注入，模块不再动态反向导入路由；缺依赖安全降级。前台屏蔽/通过/驳回/封禁入口收口 `app/actions/posts.ts`，继续复用原 moderation 权限及状态机；`PostActionLink` 只使用宿主传入的 action。
+- **跨域叶子下沉**：统计行锁迁到 `lib/locks.ts`，每日配额迁到 `lib/limits/quota.ts`，分页迁到 `lib/paging.ts`，公开身份 SQL 表达式迁到 `lib/identity-expr.ts`。私信页面预判下沉 `lib/pm/reachability.ts`，保留原页面提示及发送事务权威复核的边界。
+- **目录归域**：文件输出/表情输出/主题偏好/站点框架服务归入 uploads/emoji/theme/chrome；编辑器 Markdown 五文件依赖闭包与四个测试迁入 `lib/editor/markdown`，服务端往返与客户端编辑器仍共享同一实现，编辑器独立覆盖率阈值不变。旧路径及转发层清除。
+- **固定守卫**：新增 G-02/G-03/G-04/G-08，使用共享 TypeScript AST 导入图检查别名、转发、相对路径及字面量动态导入；禁止指定回边，锁定 app 数据库值导入白名单及 outbox 快路径纪律。模块初始化守卫不再漏掉动态触点，同时要求静态初始化注册表。
+- **服务端污染防线（G-05）**：44 个 IO/凭据服务入口添加真实 `server-only` 标记；客户端闭包排除类型导入并识别 Action 序列化边界。Vitest 与 Node/tsx 运维命令单独映射 marker，不切换 React 条件；纯函数与编辑器共享扩展保持可复用。
+- **通知读取**：铃铛 GET 明确返回 `Cache-Control: private, no-store`；未发现现有 CORS/SameSite 配置下的跨站读取利用链，不把只读 GET 无同源检查误记为 CSRF。已读 POST 的同源、身份及输入检查保留并补回归。
+
 ### Fixed（M10.6c：双轨密码默认迁移接线）
 
 - `pnpm migrate` 现于 `users` 后默认运行 `legacy-password`；`pnpm migrate users` 自动联动，保留独立补跑命令。旧库仍只读，只把有效 phpwind MD5+salt 材料写入 `legacy_password_hash` / `legacy_password_pending`，现代 `password_hash` 仍只存 Argon2id。

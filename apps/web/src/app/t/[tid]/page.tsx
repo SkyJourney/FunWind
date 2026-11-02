@@ -21,13 +21,14 @@ import { PostActionLink } from "@/components/posting/post-action-link";
 import { ReviewTimeline } from "@/components/content/review-timeline";
 import {
   approveContentAction,
+  deletePostAction,
   disableContentAction,
+  hidePostAction,
   rejectContentAction,
-} from "@/app/admin/contents/actions";
+  restorePostAction,
+} from "@/app/actions/posts";
 import { listContentReviews } from "@/lib/moderation/review";
-import { deletePostAction, restorePostAction } from "@/app/actions/posts";
 import { reportPostAction } from "@/app/actions/reports";
-import { hidePostAction } from "@/app/admin/review/actions";
 import { draftKey } from "@/components/editor/draft";
 import { createReplyAction } from "@/app/actions/replies";
 import { getPointsName } from "@/lib/auth/settings";

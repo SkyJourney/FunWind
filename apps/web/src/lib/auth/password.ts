@@ -1,3 +1,5 @@
+import "server-only";
+
 import { createHash, timingSafeEqual } from "node:crypto";
 import { hash, verify } from "@node-rs/argon2";
 

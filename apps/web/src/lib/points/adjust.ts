@@ -1,3 +1,5 @@
+import "server-only";
+
 import { randomUUID } from "node:crypto";
 import { getWebDb } from "@funwind/db";
 import type { ConfigActor } from "@/lib/audit";

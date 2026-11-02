@@ -1,6 +1,6 @@
 import { and, desc, eq, like, sql, type SQL } from "drizzle-orm";
 import { emailLog, getWebDb } from "@funwind/db";
-import { pageBounds } from "@/lib/queries/paging";
+import { pageBounds } from "@/lib/paging";
 import type { MailKind } from "./types";
 
 /**

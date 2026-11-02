@@ -1,7 +1,7 @@
 import { eq, sql } from "drizzle-orm";
 import { getWebDb, siteSettings } from "@funwind/db";
 import { CLI_ACTOR, writeAudit, type ConfigActor } from "@/lib/audit";
-import { invalidateSiteChrome } from "@/lib/site-chrome";
+import { invalidateSiteChrome } from "@/lib/chrome/site-chrome";
 
 /**
  * 品牌素材池核心（DB 半；M11 由 LOGO 池泛化，docs/THEME-SYSTEM.md 决策 8）：

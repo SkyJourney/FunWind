@@ -1,3 +1,5 @@
+import "server-only";
+
 import { and, eq, gte, sql } from "drizzle-orm";
 import { getWebDb, pointLedger } from "@funwind/db";
 import type { DbTx } from "@/lib/audit";

@@ -1,12 +1,14 @@
+import "server-only";
+
 import { cache } from "react";
 import { and, count, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import { contentReviews, forumPrefixes, getWebDb, posts, threads, users } from "@funwind/db";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
-import { pageBounds } from "./paging";
+import { pageBounds } from "@/lib/paging";
 import { buildViewerScope, visiblePredicate, type ViewerScope } from "./visibility";
-import { publicUserDeleted, publicUserId, publicUsername } from "./public-identity";
+import { publicUserDeleted, publicUserId, publicUsername } from "@/lib/identity-expr";
 
 /**
  * 主题查询：版块列表（置顶块 + 分页）、全站最新、详情。

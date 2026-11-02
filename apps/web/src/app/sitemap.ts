@@ -3,7 +3,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { getWebDb, threads } from "@funwind/db";
 import { listForumRows } from "@/lib/forums/admin";
 import { ForumTree } from "@/lib/forums/forum-tree";
-import { getSiteIdentity } from "@/lib/site-chrome";
+import { getSiteIdentity } from "@/lib/chrome/site-chrome";
 
 /**
  * sitemap（M10.6b）：首页/目录 + 公开可读且上目录的版块 + 这些版块下可见主题（前 2000 条）。

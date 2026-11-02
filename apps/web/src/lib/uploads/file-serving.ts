@@ -1,3 +1,5 @@
+import "server-only";
+
 import { createReadStream, promises as fs } from "node:fs";
 import { Readable } from "node:stream";
 import { eq } from "drizzle-orm";
@@ -8,6 +10,7 @@ import { resolveStaticPath } from "@/lib/static-files";
 import { getStorageDir } from "@/lib/storage";
 import { THUMB_WIDTHS } from "@/lib/uploads/types";
 import { ensureThumb, isThumbable } from "@/lib/uploads/thumbnail";
+import { parseFileKey } from "@/lib/uploads/policy";
 
 /**
  * /files/<storage_key> 的请求处理（docs/DESIGN-MODEL.md §5）。路由文件只做薄薄一层，逻辑在这里以便脱离 Next 做集成测试。
@@ -30,20 +33,6 @@ export const IMAGE_MIMES: ReadonlySet<string> = new Set([
   "image/webp",
   "image/bmp",
 ]);
-
-const KEY_RE = /^([0-9a-f]{2})\/([0-9a-f]{2})\/([0-9a-f]{64})\.([a-z0-9]{1,8})$/;
-
-/** 严格校验路径形态：ab/cd/<64 位小写十六进制>.<ext>，且前两级目录必须等于哈希前缀。通过则返回 storage_key */
-export function parseFileKey(segments: readonly string[]): string | null {
-  // 恰好三段、段内不含 "/"：Next 会把 %2f 解码进段内，`49%2f77/<sha>.png` 拼接后能通过下面的正则，
-  // 同一个文件就有了多个 URL 形态（缓存键分裂，按路径写的前置 ACL / WAF 规则也能被绕过，M5.6 S4）
-  if (segments.length !== 3 || segments.some((seg) => seg.includes("/"))) return null;
-  const key = segments.join("/");
-  const m = KEY_RE.exec(key);
-  if (!m) return null;
-  const [, d1, d2, sha] = m;
-  return sha!.startsWith(d1! + d2!) ? key : null;
-}
 
 /** Content-Disposition：去掉控制字符与路径/引号字符，RFC 5987 编码中文名，ASCII 兜底名防头部注入 */
 export function contentDisposition(kind: "inline" | "attachment", originalName: string): string {

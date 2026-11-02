@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** 模块装卸 CLI（M9 前过渡）：pnpm --filter @funwind/web exec tsx scripts/modules-toggle.ts <id> <on|off> */
+/** 模块装卸 CLI：pnpm --filter @funwind/web modules:toggle <id> <on|off>（预加载服务端 marker 兼容层） */
 import { setModuleEnabled } from "../src/modules/kernel/state.js";
 import { getModules } from "../src/modules/kernel/registry.js";
 

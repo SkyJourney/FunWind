@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { buildAdminQuery } from "@/lib/admin/query";
-import { pageBounds } from "@/lib/queries/paging";
+import { pageBounds } from "@/lib/paging";
 import {
   MAIL_KINDS,
   MAIL_KIND_LABEL,

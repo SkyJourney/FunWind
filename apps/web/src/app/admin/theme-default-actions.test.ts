@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import type { ActionContext, ActionDef } from "@/lib/actions/define-action";
 import { setSetting } from "@/lib/auth/settings";
 import { getWebDb } from "@funwind/db";
-import { invalidateSiteChrome } from "@/lib/site-chrome";
+import { invalidateSiteChrome } from "@/lib/chrome/site-chrome";
 import { tryApplyThemePackLogo } from "@/lib/theme/apply-pack-logo";
 import { setSiteDefaultThemePack } from "@/lib/theme/packs";
 import { saveThemePackAction } from "./settings/actions";
@@ -35,7 +35,7 @@ vi.mock("@/lib/theme/packs", () => ({
 vi.mock("@/lib/theme/apply-pack-logo", () => ({ tryApplyThemePackLogo: vi.fn() }));
 vi.mock("@/lib/theme/catalog", () => ({ isKnownPackId: vi.fn() }));
 vi.mock("@/lib/brand/decor-pool", () => ({ getDecorPoolRaw: vi.fn() }));
-vi.mock("@/lib/site-chrome", () => ({ invalidateSiteChrome: vi.fn() }));
+vi.mock("@/lib/chrome/site-chrome", () => ({ invalidateSiteChrome: vi.fn() }));
 vi.mock("@/lib/auth/settings", () => ({ setSetting: vi.fn() }));
 vi.mock("@/lib/auth/session", () => ({ getCurrentUser: vi.fn() }));
 vi.mock("@/lib/limits/load", () => ({ getLimitsConfig: vi.fn() }));

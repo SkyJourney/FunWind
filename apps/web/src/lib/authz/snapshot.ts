@@ -1,3 +1,5 @@
+import "server-only";
+
 import { forums, getWebDb, roleGrants } from "@funwind/db";
 import { ForumTree, type ForumNode } from "@/lib/forums/forum-tree";
 import { buildSnapshot, type AuthzSnapshot } from "./types";

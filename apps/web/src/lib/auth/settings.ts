@@ -1,3 +1,5 @@
+import "server-only";
+
 import { cache } from "react";
 import { eq, inArray, sql } from "drizzle-orm";
 import { getWebDb, siteSettings } from "@funwind/db";

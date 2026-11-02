@@ -1,3 +1,5 @@
+import "server-only";
+
 import { cache } from "react";
 import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { accountDeletionRequests, getWebDb, userRestrictions, userRoles, users } from "@funwind/db";

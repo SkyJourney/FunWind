@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   IDEMPOTENCY_WINDOW_SEC,
-  dailyQuotaExceeded,
   initialState,
   intervalViolated,
   type ReviewPolicyValue,
@@ -46,17 +45,7 @@ describe("intervalViolated 发帖间隔", () => {
   });
 });
 
-describe("dailyQuotaExceeded 每日配额", () => {
-  it("0 = 不限", () => {
-    expect(dailyQuotaExceeded(10_000, 0)).toBe(false);
-  });
-
-  it("边界：已达上限即违规；差一个仍放行", () => {
-    expect(dailyQuotaExceeded(1, 2)).toBe(false);
-    expect(dailyQuotaExceeded(2, 2)).toBe(true);
-    expect(dailyQuotaExceeded(3, 2)).toBe(true);
-  });
-
+describe("IDEMPOTENCY_WINDOW_SEC 幂等窗口", () => {
   it("幂等窗口常量与设计稿一致（60 秒）", () => {
     expect(IDEMPOTENCY_WINDOW_SEC).toBe(60);
   });

@@ -5,7 +5,7 @@ import { DEMO, getWebDb, themePackages, userProfiles } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { invalidateThemeCatalog } from "@/lib/theme/catalog";
-import { getUserThemePack, setUserThemePack } from "./theme-pref";
+import { getUserThemePack, setUserThemePack } from "./pref";
 
 let tdb: TempDb;
 

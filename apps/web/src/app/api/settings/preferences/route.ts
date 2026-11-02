@@ -5,7 +5,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { takePreferenceRateLimit } from "@/lib/auth/preference-ratelimit";
 import { isSameOrigin } from "@/lib/net/same-origin";
 import { setUserPmPolicy } from "@/lib/pm/policy";
-import { setUserThemePack } from "@/lib/theme-pref";
+import { setUserThemePack } from "@/lib/theme/pref";
 
 /**
  * 设置中心开关类偏好 API（M10.6d 站长反馈：通知/私信偏好变更应即时生效 + toast，不整页跳转）。

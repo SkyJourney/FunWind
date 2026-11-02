@@ -9,8 +9,8 @@ import type { Subject } from "@/lib/authz/types";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
 import { sweepPending } from "@/lib/events/outbox";
 import { notify } from "@/lib/notifications/notify";
-import { publicUsername } from "@/lib/queries/public-identity";
-import { pageBounds } from "@/lib/queries/paging";
+import { publicUsername } from "@/lib/identity-expr";
+import { pageBounds } from "@/lib/paging";
 
 /**
  * 举报（M9）：前台提交（唯一键 (post_id, reporter_id) 幂等——同人同帖一次）与后台处理。

@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
-import { getSiteChrome } from "@/lib/site-chrome";
+import { getSiteChrome } from "@/lib/chrome/site-chrome";
 import { getThemeCatalog } from "@/lib/theme/catalog";
 import { readLogoBytes } from "@/lib/brand/logo-pool-fs";
 

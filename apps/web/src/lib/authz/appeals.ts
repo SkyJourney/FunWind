@@ -1,3 +1,5 @@
+import "server-only";
+
 import { and, desc, eq, sql } from "drizzle-orm";
 import {
   accountDeletionRequests,
@@ -10,7 +12,7 @@ import {
 import { writeAudit, type ConfigActor } from "@/lib/audit";
 import { restrictionActive } from "@/lib/authz/restrictions";
 import { type PasswordVerifier, verifyAccountPassword } from "@/lib/auth/password";
-import { publicUserDeleted, publicUsername } from "@/lib/queries/public-identity";
+import { publicUserDeleted, publicUsername } from "@/lib/identity-expr";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
 import {
   dispatchOutboxRows,

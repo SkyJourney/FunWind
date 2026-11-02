@@ -1,3 +1,5 @@
+import "server-only";
+
 import { count, eq, sql } from "drizzle-orm";
 import { getWebDb, siteSettings, themePackages } from "@funwind/db";
 import { writeAudit, type ConfigActor, type DbTx } from "@/lib/audit";

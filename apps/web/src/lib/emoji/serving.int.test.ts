@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { emojiGroups, emojis, getWebDb } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
-import { handleEmojiRequest } from "./emoji-serving";
+import { handleEmojiRequest } from "./serving";
 
 /**
  * /emoji 提供路由的真实 MySQL 集成测试（临时库 + 临时存储目录 + 真实文件）。

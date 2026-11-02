@@ -1,3 +1,5 @@
+import "server-only";
+
 import { BUILTIN_POINT_CHANNELS } from "@/modules/kernel/builtin";
 import { getPointChannelDecls } from "@/modules/kernel/registry";
 import { getEnabledModuleIds } from "@/modules/kernel/state";

@@ -1,3 +1,5 @@
+import "server-only";
+
 import { assembleSource } from "@funwind/content";
 import type { Subject } from "@/lib/authz/types";
 import { listEditableAttachments, type EditableAttachment } from "@/lib/gates/attachments";

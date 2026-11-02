@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { getSiteChrome } from "@/lib/site-chrome";
+import { getSiteChrome } from "@/lib/chrome/site-chrome";
 import { getThemeCatalog } from "@/lib/theme/catalog";
 
 /** PWA manifest：站点身份跟随后台配置；图标来自当前品牌「清爽侦探」青色半翼。 */

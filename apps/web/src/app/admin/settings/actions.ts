@@ -7,7 +7,7 @@ import { redirect } from "next/navigation";
 import { setSetting } from "@/lib/auth/settings";
 import { getLimitsConfig } from "@/lib/limits/load";
 import { limitsConfigSchema } from "@/lib/limits/config";
-import { invalidateSiteChrome } from "@/lib/site-chrome";
+import { invalidateSiteChrome } from "@/lib/chrome/site-chrome";
 import { getCurrentUser } from "@/lib/auth/session";
 import { eq } from "drizzle-orm";
 import { getWebDb, users as usersTable } from "@funwind/db";

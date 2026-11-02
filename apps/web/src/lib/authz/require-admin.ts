@@ -1,3 +1,5 @@
+import "server-only";
+
 import { getModeratedForumIds } from "@/lib/authz/service";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";

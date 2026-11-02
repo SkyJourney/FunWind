@@ -6,8 +6,8 @@ import { nowBeijingWallTime } from "@/lib/datetime";
 import { transitionContent } from "@/lib/posting/transition";
 import { checkPermission } from "@/lib/authz/service";
 import type { Subject } from "@/lib/authz/types";
-import { publicUsername } from "@/lib/queries/public-identity";
-import { pageBounds } from "@/lib/queries/paging";
+import { publicUsername } from "@/lib/identity-expr";
+import { pageBounds } from "@/lib/paging";
 import {
   dispatchOutboxRows,
   enqueueEventInTx,

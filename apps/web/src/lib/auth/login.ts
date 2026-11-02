@@ -1,3 +1,5 @@
+import "server-only";
+
 import { and, eq, or } from "drizzle-orm";
 import { getWebDb, normalizeKey, users } from "@funwind/db";
 import { type PasswordVerifier, verifyAccountPassword, verifyLegacyPassword } from "./password";

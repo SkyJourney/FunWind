@@ -1,12 +1,14 @@
+import "server-only";
+
 import { and, count, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { follows, getWebDb, posts, threads, users } from "@funwind/db";
 import type { Subject } from "@/lib/authz/types";
 import { THREADS_PER_PAGE, selectList, threadCols, toItem, type HomeFeedItem } from "./threads";
 import { extractFeedMedia } from "./feed-media";
-import { pageBounds } from "./paging";
+import { pageBounds } from "@/lib/paging";
 import { buildViewerScope, visiblePredicate } from "./visibility";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
-import { publicUserDeleted } from "./public-identity";
+import { publicUserDeleted } from "@/lib/identity-expr";
 
 /**
  * 关注动态（M8）：关注的版块新帖 + 关注用户的发帖，实时从新表推导（旧 fresh 流不迁）。

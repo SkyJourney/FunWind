@@ -1,3 +1,5 @@
+import "server-only";
+
 import { and, count, desc, eq, inArray, notExists, sql } from "drizzle-orm";
 import { cache } from "react";
 import {
@@ -18,7 +20,7 @@ import { getPointsName } from "@/lib/auth/settings";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
 import { buildViewerScope, visiblePredicate } from "./visibility";
 import { publicRolesOf, type PublicRoleIdentity } from "./public-identity";
-import { pageBounds } from "./paging";
+import { pageBounds } from "@/lib/paging";
 import { GUEST_SUBJECT, type Subject } from "@/lib/authz/types";
 import { extractFeedMedia } from "./feed-media";
 import { selectList, threadScope, toItem, type ThreadListItem } from "./threads";

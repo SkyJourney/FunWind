@@ -1,3 +1,5 @@
+import "server-only";
+
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   accountDeletionRequests,
@@ -21,8 +23,8 @@ import {
   lockSiteAdminInvariant,
 } from "@/lib/authz/site-admin-invariant";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
-import { publicUserDeleted } from "@/lib/queries/public-identity";
-import { pageBounds } from "@/lib/queries/paging";
+import { publicUserDeleted } from "@/lib/identity-expr";
+import { pageBounds } from "@/lib/paging";
 import {
   dispatchOutboxRows,
   enqueueEventInTx,

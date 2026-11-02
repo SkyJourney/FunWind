@@ -1,10 +1,12 @@
+import "server-only";
+
 import { and, desc, eq, sql } from "drizzle-orm";
 import { getWebDb, posts, threads, users } from "@funwind/db";
 import type { Subject } from "@/lib/authz/types";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
 import { buildViewerScope, visiblePredicate } from "./visibility";
-import { publicUserDeleted, publicUserId, publicUsername } from "./public-identity";
-import { pageBounds } from "./paging";
+import { publicUserDeleted, publicUserId, publicUsername } from "@/lib/identity-expr";
+import { pageBounds } from "@/lib/paging";
 import type { ThreadListItem } from "./threads";
 
 /**

@@ -6,7 +6,7 @@ import { requireAdmin } from "@/lib/authz/require-admin";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { Pagination } from "@/components/content/pagination";
-import { pageBounds } from "@/lib/queries/paging";
+import { pageBounds } from "@/lib/paging";
 import {
   createGroupAction,
   deleteGroupAction,

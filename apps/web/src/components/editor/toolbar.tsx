@@ -39,7 +39,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { cn } from "@/lib/utils";
 import { EmojiPanel } from "./emoji-panel";
 import { nextGateKey } from "./gate-keys";
-import { defaultGateAttrs } from "./markdown/gate";
+import { defaultGateAttrs } from "@/lib/editor/markdown/gate";
 
 /** 快捷键里的修饰键：Mac 显示 ⌘，其余显示 Ctrl（编辑器只在浏览器里创建，这里可以直接读 navigator） */
 const modLabel = () =>

@@ -4,7 +4,7 @@ import { notify } from "@/lib/notifications/notify";
 import { securityEmailEnabled, sendUserEmail, userEmailEnabled } from "@/lib/notifications/email";
 import { appealResultMail, gateSoldMail, restrictionMail, contentApprovedMail } from "@/lib/mail";
 import { getForumModerators } from "@/lib/authz/service";
-import { publicUserDeleted } from "@/lib/queries/public-identity";
+import { publicUserDeleted } from "@/lib/identity-expr";
 import { forums, getWebDb, posts, roles, threads, userAppeals, users } from "@funwind/db";
 import { eq } from "drizzle-orm";
 

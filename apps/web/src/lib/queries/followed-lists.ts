@@ -1,7 +1,9 @@
+import "server-only";
+
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { files, forums, getWebDb, userProfiles, userRestrictions, users } from "@funwind/db";
 import { restrictionActive } from "@/lib/authz/restrictions";
-import { publicUserDeleted } from "./public-identity";
+import { publicUserDeleted } from "@/lib/identity-expr";
 import { checkPermission, getReadableForumIds } from "@/lib/authz/service";
 import { loadSubject } from "@/lib/authz/subject";
 

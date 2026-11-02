@@ -4,7 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { getWebDb, posts, threads } from "@funwind/db";
-import { hidePostAction } from "@/app/admin/review/actions";
+import { hidePostAction } from "@/app/actions/posts";
 import { ModerationForm } from "@/components/posting/moderation-form";
 import { Card, CardContent } from "@/components/ui/card";
 import { getCurrentSubject } from "@/lib/authz/subject";

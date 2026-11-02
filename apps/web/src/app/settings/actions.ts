@@ -25,7 +25,7 @@ import {
   trySendMail,
   verifyEmailMail,
 } from "@/lib/mail";
-import { setUserThemePack } from "@/lib/theme-pref";
+import { setUserThemePack } from "@/lib/theme/pref";
 import { hashEmailKey, issueEmailToken } from "@/lib/auth/tokens";
 import { changeEmailAddress } from "@/lib/auth/email-change";
 

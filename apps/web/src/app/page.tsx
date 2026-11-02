@@ -1,6 +1,7 @@
 import { Flame, Home, Layers, Newspaper } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { checkinAction } from "@/app/actions/checkin";
 import { Slot } from "@/modules/kernel/slot";
 import { FeedCard } from "@/components/content/feed-card";
 import { HomeFeedStream } from "@/components/content/home-feed-stream";
@@ -11,10 +12,10 @@ import { getForumTree } from "@/lib/authz/snapshot";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { getDirectory } from "@/lib/queries/forums";
 import { getHomeFeed, getHotThreads } from "@/lib/queries/threads";
-import { getSiteChrome, getSiteIdentity } from "@/lib/site-chrome";
+import { getSiteChrome, getSiteIdentity } from "@/lib/chrome/site-chrome";
 import { getThemeCatalog } from "@/lib/theme/catalog";
 import { decorUrl } from "@/lib/theme/decor-url";
-import { getUserThemePack, resolveEffectivePack } from "@/lib/theme-pref";
+import { getUserThemePack, resolveEffectivePack } from "@/lib/theme/pref";
 import { themeSurfaceStyle } from "@/lib/theme/surface-style";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -122,7 +123,7 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
         </section>
       )}
 
-      <Slot name="home.after-header" />
+      <Slot name="home.after-header" ctx={{ checkinAction }} />
 
       <div className="mt-4 grid gap-8 xl:grid-cols-[minmax(0,1fr)_18rem]">
         <div className="min-w-0 space-y-4">
@@ -244,7 +245,7 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
             siteName={chrome.identity.name}
             tagline={chrome.identity.tagline}
           />
-          <Slot name="home.rail" />
+          <Slot name="home.rail" ctx={{ checkinAction }} />
           <section className="rounded-xl border bg-card p-4">
             <h2 className="flex items-center gap-1.5 text-sm font-semibold">
               <Flame className="size-4 text-primary" aria-hidden /> 本站热帖

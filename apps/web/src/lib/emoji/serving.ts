@@ -1,8 +1,10 @@
+import "server-only";
+
 import { createReadStream, promises as fs } from "node:fs";
 import { Readable } from "node:stream";
 import { eq } from "drizzle-orm";
 import { emojis, getWebDb } from "@funwind/db";
-import { parseFileKey } from "@/lib/file-serving";
+import { parseFileKey } from "@/lib/uploads/policy";
 import { resolveStaticPath } from "@/lib/static-files";
 import { getStorageDir } from "@/lib/storage";
 

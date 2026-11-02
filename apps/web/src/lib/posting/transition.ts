@@ -3,7 +3,8 @@ import { forums, posts, threads, userStats } from "@funwind/db";
 import { writeAudit, type DbTx } from "@/lib/audit";
 import type { ContentState } from "@/lib/authz/evaluator";
 import { counterDelta, isVisible, type CounterDelta, type TransitionFacts } from "./counters";
-import { lockForum, lockThread, lockUserStats } from "./locks";
+import { lockUserStats } from "@/lib/locks";
+import { lockForum, lockThread } from "./locks";
 
 /**
  * 内容状态迁移的唯一入口（M6.1，设计稿 §3.2）。发布、审核通过、驳回、隐藏、软删、恢复全部走这里，

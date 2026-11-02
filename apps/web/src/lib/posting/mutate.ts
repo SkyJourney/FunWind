@@ -26,7 +26,8 @@ import {
 } from "@/lib/events/outbox";
 import type { EventName } from "@/modules/kernel/types";
 import { transitionContent } from "./transition";
-import { lockForum, lockThread, lockUserStats } from "./locks";
+import { lockUserStats } from "@/lib/locks";
+import { lockForum, lockThread } from "./locks";
 import {
   canDelete,
   canEdit,

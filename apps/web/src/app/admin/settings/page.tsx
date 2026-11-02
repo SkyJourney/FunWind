@@ -4,7 +4,7 @@ import { requireAdmin } from "@/lib/authz/require-admin";
 import { getEmailVerificationMode, getRegisterMode } from "@/lib/auth/settings";
 import { getDigestHour, securityEmailEnabled } from "@/lib/notifications/email";
 import { getLimitsConfig } from "@/lib/limits/load";
-import { getSiteChrome, getSiteIdentity } from "@/lib/site-chrome";
+import { getSiteChrome, getSiteIdentity } from "@/lib/chrome/site-chrome";
 import { SITE_URL } from "@/lib/site";
 import { getThemeCatalog } from "@/lib/theme/catalog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
