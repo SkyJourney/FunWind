@@ -1,5 +1,6 @@
-import { getWebDb, themePackages } from "@funwind/db";
+import { BUILTIN_THEME_COLORS, getWebDb, themePackages } from "@funwind/db";
 import { DEFAULT_PACK, THEME_PACKS } from "@/lib/theme-packs";
+import { parseThemePackDefinition, type ThemePackDefinition } from "./surface-schema";
 
 /**
  * 主题包目录（M11.1 Step 3，docs/milestones/M11.1-theme-engine.md Step 3）：
@@ -17,8 +18,12 @@ export interface CatalogPack {
   label: string;
   /** 来源：static=内置 CSS 包（themes/<id>.css 随代码发布）；db=/admin/themes 维护的数据包 */
   source: "static" | "db";
+  enabled: boolean;
   /** 数据包自带 LOGO 池文件引用（静态包沿用 THEME_PACKS.logo） */
   logo: string | null;
+  definition: ThemePackDefinition | null;
+  themeColor: string;
+  backgroundColor: string;
 }
 
 interface CatalogBox {
@@ -34,32 +39,57 @@ export type ThemeCatalogRow = {
   name: string;
   enabled: boolean;
   assets?: unknown;
+  definition?: unknown;
 };
 
 export type ThemeCatalogReadDb = () => Promise<ThemeCatalogRow[]>;
 
 function staticPacks(): CatalogPack[] {
-  return THEME_PACKS.map((p) => ({ id: p.id, label: p.label, source: "static", logo: p.logo }));
+  return THEME_PACKS.map((pack) => {
+    const colors = BUILTIN_THEME_COLORS[pack.id] ?? BUILTIN_THEME_COLORS[DEFAULT_PACK];
+    return {
+      id: pack.id,
+      label: pack.label,
+      source: "static",
+      enabled: true,
+      logo: pack.logo,
+      definition: null,
+      themeColor: colors.themeColor,
+      backgroundColor: colors.backgroundColor,
+    };
+  });
 }
 
-function readDbPacksVia(readDb: ThemeCatalogReadDb): Promise<CatalogPack[]> {
-  return readDb().then((rows) =>
-    rows
-      .filter((row) => row.enabled)
-      .map((row) => {
-        // 数据包自带 LOGO：assets 内 kind=logo 的项（M11.1 Step 5 编辑器写入约定；无则无联动）
-        const assets = Array.isArray(row.assets)
-          ? (row.assets as { poolFile?: unknown; kind?: unknown }[])
-          : [];
-        const logoAsset = assets.find((a) => a.kind === "logo" && typeof a.poolFile === "string");
-        return {
-          id: row.id,
-          label: row.name,
-          source: "db" as const,
-          logo: logoAsset ? (logoAsset.poolFile as string) : null,
-        };
-      }),
-  );
+async function readDbPacksVia(readDb: ThemeCatalogReadDb): Promise<CatalogPack[]> {
+  const rows = await readDb();
+  const staticById = new Map(staticPacks().map((pack) => [pack.id, pack]));
+  return rows
+    .filter((row) => /^[a-z0-9][a-z0-9_-]{1,31}$/.test(row.id))
+    .map((row) => {
+      const staticPack = staticById.get(row.id);
+      const parsed = row.definition === undefined ? null : parseThemePackDefinition(row.definition);
+      const definition = parsed?.ok ? parsed.value : null;
+      const assets = Array.isArray(row.assets)
+        ? (row.assets as { poolFile?: unknown; kind?: unknown }[])
+        : [];
+      const logoAsset = assets.find(
+        (asset) => asset.kind === "logo" && typeof asset.poolFile === "string",
+      );
+      const colors = definition?.pwa ?? {
+        themeColor: staticPack?.themeColor ?? BUILTIN_THEME_COLORS[DEFAULT_PACK].themeColor,
+        backgroundColor:
+          staticPack?.backgroundColor ?? BUILTIN_THEME_COLORS[DEFAULT_PACK].backgroundColor,
+      };
+      return {
+        id: row.id,
+        label: row.name,
+        source: staticPack ? "static" : "db",
+        enabled: row.enabled,
+        logo: logoAsset ? (logoAsset.poolFile as string) : (staticPack?.logo ?? null),
+        definition,
+        ...colors,
+      };
+    });
 }
 
 export interface ThemeCatalogDeps {
@@ -74,9 +104,19 @@ export async function getThemeCatalog(deps: ThemeCatalogDeps = {}): Promise<Cata
   if (box && now() - box.at < TTL_MS) return box.packs;
   let packs = staticPacks();
   try {
+    const staticEntries = staticPacks();
     const dbPacks = await readDbPacksVia(deps.readDb ?? defaultReadDb);
-    const staticIds = new Set(packs.map((p) => p.id));
-    packs = [...staticPacks(), ...dbPacks.filter((p) => !staticIds.has(p.id))];
+    const dbById = new Map(dbPacks.map((pack) => [pack.id, pack]));
+    const staticPacksAvailable = staticEntries.flatMap((pack) => {
+      const stored = dbById.get(pack.id);
+      if (stored && !stored.enabled && pack.id !== DEFAULT_PACK) return [];
+      return [stored ? { ...pack, ...stored, source: "static" as const } : pack];
+    });
+    const staticIds = new Set(staticPacksAvailable.map((pack) => pack.id));
+    packs = [
+      ...staticPacksAvailable,
+      ...dbPacks.filter((pack) => pack.enabled && !staticIds.has(pack.id)),
+    ];
   } catch (error) {
     if (box) return box.packs; // 库暂时不可用：沿用上次目录
     // 冷启动读库失败：回静态包（记日志供诊断，不打断站点）
@@ -112,6 +152,7 @@ async function defaultReadDb(): Promise<ThemeCatalogRow[]> {
       name: themePackages.name,
       enabled: themePackages.enabled,
       assets: themePackages.assets,
+      definition: themePackages.definition,
     })
     .from(themePackages);
 }

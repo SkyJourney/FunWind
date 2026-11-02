@@ -9,3 +9,4 @@ export * from "./authz-vocab.js";
 export * from "./seed-data.js";
 export * from "./seed-guard.js";
 export * from "./sql-result.js";
+export * from "./theme-pack-seeds.js";

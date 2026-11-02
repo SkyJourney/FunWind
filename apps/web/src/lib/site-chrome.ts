@@ -2,6 +2,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { announcements, getWebDb, siteSettings } from "@funwind/db";
 import { SITE_NAME, SITE_TAGLINE, SITE_URL } from "@/lib/site";
 import { DEFAULT_PACK, isPackValue, type PackId } from "@/lib/theme-packs";
+import { isKnownPackId } from "@/lib/theme/catalog";
 
 /**
  * 站点框架配置（M9，site_settings JSON，不建独立表）：导航/友链/页脚。
@@ -30,7 +31,7 @@ export interface SiteChrome {
   /** 站点身份（M10.6b）：名称/副标题；未配置回退 SITE_NAME/SITE_TAGLINE */
   identity: SiteIdentity;
   /** 全站默认主题包（M11，site.theme）：用户未设偏好时生效；未配置/未知 id 回退 default */
-  themePack: PackId;
+  themePack: string;
 }
 
 export interface SiteIdentity {
@@ -72,7 +73,7 @@ export async function getSiteChrome(): Promise<SiteChrome> {
       logoActive: parseBrandActive(byKey.get("site.logo"), "logo"),
       heroActive: parseBrandActive(byKey.get("site.hero"), "hero"),
       identity: parseIdentity(byKey.get("site.identity")),
-      themePack: parseThemePack(byKey.get("site.theme")),
+      themePack: await resolveSiteThemePack(byKey.get("site.theme")),
     };
     g.__fwSiteChrome = { value: chrome, at: Date.now() };
     return chrome;
@@ -137,10 +138,21 @@ export async function getSiteIdentity(): Promise<SiteIdentity> {
   return (await getSiteChrome()).identity;
 }
 
-/** 全站默认主题包（site.theme JSON {pack}）：未配置或不在注册表 → default（导出供单测） */
-export function parseThemePack(raw: unknown): PackId {
+/** 从 site.theme 解析符合包 id 语法的候选值 */
+function themePackCandidate(raw: unknown): string | null {
   const pack = (raw as { pack?: unknown } | null)?.pack;
-  return typeof pack === "string" && isPackValue(pack) ? pack : DEFAULT_PACK;
+  return typeof pack === "string" && /^[a-z0-9][a-z0-9_-]{1,31}$/.test(pack) ? pack : null;
+}
+
+async function resolveSiteThemePack(raw: unknown): Promise<string> {
+  const candidate = themePackCandidate(raw);
+  return candidate && (await isKnownPackId(candidate)) ? candidate : DEFAULT_PACK;
+}
+
+/** 静态注册表校验版（兼容旧调用与纯单测）；运行时读取走动态目录 */
+export function parseThemePack(raw: unknown): PackId {
+  const candidate = themePackCandidate(raw);
+  return candidate && isPackValue(candidate) ? candidate : DEFAULT_PACK;
 }
 
 function parseNav(raw: unknown): NavItem[] {

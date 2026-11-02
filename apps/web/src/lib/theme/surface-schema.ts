@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { SURFACES } from "./surface-registry";
+export { isSurfaceId, SURFACES } from "./surface-registry";
+export type { SurfaceId } from "./surface-registry";
 
 /**
  * Surface 定义 schema（M11.1，docs/milestones/M11.1-theme-engine.md §0）。
@@ -9,8 +12,15 @@ import { z } from "zod";
 /** #RRGGBB 严格色值（透明度用结构化 alpha 表达，不接受 rgba/css 函数） */
 export const hexColorSchema = z.string().regex(/^#[0-9A-Fa-f]{6}$/, "非法颜色（须 #RRGGBB）");
 
-/** alpha 0–1，保留两位小数以内 */
-export const alphaSchema = z.number().min(0).max(1);
+/** alpha 0–1，最多保留两位小数 */
+export const alphaSchema = z
+  .number()
+  .min(0)
+  .max(1)
+  .refine(
+    (value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-8,
+    "透明度最多保留两位小数",
+  );
 
 /** 渐变色标：颜色 + 不透明度 + 位置百分比（strict：未知字段拒绝，防任意 CSS 注入） */
 export const gradientStopSchema = z
@@ -39,14 +49,30 @@ export const fillSchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("image"),
-      asset: z.string().max(80),
+      asset: z.string().regex(/^decor-[a-f0-9]{32}\.png$/, "非法装饰素材引用"),
       position: z
         .string()
-        .regex(
-          /^(top|bottom|left|right|center|\d{1,3}% \d{1,3}%)$/,
-          "非法 position（单关键词或「X% Y%」）",
+        .refine(
+          (value) =>
+            [
+              "top",
+              "bottom",
+              "left",
+              "right",
+              "center",
+              "top left",
+              "top center",
+              "top right",
+              "center left",
+              "center center",
+              "center right",
+              "bottom left",
+              "bottom center",
+              "bottom right",
+            ].includes(value) || /^(100|[0-9]{1,2})% (100|[0-9]{1,2})%$/.test(value),
+          "非法图片位置",
         ),
-      size: z.enum(["cover", "contain", "auto"]).or(z.string().regex(/^\d{1,3}%$/)),
+      size: z.enum(["cover", "contain", "auto"]).or(z.string().regex(/^(100|[1-9]\d?)%$/)),
       repeat: z.enum(["no-repeat", "repeat", "repeat-x", "repeat-y"]),
       blend: z.enum(["normal", "multiply", "screen", "overlay", "soft-light", "luminosity"]),
       opacity: alphaSchema,
@@ -78,7 +104,10 @@ export const textColorsSchema = z
 export const contentSlotSchema = z
   .object({
     /** decor 池素材引用（横幅图/挂件图等）；无 = 区域按默认渲染 */
-    image: z.string().max(80).optional(),
+    image: z
+      .string()
+      .regex(/^decor-[a-f0-9]{32}\.png$/, "非法装饰素材引用")
+      .optional(),
     /** 图片替代高度（仅 hero-image/banner 类内容槽有意义，px 120–480） */
     imageHeightPx: z.number().int().min(120).max(480).optional(),
     /** 是否隐藏区域自有文字（如用纯图 banner 替代公告文字） */
@@ -93,6 +122,7 @@ export const surfaceCapabilitiesSchema = z
     border: borderSchema.optional(),
     text: textColorsSchema.optional(),
     blur: z.number().int().min(0).max(24).optional(),
+    contentSlot: contentSlotSchema.optional(),
   })
   .strict();
 
@@ -104,10 +134,18 @@ export const surfaceEntrySchema = z
   })
   .strict();
 
-/** 包 definition：SurfaceId → 明/暗定义；未知字段/未知区域拒绝 */
+export const themePackPwaSchema = z
+  .object({
+    themeColor: hexColorSchema,
+    backgroundColor: hexColorSchema,
+  })
+  .strict();
+
+/** 包 definition：SurfaceId → 明/暗定义与 PWA 颜色；未知字段/未知区域拒绝 */
 export const themePackDefinitionSchema = z
   .object({
     surfaces: z.record(z.string(), surfaceEntrySchema),
+    pwa: themePackPwaSchema.optional(),
   })
   .strict();
 
@@ -117,30 +155,8 @@ export type FillSpec = z.infer<typeof fillSchema>;
 export type OverlaySpec = z.infer<typeof overlaySchema>;
 export type SurfaceCapabilities = z.infer<typeof surfaceCapabilitiesSchema>;
 export type SurfaceEntry = z.infer<typeof surfaceEntrySchema>;
+export type ThemePackPwa = z.infer<typeof themePackPwaSchema>;
 export type ThemePackDefinition = z.infer<typeof themePackDefinitionSchema>;
-
-/** Surface 实例注册表（区域 id + 后台显示名 + 启用能力集）——代码内白名单 */
-export const SURFACES = [
-  {
-    id: "header",
-    label: "顶部导航",
-    caps: ["fill", "overlay", "border", "blur", "text", "contentSlot"],
-  },
-  { id: "hero-brand", label: "首页品牌区", caps: ["fill", "overlay", "text", "contentSlot"] },
-  { id: "banner-announce", label: "公告横幅", caps: ["fill", "text", "contentSlot"] },
-  { id: "forum-band", label: "板块卡底纹", caps: ["fill", "overlay"] },
-  { id: "hero-image", label: "首页 Hero 图", caps: ["contentSlot"] },
-  { id: "tabbar", label: "底部 Tab", caps: ["fill", "blur", "border"] },
-  { id: "footer", label: "页脚", caps: ["fill", "border", "text"] },
-  { id: "auth", label: "登录/注册壳", caps: ["fill", "overlay"] },
-  { id: "page", label: "全局页面背景", caps: ["fill"] },
-] as const;
-
-export type SurfaceId = (typeof SURFACES)[number]["id"];
-
-export function isSurfaceId(v: string): v is SurfaceId {
-  return SURFACES.some((s) => s.id === v);
-}
 
 /** 校验包 definition：结构合法 + 只含已注册 Surface + 未启用的能力不出现在定义里 */
 export function parseThemePackDefinition(
@@ -154,8 +170,22 @@ export function parseThemePackDefinition(
     };
   }
   const errors: string[] = [];
-  for (const surfaceId of Object.keys(parsed.data.surfaces)) {
-    if (!isSurfaceId(surfaceId)) errors.push(`surfaces.${surfaceId}: 未注册的区域`);
+  for (const [surfaceId, entry] of Object.entries(parsed.data.surfaces)) {
+    const surface = SURFACES.find((candidate) => candidate.id === surfaceId);
+    if (!surface) {
+      errors.push(`surfaces.${surfaceId}: 未注册的区域`);
+      continue;
+    }
+    const allowed = new Set<string>(surface.caps);
+    for (const mode of ["light", "dark"] as const) {
+      const capabilities = entry[mode];
+      if (!capabilities) continue;
+      for (const capability of Object.keys(capabilities)) {
+        if (!allowed.has(capability)) {
+          errors.push(`surfaces.${surfaceId}.${mode}.${capability}: 该区域不支持此能力`);
+        }
+      }
+    }
   }
   if (errors.length > 0) return { ok: false, errors };
   return { ok: true, value: parsed.data };

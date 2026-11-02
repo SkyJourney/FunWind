@@ -10,7 +10,9 @@ import {
 
 /** 可注入的目录读取 fake：覆盖 DB 启用/停用、LOGO 资产引用、读库失败三条分支 */
 const rows =
-  (list: { id: string; name: string; enabled: boolean; assets?: unknown }[]): ThemeCatalogReadDb =>
+  (
+    list: { id: string; name: string; enabled: boolean; assets?: unknown; definition?: unknown }[],
+  ): ThemeCatalogReadDb =>
   async () =>
     list;
 
@@ -31,6 +33,57 @@ describe("主题包目录（catalog，纯函数层）", () => {
     expect(ids.filter((id) => id === "default")).toHaveLength(1);
     expect(packs.find((p) => p.id === "default")?.source).toBe("static");
     expect(packs.find((p) => p.id === "xmas")?.source).toBe("db");
+  });
+
+  it("将启用 DB definition/PWA 色值合并到静态内置包并提供自定义包渲染定义", async () => {
+    const packs = await refreshThemeCatalog({
+      readDb: rows([
+        {
+          id: "default",
+          name: "后台改名默认",
+          enabled: true,
+          definition: {
+            surfaces: { page: { light: { fill: { type: "solid", color: "#123456" } } } },
+            pwa: { themeColor: "#112233", backgroundColor: "#f0f0f0" },
+          },
+        },
+        {
+          id: "custom-pk",
+          name: "自定义包",
+          enabled: true,
+          definition: {
+            surfaces: { page: { light: { fill: { type: "solid", color: "#abcdef" } } } },
+            pwa: { themeColor: "#334455", backgroundColor: "#ffffff" },
+          },
+        },
+      ]),
+    });
+    const builtin = packs.find((pack) => pack.id === "default");
+    const custom = packs.find((pack) => pack.id === "custom-pk");
+    expect(builtin).toMatchObject({
+      source: "static",
+      label: "后台改名默认",
+      themeColor: "#112233",
+      backgroundColor: "#f0f0f0",
+      definition: { surfaces: { page: { light: { fill: { color: "#123456" } } } } },
+    });
+    expect(custom).toMatchObject({
+      source: "db",
+      themeColor: "#334455",
+      backgroundColor: "#ffffff",
+      definition: { surfaces: { page: { light: { fill: { color: "#abcdef" } } } } },
+    });
+  });
+
+  it("停用内置 qy2010 后从可选目录移除，但系统 default 始终保留", async () => {
+    const packs = await refreshThemeCatalog({
+      readDb: rows([
+        { id: "default", name: "现代浅色", enabled: true },
+        { id: "qy2010", name: "复刻·青翼2010", enabled: false },
+      ]),
+    });
+    expect(packs.map((pack) => pack.id)).toContain("default");
+    expect(packs.map((pack) => pack.id)).not.toContain("qy2010");
   });
 
   it("数据包自带 LOGO：assets 内 kind=logo 的 poolFile 被识别；非法 assets 不炸", async () => {

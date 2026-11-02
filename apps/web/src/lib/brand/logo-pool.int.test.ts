@@ -3,7 +3,7 @@
  * LOGO 池集成测试（M10.5 阶段 C）：addLogo 魔数/大小/入池、setActive/remove 语义、
  * readLogoBytes 池内校验。文件落 STORAGE_DIR（测试指向系统临时目录，用后清理）。
  */
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
@@ -144,6 +144,10 @@ describe.skipIf(skipDb)("applyPackLogo · 主题↔LOGO 联动", () => {
   ];
   let assetDir: string;
   const themeActor = { userId: 90004, via: "theme" as const };
+  const packDeps = () => ({
+    packs,
+    readAsset: async (file: string) => readFileSync(join(assetDir, file)),
+  });
 
   const uploads = () =>
     getWebDb()
@@ -167,11 +171,11 @@ describe.skipIf(skipDb)("applyPackLogo · 主题↔LOGO 联动", () => {
 
   it("未知包 / 无图包：不触碰池、不记审计", async () => {
     const uploadsBefore = (await uploads()).length;
-    expect(await applyPackLogo("nope", themeActor, { packs, assetDir })).toEqual({
+    expect(await applyPackLogo("nope", themeActor, packDeps())).toEqual({
       applied: false,
       reason: "unknown-pack",
     });
-    expect(await applyPackLogo("nologo", themeActor, { packs, assetDir })).toEqual({
+    expect(await applyPackLogo("nologo", themeActor, packDeps())).toEqual({
       applied: false,
       reason: "no-logo",
     });
@@ -181,7 +185,7 @@ describe.skipIf(skipDb)("applyPackLogo · 主题↔LOGO 联动", () => {
 
   it("带图包首次设默认：素材导入池（带 pack 标签）并设为当前；审计 via=theme", async () => {
     const uploadsBefore = (await uploads()).length;
-    const r = await applyPackLogo("withlogo", themeActor, { packs, assetDir });
+    const r = await applyPackLogo("withlogo", themeActor, packDeps());
     expect(r).toMatchObject({ applied: true, imported: true });
     const pool = await getLogoPoolRaw();
     expect(pool.items).toHaveLength(1);
@@ -196,7 +200,7 @@ describe.skipIf(skipDb)("applyPackLogo · 主题↔LOGO 联动", () => {
   it("再次设默认：幂等——不重复导入、无变化不记审计", async () => {
     const uploadsBefore = (await uploads()).length;
     const activatesBefore = (await activates()).length;
-    const r = await applyPackLogo("withlogo", themeActor, { packs, assetDir });
+    const r = await applyPackLogo("withlogo", themeActor, packDeps());
     expect(r).toMatchObject({ applied: true, imported: false });
     expect((await getLogoPoolRaw()).items).toHaveLength(1);
     expect(await uploads()).toHaveLength(uploadsBefore);
@@ -209,7 +213,7 @@ describe.skipIf(skipDb)("applyPackLogo · 主题↔LOGO 联动", () => {
     expect((await getLogoPoolRaw()).active).toBe(manual.pool.active); // 手动上传自动成为当前
     const activatesBefore = (await activates()).length;
 
-    const r = await applyPackLogo("withlogo", themeActor, { packs, assetDir });
+    const r = await applyPackLogo("withlogo", themeActor, packDeps());
     expect(r).toMatchObject({ applied: true, imported: false });
     const pool = await getLogoPoolRaw();
     expect(pool.items).toHaveLength(2);
@@ -229,7 +233,7 @@ describe.skipIf(skipDb)("applyPackLogo · 主题↔LOGO 联动", () => {
     await removeLogo(packItem.file);
     expect((await getLogoPoolRaw()).items.some((i) => i.pack === "withlogo")).toBe(false);
 
-    const r = await applyPackLogo("withlogo", themeActor, { packs, assetDir });
+    const r = await applyPackLogo("withlogo", themeActor, packDeps());
     expect(r).toMatchObject({ applied: true, imported: true });
     const after = await getLogoPoolRaw();
     const reimported = after.items.find((i) => i.pack === "withlogo")!;
@@ -239,7 +243,7 @@ describe.skipIf(skipDb)("applyPackLogo · 主题↔LOGO 联动", () => {
 
   it("素材缺失：返回原因不抛错、池不变（主题保存本身不受影响）", async () => {
     const before = await getLogoPoolRaw();
-    expect(await applyPackLogo("missing", themeActor, { packs, assetDir })).toEqual({
+    expect(await applyPackLogo("missing", themeActor, packDeps())).toEqual({
       applied: false,
       reason: "missing-asset",
     });

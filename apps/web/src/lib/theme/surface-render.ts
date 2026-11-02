@@ -6,7 +6,8 @@ import type {
   SurfaceId,
   ThemePackDefinition,
 } from "./surface-schema";
-import { isSurfaceId } from "./surface-schema";
+import { isSurfaceId } from "./surface-registry";
+import { decorUrl } from "./decor-url";
 
 /**
  * Surface 渲染器（M11.1 Step 1，纯函数）：包 definition → 固定 `--sf-<area>-*` CSS 变量键值对。
@@ -52,21 +53,15 @@ function fillToBackground(fill: FillSpec): string {
     case "radial":
       return gradientOf("radial", fill.shape, undefined, fill.stops);
     case "image":
-      return [
-        `url("/brand/decor/${encodeURIComponent(fill.asset)}")`,
-        fill.position,
-        `/ ${fill.size}`,
-        fill.repeat,
-        fill.blend !== "normal" ? fill.blend : "",
-      ]
-        .filter(Boolean)
-        .join(" ");
+      return [`url("${decorUrl(fill.asset)}")`, fill.position, `/ ${fill.size}`, fill.repeat].join(
+        " ",
+      );
   }
 }
 
-/** 图片填充的不透明度通过叠加层表达：fill 为 image 且 opacity<1 时返回覆盖变量值 */
+/** 图片填充的混合模式和不透明度由独立变量表达，不拼入 background shorthand */
 function fillImageOpacity(fill: FillSpec): string | null {
-  return fill.type === "image" && fill.opacity < 1 ? String(fill.opacity) : null;
+  return fill.type === "image" ? String(fill.opacity) : null;
 }
 
 function overlayToBackground(overlay: OverlaySpec): string {
@@ -80,12 +75,22 @@ export function renderSurfaceVars(area: SurfaceId, caps: SurfaceCapabilities): C
   if (caps.fill) {
     vars[`--sf-${area}-bg`] = fillToBackground(caps.fill);
     const imgOpacity = fillImageOpacity(caps.fill);
-    if (imgOpacity !== null) vars[`--sf-${area}-bg-image-opacity`] = imgOpacity;
+    if (imgOpacity !== null) {
+      vars[`--sf-${area}-bg-image-opacity`] = imgOpacity;
+      if (caps.fill.type === "image") {
+        vars[`--sf-${area}-bg-blend-mode`] = caps.fill.blend;
+      }
+    }
   }
   if (caps.overlay) {
     vars[`--sf-${area}-overlay-bg`] = overlayToBackground(caps.overlay);
     const oo = (caps.overlay as { overlayOpacity?: number }).overlayOpacity;
     if (typeof oo === "number") vars[`--sf-${area}-overlay-opacity`] = String(oo);
+    // 图片遮罩：自身混合模式与不透明度同样走独立变量（与 fill 图片同口径）
+    if (caps.overlay.type === "image") {
+      vars[`--sf-${area}-overlay-bg-blend-mode`] = caps.overlay.blend;
+      vars[`--sf-${area}-overlay-bg-image-opacity`] = String(caps.overlay.opacity);
+    }
   }
   if (caps.border) {
     vars[`--sf-${area}-border-color`] = caps.border.color;
@@ -100,17 +105,41 @@ export function renderSurfaceVars(area: SurfaceId, caps: SurfaceCapabilities): C
   if (typeof caps.blur === "number") {
     vars[`--sf-${area}-blur`] = `${caps.blur}px`;
   }
+  if (caps.contentSlot) {
+    if (caps.contentSlot.image) {
+      vars[`--sf-${area}-content-image`] = `url("${decorUrl(caps.contentSlot.image)}")`;
+    }
+    if (typeof caps.contentSlot.imageHeightPx === "number") {
+      vars[`--sf-${area}-content-image-height`] = `${caps.contentSlot.imageHeightPx}px`;
+    }
+    if (typeof caps.contentSlot.hideText === "boolean") {
+      vars[`--sf-${area}-content-hide-text`] = caps.contentSlot.hideText ? "1" : "0";
+    }
+  }
   return vars;
 }
 
-/** 渲染一个 Surface 明/暗两档：dark 缺省 = 不输出（回退 default 包暗色档） */
-export function renderSurfaceEntry(area: SurfaceId, entry: SurfaceEntry): CssVarMap {
+/** 渲染一个 Surface 明/暗两档；fallback 提供缺省档的兜底值（default 包定义），自身值优先 */
+export function renderSurfaceEntry(
+  area: SurfaceId,
+  entry: SurfaceEntry | undefined,
+  fallback?: SurfaceEntry,
+): CssVarMap {
   const out: CssVarMap = {};
-  for (const [key, value] of Object.entries(renderSurfaceVars(area, entry.light))) {
-    out[key] = value;
+  // 空能力对象视同未声明：整 Surface/整档缺省时也要继承 fallback（default 包）
+  const light =
+    entry?.light && Object.keys(entry.light).length > 0
+      ? entry.light
+      : (fallback?.light ?? undefined);
+  if (light) {
+    for (const [key, value] of Object.entries(renderSurfaceVars(area, light))) {
+      out[key] = value;
+    }
   }
-  if (entry.dark) {
-    for (const [key, value] of Object.entries(renderSurfaceVars(area, entry.dark))) {
+  const dark =
+    entry?.dark && Object.keys(entry.dark).length > 0 ? entry.dark : (fallback?.dark ?? undefined);
+  if (dark) {
+    for (const [key, value] of Object.entries(renderSurfaceVars(area, dark))) {
       out[`${key}--dark`] = value;
     }
   }
@@ -121,12 +150,24 @@ export function renderSurfaceEntry(area: SurfaceId, entry: SurfaceEntry): CssVar
  * 渲染整包：`{ "selector:var": value }` 的扁平集合。
  * 选择器约定：`root:light`（:root，即默认浅色档）、`root:dark`（[data-mode="dark"] 档）。
  * 未注册区域在 schema 层已拒绝，此处二次防御跳过。
+ * fallbackDefinition（通常 = default 包）：本包未声明的 Surface/档位用它兜底（回退链 包值 → default 包 → 内置 CSS）。
  */
-export function renderPackCssVars(definition: ThemePackDefinition): Record<string, CssVarMap> {
+export function renderPackCssVars(
+  definition: ThemePackDefinition,
+  fallbackDefinition?: ThemePackDefinition,
+): Record<string, CssVarMap> {
   const out: Record<string, CssVarMap> = { "root:light": {}, "root:dark": {} };
-  for (const [area, entry] of Object.entries(definition.surfaces) as [string, SurfaceEntry][]) {
+  const areas = new Set([
+    ...Object.keys(definition.surfaces),
+    ...Object.keys(fallbackDefinition?.surfaces ?? {}),
+  ]);
+  for (const area of areas) {
     if (!isSurfaceId(area)) continue;
-    const rendered = renderSurfaceEntry(area as SurfaceId, entry);
+    const rendered = renderSurfaceEntry(
+      area as SurfaceId,
+      definition.surfaces[area],
+      fallbackDefinition?.surfaces[area],
+    );
     for (const [key, value] of Object.entries(rendered)) {
       if (key.endsWith("--dark")) {
         out["root:dark"][key.replace(/--dark$/, "")] = value;
@@ -139,8 +180,15 @@ export function renderPackCssVars(definition: ThemePackDefinition): Record<strin
 }
 
 /** 输出为可直接内联 `<style>` 的 CSS 文本（含 data-pack 限定），值仅来自白名单渲染器 */
-export function cssTextForPack(packId: string, definition: ThemePackDefinition): string {
-  const bySelector = renderPackCssVars(definition);
+export function cssTextForPack(
+  packId: string,
+  definition: ThemePackDefinition,
+  fallbackDefinition?: ThemePackDefinition,
+): string {
+  if (!/^[a-z0-9][a-z0-9_-]{1,31}$/.test(packId)) {
+    throw new Error("非法主题包 id");
+  }
+  const bySelector = renderPackCssVars(definition, fallbackDefinition);
   const parts: string[] = [];
   const light = bySelector["root:light"];
   const dark = bySelector["root:dark"];

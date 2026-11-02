@@ -13,6 +13,7 @@ export interface BuiltinThemePackSeed {
   name: string;
   description: string;
   definition: {
+    pwa?: { themeColor: string; backgroundColor: string };
     surfaces: Record<
       string,
       {
@@ -29,6 +30,7 @@ const defaultPack: BuiltinThemePackSeed = {
   name: "现代浅色",
   description: "FunWind 默认主题：青翼品牌青 + 冷调中性灰，圆角卡片与毛玻璃表面。",
   definition: {
+    pwa: { themeColor: "#0e7490", backgroundColor: "#f8fafc" },
     surfaces: {
       header: {
         light: {
@@ -114,6 +116,7 @@ const qy2010Pack: BuiltinThemePackSeed = {
   name: "复刻·青翼2010",
   description: "复刻 2010 旧站气质：米黄纸底、暖白方角卡、天蓝链接、若叶绿点缀、宋体站名。仅浅色。",
   definition: {
+    pwa: { themeColor: "#147ba9", backgroundColor: "#f6f3e7" },
     surfaces: {
       header: {
         light: {

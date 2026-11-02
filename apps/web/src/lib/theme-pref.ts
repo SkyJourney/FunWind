@@ -1,7 +1,7 @@
 import { cache } from "react";
 import { eq } from "drizzle-orm";
 import { getWebDb, userProfiles } from "@funwind/db";
-import { DEFAULT_PACK, type PackId } from "@/lib/theme-packs";
+import { DEFAULT_PACK } from "@/lib/theme-packs";
 import { isKnownPackId } from "@/lib/theme/catalog";
 
 /**
@@ -11,7 +11,7 @@ import { isKnownPackId } from "@/lib/theme/catalog";
  * 生效值由 resolveEffectivePack 合成后在 root layout 直出到 html[data-pack]。
  */
 
-export const getUserThemePack = cache(async (userId: number): Promise<PackId | null> => {
+export const getUserThemePack = cache(async (userId: number): Promise<string | null> => {
   const [row] = await getWebDb()
     .select({ themePack: userProfiles.themePack })
     .from(userProfiles)
@@ -19,11 +19,11 @@ export const getUserThemePack = cache(async (userId: number): Promise<PackId | n
     .limit(1);
   const v = row?.themePack;
   if (typeof v !== "string") return null;
-  return (await isKnownPackId(v)) ? (v as PackId) : null;
+  return (await isKnownPackId(v)) ? v : null;
 });
 
 /** 写偏好（本人外观设置 / 顶栏即时切换）：profile 行缺失时补建（与资料更新同款 upsert） */
-export async function setUserThemePack(userId: number, pack: PackId | null): Promise<void> {
+export async function setUserThemePack(userId: number, pack: string | null): Promise<void> {
   await getWebDb()
     .insert(userProfiles)
     .values({ userId, themePack: pack })
@@ -32,8 +32,8 @@ export async function setUserThemePack(userId: number, pack: PackId | null): Pro
 
 /** 生效主题包：用户偏好 → 站点默认 → default（纯函数；目录校验版见 catalog.resolveEffectivePackValidated） */
 export function resolveEffectivePack(
-  userPref: PackId | null | undefined,
-  siteDefault: PackId | null | undefined,
-): PackId {
+  userPref: string | null | undefined,
+  siteDefault: string | null | undefined,
+): string {
   return userPref ?? siteDefault ?? DEFAULT_PACK;
 }

@@ -1,10 +1,11 @@
 // @vitest-environment node
 /** 站点框架配置（M9）：解析容错、TTL 缓存、失效、横幅查询的有效性口径。 */
 import { eq, sql } from "drizzle-orm";
-import { announcements, getWebDb, siteSettings } from "@funwind/db";
+import { announcements, getWebDb, siteSettings, themePackages } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { SITE_NAME, SITE_TAGLINE, SITE_URL } from "@/lib/site";
+import { invalidateThemeCatalog } from "@/lib/theme/catalog";
 import { bannerAnnouncement, getSiteChrome, invalidateSiteChrome } from "./site-chrome";
 
 let tdb: TempDb;
@@ -131,6 +132,42 @@ describe.skipIf(skipDb)("站点框架配置（site-chrome）", () => {
     expect((await getSiteChrome()).themePack).toBe("default"); // 未知 id 回退
 
     await db().delete(siteSettings).where(eq(siteSettings.key, "site.theme"));
+    invalidateSiteChrome();
+  });
+
+  it("site.theme 可解析启用的 DB 自定义包，停用后按目录校验回退 default", async () => {
+    const id = "chrome-db-theme";
+    await db()
+      .insert(themePackages)
+      .values({
+        id,
+        name: "测试动态主题",
+        description: "",
+        schemaVersion: 1,
+        definition: { surfaces: {}, pwa: { themeColor: "#112233", backgroundColor: "#f0f0f0" } },
+        assets: [],
+        enabled: true,
+        isBuiltin: false,
+        revision: 1,
+        createdAt: sql`NOW()`,
+        updatedAt: sql`NOW()`,
+      });
+    await db()
+      .insert(siteSettings)
+      .values({ key: "site.theme", value: { pack: id }, updatedAt: sql`NOW()` })
+      .onDuplicateKeyUpdate({ set: { value: sql`VALUES(value)` } });
+    invalidateThemeCatalog();
+    invalidateSiteChrome();
+    expect((await getSiteChrome()).themePack).toBe(id);
+
+    await db().update(themePackages).set({ enabled: false }).where(eq(themePackages.id, id));
+    invalidateThemeCatalog();
+    invalidateSiteChrome();
+    expect((await getSiteChrome()).themePack).toBe("default");
+
+    await db().delete(themePackages).where(eq(themePackages.id, id));
+    await db().delete(siteSettings).where(eq(siteSettings.key, "site.theme"));
+    invalidateThemeCatalog();
     invalidateSiteChrome();
   });
 

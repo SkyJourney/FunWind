@@ -83,6 +83,9 @@ describe.skipIf(skipDb)("主题装饰素材池（M11.1）", () => {
 
     await setActiveDecor(first);
     expect((await getDecorPoolRaw()).active).toBe(first);
+    await setActiveDecor(null);
+    expect((await getDecorPoolRaw()).active).toBeNull();
+    await setActiveDecor(first);
     await setActiveDecor("decor-unknown.png");
     expect((await getDecorPoolRaw()).active).toBe(first);
 

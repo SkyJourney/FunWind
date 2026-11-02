@@ -17,8 +17,13 @@ export const addLogo = logoFs.add;
 /** 读取池内 LOGO 字节（/brand/logo）；不传 file 时取当前项，file 必须在池内；无可输出返回 null。 */
 export const readLogoBytes = logoFs.readBytes;
 
-/** 主题包自带 LOGO 素材目录（apps/web/public/logo/；next 的 cwd = apps/web，与 lib/storage 同口径） */
-const packLogoDir = () => path.join(process.cwd(), "public", "logo");
+/** 只读取代码内登记的内置 LOGO 文件，路径保持构建期可追踪。 */
+async function readBundledPackLogo(file: string): Promise<Uint8Array> {
+  if (file === "qy2010.png") {
+    return readFile(path.join(process.cwd(), "public", "logo", "qy2010.png"));
+  }
+  throw new Error("未知的内置 LOGO 素材");
+}
 
 export type ApplyPackLogoResult =
   | { applied: false; reason: "no-logo" | "unknown-pack" | "missing-asset" | BrandAddErrorCode }
@@ -29,12 +34,15 @@ export type ApplyPackLogoResult =
  * 包无自带 LOGO → 不触碰池；池内已有该包标签的项 → 只设为当前（幂等，不重复导入）；
  * 不在池（从未导入或已被站长移除）→ 从 public/logo/ 读素材入池（带 pack 标签）并设为当前。
  * 素材缺失/非法只返回原因不抛错——主题切换本身已成功，LOGO 联动是附带动作。
- * packs / assetDir 可注入，供集成测试用临时注册表与临时素材目录。
+ * packs / readAsset 可注入，供集成测试用临时注册表与素材读取器。
  */
 export async function applyPackLogo(
   packId: string,
   actor: ConfigActor = CLI_ACTOR,
-  deps: { packs?: readonly ThemePack[]; assetDir?: string } = {},
+  deps: {
+    packs?: readonly ThemePack[];
+    readAsset?: (file: string) => Promise<Uint8Array>;
+  } = {},
 ): Promise<ApplyPackLogoResult> {
   const pack = (deps.packs ?? THEME_PACKS).find((p) => p.id === packId);
   if (!pack) return { applied: false, reason: "unknown-pack" };
@@ -49,7 +57,7 @@ export async function applyPackLogo(
 
   let bytes: Uint8Array;
   try {
-    bytes = await readFile(path.join(deps.assetDir ?? packLogoDir(), path.basename(pack.logo)));
+    bytes = await (deps.readAsset ?? readBundledPackLogo)(pack.logo);
   } catch {
     return { applied: false, reason: "missing-asset" };
   }

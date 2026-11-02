@@ -63,7 +63,7 @@ export interface BrandPoolHandle {
   readonly safeName: RegExp;
   parse(raw: unknown): BrandPool;
   getRaw(): Promise<BrandPool>;
-  setActive(file: string, actor?: ConfigActor): Promise<void>;
+  setActive(file: string | null, actor?: ConfigActor): Promise<void>;
   /** 停用并移出池（文件保留在磁盘，误删可手工找回）；当前项被移除则 active 归 null（前台回退占位/不渲染） */
   remove(file: string, actor?: ConfigActor): Promise<void>;
   /** 入池登记（DB 半）：由 fs 侧 add 在写盘成功后调用，入池即设为当前；pack = 主题包自带素材的来源标签 */
@@ -132,10 +132,13 @@ export function createBrandPool(spec: BrandPoolSpec): BrandPoolHandle {
     getRaw,
     async setActive(file, actor = CLI_ACTOR) {
       await updatePool(
-        (pool) => (pool.items.some((i) => i.file === file) ? { ...pool, active: file } : pool),
+        (pool) =>
+          file === null || pool.items.some((i) => i.file === file)
+            ? { ...pool, active: file }
+            : pool,
         actor,
         `${spec.actionPrefix}.activate`,
-        file,
+        file ?? "none",
       );
     },
     async remove(file, actor = CLI_ACTOR) {
