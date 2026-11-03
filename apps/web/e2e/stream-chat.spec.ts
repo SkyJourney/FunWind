@@ -57,7 +57,9 @@ test.describe("聊天页上滑加载", () => {
     await page.goto(`/messages/${convId}`);
     await expect(bubbles(page)).toHaveCount(30);
     await expect(page.getByText(`消息 ${TOTAL}`, { exact: true })).toBeInViewport();
-    expect(await atBottom(page)).toBe(true);
+    // 进入时组件用 useLayoutEffect + 两帧 rAF 异步滚到底，慢机器（CI）上这一步晚于上面的断言，
+    // 一次性读取会偶发读到收敛前的位置；与下一个用例同样改为轮询等待
+    await expect.poll(() => atBottom(page)).toBe(true);
     // 最旧的一批还没加载
     await expect(page.getByText("消息 1", { exact: true })).toHaveCount(0);
   });
