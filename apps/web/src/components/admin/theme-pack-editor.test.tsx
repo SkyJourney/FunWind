@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ThemePackDefinition } from "@/lib/theme/surface-schema";
 import { ThemePackEditor, type SurfaceMeta } from "./theme-pack-editor";
@@ -30,6 +30,8 @@ const initialDefinition: ThemePackDefinition = {
 function mount(props: Partial<Parameters<typeof ThemePackEditor>[0]> = {}) {
   const result = render(
     <ThemePackEditor
+      packId="test"
+      restoreDraft={false}
       surfaces={surfaces}
       initialDefinition={initialDefinition}
       decorFiles={[
@@ -47,7 +49,10 @@ const fillControls = () => within(screen.getByRole("group", { name: "背景填�
 const overlayControls = () => within(screen.getByRole("group", { name: "覆盖遮罩" }));
 const preview = () => screen.getByTestId("theme-preview");
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  sessionStorage.clear();
+});
 
 describe("ThemePackEditor：草稿与预览契约", () => {
   it("隐藏 definition 保留 PWA 与原有深色档，修改 PWA/浅色不会覆盖深色或原定义", () => {
@@ -330,5 +335,49 @@ describe("ThemePackEditor：图片、内容插槽与素材库", () => {
       imageHeightPx: 320,
       hideText: false,
     });
+  });
+});
+
+describe("ThemePackEditor：G-19 草稿本地档（错误路径不清空工作成果）", () => {
+  const DRAFT_KEY = "fw.theme-pack.draft.test";
+
+  it("带 err 重挂载时从本地档恢复草稿", async () => {
+    const saved = structuredClone(initialDefinition);
+    saved.surfaces.header!.dark!.fill = { type: "solid", color: "#2468ac" };
+    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(saved));
+    const { definition } = mount({ restoreDraft: true });
+    await waitFor(() =>
+      expect(definition().surfaces.header?.dark?.fill).toEqual({
+        type: "solid",
+        color: "#2468ac",
+      }),
+    );
+  });
+
+  it("正常进入清除旧档（防下次冲突恢复过期草稿）", async () => {
+    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(initialDefinition));
+    mount({ restoreDraft: false });
+    await waitFor(() => expect(sessionStorage.getItem(DRAFT_KEY)).toBeNull());
+  });
+
+  it("坏档不恢复（回退库内定义），不抛错", async () => {
+    sessionStorage.setItem(DRAFT_KEY, "{ 不是合法 JSON");
+    const { definition } = mount({ restoreDraft: true });
+    // 恢复 effect 跑过后仍是库内定义
+    await waitFor(() =>
+      expect(screen.getByTestId("theme-preview")).toHaveAttribute("data-surface", "header"),
+    );
+    expect(definition()).toEqual(initialDefinition);
+  });
+
+  it("草稿变化随写本地档", async () => {
+    const { definition } = mount({});
+    fireEvent.change(screen.getByTestId("theme-fill-solid-color"), {
+      target: { value: "#13579b" },
+    });
+    await waitFor(() =>
+      expect(sessionStorage.getItem(DRAFT_KEY)).toBe(JSON.stringify(definition())),
+    );
+    expect(definition().surfaces.header?.light?.fill).toEqual({ type: "solid", color: "#13579b" });
   });
 });

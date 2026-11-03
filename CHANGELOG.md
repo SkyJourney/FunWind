@@ -50,6 +50,12 @@
 - **固定守卫（G-11/G-13/G-14）**：图像解码生产唯一出口与身份谓词来源追踪（AST 符号解析，含别名/namespace/barrel/动态导入绕过检测，语义例外按函数级精确豁免）；超限文件行数棘轮（13 个存量超限文件只减不增，新超限文件拒绝）。
 - **门禁实测**：`pnpm verify:all` 全绿（Web 269 文件 / 2709 项，分支覆盖 86.59%）；完整 E2E 生产 378 + dev 8 全绿；jscpd 由 1998 行 / 212 克隆下压至 **1365 行 / 156 克隆**（未上调 2005/214 基线）。
 
+### Fixed（审查批次 5：G-19 冲突丢草稿实证修复与规范收口）
+
+- **主题编辑器保存冲突丢草稿（G-19，实证 + 修复）**：E2E 三探针实证——冲突 redirect 是软导航（window 存活）但新 RSC 树仍整体重挂载编辑器子树（挂载计数：编辑器 4 次 / 相邻 client 组件 2 次），内存草稿全回服务端初始值；flash 常驻包装无效，确认重挂载在 RSC 树替换层，「同段软导航保留 state」不可依赖。最小修复：编辑器草稿随写 sessionStorage（键按包 id、挂载首帧跳过防覆盖待恢复值），编辑页带 err 参数重挂载时恢复、正常进入/保存成功清档、坏档经 strict schema 校验回退库内定义；不动 `defineAction` 骨架与全站 redirect+错误码模式。闭环 E2E：冲突 → 本地档恢复 → 直接再点保存成功（冲突页自带服务端最新 revision），草稿落库；组件单测 +4。
+- **规范与文档收口**：CLAUDE.md 新增「评审规范」四条（G-15 错误码↔渲染成对交付 / G-16 新业务线必配错误路径 E2E / G-19 编辑器草稿暂存 / G-20 revision 覆盖全部写路径）；M13-launch 新增「多实例与规模前置检查单」（G-17/G-18，上线门禁）；ROADMAP 注记五批收口；M11.1 补批次 4 拆分与批次 5 修复记录；knip 复核结论：全量误报为主（barrel 再导出 / 公开 schema 面 / `action={…}` 引用的 Server Action 等），零歧义死导出为零，记录不清。
+- **门禁实测**：`verify:all` 全绿（Web 269 文件 / 2713 项，分支覆盖 86.57%；DB 73、content 55、migration 278；jscpd 1365 行 / 156 克隆，基线未动）；完整 E2E（双阶段重建库）生产 379 + dev 8 全绿。
+
 ### Fixed（M10.6c：双轨密码默认迁移接线）
 
 - `pnpm migrate` 现于 `users` 后默认运行 `legacy-password`；`pnpm migrate users` 自动联动，保留独立补跑命令。旧库仍只读，只把有效 phpwind MD5+salt 材料写入 `legacy_password_hash` / `legacy_password_pending`，现代 `password_hash` 仍只存 Argon2id。

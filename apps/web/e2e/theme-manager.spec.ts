@@ -379,3 +379,57 @@ test("停用用户已选中的包 → 前台回退默认主题", async ({ page, 
   await page.goto("/");
   await expect(page.locator("html")).toHaveAttribute("data-pack", "default");
 });
+
+test("保存冲突不丢草稿（G-19 实证）：本地档恢复工作成果，重试保存成功", async ({
+  page,
+  context,
+}) => {
+  await loginAs(context, USERS.admin);
+  await page.goto(`/admin/themes/${THEME_ID}`);
+  await expect(page.getByRole("heading", { name: /编辑主题包 · E2E 自定义主题/ })).toBeVisible();
+
+  // 改草稿：header 深色档颜色改为可识别值，并等隐藏 definition 同步（与既有用例同口径）
+  await page.getByRole("button", { name: "深色档" }).click();
+  await expect(page.getByTestId("theme-preview")).toHaveAttribute("data-mode", "dark");
+  await page.getByTestId("theme-fill-solid-color").fill("#1a2b3c");
+  const definitionInput = page.locator('input[name="definition"]');
+  await expect
+    .poll(
+      async () => JSON.parse(await definitionInput.inputValue()).surfaces.header?.dark?.fill?.color,
+    )
+    .toBe("#1a2b3c");
+
+  // 模拟并发保存：持锁页面的 revision 已过期后再提交 → conflict。
+  // G-19 实证结论：冲突 redirect 是软导航（window 存活）但编辑器子树仍被新 RSC 树
+  // 整体重挂载，纯内存草稿全丢——故编辑器草稿随写 sessionStorage、带 err 重挂载时恢复。
+  await withE2eDb((q) =>
+    q.exec("UPDATE theme_packages SET revision = revision + 1 WHERE id = ?", [THEME_ID]),
+  );
+  await page.getByRole("button", { name: "保存主题包" }).click();
+  await expect(page).toHaveURL(new RegExp(`/admin/themes/${THEME_ID}\\?err=conflict`));
+  await expect(page.getByText("版本冲突", { exact: false })).toBeVisible();
+
+  // 草稿经本地档恢复：重挂载后编辑器视图回到浅色档默认位，但隐藏 definition
+  // 必须带回用户改动（这是提交给服务端的实际负载，工作成果以它为准）
+  await expect
+    .poll(
+      async () => JSON.parse(await definitionInput.inputValue()).surfaces.header?.dark?.fill?.color,
+    )
+    .toBe("#1a2b3c");
+
+  // 闭环：冲突页由服务端新树渲染（revision 已刷新为库内最新），直接再点保存即可
+  // 成功，无需刷新页面——草稿落库，乐观锁恢复正常
+  await page.getByRole("button", { name: "保存主题包" }).click();
+  await expect(page).toHaveURL(new RegExp(`/admin/themes/${THEME_ID}\\?saved=1`));
+  const [saved] = await withE2eDb((q) =>
+    q.query<{ revision: number; definition: unknown }>(
+      "SELECT revision, definition FROM theme_packages WHERE id = ?",
+      [THEME_ID],
+    ),
+  );
+  expect(saved?.revision).toBe(6);
+  // mysql2 对 JSON 列自动反序列化，兼容两种形态
+  const savedDefinition =
+    typeof saved!.definition === "string" ? JSON.parse(saved!.definition) : saved!.definition;
+  expect(savedDefinition.surfaces.header?.dark?.fill?.color).toBe("#1a2b3c");
+});

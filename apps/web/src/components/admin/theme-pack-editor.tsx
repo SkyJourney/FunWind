@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { renderPackCssVars } from "@/lib/theme/surface-render";
+import { parseThemePackDefinition } from "@/lib/theme/surface-schema";
 import { ContentSlotEditor } from "@/components/admin/theme/content-slot-editor";
 import {
   GradientAngleEditor,
@@ -38,12 +39,18 @@ type ImageFill = Extract<FillSpec, { type: "image" }>;
 type ImageOverlaySpec = Extract<OverlaySpec, { type: "image" }>;
 
 export function ThemePackEditor({
+  packId,
+  restoreDraft,
   surfaces,
   initialDefinition,
   fallbackDefinition,
   decorFiles,
   decorUsage,
 }: {
+  /** 草稿本地档键的组成部分：同包的冲突恢复不串到别的包 */
+  packId: string;
+  /** 页面带错误参数（err）时为 true：挂载时恢复上次草稿；正常进入则清除旧档 */
+  restoreDraft: boolean;
   surfaces: readonly SurfaceMeta[];
   initialDefinition: ThemePackDefinition;
   /** default 包定义：预览未配置的 Surface/档位时兜底，与 SSR 注入口径一致 */
@@ -60,6 +67,35 @@ export function ThemePackEditor({
   const [mode, setMode] = useState<"light" | "dark">("light");
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   const current = draft[active]?.[mode] ?? {};
+
+  // G-19（全项目审查实证）：保存冲突等服务端错误 redirect 回本页时，编辑器子树会被
+  // 新 RSC 树整体重挂载（软导航存活但内存草稿全丢）。草稿随写 sessionStorage，
+  // 带 err 参数重挂载时恢复——错误路径不得清空用户工作成果；正常进入/保存成功
+  // 则清档，防止下次冲突误恢复过期草稿。
+  const draftKey = `fw.theme-pack.draft.${packId}`;
+  useEffect(() => {
+    if (!restoreDraft) {
+      try {
+        sessionStorage.removeItem(draftKey);
+      } catch {
+        // 存储不可用（隐私模式等）时静默降级：草稿不落本地档，行为等同修复前
+      }
+      return;
+    }
+    try {
+      const raw = sessionStorage.getItem(draftKey);
+      if (!raw) return;
+      const parsed = parseThemePackDefinition(JSON.parse(raw));
+      if (!parsed.ok) return; // 坏档（手改/截断）不恢复，回退库内定义
+      // 挂载时从 sessionStorage（外部系统）一次性同步草稿到 state：不能改惰性初始化——
+      // SSR 预渲染无 sessionStorage，会产生 hydration mismatch
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setDraft(toDraft(parsed.value, surfaces));
+      setPwa(parsed.value.pwa ?? DEFAULT_PWA);
+    } catch {
+      // 坏 JSON 不恢复
+    }
+  }, [restoreDraft, draftKey, surfaces]);
   const activeSurface = surfaces.find((surface) => surface.id === active);
   const gradientFill =
     current.fill?.type === "linear" || current.fill?.type === "radial" ? current.fill : undefined;
@@ -82,6 +118,20 @@ export function ThemePackEditor({
 
   const definition = useMemo(() => definitionFromDraft(draft, pwa), [draft, pwa]);
   const draftJson = useMemo(() => JSON.stringify(definition), [definition]);
+  // G-19：草稿每次变化随写本地档。挂载首轮跳过——恢复 effect 的 setDraft 尚未提交，
+  // 此时写入会把待恢复的草稿覆盖成库内初始值（dev StrictMode 双跑下必然发生）
+  const skipFirstWriteRef = useRef(true);
+  useEffect(() => {
+    if (skipFirstWriteRef.current) {
+      skipFirstWriteRef.current = false;
+      return;
+    }
+    try {
+      sessionStorage.setItem(draftKey, draftJson);
+    } catch {
+      // 超限/不可用时静默降级：仅失去冲突恢复能力，编辑与保存不受影响
+    }
+  }, [draftJson, draftKey]);
   const previewVars = useMemo(
     () =>
       renderPackCssVars(definition, fallbackDefinition)[

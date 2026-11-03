@@ -124,6 +124,8 @@ export default async function ThemePackEditPage(props: {
           。
         </p>
         <ThemePackEditorForm
+          packId={pack.id}
+          restoreDraft={Boolean(sp.err)}
           surfaces={SURFACES.map((s) => ({ id: s.id, label: s.label, caps: s.caps }))}
           initialDefinition={pack.definition as ThemePackDefinition}
           fallbackDefinition={defaultPack?.definition as ThemePackDefinition | undefined}
@@ -154,6 +156,9 @@ export default async function ThemePackEditPage(props: {
  * 提交时随表单一起送到服务端校验。
  */
 function ThemePackEditorForm(props: {
+  packId: string;
+  /** 带 err 参数重挂载时恢复本地草稿档（G-19），正常进入清除 */
+  restoreDraft: boolean;
   surfaces: readonly { id: string; label: string; caps: readonly string[] }[];
   initialDefinition: ThemePackDefinition;
   fallbackDefinition?: ThemePackDefinition;
@@ -162,6 +167,8 @@ function ThemePackEditorForm(props: {
 }) {
   return (
     <ThemePackEditor
+      packId={props.packId}
+      restoreDraft={props.restoreDraft}
       surfaces={props.surfaces}
       initialDefinition={props.initialDefinition}
       fallbackDefinition={props.fallbackDefinition}
