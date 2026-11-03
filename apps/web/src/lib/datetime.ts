@@ -13,22 +13,25 @@ export function parseDbDateTime(s: string): Date {
   return new Date(hasZone ? iso : `${iso}${BEIJING_OFFSET}`);
 }
 
-/** 严格校验秒级北京墙面时间，拒绝日期溢出；只有晚于 nowMs 的有效时间才返回 true。 */
-export function isFutureBeijingDateTime(value: string, nowMs?: number): boolean {
+/** 严格校验秒级北京墙面时间格式与日历合法性（拒绝 2 月 30 日等溢出），不比较先后。 */
+export function isValidBeijingDateTime(value: string): boolean {
   const match = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(value);
   if (!match) return false;
   const [year, month, day, hour, minute, second] = match.slice(1).map(Number);
   const wall = new Date(Date.UTC(year!, month! - 1, day!, hour!, minute!, second!));
-  if (
-    wall.getUTCFullYear() !== year ||
-    wall.getUTCMonth() !== month! - 1 ||
-    wall.getUTCDate() !== day ||
-    wall.getUTCHours() !== hour ||
-    wall.getUTCMinutes() !== minute ||
-    wall.getUTCSeconds() !== second
-  ) {
-    return false;
-  }
+  return (
+    wall.getUTCFullYear() === year &&
+    wall.getUTCMonth() === month! - 1 &&
+    wall.getUTCDate() === day &&
+    wall.getUTCHours() === hour &&
+    wall.getUTCMinutes() === minute &&
+    wall.getUTCSeconds() === second
+  );
+}
+
+/** 严格校验秒级北京墙面时间，拒绝日期溢出；只有晚于 nowMs 的有效时间才返回 true。 */
+export function isFutureBeijingDateTime(value: string, nowMs?: number): boolean {
+  if (!isValidBeijingDateTime(value)) return false;
   const instant = parseDbDateTime(value).getTime();
   return Number.isFinite(instant) && instant > (nowMs ?? Date.now());
 }

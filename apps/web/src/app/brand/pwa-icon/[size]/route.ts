@@ -35,11 +35,10 @@ export async function GET(
   if (!(rawSize in SIZE_CONFIG)) return new Response(null, { status: 404 });
   const key = rawSize as SizeKey;
   const config = SIZE_CONFIG[key];
-  const [logo, chrome, catalog] = await Promise.all([
-    readLogoBytes(),
-    getSiteChrome(),
-    getThemeCatalog(),
-  ]);
+  const [chrome, catalog] = await Promise.all([getSiteChrome(), getThemeCatalog()]);
+  // 读生效文件（含排期覆盖）；文件缺失时退回池当前项，再退回静态图标
+  const logo =
+    (chrome.logoActive ? await readLogoBytes(chrome.logoActive) : null) ?? (await readLogoBytes());
   const themeColor = catalog.find((pack) => pack.id === chrome.themePack)?.themeColor ?? "#0e7490";
   const background = rgbOf(themeColor);
 

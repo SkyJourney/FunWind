@@ -5,6 +5,7 @@ import { announcements, getWebDb, siteSettings } from "@funwind/db";
 import { SITE_NAME, SITE_TAGLINE, SITE_URL } from "@/lib/site";
 import { DEFAULT_PACK, isPackValue, type PackId } from "@/lib/theme-packs";
 import { isKnownPackId } from "@/lib/theme/catalog";
+import { getActiveCampaignConfigs } from "@/lib/campaigns/service";
 
 /**
  * 站点框架配置（M9，site_settings JSON，不建独立表）：导航/友链/页脚。
@@ -30,6 +31,12 @@ export interface SiteChrome {
   logoActive: string | null;
   /** 首页 Hero 横幅当前项（M11 插槽 ⑤，Hero 池 active 文件名）；null = 无（首页不占位） */
   heroActive: string | null;
+  /**
+   * LOGO / Hero 的实际输出地址（M11.2）：无排期覆盖时是 `/brand/logo`、`/brand/hero`（读池当前项，行为不变）；
+   * 排期命中且文件在池内时带 `?file=`。调用方一律用这两个字段，不再自己拼路径。
+   */
+  logoUrl: string | null;
+  heroUrl: string | null;
   /** 站点身份（M10.6b）：名称/副标题；未配置回退 SITE_NAME/SITE_TAGLINE */
   identity: SiteIdentity;
   /** 全站默认主题包（M11，site.theme）：用户未设偏好时生效；未配置/未知 id 回退 default */
@@ -49,6 +56,8 @@ const EMPTY: SiteChrome = {
   footerText: "",
   logoActive: null,
   heroActive: null,
+  logoUrl: null,
+  heroUrl: null,
   identity: { name: SITE_NAME, tagline: SITE_TAGLINE, url: SITE_URL },
   themePack: DEFAULT_PACK,
 };
@@ -68,14 +77,19 @@ export async function getSiteChrome(): Promise<SiteChrome> {
   try {
     const rows = await getWebDb().select().from(siteSettings);
     const byKey = new Map(rows.map((r) => [r.key, r.value]));
+    const campaign = await getActiveCampaignConfigs();
+    const logo = composeBrand(byKey.get("site.logo"), "logo", campaign.get("site.logo"));
+    const hero = composeBrand(byKey.get("site.hero"), "hero", campaign.get("site.hero"));
     const chrome: SiteChrome = {
       nav: parseNav(byKey.get("site.nav")),
       links: parseLinks(byKey.get("site.links")),
       footerText: parseFooter(byKey.get("site.footer")),
-      logoActive: parseBrandActive(byKey.get("site.logo"), "logo"),
-      heroActive: parseBrandActive(byKey.get("site.hero"), "hero"),
+      logoActive: logo.file,
+      heroActive: hero.file,
+      logoUrl: logo.file ? brandUrl("logo", logo) : null,
+      heroUrl: hero.file ? brandUrl("hero", hero) : null,
       identity: parseIdentity(byKey.get("site.identity")),
-      themePack: await resolveSiteThemePack(byKey.get("site.theme")),
+      themePack: await resolveSiteThemePack(byKey.get("site.theme"), campaign.get("theme.pack")),
     };
     g.__fwSiteChrome = { value: chrome, at: Date.now() };
     return chrome;
@@ -146,9 +160,45 @@ function themePackCandidate(raw: unknown): string | null {
   return typeof pack === "string" && /^[a-z0-9][a-z0-9_-]{1,31}$/.test(pack) ? pack : null;
 }
 
-async function resolveSiteThemePack(raw: unknown): Promise<string> {
+/**
+ * 站点默认主题包：排期命中的包优先（M11.2），必须仍在目录中（启用）才采用；
+ * 否则回到 site.theme，再不行回 default。排期只覆盖「站点默认」，用户自选偏好仍在更上一层优先。
+ */
+async function resolveSiteThemePack(raw: unknown, scheduled?: unknown): Promise<string> {
+  const scheduledPack = (scheduled as { pack?: unknown } | undefined)?.pack;
+  if (typeof scheduledPack === "string" && (await isKnownPackId(scheduledPack))) {
+    return scheduledPack;
+  }
   const candidate = themePackCandidate(raw);
   return candidate && (await isKnownPackId(candidate)) ? candidate : DEFAULT_PACK;
+}
+
+/** 品牌素材的合成结果：file 为实际生效文件；scheduled 表示它来自排期而非池当前项 */
+interface BrandCompose {
+  file: string | null;
+  scheduled: boolean;
+}
+
+/**
+ * LOGO / Hero 合成（M11.2）：排期配置的文件必须仍在对应素材池清单内才采用（池里删了就回退常态，
+ * 不输出悬空地址）；其余沿用池当前项。pwa 图标等其他消费者读 logoActive 也随之一致。
+ */
+function composeBrand(raw: unknown, prefix: "logo" | "hero", scheduled?: unknown): BrandCompose {
+  const base = parseBrandActive(raw, prefix);
+  const file = (scheduled as { file?: unknown } | undefined)?.file;
+  if (typeof file === "string") {
+    const items = (raw as { items?: unknown } | null)?.items;
+    const inPool =
+      Array.isArray(items) && (items as { file?: unknown }[]).some((item) => item.file === file);
+    if (inPool) return { file, scheduled: file !== base };
+  }
+  return { file: base, scheduled: false };
+}
+
+/** 无排期覆盖时保持原地址（读池当前项）；排期命中时显式带 file，避免被 5 分钟缓存的旧响应粘住 */
+function brandUrl(prefix: "logo" | "hero", brand: BrandCompose): string {
+  const base = `/brand/${prefix}`;
+  return brand.scheduled && brand.file ? `${base}?file=${encodeURIComponent(brand.file)}` : base;
 }
 
 /** 静态注册表校验版（兼容旧调用与纯单测）；运行时读取走动态目录 */

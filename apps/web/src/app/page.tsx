@@ -48,11 +48,7 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
     "hero-image"
   ];
   const heroContent = heroSlot?.light.contentSlot ?? heroSlot?.dark?.contentSlot;
-  const heroSrc = heroContent?.image
-    ? decorUrl(heroContent.image)
-    : chrome.heroActive
-      ? "/brand/hero"
-      : null;
+  const heroSrc = heroContent?.image ? decorUrl(heroContent.image) : chrome.heroUrl;
   const [tree, dir, feed, hot] = await Promise.all([
     getForumTree(),
     getDirectory(viewer),
@@ -237,7 +233,7 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
           className="-m-1 hidden [scrollbar-width:thin] [scrollbar-gutter:stable] space-y-4 self-start p-1 xl:sticky xl:top-24 xl:block xl:max-h-[calc(100dvh-7rem)] xl:overflow-y-auto xl:overscroll-contain"
         >
           <BrandCard
-            logoUrl={chrome.logoActive ? "/brand/logo" : null}
+            logoUrl={chrome.logoUrl}
             siteName={chrome.identity.name}
             tagline={chrome.identity.tagline}
           />

@@ -154,7 +154,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             avatarUrl={avatarUrl}
             notificationsOn={notificationsOn}
             showAdmin={showAdmin}
-            logoUrl={chrome.logoActive ? "/brand/logo" : null}
+            logoUrl={chrome.logoUrl}
             packPref={packPref}
             logoutAction={logoutAction}
           />

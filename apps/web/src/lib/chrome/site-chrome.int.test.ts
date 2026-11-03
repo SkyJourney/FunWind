@@ -27,6 +27,8 @@ describe.skipIf(skipDb)("站点框架配置（site-chrome）", () => {
       footerText: "",
       logoActive: null,
       heroActive: null, // M11：Hero 池无当前项 → 首页不占位
+      logoUrl: null,
+      heroUrl: null,
       identity: { name: SITE_NAME, tagline: SITE_TAGLINE, url: SITE_URL }, // M10.6：身份可配（含访问地址），空库回默认
       themePack: "default", // M11：全站默认主题包未配置 → default
     });
