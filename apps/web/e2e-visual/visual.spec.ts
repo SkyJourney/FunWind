@@ -59,7 +59,7 @@ test.afterAll(async () => {
   });
 });
 
-test.describe.configure({ mode: "serial" });
+// 配置已限定单 worker；每张截图软断言，让一次运行收集全部差异，仍在用例结束时判失败。
 
 async function shot(
   page: Page,
@@ -68,11 +68,15 @@ async function shot(
   url: string,
   opts: { mask?: string[] } = {},
 ) {
+  await page.addInitScript(() => localStorage.removeItem("fw-banner-dismissed:901"));
   await page.goto(url);
   await page.waitForLoadState("networkidle").catch(() => {});
-  // 滚动一屏预热懒加载（板块图/头像），等所有图片真正加载完成再回顶——
-  // 否则截图撞上懒加载竞态会整页布局微移（Step 6 首跑实测）
-  await page.mouse.wheel(0, 1400);
+  // 演示夹具公告通过挂载 effect 读取关闭状态，等待页面可见状态后再建立截图。
+  await expect(page.getByTestId("announcement-banner")).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("data-pack", combo.pack);
+  await expect(page.locator("html")).toHaveAttribute("data-mode", combo.mode);
+  // 用即时滚动预热懒加载，避免截图时仍有滚动动画进行。
+  await page.evaluate(() => window.scrollTo({ top: 1400, left: 0, behavior: "instant" }));
   await page.evaluate(() =>
     Promise.all(
       [...document.images].map((img) =>
@@ -82,10 +86,15 @@ async function shot(
       ),
     ),
   );
-  await page.waitForTimeout(300);
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await page.waitForTimeout(300);
-  await expect(page).toHaveScreenshot(`${name}-${combo.id}.png`, {
+  await page.evaluate(() => window.scrollTo({ top: 0, left: 0, behavior: "instant" }));
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  await expect.soft(page).toHaveScreenshot(`${name}-${combo.id}.png`, {
     mask: (opts.mask ?? []).map((sel) => page.locator(sel)),
   });
 }
@@ -132,39 +141,47 @@ test("admin 视角：三主题 × 站点配置（含全站默认主题卡）", a
   }
 });
 
-test("游客视角：登录页三主题（站点默认主题包经 DB 切换，跑完复原）", async ({
+test("游客视角：登录页三主题（真实后台切默认主题，清理 LOGO 联动副作用）", async ({
   browser,
 }, testInfo) => {
   test.setTimeout(240_000);
-  const setSitePack = (pack: string) =>
-    withE2eDb(async (q) => {
-      await q.exec(
-        "INSERT INTO site_settings (`key`, `value`, `updated_at`) VALUES ('site.theme', JSON_OBJECT('pack', ?), NOW()) " +
-          "ON DUPLICATE KEY UPDATE `value` = JSON_OBJECT('pack', ?), `updated_at` = NOW()",
-        [pack, pack],
-      );
-    });
+  const adminContext = await browser.newContext({ ...testInfo.project.use });
+  await loginAs(adminContext, USERS.admin);
+  const adminPage = await adminContext.newPage();
+  const setSitePack = async (pack: string) => {
+    await adminPage.goto("/admin/themes");
+    const card = adminPage
+      .locator("div.rounded-xl.border.bg-card")
+      .filter({ has: adminPage.locator(`a[href="/admin/themes/${pack}"]`) });
+    const button = card.getByRole("button", { name: "设为默认", exact: true });
+    if (await button.count()) {
+      await button.click();
+      await expect(adminPage).toHaveURL(/saved=default/);
+    }
+  };
   try {
     for (const combo of COMBOS) {
       await setSitePack(combo.pack);
       const ctx = await browser.newContext({ ...testInfo.project.use });
-      await ctx.addInitScript((mode) => localStorage.setItem("theme", mode), combo.mode);
-      const page = await ctx.newPage();
-      await shot(page, combo, "login", "/login");
-      await ctx.close();
+      try {
+        await ctx.addInitScript((mode) => localStorage.setItem("theme", mode), combo.mode);
+        const page = await ctx.newPage();
+        await shot(page, combo, "login", "/login");
+      } finally {
+        await ctx.close();
+      }
     }
   } finally {
-    const adminContext = await browser.newContext({ ...testInfo.project.use });
     try {
-      await loginAs(adminContext, USERS.admin);
-      const adminPage = await adminContext.newPage();
-      await adminPage.goto("/admin/themes");
-      const defaultCard = adminPage
+      await setSitePack("default");
+      await adminPage.goto("/admin/logo");
+      const bundledLogo = adminPage
         .locator("div.rounded-xl.border.bg-card")
-        .filter({ has: adminPage.locator('a[href="/admin/themes/default"]') });
-      if (await defaultCard.getByRole("button", { name: "设为默认" }).count()) {
-        await defaultCard.getByRole("button", { name: "设为默认" }).click();
-        await expect(adminPage).toHaveURL(/saved=default/);
+        .filter({ hasText: "复刻·青翼2010 自带" });
+      if (await bundledLogo.count()) {
+        await bundledLogo.getByRole("button", { name: "移除", exact: true }).click();
+        await adminPage.getByRole("button", { name: "确认", exact: true }).click();
+        await expect(bundledLogo).toHaveCount(0);
       }
     } finally {
       await adminContext.close();
@@ -273,7 +290,10 @@ test("DB 自定义主题：Surface 变量浅色预览与暗色档", async ({ bro
     );
     await adminPage.goto(`/admin/themes/${id}`);
     await adminPage.getByRole("button", { name: "保存主题包" }).click();
-    await expect(adminPage).toHaveURL(`/admin/themes/${id}?saved=1`);
+    await expect(adminPage).toHaveURL(
+      (url) => url.pathname === `/admin/themes/${id}` && url.searchParams.get("saved") === "1",
+    );
+    expect(new URL(adminPage.url()).searchParams.get("ack")).toMatch(/^[a-f0-9-]{36}$/);
 
     await setPackPref(USERS.member, id);
     for (const mode of ["light", "dark"] as const) {
