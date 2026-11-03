@@ -16,8 +16,8 @@
 ├ 站点素材位 Site Slots（DB 层）—————————— 挂什么
 │   site_settings JSON 键（site.logo 池 / site.hero 池 / site.decor 池 / …）+ 后台管理页
 │   运行时可换；目录与 site-chrome TTL 缓存（30s）+ 写后失效
-└ 装扮方案 Decor Plan（M11.2）———————————— 打包运营
-    site.decor.plan：pack + logo + hero + banner 一次配置，带时间窗自动生效/到期回退
+└ 运营排期 Campaigns（M11.2）———————————— 限时覆盖
+    campaigns 表：effect（主题包/LOGO/Hero）+ 时间窗 + 优先级，自动生效/到期回退（见 §6）
 ```
 
 **关键不变量**：换主题不换 DOM——只换 `<html>` 上的属性与变量；组件只允许引用语义层
@@ -91,12 +91,26 @@ M11.1 的 Surface 运行时通过固定变量组消费填充、遮罩、描边�
 5. 审计沿用 `admin.logo.upload` / `admin.logo.activate`，`after` 里记 `via: "theme"` 区分来源。
 6. 主题保存与 LOGO 联动是两个独立结果：两处默认主题入口均先经 `setSiteDefaultThemePack` 提交主题，再尽力联动 LOGO。无 LOGO 属正常不联动；缺素材、激活未生效或异常均记录上下文，并显示“主题已保存，但 LOGO 未切换”警告，不回滚已保存的主题。
 
-## 6. 装扮方案引擎（M11.2 展望，本期不做）
+## 6. 运营排期引擎（M11.2，已实现）
 
-`site.decor.plan`（site_settings JSON）：`{ name, pack, logo?, hero?, banner?, schedule?: { startsAt, endsAt } }`。
-后台一键「启用圣诞装扮」：按方案切主题默认、切 LOGO、切 Hero；带时间窗时请求侧惰性判断
-（命中窗口生效、过期自动回退日常方案），无需 cron。顶栏右侧小挂件位（④）随 M11.1 落地。
-节日主题包（如圣诞青翼）自带节日 LOGO，走 §5 同一联动机制。
+原设想的 `site.decor.plan` 单键 JSON 已改为通用排期：表 `campaigns`，一个方案 = 一个 effect + 配置 + 时间窗
+`[starts_at, ends_at)`（`ends_at` 为空 = 长期）。本期 effect：`theme.pack` / `site.logo` / `site.hero`。
+后台入口 `/admin/campaigns`（site.admin）。
+
+- **请求侧惰性判定，无 cron**：到期不需要写回，读侧不再命中即回到常态。边界沿用 `getSiteChrome` 的 30 秒缓存，
+  最多延迟 30 秒；后台保存会即时失效本进程缓存。
+- **只覆盖站点默认，不覆盖用户偏好**：回退链为 用户自选 → 排期 → `site.theme` → `default`。
+- **冲突**：按 effect 分区，分区内 `priority` 大者生效，相等取后创建；不同 effect 互不压制。
+- **失效回退**：排期引用的包被停用、素材被移出池时，逐项回退常态，不影响其他字段。
+- **与门控的方向相反**：门控遇到未知条件封闭（安全边界，宁可锁死）；排期遇到未知 effect 或坏配置只忽略该行
+  （可选的运营增强，不能因一条坏数据让站点读不到主题）。这是有意的，不是漏了防护。
+- **LOGO / Hero 输出地址**：`/brand/logo`、`/brand/hero` 不带 `?file=` 只读池当前项，所以读取链输出
+  `chrome.logoUrl` / `chrome.heroUrl`，排期命中时带 `?file=`；调用方不得自己拼路径。
+- **扩展方式**：新增 effect = 在 `lib/campaigns/effects.ts` 注册 + 在读取链接上消费 + 补键清单测试；
+  只加注册表而没有消费者会被判定为「名义可插拔」（见 GATES.md 对已删除的 gateConditions 的记录）。
+- **不覆盖到点副作用**：活动结束发奖这类需要 pending 行 + 批处理 + 幂等键，不属于读取覆盖。
+
+节日主题包（如圣诞青翼）自带节日 LOGO 时，仍走 §5 的「设为全站默认」联动；排期只切换读取，不改池当前项。
 
 ## 7. 决策记录
 
