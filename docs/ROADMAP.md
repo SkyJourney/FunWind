@@ -34,7 +34,7 @@
 | [M9.6](milestones/M9.6-user-governance.md) | **用户治理体系**（账号生命周期与自助注销、凭据/邮箱状态、全站/板块限制、RBAC 与旧特殊组/团队徽章边界、前后台行为/可见性矩阵、用户管理与审计通知） | M4 / M5 / M7 / M9 / M9.5 / M10.6 / M10.9 | 三·完善 | ✅ 已完成（2026-10-31 站长原则性确认收口；Step 0–7、迁移演练、三视口及 required checks 历史记录保留，不代表本轮新增真人/真机执行） |
 | [M11](milestones/M11-themes-pwa.md) | **主题包与 PWA**（qy2010 情怀包、主题插槽体系：表面/背景/板块卡/Hero、主题↔LOGO 池联动、暗色打磨、视觉回归基线；设计稿 [THEME-SYSTEM](THEME-SYSTEM.md)） | M12 | 三·完善 | 🟡 工程交付完成（Step 1–8、PR #3 合并、CI 双作业通过；真实设备签收待站长） |
 | [M11.1](milestones/M11.1-theme-engine.md) | **完整主题包引擎**（统一区域 Surface 抽象：填充/渐变/遮罩/图片底纹/边框/文字/blur/contentSlot；浅深档编辑器与实时预览；theme_packages 表、PWA 元数据、JSON+资源 ZIP 导入导出；decor 素材池） | M11 | 三·完善 | ✅ 已完成（工程与自动化门禁已交付；2026-10-31 站长原则性确认收口，历史真机清单保留为验收范围记录） |
-| [M11.2](milestones/M11.2-theme-switching.md) | **运营排期引擎**（通用 effect 注册表 + 时间窗，本期落主题包 / LOGO / Hero；后台 `/admin/campaigns`；顶栏挂件集合移出本期） | M11.1 | 三·完善 | 🚧 工程已交付，`verify:all` 与全量 E2E 实测全绿；`test:visual` / `pwa:lighthouse` 与目视验收待执行 |
+| [M11.2](milestones/M11.2-theme-switching.md) | **运营排期引擎**（通用 effect 注册表 + 时间窗，本期落主题包 / LOGO / Hero；后台 `/admin/campaigns`；顶栏挂件集合移出本期） | M11.1 | 三·完善 | 🚧 工程已交付，`verify:all`、全量 E2E、`test:visual` 8/8、`pwa:lighthouse` 100/100 均实测通过；待站长目视验收 |
 | [M12](milestones/M12-install-wizard.md) | 安装向导与零数据部署 | 数据层基建 | 三·完善 | ⬜ |
 | [M13](milestones/M13-launch.md) | 部署与社区重启 | P4 | 三·上线 | ⬜ |
 

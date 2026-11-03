@@ -13,7 +13,7 @@
 - **读取链**：`getSiteChrome()` 合成排期值，引用的包或素材失效时逐项回退常态。新增 `chrome.logoUrl` / `chrome.heroUrl`——`/brand/logo`、`/brand/hero` 不带 `?file=` 只读池当前项，仅覆盖 `logoActive` 不会真正换图；PWA 图标同步跟随生效文件。时间窗边界沿用 30 秒缓存，最多延迟 30 秒。
 - **后台 `/admin/campaigns`**（site.admin）：按 effect 分区的方案列表、状态徽标、同类重叠压制提示、新建/编辑/启停/删除；所有写路径同事务审计且 revision+1（G-20）；失败时表单内容与旧 revision 原样回显，版本冲突禁用保存，须明确放弃草稿后才能载入最新版本（G-19）。
 - **测试**：`lib/campaigns` 7 个文件 74 项（含真实临时库的窗口边界、合成链、乐观锁、审计与缓存失效）；E2E `campaigns.spec` 6 项（含会员 404、错误输入保留、版本冲突）；六档宽度布局矩阵新增长名称、编辑与错误回显场景。
-- **已实测门禁**：`verify:all` 全绿（Web 283 文件 / 2887 项，分支覆盖 86.72%；DB 73、content 55、migration 278；jscpd 1391/158，基线内）；全量 E2E 生产 391 + dev 8 全绿；六档宽度布局矩阵 6/6。`test:visual`、`pwa:lighthouse` 与目视验收未执行。首轮 E2E 曾因 `default_no_logo` / `theme_no_logo` 跳转参数变更漏改两个 spec 而失败 2 项，已修。
+- **已实测门禁**：`verify:all` 全绿（Web 283 文件 / 2887 项，分支覆盖 86.72%；DB 73、content 55、migration 278；jscpd 1391/158，基线内）；全量 E2E 生产 391 + dev 8 全绿；六档宽度布局矩阵 6/6；`test:visual` 8/8；`pwa:lighthouse` 100/100。站长目视验收未执行。首轮 E2E 曾因 `default_no_logo` / `theme_no_logo` 跳转参数变更漏改两个 spec 而失败 2 项，已修。
 - **顺带修复**：编辑页从列表软导航进入时 `<select>` 不应用新的 `defaultValue`，下拉为空使 `required` 静默拦截提交，表单改为随编辑对象/版本/冲突状态重新挂载。`datetime.ts` 抽出 `isValidBeijingDateTime` 供复用。
 
 ### Fixed（五批交付深度复审与自适应管理界面）
