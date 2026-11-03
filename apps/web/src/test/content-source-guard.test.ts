@@ -47,6 +47,13 @@ describe("内容源单一出口（G11/G13）", () => {
 describe("G11 合成源码", () => {
   it.each([
     "import { processImage as encode } from '@/lib/uploads/process-image'; encode(input);",
+    "const { processImage: encode } = require('@/lib/uploads/process-image'); encode(input);",
+    "const image = require('@/lib/uploads/process-image'); image.processImage(input);",
+    "const image = require('@/lib/uploads/process-image'); const local = image; local['processImage'](input);",
+    "require('@/lib/uploads/process-image').processImage(input);",
+    "require('@/lib/uploads/process-image')['processImage'](input);",
+    "consume(require('@/lib/uploads/process-image'));",
+    "import image = require('@/lib/uploads/process-image'); image.processImage(input);",
     "import * as image from '@/lib/uploads/process-image'; image.processImage(input);",
     "import * as image from '@/lib/uploads/process-image'; const local = image; local['processImage'](input);",
     "const { processImage: encode } = await import('@/lib/uploads/process-image'); encode(input);",
@@ -104,6 +111,33 @@ describe("G11 合成源码", () => {
         "lib/comments.ts":
           "// processImage(input); export { processImage } from './fake';\nconst text = 'processImage(input)';",
         "lib/chrome/brand-pool-fs.ts": "import sharp from 'sharp'; sharp(input).png();",
+      }),
+    ).toEqual([]);
+  });
+  it("require 的转发仍能追踪底层函数，错误类与被遮蔽的 require 不误报", () => {
+    for (const body of [
+      "const { processImage: encode } = require('@/lib/uploads/process-image'); export { encode };",
+      "export const codec = require('@/lib/uploads/process-image');",
+    ]) {
+      expect(
+        imageSourceProblems({ ...IMAGE_SOURCES, "lib/barrel.ts": body }).some((problem) =>
+          problem.includes("lib/barrel.ts: 禁止转发 processImage"),
+        ),
+      ).toBe(true);
+    }
+    expect(
+      imageSourceProblems({
+        ...IMAGE_SOURCES,
+        "lib/classes.ts": `const { ProcessError } = require('@/lib/uploads/process-image');
+          const image = require('@/lib/uploads/process-image'); new ProcessError(); new image.ProcessError();`,
+        "lib/shadowed.ts": `function local(require: (name: string) => { processImage: () => void }) {
+          require('@/lib/uploads/process-image').processImage();
+        }
+        function another() {
+          const require = (_name: string) => ({ processImage: () => undefined });
+          require('@/lib/uploads/process-image').processImage();
+        }`,
+        "lib/type-only.ts": "import type image = require('@/lib/uploads/process-image');",
       }),
     ).toEqual([]);
   });

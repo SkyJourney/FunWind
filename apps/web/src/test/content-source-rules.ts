@@ -47,11 +47,14 @@ export function imageSourceProblems(input: Sources): string[] {
         if (
           ts.isIdentifier(node) ||
           ts.isPropertyAccessExpression(node) ||
-          ts.isElementAccessExpression(node)
+          ts.isElementAccessExpression(node) ||
+          ts.isCallExpression(node)
         ) {
           const value = symbols.origin(node);
           const direct = value?.module === PROCESSOR && value.name === "processImage";
-          const parent = node.parent;
+          let parent = node.parent;
+          // await、括号和类型断言不算命名空间逸出，按包装外的真实使用位置判断。
+          while (parent && unwrap(parent) === node) parent = parent.parent;
           const namespaceEscape =
             value?.name === "*" &&
             !ts.isImportDeclaration(parent) &&

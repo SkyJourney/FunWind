@@ -157,6 +157,16 @@ export function sourceSymbols(input: Sources) {
         next,
       );
     }
+    if (ts.isImportEqualsDeclaration(node)) {
+      if (
+        node.isTypeOnly ||
+        !ts.isExternalModuleReference(node.moduleReference) ||
+        !node.moduleReference.expression ||
+        !ts.isStringLiteralLike(node.moduleReference.expression)
+      )
+        return null;
+      return { module: target(node, node.moduleReference.expression.text), name: "*" };
+    }
     if (ts.isNamespaceImport(node) || ts.isImportClause(node)) {
       const clause = ts.isNamespaceImport(node) ? node.parent : node;
       const statement = clause.parent;
@@ -220,8 +230,14 @@ export function sourceSymbols(input: Sources) {
       return name ? member(origin(node.expression, next), name, next) : null;
     }
     if (ts.isCallExpression(node)) {
+      const callableExpression = unwrap(node.expression);
+      // 字面量 require 与动态 import 共享来源；词法绑定存在时它是局部函数，不冒充模块加载。
+      const isRequire =
+        ts.isIdentifier(callableExpression) &&
+        callableExpression.text === "require" &&
+        !declaration(callableExpression);
       if (
-        node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+        (callableExpression.kind === ts.SyntaxKind.ImportKeyword || isRequire) &&
         node.arguments.length === 1 &&
         ts.isStringLiteralLike(node.arguments[0])
       )
