@@ -24,9 +24,14 @@ const sources = loadSources(join(import.meta.dirname, ".."));
 
 // 这里只读源码：不导入业务服务、不创建连接，不承担 G05/G08 或独立品牌素材 sharp 管线检查。
 describe("内容源单一出口（G11/G13）", () => {
-  it("processImage 定义唯一且生产值入口仅 image-asset，类与类型可直接导入", () => {
-    expect(imageSourceProblems(sources)).toEqual([]);
-  });
+  // 全仓 AST 符号解析：带覆盖率单跑约 3.6–4.0 秒，逼近默认 5 秒；全量并行争用时会超时，故单独放宽
+  it(
+    "processImage 定义唯一且生产值入口仅 image-asset，类与类型可直接导入",
+    { timeout: 20_000 },
+    () => {
+      expect(imageSourceProblems(sources)).toEqual([]);
+    },
+  );
   it("注销身份/资格谓词只来自公共表达式或逐函数说明的必要例外", () => {
     expect(identitySourceProblems(sources)).toEqual([]);
   });

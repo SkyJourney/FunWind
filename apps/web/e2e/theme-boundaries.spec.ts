@@ -185,6 +185,9 @@ const entrances = [
     path: "/admin/themes",
     saved: "default",
     success: "已设为全站默认主题。",
+    // 主题无自带 LOGO（unchanged）：跳转参数与文案不同于联动失败的「保存成功」
+    savedNoLogo: "default_no_logo",
+    successNoLogo: "已设为全站默认主题（此主题无自带 LOGO，LOGO 保持不变）。",
     warning: "默认主题已保存，但自带 LOGO 未能切换",
   },
   {
@@ -192,6 +195,8 @@ const entrances = [
     path: "/admin/settings",
     saved: "theme",
     success: "全站默认主题已保存并即时生效。",
+    savedNoLogo: "theme_no_logo",
+    successNoLogo: "全站默认主题已保存（此主题无自带 LOGO，LOGO 保持不变）。",
     warning: "默认主题已成功保存，但自带 LOGO 未能切换",
   },
 ] as const;
@@ -255,8 +260,8 @@ for (const entrance of entrances) {
       expect(await snapshotSetting("site.logo")).toEqual(logoPool);
 
       await selectDefault(page, entrance, plainPackId);
-      await expect(page).toHaveURL(`${entrance.path}?saved=${entrance.saved}`);
-      await expect(page.getByText(entrance.success, { exact: true })).toBeVisible();
+      await expect(page).toHaveURL(`${entrance.path}?saved=${entrance.savedNoLogo}`);
+      await expect(page.getByText(entrance.successNoLogo, { exact: true })).toBeVisible();
       await expect(page.getByRole("alert").filter({ hasText: entrance.warning })).toHaveCount(0);
       await expectStoredDefault(plainPackId);
       expect(await snapshotSetting("site.logo")).toEqual(logoPool);

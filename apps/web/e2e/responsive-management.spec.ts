@@ -774,6 +774,47 @@ for (const width of LAYOUT_WIDTHS) {
           });
           // 仅修改浏览器内的草稿，不点保存/上传/全站预览，不改变 default 包。
         });
+
+        // 运营排期：方案经界面创建并在结束时经界面删除（站点缓存只有走 Action 才会失效）。
+        const campaignName = "排期布局回归".padEnd(60, "长");
+        const campaignRow = page.getByTestId("campaign-row").filter({ hasText: campaignName });
+        await audit.step("admin-campaigns-long-name", async () => {
+          await page.goto("/admin/campaigns");
+          await page.getByLabel("方案名称").fill(campaignName);
+          await page.getByLabel("生效内容").selectOption("theme.pack::default");
+          // 先停用再清理：未开始的窗口不会影响前台，避免布局测试期间改动站点默认主题
+          await page.getByLabel(/^开始时间/).fill("2099-01-01T00:00");
+          await page.getByRole("button", { name: "创建方案" }).click();
+          await expect(page.getByText("排期方案已创建。")).toBeVisible();
+          await expect(campaignRow).toBeVisible();
+          await audit.capture("admin-campaigns-long-name", {
+            roots: ADMIN_ROOT,
+            buttons: ADMIN_BUTTONS,
+            required: ['[data-testid="campaign-row"]'],
+            regions: [{ name: "row", selector: '[data-testid="campaign-row"]' }],
+          });
+        });
+        await audit.step("admin-campaigns-edit-and-error-echo", async () => {
+          await campaignRow.getByRole("link", { name: "编辑" }).click();
+          await expect(page.getByLabel("方案名称")).toHaveValue(campaignName);
+          await page.getByLabel(/^结束时间/).fill("2098-01-01T00:00");
+          await page.getByRole("button", { name: "保存修改" }).click();
+          await expect(
+            page.getByRole("alert").filter({ hasText: "结束时间必须晚于" }),
+          ).toBeVisible();
+          await expect(page.getByLabel("方案名称")).toHaveValue(campaignName);
+          await audit.capture("admin-campaigns-edit-and-error-echo", {
+            roots: ADMIN_ROOT,
+            buttons: ADMIN_BUTTONS,
+            regions: [{ name: "form", selector: `${ADMIN_ROOT} form` }],
+          });
+        });
+        await audit.step("admin-campaigns-cleanup", async () => {
+          await page.goto("/admin/campaigns");
+          await campaignRow.getByRole("button", { name: "删除" }).click();
+          await page.getByRole("dialog").getByRole("button", { name: "确认" }).click();
+          await expect(campaignRow).toHaveCount(0);
+        });
       } finally {
         try {
           await fixture.cleanup();

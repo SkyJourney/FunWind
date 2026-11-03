@@ -71,6 +71,7 @@ const NAV_GROUPS: { label: string; items: NavEntry[] }[] = [
     label: "站点管理",
     items: [
       { href: "/admin/themes", label: "主题管理", need: { admin: "site.admin" } },
+      { href: "/admin/campaigns", label: "运营排期", need: { admin: "site.admin" } },
       { href: "/admin/forums", label: "板块管理", need: { admin: "site.admin" } },
       { href: "/admin/emojis", label: "表情", need: { admin: "emoji.manage" } },
       { href: "/admin/settings", label: "站点配置", need: { admin: "site.admin" } },
