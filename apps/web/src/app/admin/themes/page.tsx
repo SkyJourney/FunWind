@@ -30,6 +30,7 @@ const FLASH: Record<string, string> = {
   toggled: "主题包状态已更新。",
   default: "已设为全站默认主题。",
   default_logo: "已设为全站默认主题，并把 LOGO 切换为该主题自带图（可在「LOGO 管理」独立改回）。",
+  default_no_logo: "已设为全站默认主题（此主题无自带 LOGO，LOGO 保持不变）。",
   imported: "主题包及其素材已导入。",
 };
 

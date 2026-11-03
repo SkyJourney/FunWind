@@ -22,6 +22,7 @@ const ERR_TEXT: Record<string, string> = {
   "not-found": "包不存在。",
   protected: "该包受保护，不能这样修改。",
   "missing-assets": "配置引用了不存在的装饰素材，请先到装饰素材池补齐文件。",
+  "capacity-unavailable": "系统回退主题包缺失，无法校验容量；请先完成数据库初始化。",
 };
 
 /**

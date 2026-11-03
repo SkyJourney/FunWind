@@ -42,7 +42,12 @@ export const saveThemePackAction = defineAction({
     invalidateSiteChrome();
     revalidatePath("/admin/themes");
     revalidatePath("/", "layout");
-    const saved = logo.status === "applied" ? "theme_logo" : "theme";
+    const saved =
+      logo.status === "applied"
+        ? "theme_logo"
+        : logo.status === "unchanged"
+          ? "theme_no_logo"
+          : "theme";
     redirect(`/admin/settings?saved=${saved}${logo.status === "failed" ? "&warn=logo" : ""}`);
   },
 });

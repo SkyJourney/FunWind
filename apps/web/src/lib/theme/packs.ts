@@ -435,6 +435,26 @@ export async function deleteThemePack(
     if (!row) return { ok: false as const, code: "not-found" as const };
     if (row.isBuiltin || id === "default")
       return { ok: false as const, code: "protected" as const };
+
+    // 检查 decor 素材引用：如果被其他包引用，记录警告但不阻止删除。
+    // 设计权衡：不阻止删除是因为素材池有独立的引用管理，且可通过 db:gc-files 清理孤儿。
+    const assets = parseThemePackAssets(row.assets);
+    const decorFiles = assets.filter((a) => a.kind === "decor").map((a) => a.poolFile);
+    if (decorFiles.length > 0) {
+      // getDecorUsage 是只读操作，在事务外查询以避免延长锁持有时间
+      const usage = await getDecorUsage();
+      for (const file of decorFiles) {
+        const refs = usage.get(file) ?? [];
+        const otherRefs = refs.filter((u) => u.packId !== id);
+        if (otherRefs.length > 0) {
+          console.warn(
+            `[theme-pack-delete] 删除包 ${id}（${row.name}）但 decor ${file} 仍被其他包引用:`,
+            otherRefs.map((r) => `${r.packName}(${r.packId})`).join(", "),
+          );
+        }
+      }
+    }
+
     await tx.delete(themePackages).where(eq(themePackages.id, id));
     await auditThemePackChange(tx, actor, "theme.pack.delete", id, {
       id: row.id,

@@ -172,7 +172,12 @@ export const setDefaultThemePackAction = defineAction({
     invalidateSiteChrome();
     revalidatePath("/admin/themes");
     revalidatePath("/", "layout");
-    const saved = logo.status === "applied" ? "default_logo" : "default";
+    const saved =
+      logo.status === "applied"
+        ? "default_logo"
+        : logo.status === "unchanged"
+          ? "default_no_logo"
+          : "default";
     redirect(`/admin/themes?saved=${saved}${logo.status === "failed" ? "&warn=logo" : ""}`);
   },
 });

@@ -32,6 +32,7 @@ const FLASH: Record<string, string> = {
   theme: "全站默认主题已保存并即时生效。",
   theme_logo:
     "全站默认主题已保存，并已把 LOGO 切换为该主题自带图——需要时可在「LOGO 管理」独立改回任意一枚。",
+  theme_no_logo: "全站默认主题已保存（此主题无自带 LOGO，LOGO 保持不变）。",
 };
 
 const MAIL_ERROR: Record<string, string> = {

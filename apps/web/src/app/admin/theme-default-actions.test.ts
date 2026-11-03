@@ -79,7 +79,7 @@ const entrances = [
     name: "主题管理",
     invoke: () => runAction(setDefaultThemePackAction, { id: PACK_ID }),
     path: "/admin/themes",
-    saved: "default",
+    saved: "default_no_logo",
     savedWithLogo: "default_logo",
     rejected: (code: string) => `/admin/themes?err=${code}`,
   },
@@ -87,7 +87,7 @@ const entrances = [
     name: "站点配置",
     invoke: () => runAction(saveThemePackAction, { pack: PACK_ID }),
     path: "/admin/settings",
-    saved: "theme",
+    saved: "theme_no_logo",
     savedWithLogo: "theme_logo",
     rejected: () => "/admin/settings?err=theme",
   },
@@ -193,7 +193,9 @@ describe.each(entrances)("默认主题动作边界：$name", (entrance) => {
     "LOGO 联动失败 %s 仍保留保存成功与缓存刷新，另带 warn=logo",
     async (reason) => {
       vi.mocked(tryApplyThemePackLogo).mockResolvedValue({ status: "failed", reason });
-      await expectRedirect(entrance.invoke(), `${entrance.path}?saved=${entrance.saved}&warn=logo`);
+      // failed 状态下：主题管理返回 "default"，站点配置返回 "theme"
+      const savedOnFailed = entrance.name === "主题管理" ? "default" : "theme";
+      await expectRedirect(entrance.invoke(), `${entrance.path}?saved=${savedOnFailed}&warn=logo`);
       expectSavedSideEffects();
     },
   );
