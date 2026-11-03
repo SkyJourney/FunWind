@@ -1078,6 +1078,51 @@ export const emailLog = mysqlTable(
   ],
 );
 
+/**
+ * 运营排期方案（M11.2，schema v2.9）：通用「某段时间内临时改变某处生效值」的载体。
+ *
+ * 一个方案 = 一个 effect（效果注册键）+ 该 effect 的配置 + 时间窗。
+ * effect 的合法键与配置结构定义在应用侧注册表（apps/web/src/lib/campaigns/effects.ts），
+ * 未知 effect 键在读写两侧都按失效处理（fail-closed）——与积分渠道、门控条件的口径一致。
+ *
+ * 时间窗为请求侧惰性判定（同 announcements）：`starts_at <= NOW() < ends_at`，ends_at 为 NULL 表示长期；
+ * 不依赖 cron，因此「到期回退」是读侧的行为，不需要写回。
+ *
+ * 冲突语义：同一 effect 的多个命中方案按 priority 最大者生效，相等取 id 最大（后创建）。
+ * 不同 effect 各自独立（换主题不会压制换 LOGO）。
+ *
+ * 与 site_settings 的区别：方案是需要分页/筛选/审计与乐观锁的内容实体，不以 JSON 键存放。
+ */
+export const campaigns = mysqlTable(
+  "campaigns",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    /** 运营方案名（后台展示），如「圣诞装扮」 */
+    name: varchar("name", { length: 60 }).notNull(),
+    /** effect 注册键，如 theme.pack / site.logo / site.hero */
+    effect: varchar("effect", { length: 32 }).notNull(),
+    /** 该 effect 的配置；写入前经注册表 zod 严格校验 */
+    config: json("config").notNull(),
+    startsAt: dt("starts_at").notNull(),
+    /** NULL = 长期有效（与 announcements 同口径） */
+    endsAt: dt("ends_at"),
+    /** 临时停用：不改时间窗，只让方案不参与生效 */
+    enabled: boolean("enabled").notNull().default(true),
+    /** 同一 effect 内冲突时取大者；相等取 id 更大者 */
+    priority: smallint("priority", { unsigned: true }).notNull().default(0),
+    /** 乐观锁：每次写 +1（G-20，旁路写同样递增） */
+    revision: int("revision", { unsigned: true }).notNull().default(1),
+    createdBy: int("created_by", { unsigned: true }),
+    createdAt: dt("created_at").notNull(),
+    updatedAt: dt("updated_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    index("idx_campaign_window").on(t.enabled, t.startsAt, t.endsAt),
+    index("idx_campaign_effect").on(t.effect, t.priority),
+  ],
+);
+
 // ============================================================
 // 表情体系（M10.9，schema v2.2）：分组 + 表情。旧站 50 枚以显式 id 120–169 入表
 // （/emoji/{id}.gif 是 URL 冻结约定，旧帖引用不能变）；后台上传的新表情自增接续，

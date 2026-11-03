@@ -162,6 +162,13 @@
       "when": 1793627011941,
       "tag": "0022_m11_email_log",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "5",
+      "when": 1793712581584,
+      "tag": "0023_m11_2_campaigns",
+      "breakpoints": true
     }
   ]
 }
