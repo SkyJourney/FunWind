@@ -2,7 +2,7 @@ import Link from "next/link";
 import { CalendarCheck, CheckCircle2 } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/session";
 import { getCheckinStatus, type CheckinStatus } from "@/lib/checkin/service";
-import { defineModule } from "../kernel/types";
+import { defineModule, type SlotContext } from "../kernel/types";
 
 /**
  * 签到模块（M7）：每日签到（北京时间自然日）+ 连签 + 随机奖励（earn.checkin 渠道）。
@@ -57,7 +57,7 @@ function MiniCalendar({ status }: { status: CheckinStatus }) {
   );
 }
 
-async function renderCheckinBar() {
+async function renderCheckinBar({ checkinAction }: SlotContext) {
   const user = await getCurrentUser();
   if (!user) {
     return (
@@ -69,8 +69,6 @@ async function renderCheckinBar() {
       </div>
     );
   }
-  // 渲染期动态 import：静态引入会构成「模块 → defineAction → "@/modules"」的求值环（见 actions/checkin.ts 说明）
-  const { checkinAction } = await import("@/app/actions/checkin");
   const status = await getCheckinStatus(user.id);
   // 同构设计（M10.6d 站长反馈）：签到按钮与已签到标识占同一位置、同一尺寸档，
   // 移动端窄视口下不换行留白——左侧文字/日历自适应收缩，右侧动作位恒定存在。
@@ -81,7 +79,7 @@ async function renderCheckinBar() {
     >
       <CheckCircle2 className="size-4" aria-hidden /> 已签到
     </span>
-  ) : (
+  ) : checkinAction ? (
     <form action={checkinAction}>
       <button
         type="submit"
@@ -90,6 +88,10 @@ async function renderCheckinBar() {
         <CalendarCheck className="size-4" aria-hidden /> 签到
       </button>
     </form>
+  ) : (
+    <span role="status" className="text-xs text-muted-foreground">
+      签到暂不可用
+    </span>
   );
 
   return (
@@ -120,11 +122,10 @@ async function renderCheckinBar() {
  * 首页右栏签到卡（M10.5 视觉规范）：xl 宽桌的侧栏位。
  * 与横铺签到条共用同一份状态——窄屏由 home.after-header 承担，桌面由本卡承担，互斥不重复。
  */
-async function renderCheckinRail() {
+async function renderCheckinRail({ checkinAction }: SlotContext) {
   const user = await getCurrentUser();
   // 游客的签到引导由主列横铺条承担（唯一出口）；此处不渲染，避免同一信息出现两遍
   if (!user) return null;
-  const { checkinAction } = await import("@/app/actions/checkin");
   const status = await getCheckinStatus(user.id);
   // 与移动签到条同构（M10.6d 站长要求 PC/移动相同样式）：状态行 + 日历 + 底部动作位
   // （签到按钮 / 已签到标识同位同尺寸，签到后不留空）。
@@ -132,7 +133,7 @@ async function renderCheckinRail() {
     <span className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-xl border border-success/30 bg-success/10 text-sm font-medium text-success">
       <CheckCircle2 className="size-4" aria-hidden /> 今日已签到
     </span>
-  ) : (
+  ) : checkinAction ? (
     <form action={checkinAction}>
       <button
         type="submit"
@@ -141,6 +142,10 @@ async function renderCheckinRail() {
         <CalendarCheck className="size-4" aria-hidden /> 签到
       </button>
     </form>
+  ) : (
+    <p role="status" className="text-center text-xs text-muted-foreground">
+      签到暂不可用
+    </p>
   );
   return (
     <section className="rounded-xl border bg-card p-4">

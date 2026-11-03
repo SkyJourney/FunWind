@@ -1,6 +1,6 @@
 import { getCurrentUser } from "@/lib/auth/session";
 import { isConversationMember, messagesBefore } from "@/lib/pm/queries";
-import { parsePositiveInt } from "@/lib/stream/page";
+import { positiveIntParam } from "@/lib/utils";
 import {
   streamJson,
   streamNotFound,
@@ -26,12 +26,12 @@ export async function GET(request: Request, { params }: Ctx): Promise<Response> 
   const user = await getCurrentUser();
   if (!user) return streamUnauthorized();
 
-  const convId = parsePositiveInt((await params).convId);
+  const convId = positiveIntParam((await params).convId) ?? undefined;
   if (convId === undefined || !(await isConversationMember(user.id, convId))) {
     return streamNotFound();
   }
 
-  const before = parsePositiveInt(new URL(request.url).searchParams.get("before")) ?? null;
+  const before = positiveIntParam(new URL(request.url).searchParams.get("before"));
   const batch = await messagesBefore(convId, before);
   const oldest = batch.items[0];
   return streamJson({

@@ -1,5 +1,5 @@
 /**
- * 发帖的纯判断（M6.1 任务 4，无 IO）：审核分流、发帖间隔、每日配额。
+ * 发帖的纯判断（M6.1 任务 4，无 IO）：审核分流、发帖间隔。
  * 服务层取到事实后调用这里，规则本身可穷举测试。
  */
 
@@ -30,14 +30,6 @@ export function initialState(
 export function intervalViolated(ageSec: number | null, intervalSec: number): boolean {
   if (intervalSec <= 0 || ageSec === null) return false;
   return ageSec < intervalSec;
-}
-
-/**
- * 每日主题配额：今天已创建的主题数（含已删除，否则"发完删、删完再发"可以无限刷）达到上限则违规。
- * max 为 0 = 不限。
- */
-export function dailyQuotaExceeded(createdToday: number, max: number): boolean {
-  return max > 0 && createdToday >= max;
 }
 
 /** 幂等窗口：同一作者、同一位置、同一正文在此秒数内重复提交，视为双击 / 刷新，返回已有的帖子 */

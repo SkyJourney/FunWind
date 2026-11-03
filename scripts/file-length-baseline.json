@@ -1,0 +1,15 @@
+{
+  "apps/web/src/app/admin/emojis/page.tsx": 449,
+  "apps/web/src/app/admin/settings/page.tsx": 529,
+  "apps/web/src/app/admin/users/[uid]/page.tsx": 503,
+  "apps/web/src/app/design/page.tsx": 550,
+  "apps/web/src/app/t/[tid]/page.tsx": 503,
+  "apps/web/src/components/admin/theme-pack-editor.tsx": 1144,
+  "apps/web/src/lib/auth/account-deletion.ts": 817,
+  "apps/web/src/lib/authz/restrictions-admin.ts": 697,
+  "apps/web/src/lib/emoji/curated.ts": 636,
+  "apps/web/src/lib/gates/attachments.ts": 606,
+  "apps/web/src/lib/posting/mutate.ts": 745,
+  "apps/web/src/lib/posting/service.ts": 683,
+  "apps/web/src/lib/theme/packs.ts": 622
+}

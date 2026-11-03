@@ -7,7 +7,7 @@ import {
   userActiveRecently,
   userEmailEnabled,
 } from "@/lib/notifications/email";
-import { pmReceivedMail } from "@/lib/auth/mailer";
+import { pmReceivedMail } from "@/lib/mail";
 import { getWebDb, messages, users } from "@funwind/db";
 
 /**
@@ -33,33 +33,45 @@ export const pmModule = defineModule({
         data: { conversationId: p.conversationId },
       });
 
-      // S4（docs/EMAIL-SCENARIOS.md）：偏好 + 会话频控 + 未活跃三关全过才发
-      if (
-        (await userEmailEnabled(p.recipientId, "pm.received")) &&
-        (await pmEmailAllowed(p.recipientId, p.conversationId)) &&
-        !(await userActiveRecently(p.recipientId))
-      ) {
-        const [sender] = await getWebDb()
-          .select({ username: users.username })
-          .from(users)
-          .where(eq(users.id, p.senderId))
-          .limit(1);
-        const [latest] = await getWebDb()
-          .select({ body: messages.body })
-          .from(messages)
-          .where(eq(messages.conversationId, p.conversationId))
-          .orderBy(desc(messages.id))
-          .limit(1);
-        await sendUserEmail(p.recipientId, ({ siteName, siteUrl }) =>
-          pmReceivedMail(
-            {
-              senderName: sender?.username ?? "用户",
-              preview: latest?.body ?? "",
-              conversationId: p.conversationId,
-              siteUrl,
-            },
-            siteName,
-          ),
+      // 邮件是站内通知的附带渠道；它的偏好/活跃查询故障不能让已提交的站内通知事件重放。
+      try {
+        // S4（docs/EMAIL-SCENARIOS.md）：偏好 + 会话频控 + 未活跃三关全过才发
+        if (
+          (await userEmailEnabled(p.recipientId, "pm.received")) &&
+          (await pmEmailAllowed(p.recipientId, p.conversationId)) &&
+          !(await userActiveRecently(p.recipientId))
+        ) {
+          const [sender] = await getWebDb()
+            .select({ username: users.username })
+            .from(users)
+            .where(eq(users.id, p.senderId))
+            .limit(1);
+          const [latest] = await getWebDb()
+            .select({ body: messages.body })
+            .from(messages)
+            .where(eq(messages.conversationId, p.conversationId))
+            .orderBy(desc(messages.id))
+            .limit(1);
+          await sendUserEmail(p.recipientId, ({ brand }) =>
+            pmReceivedMail(
+              {
+                senderName: sender?.username ?? "用户",
+                preview: latest?.body ?? "",
+                conversationId: p.conversationId,
+              },
+              brand,
+            ),
+          );
+        }
+      } catch (error) {
+        console.error(
+          "[pm] 私信已通知站内收件箱，但邮件附带渠道失败:",
+          {
+            conversationId: p.conversationId,
+            messageId: p.messageId,
+            recipientId: p.recipientId,
+          },
+          error,
         );
       }
     },

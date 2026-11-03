@@ -13,6 +13,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { themeSurfaceStyle } from "@/lib/theme/surface-style";
 
 interface Tab {
   href: string;
@@ -93,10 +94,19 @@ export function BottomTabBar({
   return (
     <nav
       aria-label="移动端主导航"
-      // 表面（背景/毛玻璃）走插槽令牌（M11，semantic.css 表面组），与顶栏同轨、主题包可覆盖
-      className="fixed inset-x-0 bottom-0 z-40 border-t bg-[var(--tabbar-bg)] pb-[env(safe-area-inset-bottom)] backdrop-blur-[var(--tabbar-blur)] md:hidden"
+      data-surface="tabbar"
+      data-fw-theme-surface
+      className="fixed inset-x-0 bottom-0 z-40 border-t bg-transparent pb-[env(safe-area-inset-bottom)] md:hidden"
       // 页面过渡期间底部 Tab 固定不动、层级高于页面内容组（globals.css 的 fw-bottom-tabs）
-      style={{ viewTransitionName: "fw-bottom-tabs" }}
+      style={{
+        ...themeSurfaceStyle("tabbar", {
+          background: "var(--tabbar-bg)",
+          borderColor: "var(--border)",
+          borderWidth: "1px",
+          blur: "var(--tabbar-blur)",
+        }),
+        viewTransitionName: "fw-bottom-tabs",
+      }}
     >
       <ul className="flex h-14 items-stretch">
         {tabs.map((tab) => (

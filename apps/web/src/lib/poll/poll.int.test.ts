@@ -12,6 +12,8 @@ import {
   pollOptions,
   polls,
   pollVotes,
+  posts,
+  threads,
   siteSettings,
   userRestrictions,
 } from "@funwind/db";
@@ -316,6 +318,53 @@ describe.skipIf(skipDb)("投票（M10）", () => {
     expect(isClosed(null)).toBe(false);
     expect(isClosed("2020-01-01 00:00:00")).toBe(true);
     expect(isClosed("2099-01-01 00:00:00")).toBe(false);
+  });
+
+  it("截止后 after_vote 未投可看结果；只读不要求投票权限，禁言仍可投", async () => {
+    const { threadId, optionIds } = await makePoll(alice, {
+      endsAt: "2020-01-01 00:00:00",
+      resultVisibility: "after_vote",
+    });
+    const view = await getPollView(team, threadId);
+    expect(view).toMatchObject({ closed: true, myOptionIds: [], voterCount: 0, totalVotes: 0 });
+    expect(view?.options.every((option) => option.count === 0 && option.percent === 0)).toBe(true);
+    const muted: Subject = { ...team, restrictions: [{ kind: "mute", scopeId: 0, endsAt: null }] };
+    const live = await makePoll(alice);
+    expect(await getPollView(muted, live.threadId)).not.toBeNull();
+    expect(await vote(muted, live.threadId, [live.optionIds[0]!])).toMatchObject({ ok: true });
+    const readonly: Subject = { ...team, roles: [{ key: "guest", scopeId: 0 }] };
+    expect(await getPollView(readonly, live.threadId)).not.toBeNull();
+    expect(await vote(readonly, live.threadId, [live.optionIds[1]!])).toMatchObject({
+      ok: false,
+      code: "forbidden",
+    });
+    expect(await vote(team, threadId, [optionIds[0]!])).toMatchObject({
+      ok: false,
+      code: "closed",
+    });
+  });
+
+  it.each(["thread", "firstPost"])("共享上下文仍分别拒绝不可见的 %s", async (target) => {
+    const { threadId, pollId, optionIds } = await makePoll(alice);
+    const [thread] = await db().select().from(threads).where(eq(threads.id, threadId));
+    if (target === "thread") {
+      await db().update(threads).set({ state: "hidden" }).where(eq(threads.id, threadId));
+    } else {
+      await db().update(posts).set({ state: "hidden" }).where(eq(posts.id, thread.firstPostId!));
+    }
+    try {
+      expect(await getPollView(team, threadId)).toBeNull();
+      expect(await vote(team, threadId, [optionIds[0]!])).toMatchObject({
+        ok: false,
+        code: "not_found",
+      });
+      expect(await db().select().from(pollVotes).where(eq(pollVotes.pollId, pollId))).toHaveLength(
+        0,
+      );
+    } finally {
+      await db().update(threads).set({ state: "visible" }).where(eq(threads.id, threadId));
+      await db().update(posts).set({ state: "visible" }).where(eq(posts.id, thread.firstPostId!));
+    }
   });
 
   it("forum_ban 下无法读取投票或直接提交选项", async () => {

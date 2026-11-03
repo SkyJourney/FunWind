@@ -4,13 +4,10 @@ import { splitSource, type GateDraft } from "@funwind/content";
 import { type DbTx } from "@/lib/audit";
 import { evaluate } from "@/lib/authz/evaluator";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
-import type { AuthzSnapshot, Subject } from "@/lib/authz/types";
-import { applyGateDrafts, type GatePermissions } from "@/lib/gates/write";
-import {
-  registerSourceFiles,
-  type AttachmentInput,
-  type UploadedAttachment,
-} from "@/lib/gates/attachments";
+import type { Subject } from "@/lib/authz/types";
+import type { AttachmentInput } from "@/lib/gates/attachments";
+import { applyContentExtras, gatePermissions } from "./content-extras";
+export { gatePermissions } from "./content-extras";
 import { limitsFor } from "@/lib/limits/load";
 import { replaceThreadTags, resolveTagIds } from "@/lib/interact/tags";
 import { resolveMentionUserIds } from "@/lib/posting/mentions";
@@ -27,13 +24,10 @@ import {
 import type { EventPayloads } from "@/modules/kernel/types";
 import { applyCounterDelta } from "./transition";
 import { counterDelta } from "./counters";
-import { lockForum, lockThread, lockUserStats } from "./locks";
-import {
-  IDEMPOTENCY_WINDOW_SEC,
-  dailyQuotaExceeded,
-  initialState,
-  intervalViolated,
-} from "./policy";
+import { lockUserStats } from "@/lib/locks";
+import { dailyQuotaExceeded } from "@/lib/limits/quota";
+import { lockForum, lockThread } from "./locks";
+import { IDEMPOTENCY_WINDOW_SEC, initialState, intervalViolated } from "./policy";
 import { checkBody, checkTitle } from "./text";
 
 /**
@@ -168,15 +162,51 @@ export function prepareBody(source: string, bodyMax: number): PreparedBody | Pos
 export const isError = (x: unknown): x is PostingError =>
   typeof x === "object" && x !== null && (x as PostingError).ok === false;
 
-export function gatePermissions(
-  viewer: Subject,
-  forumId: number,
-  snap: AuthzSnapshot,
-): GatePermissions {
-  return {
-    points: evaluate(viewer, "gate.points", { forumId }, snap).allowed,
-    reply: evaluate(viewer, "gate.reply", { forumId }, snap).allowed,
-  };
+/** 在调用方既定的时点登记提及；创建时限制人数，编辑时只解析新增提及且保留原上限口径。 */
+export async function enqueueMentions(
+  tx: DbTx,
+  input: {
+    postId: number;
+    authorId: number;
+    actorId: number;
+    publicMd: string;
+    priorBodyMd?: string;
+    limit?: number;
+  },
+): Promise<EnqueuedEvent[]> {
+  const ids = await resolveMentionUserIds(tx, input.publicMd, input.authorId, input.priorBodyMd);
+  const enqueued: EnqueuedEvent[] = [];
+  for (const mentionedUserId of ids.slice(0, input.limit ?? ids.length)) {
+    enqueued.push(
+      await enqueueEventInTx(
+        tx,
+        "post.mentioned",
+        { postId: input.postId, authorId: input.authorId, mentionedUserId },
+        { actorId: input.actorId, source: "posting" },
+      ),
+    );
+  }
+  return enqueued;
+}
+
+/** 只登记本次新建的附件；载荷上传者与事件操作者保持调用路径原有身份。 */
+export async function enqueueUploadEvents(
+  tx: DbTx,
+  uploads: readonly { attachmentId: number; fileId: number }[],
+  actorId: number,
+): Promise<EnqueuedEvent[]> {
+  const enqueued: EnqueuedEvent[] = [];
+  for (const upload of uploads) {
+    enqueued.push(
+      await enqueueEventInTx(
+        tx,
+        "attachment.uploaded",
+        { attachmentId: upload.attachmentId, fileId: upload.fileId, uploaderId: actorId },
+        { actorId, source: "posting" },
+      ),
+    );
+  }
+  return enqueued;
 }
 
 /** 发帖间隔与每日主题配额。须在持有作者统计行的锁时调用 */
@@ -253,13 +283,11 @@ export async function createThread(
   const state = initialState(snap.tree.reviewPolicy(forumId).value, "thread", isModerator);
 
   // —— 事务内：持锁后做需要事实的判断 ——
-  let uploads: UploadedAttachment[] = [];
   let enqueued: EnqueuedEvent[] = [];
   try {
     const out = await withPostingRetry(() =>
       getWebDb().transaction(async (tx): Promise<PostingOk> => {
-        // 每次尝试都从空开始：上一次被回滚的尝试不得把它的附件与事件带进派发
-        uploads = [];
+        // 每次尝试都从空开始：上一次被回滚尝试的事件不得带进派发。
         enqueued = [];
         await lockUserStats(tx, authorId);
         await lockForum(tx, forumId);
@@ -365,33 +393,24 @@ export async function createThread(
           await replaceThreadTags(tx, threadId, tagRes.tagIds);
         }
 
-        // @提及（M8）：仅 visible 发（待审内容对被提及者不可见——与 thread.replied 的状态门控同口径）；
-        // 上限 10 人（正文可携带数千 @，逐人事件+通知是炸弹面）
-        const mentionIds =
-          state === "visible" ? await resolveMentionUserIds(tx, body.publicMd, authorId) : [];
-        for (const mentionedUserId of mentionIds.slice(0, 10)) {
+        // 仅 visible 提及，最多 10 人；待审内容对被提及者不可见。
+        if (state === "visible") {
           enqueued.push(
-            await enqueueEventInTx(
-              tx,
-              "post.mentioned",
-              { postId, authorId, mentionedUserId },
-              { actorId: authorId, source: "posting" },
-            ),
+            ...(await enqueueMentions(tx, {
+              postId,
+              authorId,
+              actorId: authorId,
+              publicMd: body.publicMd,
+              limit: 10,
+            })),
           );
         }
-
-        const gateRes = await applyGateDrafts(tx, postId, body.gates, perms);
-        if (!gateRes.ok) throw new Rollback(err("gate_permission", gateRes.error.message));
-        const reg = await registerSourceFiles(tx, {
-          postId,
+        const extras = await applyContentExtras(tx, postId, body, perms, {
           authorId,
-          // 与拆分门控用的是同一份规范化源码（prepareBody），两者必须对同一文本得出同样的引用
-          source: body.body,
           attachments: input.attachments,
           canUpload,
         });
-        if (!reg.ok) throw new Rollback(err(reg.code, reg.message));
-        uploads = reg.uploaded;
+        if (isError(extras)) throw new Rollback(extras);
 
         const [created] = await tx
           .select({ at: posts.createdAt })
@@ -428,16 +447,7 @@ export async function createThread(
             { actorId: authorId, source: "posting" },
           ),
         );
-        for (const u of uploads) {
-          enqueued.push(
-            await enqueueEventInTx(
-              tx,
-              "attachment.uploaded",
-              { attachmentId: u.attachmentId, fileId: u.fileId, uploaderId: authorId },
-              { actorId: authorId, source: "posting" },
-            ),
-          );
-        }
+        enqueued.push(...(await enqueueUploadEvents(tx, extras.uploads, authorId)));
         return { ok: true, threadId, postId, floor: 1, state, duplicate: false };
       }, POINTS_TX_OPTIONS),
     );
@@ -495,14 +505,12 @@ export async function createReply(
   const replyTo = input.replyToPostId ?? null;
 
   // —— 事务内 ——
-  let uploads: UploadedAttachment[] = [];
   let enqueued: EnqueuedEvent[] = [];
   let replyToAuthorId: number | undefined;
   try {
     const out = await withPostingRetry(() =>
       getWebDb().transaction(async (tx): Promise<PostingOk> => {
-        // 每次尝试都从空开始：上一次被回滚的尝试不得把它的附件与事件带进派发
-        uploads = [];
+        // 每次尝试都从空开始：上一次被回滚尝试的事件不得带进派发。
         enqueued = [];
         replyToAuthorId = undefined;
         await lockUserStats(tx, authorId);
@@ -589,32 +597,24 @@ export async function createReply(
           }),
         );
 
-        // @提及（M8）：仅 visible 发（待审不可见）；上限 10 人
-        const replyMentionIds =
-          state === "visible" ? await resolveMentionUserIds(tx, body.publicMd, authorId) : [];
-        for (const mentionedUserId of replyMentionIds.slice(0, 10)) {
+        // 仅 visible 提及，最多 10 人；待审内容对被提及者不可见。
+        if (state === "visible") {
           enqueued.push(
-            await enqueueEventInTx(
-              tx,
-              "post.mentioned",
-              { postId, authorId, mentionedUserId },
-              { actorId: authorId, source: "posting" },
-            ),
+            ...(await enqueueMentions(tx, {
+              postId,
+              authorId,
+              actorId: authorId,
+              publicMd: body.publicMd,
+              limit: 10,
+            })),
           );
         }
-
-        const gateRes = await applyGateDrafts(tx, postId, body.gates, perms);
-        if (!gateRes.ok) throw new Rollback(err("gate_permission", gateRes.error.message));
-        const reg = await registerSourceFiles(tx, {
-          postId,
+        const extras = await applyContentExtras(tx, postId, body, perms, {
           authorId,
-          // 与拆分门控用的是同一份规范化源码（prepareBody），两者必须对同一文本得出同样的引用
-          source: body.body,
           attachments: input.attachments,
           canUpload,
         });
-        if (!reg.ok) throw new Rollback(err(reg.code, reg.message));
-        uploads = reg.uploaded;
+        if (isError(extras)) throw new Rollback(extras);
 
         const [created] = await tx
           .select({ at: posts.createdAt })
@@ -660,16 +660,7 @@ export async function createReply(
             { actorId: authorId, source: "posting" },
           ),
         );
-        for (const u of uploads) {
-          enqueued.push(
-            await enqueueEventInTx(
-              tx,
-              "attachment.uploaded",
-              { attachmentId: u.attachmentId, fileId: u.fileId, uploaderId: authorId },
-              { actorId: authorId, source: "posting" },
-            ),
-          );
-        }
+        enqueued.push(...(await enqueueUploadEvents(tx, extras.uploads, authorId)));
         return { ok: true, threadId: thread.id, postId, floor, state, duplicate: false };
       }, POINTS_TX_OPTIONS),
     );

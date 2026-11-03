@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, notExists, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { cache } from "react";
 import { accountDeletionRequests, badges, files, getWebDb, userBadges, users } from "@funwind/db";
 import type { ConfigActor } from "@/lib/audit";
@@ -13,7 +13,7 @@ import {
 import { AdminError } from "@/lib/authz/admin";
 import { isDuplicateKey } from "@/lib/auth/register";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
-import { publicUserId, publicUsername } from "@/lib/queries/public-identity";
+import { publicUserId, publicUsername, userNotDeleted } from "@/lib/identity-expr";
 
 /**
  * 荣誉徽章（M7）：badges / user_badges 展示 + 后台手动授予。纯装饰、零权限语义（docs/MODULES.md）。
@@ -52,18 +52,7 @@ export const userBadgesOf = cache(async (userId: number): Promise<UserBadgeView[
     .where(
       and(
         eq(userBadges.userId, userId),
-        eq(users.state, "active"),
-        notExists(
-          db
-            .select({ id: accountDeletionRequests.id })
-            .from(accountDeletionRequests)
-            .where(
-              and(
-                eq(accountDeletionRequests.userId, users.id),
-                eq(accountDeletionRequests.status, "completed"),
-              ),
-            ),
-        ),
+        userNotDeleted(users.id, users.state),
         eq(badges.isActive, true),
         or(isNull(userBadges.expiresAt), sql`${userBadges.expiresAt} > NOW()`),
       ),

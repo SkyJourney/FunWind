@@ -5,7 +5,7 @@
  */
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
-import { processImage } from "./process-image";
+import { processImage, stripGifAncillary } from "./process-image";
 
 const solid = (w: number, h: number, ch: 3 | 4 = 3) =>
   sharp({
@@ -124,7 +124,68 @@ describe("processImage：像素上限与解码失败", () => {
   });
 });
 
+/** 两帧、独立延时和有限循环；坏帧只替换 LZW 数据，块边界保持合法。 */
+function animatedGif(badFrame?: number): Buffer {
+  const head = Buffer.from("47494638396101000100800000ffffff000000", "hex");
+  const loop = Buffer.from("21ff0b4e45545343415045322e300301030000", "hex");
+  const frames = [10, 20].map((delay, index) =>
+    Buffer.from(
+      `21f90404${delay.toString(16).padStart(2, "0")}0000002c0000000001000100000202${badFrame === index ? "ffff" : index === 0 ? "4401" : "4c01"}00`,
+      "hex",
+    ),
+  );
+  return Buffer.concat([head, loop, ...frames, Buffer.from([0x3b])]);
+}
+
 describe("processImage：GIF", () => {
+  it("两帧动画完整保留像素、帧数、延时、循环和字节，不退化成首帧", async () => {
+    const input = animatedGif();
+    const out = await processImage(input, { sniffed: "gif" });
+    expect(out.bytes).toEqual(input);
+    expect(await sharp(out.bytes, { animated: true }).metadata()).toMatchObject({
+      pages: 2,
+      pageHeight: 1,
+      delay: [100, 200],
+      loop: 4,
+    });
+    const pixels = await sharp(out.bytes, { animated: true }).ensureAlpha().raw().toBuffer();
+    expect(pixels).toEqual(await sharp(input, { animated: true }).ensureAlpha().raw().toBuffer());
+    expect([...pixels.subarray(0, 3)]).not.toEqual([...pixels.subarray(4, 7)]);
+  });
+
+  it.each([0, 1])("第 %s 帧 LZW 损坏但结构完整、metadata 成功时仍拒绝", async (badFrame) => {
+    const input = animatedGif(badFrame);
+    expect(stripGifAncillary(input)).toEqual(input);
+    expect(await sharp(input, { pages: 1 }).metadata()).toMatchObject({
+      format: "gif",
+      width: 1,
+      height: 1,
+    });
+    await expect(
+      sharp(input, { animated: true, failOn: "warning" }).raw().toBuffer(),
+    ).rejects.toThrow();
+    await expect(processImage(input, { sniffed: "gif" })).rejects.toMatchObject({
+      code: "undecodable",
+    });
+  });
+
+  it("动画总解码像素受上限约束，而不是只计算首帧", async () => {
+    const input = animatedGif();
+    await expect(processImage(input, { sniffed: "gif", maxPixels: 1 })).rejects.toMatchObject({
+      code: "pixels",
+    });
+    const out = await processImage(input, { sniffed: "gif", maxPixels: 2 });
+    expect(out.bytes).toEqual(input);
+  });
+
+  it("GIF 头像也拒绝后续坏帧，合法动画仍只输出首帧头像", async () => {
+    const out = await processImage(animatedGif(), { sniffed: "gif", avatar: true });
+    expect(out).toMatchObject({ sniffed: "webp", width: 240, height: 240 });
+    await expect(
+      processImage(animatedGif(1), { sniffed: "gif", avatar: true }),
+    ).rejects.toMatchObject({ code: "undecodable" });
+  });
+
   it("非头像：原样存储，不重编码（字节完全相同）", async () => {
     const gif = await solid(16, 16).gif().toBuffer();
     const out = await processImage(gif, { sniffed: "gif" });

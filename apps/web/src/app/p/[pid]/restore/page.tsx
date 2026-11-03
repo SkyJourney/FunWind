@@ -2,6 +2,7 @@ import { ArrowLeft } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { positiveIntParam } from "@/lib/utils";
 import { restorePostAction } from "@/app/actions/posts";
 import { ModerationForm } from "@/components/posting/moderation-form";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,16 +18,11 @@ type Params = {
   searchParams: Promise<{ error?: string }>;
 };
 
-const parsePid = (raw: string): number | null => {
-  const n = Number(raw);
-  return Number.isInteger(n) && n > 0 ? n : null;
-};
-
 /**
  * 恢复确认页（M6.2）。只有版主能恢复；作者或其他人一律 404。恢复必须填理由（写审计）。
  */
 export default async function RestorePostPage({ params, searchParams }: Params) {
-  const pid = parsePid((await params).pid);
+  const pid = positiveIntParam((await params).pid);
   if (!pid) notFound();
   const { error } = await searchParams;
 

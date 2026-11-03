@@ -59,12 +59,15 @@ test("双轨：旧密码登录 → 强制换密 → 旧密码失效 → 新密�
   );
   await page.getByRole("button", { name: "设置新密码" }).click();
   await resp;
-  await page.waitForURL("**/settings/password?saved=1");
-  await expect(page.getByText("新密码已生效")).toBeVisible();
-
-  // 门已解除
+  // 强制换密成功：pending 清零后当前受限会话自动升级为普通会话，直接回首页（不再停在密码页）
+  await page.waitForURL(/^http:\/\/127\.0\.0\.1:\d+\/\?notice=password-changed$/);
+  await expect(page.getByText("新密码已生效。")).toBeVisible();
+  await expect(page.getByText("e2e_legacy_user").first()).toBeVisible();
+  // 快速跳转 marker 已被 action 清除：刷新普通页面不再被拦回密码页
   await page.goto("/boards");
   await expect(page).toHaveURL(/\/boards$/);
+  const marker = await page.context().cookies();
+  expect(marker.find((c) => c.name === "fw_must_change")).toBeUndefined();
 
   // 退出后：旧密码失效，新密码直登且不再强制换密
   await page.getByRole("button", { name: "e2e_legacy_user" }).click();

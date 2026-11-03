@@ -2,6 +2,7 @@ import { Archive, ArrowRight, Bell, CreditCard, LogOut, Settings, User } from "l
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { checkinAction } from "@/app/actions/checkin";
 import { isDevEnv } from "@/lib/dev-only";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { Slot } from "@/modules/kernel/slot";
@@ -172,8 +173,8 @@ export default function TokensPage() {
         <ThemeSwitcher />
       </header>
 
-      {/* 槽位宿主：M2 演示（home.after-header 当前无注册渲染器，渲染 null） */}
-      <Slot name="home.after-header" />
+      {/* 设计页与首页一样显式提供签到 Action，模块只消费宿主依赖 */}
+      <Slot name="home.after-header" ctx={{ checkinAction }} />
 
       <Section
         id="colors"

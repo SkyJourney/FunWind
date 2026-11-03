@@ -15,17 +15,20 @@ export async function GET() {
     unreadSummary(user?.id ?? null),
     listFeed(user?.id ?? null, { limit: 10, onlyUnread: true }),
   ]);
-  return NextResponse.json({
-    unread: summary,
-    recent: recent.items.map((i) => ({
-      kind: i.kind,
-      id: i.id,
-      category: i.category,
-      type: i.type,
-      actorName: i.actorName,
-      createdAt: i.createdAt,
-      data: i.data,
-      title: i.title,
-    })),
-  });
+  return NextResponse.json(
+    {
+      unread: summary,
+      recent: recent.items.map((i) => ({
+        kind: i.kind,
+        id: i.id,
+        category: i.category,
+        type: i.type,
+        actorName: i.actorName,
+        createdAt: i.createdAt,
+        data: i.data,
+        title: i.title,
+      })),
+    },
+    { headers: { "Cache-Control": "private, no-store" } },
+  );
 }

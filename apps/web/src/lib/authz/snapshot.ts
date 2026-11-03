@@ -1,5 +1,8 @@
+import "server-only";
+
 import { forums, getWebDb, roleGrants } from "@funwind/db";
 import { ForumTree, type ForumNode } from "@/lib/forums/forum-tree";
+import { forumSelectCols } from "@/lib/forums/select";
 import { buildSnapshot, type AuthzSnapshot } from "./types";
 
 /**
@@ -21,24 +24,7 @@ const holder: Holder = (g.__fwAuthzSnapshot ??= { value: null, loadedAt: 0 });
 async function load(): Promise<AuthzSnapshot> {
   const db = getWebDb();
   const [forumRows, grantRows] = await Promise.all([
-    db
-      .select({
-        id: forums.id,
-        parentId: forums.parentId,
-        path: forums.path,
-        depth: forums.depth,
-        kind: forums.kind,
-        name: forums.name,
-        description: forums.description,
-        iconKey: forums.iconKey,
-        sortOrder: forums.sortOrder,
-        readPolicy: forums.readPolicy,
-        writePolicy: forums.writePolicy,
-        reviewPolicy: forums.reviewPolicy,
-        isListed: forums.isListed,
-        isArchived: forums.isArchived,
-      })
-      .from(forums),
+    db.select(forumSelectCols).from(forums),
     db
       .select({
         roleKey: roleGrants.roleKey,

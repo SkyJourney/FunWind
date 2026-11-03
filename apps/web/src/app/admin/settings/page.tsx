@@ -4,9 +4,9 @@ import { requireAdmin } from "@/lib/authz/require-admin";
 import { getEmailVerificationMode, getRegisterMode } from "@/lib/auth/settings";
 import { getDigestHour, securityEmailEnabled } from "@/lib/notifications/email";
 import { getLimitsConfig } from "@/lib/limits/load";
-import { getSiteChrome, getSiteIdentity } from "@/lib/site-chrome";
+import { getSiteChrome, getSiteIdentity } from "@/lib/chrome/site-chrome";
 import { SITE_URL } from "@/lib/site";
-import { THEME_PACKS } from "@/lib/theme-packs";
+import { getThemeCatalog } from "@/lib/theme/catalog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import {
@@ -29,9 +29,10 @@ const FLASH: Record<string, string> = {
   limits: "频控配置已保存。",
   email_verification: "邮箱验证策略已保存。",
   mail_sent: "测试邮件已发出——请查收（dev 若用 Mailpit 则进 Mailpit，否则进真实邮箱）。",
-  theme: "全站默认主题已保存并即时生效（该主题不带 LOGO，LOGO 保持不变）。",
+  theme: "全站默认主题已保存并即时生效。",
   theme_logo:
     "全站默认主题已保存，并已把 LOGO 切换为该主题自带图——需要时可在「LOGO 管理」独立改回任意一枚。",
+  theme_no_logo: "全站默认主题已保存（此主题无自带 LOGO，LOGO 保持不变）。",
 };
 
 const MAIL_ERROR: Record<string, string> = {
@@ -69,26 +70,37 @@ const ROLE_FIELDS = [
 export default async function SiteSettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ saved?: string; err?: string; mail_error?: string }>;
+  searchParams: Promise<{ saved?: string; err?: string; mail_error?: string; warn?: string }>;
 }) {
   // 入口鉴权约定：第一个 await 必须是 requireAdmin（admin-entry-guard 静态守护）
   const admin = await requireAdmin("site.admin");
-  const [identity, mode, limits, verificationMode, securityMail, digestHour, adminRow, sp, chrome] =
-    await Promise.all([
-      getSiteIdentity(),
-      getRegisterMode(),
-      getLimitsConfig(),
-      getEmailVerificationMode(),
-      securityEmailEnabled(),
-      getDigestHour(),
-      getWebDb()
-        .select({ email: users.email })
-        .from(users)
-        .where(eq(users.id, admin.userId))
-        .limit(1),
-      searchParams,
-      getSiteChrome(),
-    ]);
+  const [
+    identity,
+    mode,
+    limits,
+    verificationMode,
+    securityMail,
+    digestHour,
+    adminRow,
+    sp,
+    chrome,
+    catalog,
+  ] = await Promise.all([
+    getSiteIdentity(),
+    getRegisterMode(),
+    getLimitsConfig(),
+    getEmailVerificationMode(),
+    securityEmailEnabled(),
+    getDigestHour(),
+    getWebDb()
+      .select({ email: users.email })
+      .from(users)
+      .where(eq(users.id, admin.userId))
+      .limit(1),
+    searchParams,
+    getSiteChrome(),
+    getThemeCatalog(),
+  ]);
   const adminEmail = adminRow[0]?.email ?? null;
   const flash = sp.saved ? FLASH[sp.saved] : undefined;
   const mailError = sp.mail_error ? MAIL_ERROR[sp.mail_error] : undefined;
@@ -129,6 +141,14 @@ export default async function SiteSettingsPage({
       {flash && (
         <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
           {flash}
+        </p>
+      )}
+      {sp.warn === "logo" && (
+        <p
+          role="alert"
+          className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
+        >
+          默认主题已成功保存，但自带 LOGO 未能切换；可在 LOGO 管理中手动设置。
         </p>
       )}
       {mailError && (
@@ -212,7 +232,7 @@ export default async function SiteSettingsPage({
         </CardHeader>
         <CardContent>
           <form action={saveThemePackAction} className="space-y-2 text-sm">
-            {THEME_PACKS.map((pack) => (
+            {catalog.map((pack) => (
               <label key={pack.id} className="flex items-start gap-2">
                 <input
                   type="radio"

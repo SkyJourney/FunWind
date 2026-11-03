@@ -1,5 +1,5 @@
 import { splitSource } from "@funwind/content";
-import { roundtripMarkdown } from "@/components/editor/markdown/roundtrip";
+import { roundtripMarkdown } from "@/lib/editor/markdown/roundtrip";
 import { renderMarkdown } from "@/lib/markdown";
 
 /**

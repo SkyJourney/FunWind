@@ -5,7 +5,7 @@ import { getWebDb, loadRootEnv, siteSettings } from "@funwind/db";
 /**
  * S7 每日汇总定时任务（docs/EMAIL-SCENARIOS.md 第三期）：
  * 系统 crontab / launchd 每天在后台配置的时刻调用（默认建议 20:00）：
- *   cd apps/web && pnpm exec tsx scripts/digest-cron.mts
+ *   pnpm --filter @funwind/web digest:run（预加载服务端 marker 兼容层）
  * 参数：--user <id> 只跑单个用户（测试）；--force 免 24h 活跃跳过（测试用）。
  */
 const argv = process.argv.slice(2);

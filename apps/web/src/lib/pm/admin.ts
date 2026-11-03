@@ -4,7 +4,7 @@ import type { ConfigActor } from "@/lib/audit";
 import { writeAudit } from "@/lib/audit";
 import { AdminError } from "@/lib/authz/admin";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
-import { pageBounds } from "@/lib/queries/paging";
+import { pageBounds } from "@/lib/paging";
 
 /**
  * 私信管理（M10 补做）：删除违规消息（软处理——标记正文，保留审计）与封禁私信

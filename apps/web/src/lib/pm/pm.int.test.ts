@@ -11,6 +11,7 @@ import {
   conversationMembers,
   DEMO,
   eventOutbox,
+  eventLog,
   follows,
   getWebDb,
   messages,
@@ -20,7 +21,9 @@ import {
   userRestrictions,
   users,
 } from "@funwind/db";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import * as outbox from "@/lib/events/outbox";
+import * as dbPackage from "@funwind/db";
 import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
@@ -373,6 +376,87 @@ describe.skipIf(skipDb)("私信（M10）", () => {
     }
   });
 
+  it.each(["pending", "completed"] as const)(
+    "旧 Subject 的发送者已有 %s 注销申请时拒绝私信且不落消息/事件",
+    async (status) => {
+      const sender = await loadSubject(DEMO.member);
+      const beforeMessages = await db().select().from(messages);
+      const beforeConversations = await db().select().from(conversations);
+      const beforeMembers = await db().select().from(conversationMembers);
+      const beforeEvents = await db().select().from(eventOutbox);
+      const beforeNotifications = await db().select().from(notifications);
+      await db()
+        .insert(accountDeletionRequests)
+        .values({
+          userId: DEMO.member,
+          status,
+          requestedAt: sql`NOW()`,
+          scheduledAt: sql`NOW() + INTERVAL 30 DAY`,
+        });
+      try {
+        expect(await sendMessage(sender, DEMO.admin, `注销发送者-${status}`)).toMatchObject({
+          ok: false,
+          code: "forbidden",
+        });
+        expect(await db().select().from(messages)).toEqual(beforeMessages);
+        expect(await db().select().from(conversations)).toEqual(beforeConversations);
+        expect(await db().select().from(conversationMembers)).toEqual(beforeMembers);
+        expect(await db().select().from(eventOutbox)).toEqual(beforeEvents);
+        expect(await db().select().from(notifications)).toEqual(beforeNotifications);
+      } finally {
+        await db()
+          .delete(accountDeletionRequests)
+          .where(eq(accountDeletionRequests.userId, DEMO.member));
+      }
+    },
+  );
+
+  it("注销先持发送者锁：发送等待提交后须重新检查注销申请，不产生私信副作用", async () => {
+    const sender = await loadSubject(DEMO.member);
+    const runtimeDb = db();
+    const originalTransaction = runtimeDb.transaction.bind(runtimeDb);
+    const beforeMessages = await db().select().from(messages);
+    const beforeEvents = await db().select().from(eventOutbox);
+    const beforeConversations = await db().select().from(conversations);
+    const locked = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const closure = originalTransaction(async (tx) => {
+      await tx.select({ id: users.id }).from(users).where(eq(users.id, DEMO.member)).for("update");
+      await tx.insert(accountDeletionRequests).values({
+        userId: DEMO.member,
+        status: "pending",
+        requestedAt: sql`NOW()`,
+        scheduledAt: sql`NOW() + INTERVAL 30 DAY`,
+      });
+      locked.resolve();
+      await release.promise;
+    });
+    await locked.promise;
+    vi.spyOn(dbPackage, "getWebDb").mockReturnValue(runtimeDb);
+    const entered = Promise.withResolvers<void>();
+    vi.spyOn(runtimeDb, "transaction").mockImplementation((fn, options) => {
+      entered.resolve();
+      return originalTransaction(fn, options);
+    });
+    const sending = sendMessage(sender, DEMO.admin, "等待注销提交后不能发信");
+    try {
+      await entered.promise;
+      release.resolve();
+      await closure;
+      expect(await sending).toMatchObject({ ok: false, code: "forbidden" });
+      expect(await db().select().from(messages)).toEqual(beforeMessages);
+      expect(await db().select().from(eventOutbox)).toEqual(beforeEvents);
+      expect(await db().select().from(conversations)).toEqual(beforeConversations);
+    } finally {
+      release.resolve();
+      await Promise.allSettled([closure, sending]);
+      vi.restoreAllMocks();
+      await db()
+        .delete(accountDeletionRequests)
+        .where(eq(accountDeletionRequests.userId, DEMO.member));
+    }
+  });
+
   it("全站禁言不影响无版块上下文的私信", async () => {
     const reason = "m9.6-pm-global-mute";
     await db()
@@ -450,6 +534,140 @@ describe.skipIf(skipDb)("私信（M10）", () => {
           ),
         );
       await db().update(users).set({ state: "active" }).where(eq(users.id, DEMO.xiaoyi));
+    }
+  });
+
+  it("积压超过巡检批次时本条私信优先派发，事件沿用 pm 来源且只通知一次", async () => {
+    const backlog = await db().transaction(async (tx) => {
+      const rows = [];
+      for (let i = 0; i < 12; i++) {
+        rows.push(
+          await outbox.enqueueEventInTx(
+            tx,
+            "user.followed",
+            { userId: DEMO.alice, targetType: "forum", targetId: 901 },
+            { actorId: DEMO.alice, source: "backlog" },
+          ),
+        );
+      }
+      return rows;
+    });
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const result = await sendMessage(alice, DEMO.team, "积压下本条私信应立即送达");
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      const [current] = await db()
+        .select()
+        .from(eventOutbox)
+        .where(eq(eventOutbox.eventName, "message.sent"))
+        .orderBy(sql`${eventOutbox.id} DESC`)
+        .limit(1);
+      expect(current.id).toBeGreaterThan(backlog.at(-1)!.id);
+      expect(current.dispatchedAt).not.toBeNull();
+      const older = await db()
+        .select()
+        .from(eventOutbox)
+        .where(
+          inArray(
+            eventOutbox.id,
+            backlog.map((row) => row.id),
+          ),
+        );
+      expect(older.filter((row) => row.dispatchedAt !== null)).toHaveLength(10);
+      const logs = await db().select().from(eventLog).where(eq(eventLog.eventName, "message.sent"));
+      const currentLogs = logs.filter(
+        (row) => JSON.stringify(row.payload) === JSON.stringify(current.payload),
+      );
+      expect(currentLogs).toHaveLength(1);
+      expect(currentLogs[0]).toMatchObject({ source: "pm", actorId: DEMO.alice });
+      const notices = await db()
+        .select()
+        .from(notifications)
+        .where(
+          and(
+            eq(notifications.userId, DEMO.team),
+            eq(notifications.groupKey, `conv:${result.conversationId}:pm`),
+          ),
+        );
+      const data = structuredClone(notices.at(-1)!.data);
+      await outbox.sweepPending();
+      const after = await db()
+        .select()
+        .from(notifications)
+        .where(eq(notifications.id, notices.at(-1)!.id));
+      expect(after[0].data).toEqual(data);
+    } finally {
+      warning.mockRestore();
+      await db()
+        .delete(eventOutbox)
+        .where(
+          inArray(
+            eventOutbox.id,
+            backlog.map((row) => row.id),
+          ),
+        );
+    }
+  });
+
+  it("入队后死锁回滚并重试，只派发最终提交的事件行", async () => {
+    const enqueue = outbox.enqueueEventInTx;
+    let rolledBackId = 0;
+    const injected = vi
+      .spyOn(outbox, "enqueueEventInTx")
+      .mockImplementationOnce(async (...args) => {
+        rolledBackId = (await enqueue(...args)).id;
+        throw Object.assign(new Error("测试模拟死锁"), { code: "ER_LOCK_DEADLOCK" });
+      });
+    const dispatch = vi.spyOn(outbox, "dispatchOutboxRows");
+    const body = "死锁重试不派发回滚事件";
+    try {
+      const result = await sendMessage(alice, DEMO.team, body);
+      expect(result.ok).toBe(true);
+      expect(injected).toHaveBeenCalledTimes(2);
+      const storedMessages = await db().select().from(messages).where(eq(messages.body, body));
+      expect(storedMessages).toHaveLength(1);
+      expect(
+        await db().select().from(eventOutbox).where(eq(eventOutbox.id, rolledBackId)),
+      ).toHaveLength(0);
+      expect(dispatch).toHaveBeenCalledOnce();
+      const dispatchedRows = dispatch.mock.calls[0]![0];
+      expect(dispatchedRows).toHaveLength(1);
+      expect(dispatchedRows[0].id).not.toBe(rolledBackId);
+      expect(dispatchedRows[0].payload).toMatchObject({ messageId: storedMessages[0].id });
+      const [storedEvent] = await db()
+        .select()
+        .from(eventOutbox)
+        .where(eq(eventOutbox.id, dispatchedRows[0].id));
+      expect(storedEvent.dispatchedAt).not.toBeNull();
+    } finally {
+      injected.mockRestore();
+      dispatch.mockRestore();
+    }
+  });
+
+  it("私信事务入队后失败时消息与事件一起回滚，不触发快路径", async () => {
+    const enqueue = outbox.enqueueEventInTx;
+    let rolledBackId = 0;
+    const failure = new Error("私信入队后失败");
+    const injected = vi
+      .spyOn(outbox, "enqueueEventInTx")
+      .mockImplementationOnce(async (...args) => {
+        rolledBackId = (await enqueue(...args)).id;
+        throw failure;
+      });
+    const dispatch = vi.spyOn(outbox, "dispatchOutboxRows");
+    const body = "回滚私信不得派发";
+    try {
+      await expect(sendMessage(alice, DEMO.team, body)).rejects.toBe(failure);
+      expect(await db().select().from(messages).where(eq(messages.body, body))).toHaveLength(0);
+      expect(
+        await db().select().from(eventOutbox).where(eq(eventOutbox.id, rolledBackId)),
+      ).toHaveLength(0);
+      expect(dispatch).not.toHaveBeenCalled();
+    } finally {
+      injected.mockRestore();
+      dispatch.mockRestore();
     }
   });
 

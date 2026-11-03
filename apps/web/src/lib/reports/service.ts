@@ -9,8 +9,8 @@ import type { Subject } from "@/lib/authz/types";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
 import { sweepPending } from "@/lib/events/outbox";
 import { notify } from "@/lib/notifications/notify";
-import { publicUsername } from "@/lib/queries/public-identity";
-import { pageBounds } from "@/lib/queries/paging";
+import { publicUsername } from "@/lib/identity-expr";
+import { pageBounds } from "@/lib/paging";
 
 /**
  * 举报（M9）：前台提交（唯一键 (post_id, reporter_id) 幂等——同人同帖一次）与后台处理。
@@ -146,16 +146,24 @@ export async function handleReport(
   );
   if (failure) return failure;
 
-  // 通知举报人（非事件链——低频管理动作直发；dedup 键随处理动作天然一次）
-  await notify({
-    type: "report.resolved",
-    recipients: [(await reportReporter(reportId))!],
-    actorId: admin.userId,
-    targetType: "report",
-    targetId: reportId,
-    dedupKey: (uid) => `report:${reportId}:${uid}`,
-    data: { note: trimmed },
-  });
+  // 状态与审计已提交，通知故障只记日志，不得把本次处理伪报为失败。
+  try {
+    await notify({
+      type: "report.resolved",
+      recipients: [(await reportReporter(reportId))!],
+      actorId: admin.userId,
+      targetType: "report",
+      targetId: reportId,
+      dedupKey: (uid) => `report:${reportId}:${uid}`,
+      data: { note: trimmed },
+    });
+  } catch (error) {
+    console.error(
+      "[reports] 处理已提交，但举报结果通知失败:",
+      { reportId, outcome, actorId: admin.userId },
+      error,
+    );
+  }
   await sweepPending();
   return { ok: true };
 }

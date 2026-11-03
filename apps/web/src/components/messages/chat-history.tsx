@@ -89,10 +89,21 @@ export function ChatHistory({
     stateRef.current = state;
   });
 
-  // 进入页面：滚到底部。必须是布局副作用——先于下面的观察器订阅，否则顶部哨兵在 scrollY=0 时可见，
-  // 会立刻把更早的消息加载出来。
+  // 进入页面：先滚到底部，再于下一帧校正迟到的公告等布局变化；整体仍先于观察器订阅，
+  // 否则顶部哨兵在 scrollY=0 时可见，会立刻把更早的消息加载出来。
   useLayoutEffect(() => {
-    if (scrollToBottom) window.scrollTo(0, document.documentElement.scrollHeight);
+    if (!scrollToBottom) return;
+    const scrollToLatest = () => window.scrollTo(0, document.documentElement.scrollHeight);
+    scrollToLatest();
+    let settleFrame = 0;
+    const frame = requestAnimationFrame(() => {
+      scrollToLatest();
+      settleFrame = requestAnimationFrame(scrollToLatest);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      cancelAnimationFrame(settleFrame);
+    };
   }, [scrollToBottom]);
 
   // 手动补偿滚动期间关闭浏览器的滚动锚定，离开页面时还原

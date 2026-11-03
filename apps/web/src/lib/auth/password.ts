@@ -1,3 +1,5 @@
+import "server-only";
+
 import { createHash, timingSafeEqual } from "node:crypto";
 import { hash, verify } from "@node-rs/argon2";
 
@@ -24,6 +26,23 @@ export async function verifyPassword(hashValue: string, password: string): Promi
   } catch {
     return false; // 哈希串损坏一律视为不匹配
   }
+}
+
+export type PasswordVerifier = (hashValue: string, password: string) => Promise<boolean>;
+
+// 按 ARGON2_OPTS 预生成；无需保密，且避免首次缺失账号请求额外执行一次哈希生成。
+const DUMMY_PASSWORD_HASH =
+  "$argon2id$v=19$m=19456,t=2,p=1$14yv8q9fcTAnJKMj2J7CjQ$En35z/bWHh+DrqTGdIy3TAcdkcb1a7jEUD5JZ33e77U";
+
+/** 标识符密码复验统一执行一次现代哈希校验；无现代哈希时用假哈希且绝不接受其命中。 */
+export async function verifyAccountPassword(
+  hashValue: string | null,
+  password: string,
+  verifier: PasswordVerifier = verifyPassword,
+): Promise<boolean> {
+  const realHash = hashValue || null;
+  const matched = await verifier(realHash ?? DUMMY_PASSWORD_HASH, password);
+  return realHash !== null && matched;
 }
 
 const md5Hex = (s: string): string => createHash("md5").update(s, "utf8").digest("hex");

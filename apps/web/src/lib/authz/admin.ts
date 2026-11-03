@@ -1,16 +1,17 @@
+import "server-only";
+
 import { and, eq, inArray } from "drizzle-orm";
 import {
   PERMISSION_DEFINITIONS,
-  accountDeletionRequests,
   getWebDb,
   roleGrants,
   roles,
   userRoles,
-  users,
   type PermissionDef,
 } from "@funwind/db";
 import { writeAudit } from "@/lib/audit";
-import { parseDbDateTime } from "@/lib/datetime";
+import { isFutureBeijingDateTime } from "@/lib/datetime";
+import { lockActiveUserInTx } from "@/lib/identity";
 import {
   dispatchOutboxRows,
   enqueueEventInTx,
@@ -81,25 +82,6 @@ const PRIVILEGED = (key: string) =>
   key.startsWith("admin.");
 /** 防自锁：admin 的这两个全局授权不可撤销，否则后台无人能再进入 */
 const ADMIN_LOCKED = new Set(["site.admin", "admin.roles"]);
-
-function isFutureExpiration(value: string): boolean {
-  const match = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(value);
-  if (!match) return false;
-  const [year, month, day, hour, minute, second] = match.slice(1).map(Number);
-  const calendar = new Date(Date.UTC(year!, month! - 1, day!, hour!, minute!, second!));
-  if (
-    calendar.getUTCFullYear() !== year ||
-    calendar.getUTCMonth() !== month! - 1 ||
-    calendar.getUTCDate() !== day ||
-    calendar.getUTCHours() !== hour ||
-    calendar.getUTCMinutes() !== minute ||
-    calendar.getUTCSeconds() !== second
-  ) {
-    return false;
-  }
-  const instant = parseDbDateTime(value).getTime();
-  return Number.isFinite(instant) && instant > Date.now();
-}
 
 async function assertSiteAdminRemains(tx: AuthzTransaction): Promise<void> {
   try {
@@ -407,7 +389,7 @@ export async function assignUserRole(
   if (roleKey === "guest" || roleKey === "member") {
     throw new AdminError(`${roleKey} 是隐式角色，不能绑定到用户`);
   }
-  if (expiresAt !== null && !isFutureExpiration(expiresAt)) {
+  if (expiresAt !== null && !isFutureBeijingDateTime(expiresAt)) {
     throw new AdminError("到期时间必须是有效的未来北京时间");
   }
   if (isTeamMembershipRole(roleKey)) {
@@ -422,26 +404,14 @@ export async function assignUserRole(
   await getWebDb().transaction(async (tx) => {
     enqueued.length = 0;
     await lockSiteAdminInvariant(tx);
-    const [target] = await tx
-      .select({ id: users.id, state: users.state })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1)
-      .for("update");
-    if (!target || target.state !== "active") {
-      throw new AdminError(`用户不存在或已注销: ${userId}`);
+    const target = await lockActiveUserInTx(tx, userId);
+    if (!target.ok) {
+      throw new AdminError(
+        target.code === "closing"
+          ? `用户正在注销或已注销: ${userId}`
+          : `用户不存在或已注销: ${userId}`,
+      );
     }
-    const [closure] = await tx
-      .select({ id: accountDeletionRequests.id })
-      .from(accountDeletionRequests)
-      .where(
-        and(
-          eq(accountDeletionRequests.userId, userId),
-          inArray(accountDeletionRequests.status, ["pending", "completed"]),
-        ),
-      )
-      .limit(1);
-    if (closure) throw new AdminError(`用户正在注销或已注销: ${userId}`);
     await tx
       .insert(userRoles)
       .values({

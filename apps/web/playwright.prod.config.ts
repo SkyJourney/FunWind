@@ -50,6 +50,9 @@ export default defineConfig({
       NEXT_DIST_DIR: process.env.NEXT_DIST_DIR ?? ".next-e2e-prod",
       // 生产环境必须显式声明可信代理层数（0 = 直连无代理），漏配会在取 IP 时报错
       TRUSTED_PROXY_HOPS: "0",
+      // 邮件断言必须落在本地 Mailpit：显式钉死，防止根 .env 漂到真实 SMTP 中继后 E2E 断言失效（M11.1 教训）
+      SMTP_URL: "smtp://127.0.0.1:1025",
+      MAIL_FROM: "青翼字幕组 <noreply@qingyisub.top>",
     },
   },
 });

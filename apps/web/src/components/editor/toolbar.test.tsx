@@ -6,7 +6,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { EditorShell } from "./editor-shell";
-import { editorExtensions } from "./markdown/extensions";
+import { editorExtensions } from "@/lib/editor/markdown/extensions";
 import { normalizeHref } from "./toolbar";
 
 const hidden = (container: HTMLElement) =>

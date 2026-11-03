@@ -2,18 +2,22 @@
 /**
  * 互动写路径集成测试（M8 S2）：点赞/关注 toggle 与计数同步、标签解析与替换、outbox 事件行。
  */
-import { and, eq, sql } from "drizzle-orm";
+import "@/modules";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   DEMO,
   follows,
   getWebDb,
+  eventLog,
+  notifications,
   posts,
   reactions,
   siteSettings,
   userRestrictions,
   userStats,
 } from "@funwind/db";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import * as outbox from "@/lib/events/outbox";
 import { loadSubject } from "@/lib/authz/subject";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { eventOutbox } from "@funwind/db";
@@ -191,6 +195,129 @@ describe.skipIf(skipDb)("关注（follows）", () => {
       await db()
         .delete(userRestrictions)
         .where(and(eq(userRestrictions.userId, TEAM_ID), eq(userRestrictions.reason, reason)));
+    }
+  });
+});
+
+describe.skipIf(skipDb)("互动 outbox 快路径回归", () => {
+  const cases = [
+    {
+      name: "点赞",
+      event: "reaction.added",
+      notice: "post.liked",
+      groupKey: "post:900104:liked",
+      toggle: () => toggleLike(TEAM_ID, 900104),
+    },
+    {
+      name: "关注",
+      event: "user.followed",
+      notice: "user.followed",
+      groupKey: "user:90001:followed",
+      toggle: () => toggleFollow(TEAM_ID, "user", DEMO.alice),
+    },
+  ];
+
+  it.each(cases)("$name：积压超过巡检批次时优先派发本次事件，取消不重复通知", async (test) => {
+    const backlog = await db().transaction(async (tx) => {
+      const rows = [];
+      for (let i = 0; i < 12; i++) {
+        rows.push(
+          await outbox.enqueueEventInTx(
+            tx,
+            "user.followed",
+            { userId: TEAM_ID, targetType: "forum", targetId: 901 },
+            { actorId: TEAM_ID, source: "backlog" },
+          ),
+        );
+      }
+      return rows;
+    });
+    const noticeRows = () =>
+      db()
+        .select()
+        .from(notifications)
+        .where(and(eq(notifications.type, test.notice), eq(notifications.groupKey, test.groupKey)));
+    const beforeNotice = await noticeRows();
+    const beforeCount = (beforeNotice[0]?.data as { count?: number } | undefined)?.count ?? 0;
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      expect(await test.toggle()).toMatchObject({ ok: true });
+      const [current] = await db()
+        .select()
+        .from(eventOutbox)
+        .where(and(eq(eventOutbox.eventName, test.event), eq(eventOutbox.actorId, TEAM_ID)))
+        .orderBy(sql`${eventOutbox.id} DESC`)
+        .limit(1);
+      expect(current.id).toBeGreaterThan(backlog.at(-1)!.id);
+      expect(current.dispatchedAt).not.toBeNull();
+      const older = await db()
+        .select()
+        .from(eventOutbox)
+        .where(
+          inArray(
+            eventOutbox.id,
+            backlog.map((row) => row.id),
+          ),
+        );
+      expect(older.filter((row) => row.dispatchedAt !== null)).toHaveLength(10);
+      const [currentLog] = await db()
+        .select()
+        .from(eventLog)
+        .where(and(eq(eventLog.eventName, test.event), eq(eventLog.source, "interact")))
+        .orderBy(sql`${eventLog.id} DESC`)
+        .limit(1);
+      expect(currentLog.actorId).toBe(TEAM_ID);
+      expect(currentLog.payload).toEqual(current.payload);
+      const backlogLogs = await db()
+        .select()
+        .from(eventLog)
+        .where(and(eq(eventLog.eventName, "user.followed"), eq(eventLog.source, "outbox")));
+      expect(backlogLogs.filter((row) => row.id > currentLog.id)).toHaveLength(10);
+      const afterNotice = await noticeRows();
+      expect(afterNotice).toHaveLength(1);
+      expect((afterNotice[0].data as { count: number }).count).toBe(beforeCount + 1);
+      const beforeCancel = await db()
+        .select({ id: eventOutbox.id })
+        .from(eventOutbox)
+        .where(and(eq(eventOutbox.eventName, test.event), eq(eventOutbox.actorId, TEAM_ID)));
+      expect(await test.toggle()).toMatchObject({ ok: true });
+      expect((await noticeRows())[0].data).toEqual(afterNotice[0].data);
+      const afterCancel = await db()
+        .select({ id: eventOutbox.id })
+        .from(eventOutbox)
+        .where(and(eq(eventOutbox.eventName, test.event), eq(eventOutbox.actorId, TEAM_ID)));
+      expect(afterCancel).toEqual(beforeCancel);
+    } finally {
+      warning.mockRestore();
+      await db()
+        .delete(eventOutbox)
+        .where(
+          inArray(
+            eventOutbox.id,
+            backlog.map((row) => row.id),
+          ),
+        );
+    }
+  });
+
+  it.each(cases)("$name：登记后故障使事务回滚，本次事件不得派发", async (test) => {
+    const before = await db().select().from(eventOutbox);
+    const enqueue = outbox.enqueueEventInTx;
+    const failure = new Error("入队后事务失败");
+    const injected = vi
+      .spyOn(outbox, "enqueueEventInTx")
+      .mockImplementationOnce(async (...args) => {
+        await enqueue(...args);
+        throw failure;
+      });
+    const dispatch = vi.spyOn(outbox, "dispatchOutboxRows");
+    try {
+      await expect(test.toggle()).rejects.toBe(failure);
+      expect(await db().select().from(eventOutbox)).toEqual(before);
+      expect(dispatch).not.toHaveBeenCalled();
+    } finally {
+      injected.mockRestore();
+      dispatch.mockRestore();
     }
   });
 });

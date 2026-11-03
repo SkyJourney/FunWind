@@ -1,6 +1,8 @@
+import "server-only";
+
 import { and, eq, or } from "drizzle-orm";
 import { getWebDb, normalizeKey, users } from "@funwind/db";
-import { hashPassword, verifyLegacyPassword, verifyPassword } from "./password";
+import { type PasswordVerifier, verifyAccountPassword, verifyLegacyPassword } from "./password";
 import { rateLimit, rateLimitRefund } from "./ratelimit";
 
 /**
@@ -43,15 +45,11 @@ export type LoginOutcome =
   | { ok: false; reason: "throttled" | "invalid" };
 
 export interface LoginDeps {
-  /** 密码校验（单测注入以计数；缺省 argon2id） */
-  verify?: (hash: string, password: string) => Promise<boolean>;
+  /** 密码校验（测试注入以计数；缺省 argon2id） */
+  verify?: PasswordVerifier;
   /** 旧站哈希校验（单测注入；缺省 md5(md5(pwd)+salt) 常数时间比较） */
   verifyLegacy?: (stored: string, password: string) => boolean;
 }
-
-/** 假哈希：与真哈希同参数，进程内只生成一次 */
-let dummyHash: Promise<string> | undefined;
-const getDummyHash = () => (dummyHash ??= hashPassword(`dummy:${Math.random()}:${Date.now()}`));
 
 /** 用归一化键（username_key / email_key）查找；已注销账号不可登录 */
 async function findUserByKey(key: string) {
@@ -72,7 +70,6 @@ export async function attemptLogin(
   input: { identifier: string; password: string; ip: string | null },
   deps: LoginDeps = {},
 ): Promise<LoginOutcome> {
-  const verify = deps.verify ?? verifyPassword;
   const verifyLegacy = deps.verifyLegacy ?? verifyLegacyPassword;
   const identifier = input.identifier.trim();
   const identKey = identifier.length <= MAX_IDENTIFIER_LENGTH ? normalizeKey(identifier) : null;
@@ -93,9 +90,8 @@ export async function attemptLogin(
   const userOk = user === null || take(`login-user:${user.id}`, LOGIN_LIMITS.user);
 
   const realHash = user?.passwordHash ?? null;
-  // 恒做一次 argon2 校验（C1 时序）：没有真哈希（迁移账号全是 NULL）就校验假哈希
-  const verifyHash = realHash ?? (await getDummyHash());
-  const argonMatched = (await verify(verifyHash, input.password)) && realHash !== null;
+  // 恒做一次现代哈希校验；无现代哈希时由统一入口校验假哈希
+  const argonMatched = await verifyAccountPassword(realHash, input.password, deps.verify);
 
   // 双轨：argon2 未中且账号带旧哈希材料 → 旧算法兜底（md5 校验 ~µs 级，不破坏恒定工作量的时序面）
   let legacyOk = false;

@@ -1,10 +1,12 @@
+import "server-only";
+
 import { and, asc, count, eq, gt } from "drizzle-orm";
 import { getWebDb, posts, threads, users } from "@funwind/db";
 import type { Subject } from "@/lib/authz/types";
 import type { ThreadListItem } from "./threads";
-import { pageBounds } from "./paging";
+import { pageBounds } from "@/lib/paging";
 import { buildViewerScope, visiblePredicate } from "./visibility";
-import { publicUserDeleted, publicUserId, publicUsername } from "./public-identity";
+import { publicUserDeleted, publicUserId, publicUsername } from "@/lib/identity-expr";
 
 /** 回帖楼层查询：分页（20/页）+ 作者 join + 父帖楼层 + 按帖批量取附件 */
 

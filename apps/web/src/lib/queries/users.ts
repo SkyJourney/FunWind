@@ -1,7 +1,8 @@
+import "server-only";
+
 import { and, count, desc, eq, inArray, notExists, sql } from "drizzle-orm";
 import { cache } from "react";
 import {
-  accountDeletionRequests,
   files,
   getWebDb,
   normalizeKey,
@@ -18,7 +19,8 @@ import { getPointsName } from "@/lib/auth/settings";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
 import { buildViewerScope, visiblePredicate } from "./visibility";
 import { publicRolesOf, type PublicRoleIdentity } from "./public-identity";
-import { pageBounds } from "./paging";
+import { pageBounds } from "@/lib/paging";
+import { userNotDeleted } from "@/lib/identity-expr";
 import { GUEST_SUBJECT, type Subject } from "@/lib/authz/types";
 import { extractFeedMedia } from "./feed-media";
 import { selectList, threadScope, toItem, type ThreadListItem } from "./threads";
@@ -69,23 +71,7 @@ export async function getProfile(
       .leftJoin(files, eq(files.id, userProfiles.avatarFileId))
       .leftJoin(userStats, eq(userStats.userId, users.id))
       .leftJoin(pointAccounts, eq(pointAccounts.userId, users.id))
-      .where(
-        and(
-          eq(users.id, uid),
-          eq(users.state, "active"),
-          notExists(
-            db
-              .select({ id: accountDeletionRequests.id })
-              .from(accountDeletionRequests)
-              .where(
-                and(
-                  eq(accountDeletionRequests.userId, users.id),
-                  eq(accountDeletionRequests.status, "completed"),
-                ),
-              ),
-          ),
-        ),
-      )
+      .where(and(eq(users.id, uid), userNotDeleted(users.id, users.state)))
       .limit(1),
     db
       .select({ kind: userRestrictions.kind })
@@ -167,21 +153,7 @@ export async function findUserIdByName(username: string): Promise<number | null>
     .select({ id: users.id })
     .from(users)
     .where(
-      and(
-        eq(users.usernameKey, normalizeKey(username)),
-        eq(users.state, "active"),
-        notExists(
-          getWebDb()
-            .select({ id: accountDeletionRequests.id })
-            .from(accountDeletionRequests)
-            .where(
-              and(
-                eq(accountDeletionRequests.userId, users.id),
-                eq(accountDeletionRequests.status, "completed"),
-              ),
-            ),
-        ),
-      ),
+      and(eq(users.usernameKey, normalizeKey(username)), userNotDeleted(users.id, users.state)),
     )
     .limit(1);
   return row?.id ?? null;
@@ -198,18 +170,7 @@ export const avatarKeyOf = cache(async (userId: number): Promise<string | null> 
     .where(
       and(
         eq(userProfiles.userId, userId),
-        eq(users.state, "active"),
-        notExists(
-          db
-            .select({ id: accountDeletionRequests.id })
-            .from(accountDeletionRequests)
-            .where(
-              and(
-                eq(accountDeletionRequests.userId, users.id),
-                eq(accountDeletionRequests.status, "completed"),
-              ),
-            ),
-        ),
+        userNotDeleted(users.id, users.state),
         notExists(
           db
             .select({ id: userRestrictions.id })

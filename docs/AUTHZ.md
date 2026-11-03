@@ -102,6 +102,8 @@ checkPermission(subject, "resource.action", { forumId? }) → { allowed, reason 
 `/admin` 最小实现（M9 完善为完整后台）：① 角色列表 + 自定义角色增删；② 单角色授权矩阵
 （分级域三态 + 动作勾选 + 全局/版块作用域切换）；③ 版块视角（级联授权 + 派生版主列表）。
 
+**Action 入口归属（全项目审查批次 3）**：前台帖子治理从 `app/actions/posts.ts` 提供屏蔽/通过/驳回/封禁动作，后台动作仍留在 admin 路由树；两种入口复用同一 moderation 服务和 `forum.moderate` 作用域判定。`auth: "user"` 不代表普通会员获准治理，最终权限仍在服务内检查。前台共享组件仅消费公开 Action 或宿主传入的 action prop，不反向导入后台动作。此次只调整依赖方向，审计来源、输入、状态机、返回路径与既有越权行为不变。
+
 ## 6. 翻译与对账（v1，已被 §8.4 取代）
 
 > ⚠️ 本节描述 M5 的 v1 翻译规则，其中的 `legacy_key` 等列在 v2.1 已从运行时 schema 删除（硬约定 2a：运行时不认识旧站）。

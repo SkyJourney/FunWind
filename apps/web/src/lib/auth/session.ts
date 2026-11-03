@@ -1,3 +1,5 @@
+import "server-only";
+
 import { cache } from "react";
 import { cookies } from "next/headers";
 import { and, eq, gt, inArray, ne, sql } from "drizzle-orm";

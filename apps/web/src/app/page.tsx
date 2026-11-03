@@ -1,6 +1,8 @@
 import { Flame, Home, Layers, Newspaper } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { positiveIntParam } from "@/lib/utils";
+import { checkinAction } from "@/app/actions/checkin";
 import { Slot } from "@/modules/kernel/slot";
 import { FeedCard } from "@/components/content/feed-card";
 import { HomeFeedStream } from "@/components/content/home-feed-stream";
@@ -11,7 +13,11 @@ import { getForumTree } from "@/lib/authz/snapshot";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { getDirectory } from "@/lib/queries/forums";
 import { getHomeFeed, getHotThreads } from "@/lib/queries/threads";
-import { getSiteChrome, getSiteIdentity } from "@/lib/site-chrome";
+import { getSiteChrome, getSiteIdentity } from "@/lib/chrome/site-chrome";
+import { getThemeCatalog } from "@/lib/theme/catalog";
+import { decorUrl } from "@/lib/theme/decor-url";
+import { getUserThemePack, resolveEffectivePack } from "@/lib/theme/pref";
+import { themeSurfaceStyle } from "@/lib/theme/surface-style";
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getSiteIdentity()).name };
@@ -20,11 +26,6 @@ export const dynamic = "force-dynamic";
 
 type SearchParams = Promise<{ sec?: string; sort?: string; page?: string }>;
 
-const parseId = (raw: string | undefined): number | undefined => {
-  const n = Number(raw);
-  return Number.isInteger(n) && n > 0 ? n : undefined;
-};
-
 /**
  * 首页 = 全站内容流（M10.5 S5，D1 列表流定稿）：跨板块混排、分区 chips 过滤、
  * 最新回复/最新发布排序、偏移分页；xl 出右信息栏。板块目录在 /boards（底部 Tab「板块」）。
@@ -32,12 +33,22 @@ const parseId = (raw: string | undefined): number | undefined => {
  */
 export default async function HomePage({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
-  const sectionId = parseId(params.sec);
+  const sectionId = positiveIntParam(params.sec) ?? undefined;
   const sort = params.sort === "new" ? ("new" as const) : ("last" as const);
   const page = Math.max(1, Math.trunc(Number(params.page)) || 1);
 
   const viewer = await getCurrentSubject();
-  const chrome = await getSiteChrome();
+  const [chrome, catalog, userPack] = await Promise.all([
+    getSiteChrome(),
+    getThemeCatalog(),
+    viewer.userId ? getUserThemePack(viewer.userId) : Promise.resolve(null),
+  ]);
+  const activePack = resolveEffectivePack(userPack, chrome.themePack);
+  const heroSlot = catalog.find((pack) => pack.id === activePack)?.definition?.surfaces[
+    "hero-image"
+  ];
+  const heroContent = heroSlot?.light.contentSlot ?? heroSlot?.dark?.contentSlot;
+  const heroSrc = heroContent?.image ? decorUrl(heroContent.image) : chrome.heroUrl;
   const [tree, dir, feed, hot] = await Promise.all([
     getForumTree(),
     getDirectory(viewer),
@@ -80,14 +91,31 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
 
       {/* Hero 横幅位（M11 插槽 ⑤）：站长在后台上传的当前项；无当前项不占位。
           容器内圆角卡片形态（与 BrandCard 同设计语言），宽幅图按容器宽度裁切居中 */}
-      {chrome.heroActive && (
-        <section aria-label="站点横幅" className="overflow-hidden rounded-xl border bg-card">
-          {/* eslint-disable-next-line @next/next/no-img-element -- 品牌位公开路由 /brand/hero，不经图片优化域 */}
-          <img src="/brand/hero" alt="" className="h-auto max-h-80 w-full object-cover" />
+      {heroSrc && (
+        <section
+          aria-label="站点横幅"
+          data-surface="hero-image"
+          data-fw-theme-surface
+          className="overflow-hidden rounded-xl border bg-transparent"
+          style={themeSurfaceStyle("hero-image", {
+            background: "var(--card)",
+            borderColor: "var(--border)",
+            borderWidth: "1px",
+          })}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element -- 主题图片来自公开品牌素材池，不经图片优化域 */}
+          <img
+            src={heroSrc}
+            alt=""
+            className="h-auto max-h-80 w-full object-cover"
+            style={
+              heroContent?.imageHeightPx ? { height: `${heroContent.imageHeightPx}px` } : undefined
+            }
+          />
         </section>
       )}
 
-      <Slot name="home.after-header" />
+      <Slot name="home.after-header" ctx={{ checkinAction }} />
 
       <div className="mt-4 grid gap-8 xl:grid-cols-[minmax(0,1fr)_18rem]">
         <div className="min-w-0 space-y-4">
@@ -205,11 +233,11 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
           className="-m-1 hidden [scrollbar-width:thin] [scrollbar-gutter:stable] space-y-4 self-start p-1 xl:sticky xl:top-24 xl:block xl:max-h-[calc(100dvh-7rem)] xl:overflow-y-auto xl:overscroll-contain"
         >
           <BrandCard
-            logoUrl={chrome.logoActive ? "/brand/logo" : null}
+            logoUrl={chrome.logoUrl}
             siteName={chrome.identity.name}
             tagline={chrome.identity.tagline}
           />
-          <Slot name="home.rail" />
+          <Slot name="home.rail" ctx={{ checkinAction }} />
           <section className="rounded-xl border bg-card p-4">
             <h2 className="flex items-center gap-1.5 text-sm font-semibold">
               <Flame className="size-4 text-primary" aria-hidden /> 本站热帖

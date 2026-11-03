@@ -3,9 +3,10 @@ import Link from "next/link";
 import { count, desc, isNull, or, sql } from "drizzle-orm";
 import { announcements, getWebDb } from "@funwind/db";
 import { requireAdmin } from "@/lib/authz/require-admin";
-import { getSiteChrome } from "@/lib/site-chrome";
+import { getSiteChrome } from "@/lib/chrome/site-chrome";
 import { fmtDateTime } from "@/lib/admin/format";
-import { pageBounds } from "@/lib/queries/paging";
+import { buildAdminQuery, parseAdminPage } from "@/lib/admin/query";
+import { pageBounds } from "@/lib/paging";
 import { AdminFlash } from "@/components/admin/admin-flash";
 import { AdminFilterBar } from "@/components/admin/admin-filter-bar";
 import { ChromeRowsEditor } from "@/components/admin/chrome-rows-editor";
@@ -45,7 +46,7 @@ function statusOf(a: { startsAt: string; endsAt: string | null }): {
 export default async function AdminAnnouncementsPage({ searchParams }: Params) {
   await requireAdmin();
   const sp = await searchParams;
-  const requestedPage = Number(sp.page ?? "1") || 1;
+  const requestedPage = parseAdminPage(sp.page, "number-or-one");
   const status = sp.status === "active" || sp.status === "ended" ? sp.status : undefined;
   // 编辑模式：?edit=id 时顶部表单预填
   const editId = Number(sp.edit ?? "0") || null;
@@ -82,16 +83,8 @@ export default async function AdminAnnouncementsPage({ searchParams }: Params) {
   }).find(([k]) => sp[k] === "1")?.[1];
   const flashErr = sp.err ?? sp.navErr ?? sp.linksErr ?? undefined;
 
-  const baseQuery = (over: Record<string, string>) => {
-    const p = new URLSearchParams();
-    if (status) p.set("status", status);
-    for (const [k, v] of Object.entries(over)) {
-      if (v) p.set(k, v);
-      else p.delete(k);
-    }
-    const qs = p.toString();
-    return `/admin/announcements${qs ? `?${qs}` : ""}`;
-  };
+  const baseQuery = (over: Record<string, string> = {}) =>
+    buildAdminQuery("/admin/announcements", { status }, over);
 
   // datetime-local 预填值（DB "YYYY-MM-DD HH:MM:SS" → "YYYY-MM-DDTHH:MM"）
   const toLocalInput = (d: string | null) => (d ? d.replace(" ", "T").slice(0, 16) : "");

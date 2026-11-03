@@ -15,7 +15,7 @@ import { DEMO, attachments, files, getWebDb } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
-import { handleFileRequest } from "@/lib/file-serving";
+import { handleFileRequest } from "@/lib/uploads/file-serving";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { listAttachments, recordDownload, type AttachmentView } from "./attachments";
 

@@ -1,6 +1,8 @@
+import "server-only";
+
 import { desc, eq, sql } from "drizzle-orm";
 import { getWebDb, pointAccounts, pointLedger } from "@funwind/db";
-import { pageBounds } from "@/lib/queries/paging";
+import { pageBounds } from "@/lib/paging";
 
 /**
  * 积分台账查询（/points 页）：余额快照 + 只增台账的分页。写路径一律在 lib/points（守卫测试）；这里只读。

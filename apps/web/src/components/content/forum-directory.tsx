@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Directory } from "@/lib/queries/forums";
+import { themeSurfaceStyle } from "@/lib/theme/surface-style";
 
 /**
  * 版块目录（首页与 /boards 共用）：分区 → 卡片网格。
@@ -25,7 +26,14 @@ export function ForumDirectory({ dir }: { dir: Directory }) {
             {forums.map((forum) => (
               <div
                 key={forum.id}
-                className="forum-card-band relative flex overflow-hidden rounded-xl border bg-card transition-colors hover:border-primary/40"
+                data-surface="forum-band"
+                data-fw-theme-surface
+                className="forum-card-band relative flex overflow-hidden rounded-xl border bg-transparent transition-colors hover:border-primary/40"
+                style={themeSurfaceStyle("forum-band", {
+                  background: "var(--card)",
+                  borderColor: "var(--border)",
+                  borderWidth: "1px",
+                })}
               >
                 {/* 左图区：板块图（cover）或首字符水印，右缘由遮罩渐隐（.forum-card-band 的全局样式） */}
                 <div className="forum-card-band__img relative w-[var(--band-width)] shrink-0">

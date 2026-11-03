@@ -295,9 +295,16 @@ describe.skipIf(skipDb)("权限内核 · 真实 MySQL", () => {
       await expect(
         assignUserRole(admin, DEMO.member, "team-media", 424242, null, "reason"),
       ).rejects.toThrow(/版块不存在/);
-      await expect(
-        assignUserRole(admin, DEMO.member, "team-media", 0, "2000-01-01 00:00:00", "reason"),
-      ).rejects.toThrow(/未来北京时间/);
+      for (const expiresAt of [
+        "2000-01-01 00:00:00",
+        "2099-02-29 00:00:00",
+        "2096-02-30 00:00:00",
+        "2099-01-01T00:00:00",
+      ]) {
+        await expect(
+          assignUserRole(admin, DEMO.member, "team-media", 0, expiresAt, "reason"),
+        ).rejects.toThrow("到期时间必须是有效的未来北京时间");
+      }
       await revokeUserRole(admin, DEMO.member, "team-media", 0, "集成测试撤销");
       const s = await loadSubject(DEMO.member);
       expect(s.roles.map((r) => r.key)).toEqual(["member"]);

@@ -19,7 +19,7 @@ export const approveReviewAction = defineAction({
   auth: "user",
   input: postIdInput,
   async run(ctx, input) {
-    const r = await approveReview(ctx.subject, input.postId, adminActor(ctx));
+    const r = await approveReview(ctx.subject, input.postId, ctx.actor);
     if (!r.ok) redirect(backWith(input.postId, r.code, r.message));
     revalidatePath("/admin/review");
     revalidatePath(`/t/${await threadIdOf(input.postId)}`);
@@ -37,7 +37,7 @@ export const rejectReviewAction = defineAction({
   auth: "user",
   input: rejectInput,
   async run(ctx, input) {
-    const r = await rejectReview(ctx.subject, input.postId, input.reason, adminActor(ctx));
+    const r = await rejectReview(ctx.subject, input.postId, input.reason, ctx.actor);
     if (!r.ok) redirect(backWith(input.postId, r.code, r.message));
     revalidatePath("/admin/review");
     redirect("/admin/review?rejected=1");
@@ -54,7 +54,7 @@ export const hidePostAction = defineAction({
   auth: "user",
   input: hideInput,
   async run(ctx, input) {
-    const r = await hidePost(ctx.subject, input.postId, input.reason, adminActor(ctx));
+    const r = await hidePost(ctx.subject, input.postId, input.reason, ctx.actor);
     if (!r.ok) notFound();
     const threadId = await threadIdOf(input.postId);
     revalidatePath(`/t/${threadId}`); // threadIdOf 已 await——此为有效路径
@@ -63,14 +63,6 @@ export const hidePostAction = defineAction({
 });
 
 // —— 以下为本文件私有辅助 ——
-
-function adminActor(ctx: { userId: number | null; ip: string | null }): {
-  userId: number;
-  via: "admin";
-  ip: string | null;
-} {
-  return { userId: ctx.userId ?? 0, via: "admin", ip: ctx.ip };
-}
 
 function backWith(postId: number, code: string, message: string): string {
   return `/admin/review?error=${encodeURIComponent(`${code}：${message}`)}&postId=${postId}`;
@@ -103,7 +95,7 @@ export const approveReviewBulkAction = defineAction({
     let ok = 0;
     const failed: string[] = [];
     for (const postId of input.postIds) {
-      const r = await approveReview(ctx.subject, postId, adminActor(ctx));
+      const r = await approveReview(ctx.subject, postId, ctx.actor);
       if (r.ok) ok += 1;
       else failed.push(`#${postId} ${r.code}`);
     }
@@ -125,7 +117,7 @@ export const rejectReviewBulkAction = defineAction({
     let ok = 0;
     const failed: string[] = [];
     for (const postId of input.postIds) {
-      const r = await rejectReview(ctx.subject, postId, input.reason, adminActor(ctx));
+      const r = await rejectReview(ctx.subject, postId, input.reason, ctx.actor);
       if (r.ok) ok += 1;
       else failed.push(`#${postId} ${r.code}`);
     }

@@ -29,7 +29,7 @@ import {
   users,
 } from "@funwind/db";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { hashPassword } from "./password";
+import { buildLegacyStorage, hashPassword, legacyHashHex, verifyPassword } from "./password";
 import { hashToken } from "./token";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 
@@ -66,20 +66,22 @@ import { conversationMessages } from "@/lib/pm/service";
 let tdb: TempDb;
 const db = () => getWebDb();
 const PASSWORD = "M9.6-Closure-Password-42";
+let passwordHash: string;
 
 beforeAll(async () => {
   tdb = await setupTempDb();
+  passwordHash = await hashPassword(PASSWORD);
   await db()
     .update(users)
     .set({
-      passwordHash: await hashPassword(PASSWORD),
+      passwordHash,
       legacyPasswordHash: null,
       legacyPasswordPending: false,
     })
     .where(eq(users.id, DEMO.member));
   await db()
     .update(users)
-    .set({ passwordHash: await hashPassword(PASSWORD), legacyPasswordPending: false })
+    .set({ passwordHash, legacyPasswordPending: false })
     .where(eq(users.id, DEMO.admin));
   await db()
     .update(users)
@@ -106,6 +108,100 @@ beforeEach(async () => {
 });
 
 describe.skipIf(skipDb)("账号注销生命周期 · 真实 MySQL", () => {
+  it.each([
+    ["账号不存在", "closure-no-such-user", PASSWORD],
+    ["空标识符", "   ", PASSWORD],
+    ["空密码", "demo_member", ""],
+  ])("%s：校验一次 dummy 后返回 null，匹配也不能开启注销", async (_, identifier, password) => {
+    const verify = vi.fn(verifyPassword);
+    expect(
+      await startOrOpenAccountDeletionWithPassword(identifier, password, null, { verify }),
+    ).toBeNull();
+    expect(verify).toHaveBeenCalledTimes(1);
+    const [dummy, receivedPassword] = verify.mock.calls[0]!;
+    expect(receivedPassword).toBe(password);
+    expect(dummy).not.toBe(passwordHash);
+    expect(dummy.split("$").slice(1, 4)).toEqual(passwordHash.split("$").slice(1, 4));
+
+    const alwaysTrue = vi.fn(async () => true);
+    expect(
+      await startOrOpenAccountDeletionWithPassword(identifier, password, null, {
+        verify: alwaysTrue,
+      }),
+    ).toBeNull();
+    expect(alwaysTrue).toHaveBeenCalledExactlyOnceWith(dummy, password);
+  });
+
+  it("凭据矩阵：无现代密码和 legacy-only 走 dummy；错误密码及 deleted 仍拒绝且不写申请", async () => {
+    const [before] = await db()
+      .select({
+        passwordHash: users.passwordHash,
+        legacyPasswordHash: users.legacyPasswordHash,
+        legacyPasswordPending: users.legacyPasswordPending,
+        state: users.state,
+      })
+      .from(users)
+      .where(eq(users.id, DEMO.team));
+    const oldPassword = "Closure-Legacy-Only-42";
+    const legacyHash = buildLegacyStorage(legacyHashHex(oldPassword, "Ab3dEf"), "Ab3dEf");
+    const cases = [
+      { hash: null, legacy: null, pending: false, state: "active", password: PASSWORD },
+      { hash: "", legacy: null, pending: false, state: "active", password: PASSWORD },
+      { hash: null, legacy: legacyHash, pending: true, state: "active", password: oldPassword },
+      { hash: null, legacy: legacyHash, pending: false, state: "active", password: oldPassword },
+      { hash: null, legacy: null, pending: false, state: "deleted", password: PASSWORD },
+      { hash: passwordHash, legacy: null, pending: false, state: "active", password: "wrong" },
+      {
+        hash: passwordHash,
+        legacy: legacyHash,
+        pending: true,
+        state: "active",
+        password: oldPassword,
+      },
+      { hash: passwordHash, legacy: null, pending: false, state: "deleted", password: PASSWORD },
+    ] as const;
+    try {
+      for (const c of cases) {
+        await db()
+          .update(users)
+          .set({
+            passwordHash: c.hash,
+            legacyPasswordHash: c.legacy,
+            legacyPasswordPending: c.pending,
+            state: c.state,
+          })
+          .where(eq(users.id, DEMO.team));
+        const verify = vi.fn(verifyPassword);
+        expect(
+          await startOrOpenAccountDeletionWithPassword("demo_team", c.password, null, { verify }),
+        ).toBeNull();
+        expect(verify).toHaveBeenCalledTimes(1);
+        const [target, password] = verify.mock.calls[0]!;
+        expect(password).toBe(c.password);
+        if (c.hash) expect(target).toBe(c.hash);
+        else {
+          expect(target).not.toBe(passwordHash);
+          expect(target.split("$").slice(1, 4)).toEqual(passwordHash.split("$").slice(1, 4));
+          const alwaysTrue = vi.fn(async () => true);
+          expect(
+            await startOrOpenAccountDeletionWithPassword("demo_team", c.password, null, {
+              verify: alwaysTrue,
+            }),
+          ).toBeNull();
+          expect(alwaysTrue).toHaveBeenCalledExactlyOnceWith(target, c.password);
+        }
+        expect(
+          await db()
+            .select()
+            .from(accountDeletionRequests)
+            .where(eq(accountDeletionRequests.userId, DEMO.team)),
+        ).toHaveLength(0);
+      }
+    } finally {
+      await db().update(users).set(before!).where(eq(users.id, DEMO.team));
+    }
+  });
+
   it("不能让最后一位有效站点管理员申请注销", async () => {
     await expect(
       requestAccountDeletionWithPassword({ userId: DEMO.admin }, PASSWORD),
@@ -212,17 +308,23 @@ describe.skipIf(skipDb)("账号注销生命周期 · 真实 MySQL", () => {
         createdAt: sql`NOW()`,
       });
     try {
+      const verify = vi.fn(verifyPassword);
       const request = await startOrOpenAccountDeletionWithPassword(
         "demo_member",
         PASSWORD,
         "203.0.113.13",
+        { verify },
       );
+      expect(verify).toHaveBeenCalledExactlyOnceWith(passwordHash, PASSWORD);
       expect(request?.started).toBe(true);
+      verify.mockClear();
       const reopened = await startOrOpenAccountDeletionWithPassword(
         "demo_member",
         PASSWORD,
         "203.0.113.13",
+        { verify },
       );
+      expect(verify).toHaveBeenCalledExactlyOnceWith(passwordHash, PASSWORD);
       expect(reopened).toMatchObject({ requestId: request!.requestId, started: false });
       expect(
         await db().select().from(sessions).where(eq(sessions.userId, DEMO.member)),

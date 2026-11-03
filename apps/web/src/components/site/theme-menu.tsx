@@ -13,7 +13,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { THEME_OPTIONS, isThemeValue, type ThemeValue } from "@/lib/theme";
-import { THEME_PACKS, packLabel, type PackId } from "@/lib/theme-packs";
 import { patchPreference } from "@/lib/api/settings-pref";
 import { cn } from "@/lib/utils";
 
@@ -35,8 +34,9 @@ function useMounted(): boolean {
 
 /** 主题包偏好（服务端传入，仅登录用户）：user = 本人偏好（null = 跟随站点默认）、site = 站点默认 */
 export interface PackPref {
-  user: PackId | null;
-  site: PackId;
+  user: string | null;
+  site: string;
+  options: readonly { id: string; label: string }[];
 }
 
 /**
@@ -45,9 +45,9 @@ export interface PackPref {
  * 下次 SSR 由 root layout 直出同一值，无闪烁。
  */
 function usePackSwitch(pref: PackPref) {
-  const [user, setUser] = useState<PackId | null>(pref.user);
+  const [user, setUser] = useState<string | null>(pref.user);
   const [pending, startTransition] = useTransition();
-  const choose = (next: PackId | null) => {
+  const choose = (next: string | null) => {
     const prev = user;
     setUser(next);
     document.documentElement.dataset.pack = next ?? pref.site;
@@ -65,11 +65,11 @@ function usePackSwitch(pref: PackPref) {
   return { user, pending, choose };
 }
 
-/** 主题包选项：首项「跟随站点默认」（value=null）+ 注册表全部包 */
-function packOptions(site: PackId): { value: PackId | null; label: string }[] {
+function packOptions(pref: PackPref): { value: string | null; label: string }[] {
+  const siteLabel = pref.options.find((option) => option.id === pref.site)?.label ?? pref.site;
   return [
-    { value: null, label: `跟随站点默认（${packLabel(site)}）` },
-    ...THEME_PACKS.map((p) => ({ value: p.id as PackId, label: p.label })),
+    { value: null, label: `跟随站点默认（${siteLabel}）` },
+    ...pref.options.map((option) => ({ value: option.id, label: option.label })),
   ];
 }
 
@@ -117,7 +117,7 @@ function PackMenuItems({ pref }: { pref: PackPref }) {
       <DropdownMenuLabel className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Palette className="size-3.5" aria-hidden /> 主题包
       </DropdownMenuLabel>
-      {packOptions(pref.site).map(({ value, label }) => (
+      {packOptions(pref).map(({ value, label }) => (
         <DropdownMenuItem
           key={value ?? "site"}
           disabled={pending}
@@ -167,7 +167,7 @@ export function PackOptionsRow({ pref }: { pref: PackPref }) {
   const { user, pending, choose } = usePackSwitch(pref);
   return (
     <div className="flex items-stretch gap-1 px-2 py-1.5" role="group" aria-label="主题包">
-      {packOptions(pref.site).map(({ value, label }) => {
+      {packOptions(pref).map(({ value, label }) => {
         const active = user === value;
         return (
           <button

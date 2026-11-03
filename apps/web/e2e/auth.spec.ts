@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { createHash, randomBytes } from "node:crypto";
 import { withE2eDb } from "./support/db";
+import { snapshotMailIds, waitForNewMail } from "./support/mailpit";
 
 /**
  * M4 · 用户与认证 E2E。
@@ -12,34 +13,21 @@ import { withE2eDb } from "./support/db";
 const MAIL_API = "http://127.0.0.1:8025/api/v1";
 
 /**
- * 取 `since` 之后到达的最新一封邮件里的链接。找回 / 认领邮件在响应之后才发（after()，M5.6 S3：响应时间不能泄露邮箱是否存在），
+ * 取动作后新到达邮件里的链接。找回 / 认领邮件在响应之后才发（after()，M5.6 S3：响应时间不能泄露邮箱是否存在），
  * 所以页面提示出现时邮件可能还在路上，这里轮询到出现为止。
- * 必须按 `since` 过滤：MailPit 会跨次运行保留旧邮件，不过滤的话一见到旧邮件就返回，拿到的是上一次运行的过期令牌。
+ * 用「动作前 ID 快照差集」区分新邮件：MailPit 跨次运行保留旧邮件，且容器时钟会漂移，
+ * 时间窗过滤（Date.now vs Created）在时钟偏移下会把新邮件判旧（S1 用例教训，见 support/mailpit.ts）。
  */
-async function latestLinkFor(email: string, subjectPart: string, since: number): Promise<string> {
-  const deadline = Date.now() + 30_000; // dev 模式 after() 可能慢 10s+（Turbo 流收尾延迟），放宽轮询上限
-  for (;;) {
-    const res = await fetch(`${MAIL_API}/messages?limit=20`);
-    const data = (await res.json()) as {
-      messages: { ID: string; Created: string; To: { Address: string }[]; Subject: string }[];
-    };
-    const mail = (data.messages ?? []).find(
-      (m) =>
-        m.To.some((t) => t.Address === email) &&
-        m.Subject.includes(subjectPart) &&
-        Date.parse(m.Created) >= since,
-    );
-    if (mail) {
-      const full = (await (await fetch(`${MAIL_API}/message/${mail.ID}`)).json()) as {
-        HTML: string;
-      };
-      const link = full.HTML.match(/href="(http[^"]+)"/)?.[1];
-      if (!link) throw new Error("邮件中未找到链接");
-      return link;
-    }
-    if (Date.now() > deadline) throw new Error(`未找到邮件: ${email} / ${subjectPart}`);
-    await new Promise((r) => setTimeout(r, 200));
-  }
+async function latestLinkFor(
+  email: string,
+  subjectPart: string,
+  knownIds: ReadonlySet<string>,
+): Promise<string> {
+  const mail = await waitForNewMail(email, subjectPart, knownIds);
+  const full = (await (await fetch(`${MAIL_API}/message/${mail.ID}`)).json()) as { HTML: string };
+  const link = full.HTML.match(/href="(http[^"]+)"/)?.[1];
+  if (!link) throw new Error("邮件中未找到链接");
+  return link;
 }
 
 test.describe.configure({ mode: "serial" });
@@ -109,11 +97,11 @@ test.describe("M4 · 用户与认证", () => {
     test.setTimeout(90_000); // dev 模式页面导航慢，重置+登出+重登全流程超 30s
     await page.goto("/forgot");
     await page.getByLabel("注册邮箱").fill(EMAIL);
-    const since = Date.now() - 1000; // 容忍时间戳取整
+    const knownMails = await snapshotMailIds(EMAIL, "重置密码");
     await page.getByRole("button", { name: "发送邮件" }).click();
     await expect(page.getByText("若该邮箱已注册，邮件已发出")).toBeVisible();
 
-    const link = await latestLinkFor(EMAIL, "重置密码", since);
+    const link = await latestLinkFor(EMAIL, "重置密码", knownMails);
     await page.goto(link.replace("http://127.0.0.1:3100", ""));
     await page.getByLabel("新密码（至少 8 位）").fill("new-pass-456");
     await page.getByLabel("确认新密码").fill("new-pass-456");
@@ -138,11 +126,11 @@ test.describe("M4 · 用户与认证", () => {
     test.setTimeout(90_000); // 同上：邮件轮询 + 多次导航
     await page.goto("/forgot");
     await page.getByLabel("注册邮箱").fill("alice@demo.local");
-    const since = Date.now() - 1000;
+    const knownMails = await snapshotMailIds("alice@demo.local", "认领");
     await page.getByRole("button", { name: "发送邮件" }).click();
     await expect(page.getByText("若该邮箱已注册，邮件已发出")).toBeVisible();
 
-    const link = await latestLinkFor("alice@demo.local", "认领", since);
+    const link = await latestLinkFor("alice@demo.local", "认领", knownMails);
     await page.goto(link.replace("http://127.0.0.1:3100", ""));
     await page.getByLabel("新密码（至少 8 位）").fill("alice-pass-789");
     await page.getByLabel("确认新密码").fill("alice-pass-789");

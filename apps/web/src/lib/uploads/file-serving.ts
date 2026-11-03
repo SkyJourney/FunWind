@@ -1,0 +1,205 @@
+import "server-only";
+
+import { createReadStream, promises as fs } from "node:fs";
+import { Readable } from "node:stream";
+import { eq } from "drizzle-orm";
+import { files, getWebDb } from "@funwind/db";
+import type { Subject } from "@/lib/authz/types";
+import { recordDownload, resolveFileGrant } from "@/lib/gates/attachments";
+import { resolveStaticPath } from "@/lib/static-files";
+import { getStorageDir } from "@/lib/storage";
+import { THUMB_WIDTHS } from "@/lib/uploads/types";
+import { ensureThumb, isThumbable } from "@/lib/uploads/thumbnail";
+import { parseFileKey } from "@/lib/uploads/policy";
+
+/**
+ * /files/<storage_key> 的请求处理（docs/DESIGN-MODEL.md §5）。路由文件只做薄薄一层，逻辑在这里以便脱离 Next 做集成测试。
+ *
+ * 鉴权（附件部分的判定集中在 lib/gates/attachments.ts，硬约定 3d）：
+ *   · 图片类（头像、正文图片、徽章图）以内容哈希 key 作为公开资源；纯头像在 no_avatar 生效时拒绝，正文图片的公开快路径还要求当前主体可读其公开引用。
+ *     文件的所有附件引用都绑定了门控时，图片也要经门控放行，且响应 private / no-store；已经送达客户端的公开缓存无法远程撤回。
+ *   · 非图片附件：经 attachments 反查所属帖子，要求「帖子对观众可见」「该版块持有 attachment.download」，
+ *     附件绑定了门控的还要求该门控对观众开放。同一文件可能被多个帖子引用（按哈希去重），任意一处放行即可。
+ *   · 一切拒绝都是 404（硬约定 7），不暴露文件是否存在。
+ * 响应头：Content-Type 只取 files.mime、绝不按扩展名推断；nosniff；非图片一律 attachment；
+ * 再加 CSP sandbox 作纵深防御——即使将来有人登记了可脚本化类型，浏览器也不会执行。
+ */
+
+/** 可内联展示的图片类型（svg 不在其中：可脚本化，一律当附件下载） */
+export const IMAGE_MIMES: ReadonlySet<string> = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "image/bmp",
+]);
+
+/** Content-Disposition：去掉控制字符与路径/引号字符，RFC 5987 编码中文名，ASCII 兜底名防头部注入 */
+export function contentDisposition(kind: "inline" | "attachment", originalName: string): string {
+  const clean =
+    originalName
+      .replace(/[\x00-\x1f\x7f"\\/]/g, "")
+      .trim()
+      .slice(0, 200) || "download";
+  const encoded = encodeURIComponent(clean).replace(
+    /['()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `${kind}; filename="download"; filename*=UTF-8''${encoded}`;
+}
+
+export type FileAccess =
+  | {
+      kind: "image";
+      sha256: string;
+      mime: string;
+      /** 经鉴权放行的图片（非公开快路径）：响应依赖会话，不得被共享缓存存下来，也不走 ETag 304 */
+      guarded: boolean;
+    }
+  | {
+      kind: "attachment";
+      sha256: string;
+      mime: string;
+      attachmentId: number;
+      originalName: string;
+    };
+
+/** 解析观众对该 storage_key 的访问权；无权或不存在 → null（调用方一律 404） */
+export async function resolveFileAccess(viewer: Subject, key: string): Promise<FileAccess | null> {
+  const [file] = await getWebDb()
+    .select({ id: files.id, sha256: files.sha256, mime: files.mime })
+    .from(files)
+    .where(eq(files.storageKey, key))
+    .limit(1);
+  if (!file) return null; // 只查库，不探测文件系统
+  const mime = file.mime || "application/octet-stream";
+  const isImage = IMAGE_MIMES.has(mime);
+
+  const grant = await resolveFileGrant(viewer, { id: file.id, isImage });
+  if (!grant) return null;
+  if (isImage) {
+    return {
+      kind: "image",
+      sha256: file.sha256,
+      mime,
+      guarded: grant.kind === "granted",
+    };
+  }
+  // 非图片必然经附件行放行（public 只会出现在图片分支）
+  if (grant.kind !== "granted") return null;
+  return {
+    kind: "attachment",
+    sha256: file.sha256,
+    mime,
+    attachmentId: grant.attachmentId,
+    originalName: grant.originalName,
+  };
+}
+
+const notFound = () =>
+  new Response("not found", { status: 404, headers: { "cache-control": "private, no-store" } });
+
+/** 构造响应头（纯函数，便于断言）。variant = 缩略图宽度（公开图片时 ETag 带宽度，与原图区分） */
+export function fileHeaders(
+  access: FileAccess,
+  size: number,
+  variant?: number,
+): Record<string, string> {
+  const base: Record<string, string> = {
+    "content-type": access.mime,
+    "content-length": String(size),
+    "x-content-type-options": "nosniff",
+    "content-security-policy": "default-src 'none'; sandbox",
+  };
+  if (access.kind === "image") {
+    if (access.guarded) {
+      // 经鉴权放行的图片依赖会话：不带 ETag，不进共享缓存
+      return { ...base, "content-disposition": "inline", "cache-control": "private, no-store" };
+    }
+    return {
+      ...base,
+      "content-disposition": "inline",
+      etag: `"${imageEtagValue(access.sha256, variant)}"`,
+      "cache-control": "public, max-age=31536000, immutable",
+    };
+  }
+  return {
+    ...base,
+    "content-disposition": contentDisposition("attachment", access.originalName),
+    // 附件鉴权依赖会话，不得被共享缓存存下来
+    "cache-control": "private, no-store",
+  };
+}
+
+/** 公开图片的 ETag 值：原图为 sha，缩略图为 sha-w<宽度>（同一文件不同变体不得共用 ETag） */
+export function imageEtagValue(sha256: string, variant?: number): string {
+  return variant === undefined ? sha256 : `${sha256}-w${variant}`;
+}
+
+/** 解析 ?w=：只接受白名单宽度，其它值一律忽略（返回原图） */
+export function requestedThumbWidth(req: Request): number | undefined {
+  const raw = new URL(req.url).searchParams.get("w");
+  if (raw === null) return undefined;
+  const w = Number(raw);
+  return (THUMB_WIDTHS as readonly number[]).includes(w) ? w : undefined;
+}
+
+export async function handleFileRequest(
+  req: Request,
+  segments: readonly string[],
+  viewer: Subject,
+  storageDir: string = getStorageDir(),
+): Promise<Response> {
+  const key = parseFileKey(segments);
+  if (!key) return notFound();
+  const access = await resolveFileAccess(viewer, key);
+  if (!access) return notFound();
+
+  // 缩略图只对可缩放的光栅图生效；其余（GIF、附件、非白名单宽度）一律返回原图
+  const wanted = requestedThumbWidth(req);
+  const variant =
+    access.kind === "image" && wanted !== undefined && isThumbable(access.mime)
+      ? wanted
+      : undefined;
+
+  if (
+    access.kind === "image" &&
+    !access.guarded &&
+    req.headers.get("if-none-match") === `"${imageEtagValue(access.sha256, variant)}"`
+  ) {
+    return new Response(null, {
+      status: 304,
+      headers: { etag: `"${imageEtagValue(access.sha256, variant)}"` },
+    });
+  }
+
+  const full = resolveStaticPath(storageDir, key.split("/"));
+  if (!full) return notFound();
+  let servePath = full;
+  let servedVariant: number | undefined;
+  if (variant !== undefined) {
+    // 缩略图生成失败时回退原图（变体取消），不影响鉴权结论
+    const thumb = await ensureThumb(storageDir, full, access.sha256, access.mime, variant);
+    if (thumb !== null) {
+      servePath = thumb;
+      servedVariant = variant;
+    }
+  }
+  let size: number;
+  try {
+    const stat = await fs.stat(servePath);
+    if (!stat.isFile()) return notFound();
+    size = stat.size;
+  } catch {
+    console.error(`[files] 数据库有记录但存储缺失: ${key}`);
+    return notFound();
+  }
+
+  // 下载计数：只在真正取内容的 GET 上累加，一次请求一次
+  if (access.kind === "attachment" && req.method === "GET") {
+    await recordDownload(access.attachmentId);
+  }
+
+  const body = Readable.toWeb(createReadStream(servePath)) as ReadableStream;
+  return new Response(body, { status: 200, headers: fileHeaders(access, size, servedVariant) });
+}

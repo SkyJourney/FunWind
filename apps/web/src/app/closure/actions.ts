@@ -2,8 +2,10 @@
 
 import { z } from "zod";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { cookies } from "next/headers";
 import { defineAction } from "@/lib/actions/define-action";
+import { redirectWithError } from "@/lib/actions/hop";
 import {
   closureCancelIpRateLimit,
   closureConsumeIpRateLimit,
@@ -23,13 +25,31 @@ import {
   setClosureAccessCookie,
   setSessionCookie,
 } from "@/lib/auth/session";
-import { accountDeletionVerificationMail, sendMail } from "@/lib/auth/mailer";
-import { getSiteIdentity } from "@/lib/site-chrome";
-import { APP_URL } from "@/lib/site";
+import { accountDeletionVerificationMail, getMailBrand, trySendMail } from "@/lib/mail";
 
 const identifierText = z.string().trim().min(1).max(254);
 const passwordText = z.string().max(1024);
 const emailText = z.string().trim().min(3).max(254);
+
+/** 两类验证邮件共用中性回跳；响应后才判定账号与签发令牌，避免 SMTP 时序泄露注销资格。 */
+async function sendClosureEmail(email: string, kind: "access" | "request"): Promise<never> {
+  after(async () => {
+    try {
+      const challenge =
+        kind === "access"
+          ? await issueAccountDeletionAccessForEmail(email)
+          : await issueAccountDeletionRequestForEmail(email);
+      if (!challenge) return;
+      const brand = await getMailBrand();
+      const url = `${brand.siteUrl}/closure/verify?token=${encodeURIComponent(challenge.token)}`;
+      // 发送失败已进邮件日志；对外保持中性，不泄露账号存在性。
+      await trySendMail(challenge.email, accountDeletionVerificationMail(url, kind, brand));
+    } catch (error) {
+      console.error("[closure] 注销验证邮件后台任务失败:", { kind }, error);
+    }
+  });
+  redirect("/closure?sent=1");
+}
 
 export const startOrOpenClosureWithPasswordAction = defineAction({
   name: "account_deletion.start_or_open_password",
@@ -45,13 +65,13 @@ export const startOrOpenClosureWithPasswordAction = defineAction({
         `closure-access-identifier:${hashEmailKey(input.identifier.toLowerCase())}`,
       max: 5,
       windowMs: 60 * 60_000,
-      onLimit: () => redirect("/closure?error=操作过于频繁，请稍后再试"),
+      onLimit: () => redirectWithError("/closure", "操作过于频繁，请稍后再试"),
     },
     {
       key: (ctx) => (ctx.ip ? `closure-access-ip:${ctx.ip}` : null),
       max: 10,
       windowMs: 60 * 60_000,
-      onLimit: () => redirect("/closure?error=操作过于频繁，请稍后再试"),
+      onLimit: () => redirectWithError("/closure", "操作过于频繁，请稍后再试"),
     },
   ],
   async run(ctx, input) {
@@ -61,15 +81,15 @@ export const startOrOpenClosureWithPasswordAction = defineAction({
         input.current,
         ctx.ip,
       );
-      if (!result) redirect("/closure?error=无法验证账号，请检查登录名和密码");
+      if (!result) redirectWithError("/closure", "无法验证账号，请检查登录名和密码");
       await setClosureAccessCookie(result.accessToken);
       redirect(result.started ? "/closure?requested=1" : "/closure");
     } catch (error) {
       if (error instanceof AccountDeletionError && error.code === "last_admin") {
-        redirect("/closure?error=这是最后一位有效站点管理员，不能申请注销");
+        redirectWithError("/closure", "这是最后一位有效站点管理员，不能申请注销");
       }
       if (error instanceof AccountDeletionError && error.code === "already_completed") {
-        redirect("/closure?error=该账号已完成注销");
+        redirectWithError("/closure", "该账号已完成注销");
       }
       throw error;
     }
@@ -94,18 +114,7 @@ export const sendClosureAccessEmailAction = defineAction({
       onLimit: () => redirect("/closure?sent=1"),
     },
   ],
-  async run(_ctx, input) {
-    const challenge = await issueAccountDeletionAccessForEmail(input.email);
-    if (challenge) {
-      const identity = await getSiteIdentity().catch(() => undefined);
-      const url = `${identity?.url ?? APP_URL}/closure/verify?token=${encodeURIComponent(challenge.token)}`;
-      await sendMail(
-        challenge.email,
-        accountDeletionVerificationMail(url, "access", identity?.name),
-      ).catch(() => {});
-    }
-    redirect("/closure?sent=1");
-  },
+  run: (_ctx, input) => sendClosureEmail(input.email, "access"),
 });
 
 export const sendClosureRequestEmailAction = defineAction({
@@ -126,18 +135,7 @@ export const sendClosureRequestEmailAction = defineAction({
       onLimit: () => redirect("/closure?sent=1"),
     },
   ],
-  async run(_ctx, input) {
-    const challenge = await issueAccountDeletionRequestForEmail(input.email);
-    if (challenge) {
-      const identity = await getSiteIdentity().catch(() => undefined);
-      const url = `${identity?.url ?? APP_URL}/closure/verify?token=${encodeURIComponent(challenge.token)}`;
-      await sendMail(
-        challenge.email,
-        accountDeletionVerificationMail(url, "request", identity?.name),
-      ).catch(() => {});
-    }
-    redirect("/closure?sent=1");
-  },
+  run: (_ctx, input) => sendClosureEmail(input.email, "request"),
 });
 
 export const consumeClosureEmailTokenAction = defineAction({
@@ -150,7 +148,7 @@ export const consumeClosureEmailTokenAction = defineAction({
       key: (ctx) => closureConsumeIpRateLimit.key(ctx.ip),
       max: closureConsumeIpRateLimit.max,
       windowMs: closureConsumeIpRateLimit.windowMs,
-      onLimit: () => redirect("/closure/verify?error=操作过于频繁，请稍后再试"),
+      onLimit: () => redirectWithError("/closure/verify", "操作过于频繁，请稍后再试"),
     },
   ],
   async run(_ctx, input) {
@@ -159,11 +157,11 @@ export const consumeClosureEmailTokenAction = defineAction({
       result = await consumeAccountDeletionEmailToken(input.token);
     } catch (error) {
       if (error instanceof AccountDeletionError && error.code === "last_admin") {
-        redirect("/closure/verify?error=这是最后一位有效站点管理员，不能申请注销");
+        redirectWithError("/closure/verify", "这是最后一位有效站点管理员，不能申请注销");
       }
       throw error;
     }
-    if (!result) redirect("/closure/verify?error=链接无效或已过期，请重新发起验证");
+    if (!result) redirectWithError("/closure/verify", "链接无效或已过期，请重新发起验证");
     await setClosureAccessCookie(result.accessToken);
     redirect("scheduledAt" in result ? "/closure?requested=1" : "/closure");
   },
@@ -177,15 +175,15 @@ export const cancelAccountDeletionAction = defineAction({
       key: (ctx) => closureCancelIpRateLimit.key(ctx.ip),
       max: closureCancelIpRateLimit.max,
       windowMs: closureCancelIpRateLimit.windowMs,
-      onLimit: () => redirect("/closure?error=操作过于频繁，请稍后再试"),
+      onLimit: () => redirectWithError("/closure", "操作过于频繁，请稍后再试"),
     },
   ],
   async run(_ctx) {
     const token = (await cookies()).get(CLOSURE_ACCESS_COOKIE)?.value;
-    if (!token) redirect("/closure?error=请先重新验证身份");
+    if (!token) redirectWithError("/closure", "请先重新验证身份");
     try {
       const result = await cancelAccountDeletion(token);
-      if (!result) redirect("/closure?error=请重新验证身份或注销状态已变化");
+      if (!result) redirectWithError("/closure", "请重新验证身份或注销状态已变化");
       await clearClosureAccessCookie();
       if (result.sessionToken) {
         await setSessionCookie(result.sessionToken);
@@ -194,7 +192,7 @@ export const cancelAccountDeletionAction = defineAction({
       redirect("/appeal?accountDeletionCancelled=1");
     } catch (error) {
       if (error instanceof AccountDeletionError) {
-        redirect("/closure?error=冷静期已结束，当前不能撤销申请");
+        redirectWithError("/closure", "冷静期已结束，当前不能撤销申请");
       }
       throw error;
     }

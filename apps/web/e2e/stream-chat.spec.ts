@@ -57,7 +57,9 @@ test.describe("聊天页上滑加载", () => {
     await page.goto(`/messages/${convId}`);
     await expect(bubbles(page)).toHaveCount(30);
     await expect(page.getByText(`消息 ${TOTAL}`, { exact: true })).toBeInViewport();
-    expect(await atBottom(page)).toBe(true);
+    // 进入时组件用 useLayoutEffect + 两帧 rAF 异步滚到底，慢机器（CI）上这一步晚于上面的断言，
+    // 一次性读取会偶发读到收敛前的位置；与下一个用例同样改为轮询等待
+    await expect.poll(() => atBottom(page)).toBe(true);
     // 最旧的一批还没加载
     await expect(page.getByText("消息 1", { exact: true })).toHaveCount(0);
   });
@@ -73,7 +75,11 @@ test.describe("聊天页上滑加载", () => {
     await expect.poll(() => atBottom(page)).toBe(true);
 
     // 滚到顶，同步量出首屏最旧一条（消息 46）此刻在视口中的位置，再等更早一批插入
-    const before = await page.evaluate(() => {
+    const before = await page.evaluate(async () => {
+      // 进入时还有两帧布局校正；等它们结束，避免测试的上滑被校正误当成初始定位覆盖。
+      for (let i = 0; i < 3; i++) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      }
       window.scrollTo(0, 0);
       const first = [...document.querySelectorAll("main ul > li")].find((li) =>
         li.textContent?.includes("消息 46"),

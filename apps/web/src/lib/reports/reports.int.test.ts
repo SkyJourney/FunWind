@@ -5,7 +5,8 @@
 import "@/modules";
 import { and, eq, sql } from "drizzle-orm";
 import { auditLog, DEMO, getWebDb, notifications, reports, userRestrictions } from "@funwind/db";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import * as notificationService from "@/lib/notifications/notify";
 import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
@@ -128,6 +129,64 @@ describe.skipIf(skipDb)("举报（M9）", () => {
       ok: false,
       code: "bad_status",
     });
+  });
+
+  it.each([
+    { outcome: "resolved" as const, postId: 900103 },
+    { outcome: "dismissed" as const, postId: 900104 },
+  ])("$outcome 提交后通知失败仍成功，保留处理状态、审计及原始异常", async ({ outcome, postId }) => {
+    const [created] = await db()
+      .insert(reports)
+      .values({
+        postId,
+        reporterId: DEMO.member,
+        reason: "通知故障回归",
+        createdAt: sql`NOW()`,
+      });
+    const reportId = Number(created.insertId);
+    const failure = new Error("通知写入失败", { cause: new Error("底层数据库故障") });
+    const notify = vi.spyOn(notificationService, "notify").mockRejectedValueOnce(failure);
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      await expect(handleReport(ACTOR, reportId, outcome, "已核实处理")).resolves.toEqual({
+        ok: true,
+      });
+      const [stored] = await db().select().from(reports).where(eq(reports.id, reportId));
+      expect(stored).toMatchObject({
+        status: outcome,
+        handledBy: DEMO.admin,
+        handledNote: "已核实处理",
+      });
+      expect(stored.handledAt).not.toBeNull();
+      const audits = await db()
+        .select()
+        .from(auditLog)
+        .where(
+          and(eq(auditLog.action, `report.${outcome}`), eq(auditLog.targetId, String(reportId))),
+        );
+      expect(audits).toHaveLength(1);
+      expect(errorLog).toHaveBeenCalledWith(
+        "[reports] 处理已提交，但举报结果通知失败:",
+        { reportId, outcome, actorId: DEMO.admin },
+        failure,
+      );
+      expect(errorLog.mock.calls[0]?.[2]).toBe(failure);
+      expect(await handleReport(ACTOR, reportId, outcome, "重复处理")).toEqual({
+        ok: false,
+        code: "bad_status",
+      });
+      expect(notify).toHaveBeenCalledOnce();
+      const delivered = await db()
+        .select()
+        .from(notifications)
+        .where(
+          and(eq(notifications.type, "report.resolved"), eq(notifications.targetId, reportId)),
+        );
+      expect(delivered).toHaveLength(0);
+    } finally {
+      notify.mockRestore();
+      errorLog.mockRestore();
+    }
   });
 
   it("队列筛选：pending 不含已处置；dismissed 后进对应 tab", async () => {

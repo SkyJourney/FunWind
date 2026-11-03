@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EditorShell } from "@/components/editor/editor-shell";
 import type { AttachmentItem } from "@/components/upload/attachment-panel";
-import { readDraft, removeDraft, writeDraft } from "@/components/editor/draft";
+import { useTitleDraft } from "@/components/editor/use-title-draft";
 
 /**
  * 编辑帖子表单（M6.3 第 5 步）。正文是编辑器外壳，初值是服务端给出的完整源码（含门控的隐藏正文）。
@@ -68,26 +67,7 @@ export function EditComposer({
   titleMax,
   bodyMax,
 }: Props) {
-  const titleRef = useRef<HTMLInputElement>(null);
-  const titleKey = draftKey === null || threadKind !== "thread" ? null : `${draftKey}:title`;
-
-  useEffect(() => {
-    if (titleKey === null) return;
-    try {
-      if (!restore) {
-        removeDraft(titleKey);
-        return;
-      }
-      const saved = readDraft(titleKey);
-      if (saved !== null && titleRef.current) titleRef.current.value = saved;
-    } catch {
-      // 存储不可用：不恢复
-    }
-  }, [titleKey, restore]);
-
-  const saveTitle = () => {
-    if (titleKey !== null && titleRef.current) writeDraft(titleKey, titleRef.current.value);
-  };
+  const { titleRef, saveTitle } = useTitleDraft(draftKey, restore, threadKind === "thread");
 
   return (
     <form action={action} className="space-y-4">

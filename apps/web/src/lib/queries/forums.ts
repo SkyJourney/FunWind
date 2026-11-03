@@ -1,3 +1,5 @@
+import "server-only";
+
 import { eq, inArray } from "drizzle-orm";
 import { forumPrefixes, forums, getWebDb } from "@funwind/db";
 import { getReadableForumIds } from "@/lib/authz/service";

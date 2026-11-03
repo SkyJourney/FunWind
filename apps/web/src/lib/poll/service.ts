@@ -1,4 +1,5 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql, type SQL } from "drizzle-orm";
+import type { DbExecutor } from "@/lib/audit";
 import { getWebDb, polls, pollOptions, pollVotes, posts, threads } from "@funwind/db";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
 import { contentVisibleTo, evaluate } from "@/lib/authz/evaluator";
@@ -51,9 +52,8 @@ export function isClosed(endsAt: string | null, now = nowBeijingWallTime()): boo
   return endsAt !== null && endsAt <= now;
 }
 
-/** 详情页投票视图（当前用户视角；未登录按 guest——只读结果 always 的才显示计数） */
-export async function getPollView(viewer: Subject, threadId: number): Promise<PollView | null> {
-  const db = getWebDb();
+/** 读写共用上下文与可见性；投票调用方必须先锁投票行，再按锁定 id 加载。 */
+async function loadPollContext(db: DbExecutor, viewer: Subject, where: SQL) {
   const [poll] = await db
     .select({
       id: polls.id,
@@ -71,7 +71,7 @@ export async function getPollView(viewer: Subject, threadId: number): Promise<Po
     .from(polls)
     .innerJoin(threads, eq(threads.id, polls.threadId))
     .innerJoin(posts, eq(posts.id, threads.firstPostId))
-    .where(eq(polls.threadId, threadId))
+    .where(where)
     .limit(1);
   if (!poll) return null;
   const snapshot = await getAuthzSnapshot();
@@ -90,6 +90,15 @@ export async function getPollView(viewer: Subject, threadId: number): Promise<Po
   ) {
     return null;
   }
+  return { poll, snapshot };
+}
+
+/** 详情页投票视图（当前用户视角；未登录按 guest——只读结果 always 的才显示计数） */
+export async function getPollView(viewer: Subject, threadId: number): Promise<PollView | null> {
+  const db = getWebDb();
+  const context = await loadPollContext(db, viewer, eq(polls.threadId, threadId));
+  if (!context) return null;
+  const { poll } = context;
   const options = await db
     .select({ id: pollOptions.id, content: pollOptions.content, voteCount: pollOptions.voteCount })
     .from(pollOptions)
@@ -160,39 +169,9 @@ export async function vote(
         .limit(1)
         .for("update");
       if (!lockedPoll) return { ok: false, code: "not_found", message: "投票不存在" };
-      const [poll] = await tx
-        .select({
-          id: polls.id,
-          optionLimit: polls.optionLimit,
-          endsAt: polls.endsAt,
-          forumId: threads.forumId,
-          threadState: threads.state,
-          threadAuthorId: threads.authorId,
-          firstPostState: posts.state,
-          firstPostAuthorId: posts.authorId,
-        })
-        .from(polls)
-        .innerJoin(threads, eq(threads.id, polls.threadId))
-        .innerJoin(posts, eq(posts.id, threads.firstPostId))
-        .where(eq(polls.id, lockedPoll.id))
-        .limit(1);
-      if (!poll) return { ok: false, code: "not_found", message: "投票不存在" };
-      const snapshot = await getAuthzSnapshot();
-      if (
-        !evaluate(viewer, "forum.read", { forumId: poll.forumId }, snapshot).allowed ||
-        !contentVisibleTo(
-          viewer,
-          { state: poll.threadState, authorId: poll.threadAuthorId, forumId: poll.forumId },
-          snapshot,
-        ) ||
-        !contentVisibleTo(
-          viewer,
-          { state: poll.firstPostState, authorId: poll.firstPostAuthorId, forumId: poll.forumId },
-          snapshot,
-        )
-      ) {
-        return { ok: false, code: "not_found", message: "投票不存在" };
-      }
+      const context = await loadPollContext(tx, viewer, eq(polls.id, lockedPoll.id));
+      if (!context) return { ok: false, code: "not_found", message: "投票不存在" };
+      const { poll, snapshot } = context;
       if (!evaluate(viewer, "vote.participate", { forumId: poll.forumId }, snapshot).allowed) {
         return { ok: false, code: "forbidden", message: "你没有参与投票的权限" };
       }

@@ -7,8 +7,14 @@ import { PackOptionsRow, ThemeMenu } from "./theme-menu";
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock("sonner", () => ({ toast }));
 
-const setupRow = (user: "default" | "qy2010" | null = null) =>
-  render(<PackOptionsRow pref={{ user, site: "default" }} />);
+const PACK_OPTIONS = [
+  { id: "default", label: "现代浅色" },
+  { id: "qy2010", label: "复刻·青翼2010" },
+  { id: "paper-custom", label: "暖纸自定义" },
+];
+
+const setupRow = (user: string | null = null) =>
+  render(<PackOptionsRow pref={{ user, site: "default", options: PACK_OPTIONS }} />);
 const btn = (name: string) => screen.getByRole("button", { name });
 const patchBody = (fetchMock: ReturnType<typeof vi.fn>) =>
   JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string) as unknown;
@@ -25,6 +31,7 @@ describe("PackOptionsRow（用户菜单主题包行）", () => {
     expect(btn("跟随站点")).toHaveAttribute("aria-pressed", "false");
     expect(btn("复刻·青翼2010")).toHaveAttribute("aria-pressed", "true");
     expect(btn("现代浅色")).toHaveAttribute("aria-pressed", "false");
+    expect(btn("暖纸自定义")).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("group", { name: "主题包" })).toBeInTheDocument();
   });
 

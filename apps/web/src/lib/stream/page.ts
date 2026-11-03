@@ -26,13 +26,6 @@ export function parseStreamPage(raw: string | null | undefined): number {
   return Math.min(Math.max(1, whole), MAX_STREAM_PAGE);
 }
 
-/** 解析正整数查询参数（分区 / 前缀 id 等）；缺省或非法返回 undefined */
-export function parsePositiveInt(raw: string | null | undefined): number | undefined {
-  if (raw === null || raw === undefined || raw === "") return undefined;
-  const n = Number(raw);
-  return Number.isInteger(n) && n > 0 ? n : undefined;
-}
-
 /** 在基础路径（可能已带查询串）后追加 `name=value`，供取数地址与兜底链接共用（值会做 URL 编码） */
 export function withParam(base: string, name: string, value: string | number): string {
   return `${base}${base.includes("?") ? "&" : "?"}${name}=${encodeURIComponent(String(value))}`;

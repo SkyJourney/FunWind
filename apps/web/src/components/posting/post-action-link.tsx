@@ -1,10 +1,9 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { deletePostAction, restorePostAction } from "@/app/actions/posts";
-import { hidePostAction } from "@/app/admin/review/actions";
-import { reportPostAction } from "@/app/actions/reports";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { controlLayout } from "@/components/ui/control-layout";
 import {
   Dialog,
   DialogClose,
@@ -19,22 +18,18 @@ const actions = {
   delete: {
     label: "删除",
     description: "删除后内容不再公开，版主可以恢复。",
-    action: deletePostAction,
   },
   hide: {
     label: "屏蔽",
     description: "屏蔽后普通用户不可见，作者会收到理由。",
-    action: hidePostAction,
   },
   restore: {
     label: "恢复",
     description: "恢复后内容会重新对有权查看的人可见。",
-    action: restorePostAction,
   },
   report: {
     label: "举报",
     description: "举报将进入版主处理队列，处理结果会通知你。",
-    action: reportPostAction,
   },
 };
 
@@ -60,11 +55,12 @@ export function PostActionLink({
       <a
         ref={trigger}
         href={`/p/${postId}/${kind}`}
-        className={
+        className={cn(
+          controlLayout,
           kind === "report"
             ? "text-muted-foreground hover:text-primary"
-            : "text-primary hover:underline"
-        }
+            : "text-primary hover:underline",
+        )}
         onClick={(event) => {
           if (
             event.button !== 0 ||

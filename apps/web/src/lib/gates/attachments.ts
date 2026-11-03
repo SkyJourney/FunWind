@@ -19,7 +19,7 @@ import { extractFileRefs } from "@funwind/content";
 import { MAX_ATTACHMENTS_PER_POST, MAX_INLINE_REFS_PER_POST } from "@/lib/uploads/types";
 import { sanitizeOriginalName } from "@/lib/uploads/policy";
 import { restrictionActive } from "@/lib/authz/restrictions";
-import { buildViewerScope, visiblePredicate } from "@/lib/queries/visibility";
+import { buildViewerScope, visiblePredicate, type ViewerScope } from "@/lib/queries/visibility";
 import { openGateIds } from "./service";
 
 /**
@@ -56,6 +56,25 @@ export interface LockedAttachment {
 
 export type AttachmentView = OpenAttachment | LockedAttachment;
 
+/** 门控须与附件同属一帖；仅门控 id 相同不能建立归属。 */
+function attachmentGateJoin() {
+  return and(eq(postGates.id, attachments.gateId), eq(postGates.postId, attachments.postId));
+}
+
+/** 文件引用的主题和帖子须同时对同一观众可见。 */
+function visibleFileReference(scope: ViewerScope) {
+  return and(
+    visiblePredicate(
+      { forumId: threads.forumId, state: threads.state, authorId: threads.authorId },
+      scope,
+    ),
+    visiblePredicate(
+      { forumId: threads.forumId, state: posts.state, authorId: posts.authorId },
+      scope,
+    ),
+  );
+}
+
 /**
  * 按帖批量取附件视图（一页的全部帖子一次附件查询 + 至多一次门控判定，无 N+1）。
  * 调用方须已确认 `postList` 内的帖子对观众可见（页面经 getThreadView / listReplies）。
@@ -83,10 +102,7 @@ export async function listAttachments(
     .from(attachments)
     .innerJoin(files, eq(files.id, attachments.fileId))
     // 只取 gate_key（不涉及隐藏正文列）；门控不存在时为 NULL
-    .leftJoin(
-      postGates,
-      and(eq(postGates.id, attachments.gateId), eq(postGates.postId, attachments.postId)),
-    )
+    .leftJoin(postGates, attachmentGateJoin())
     .where(
       and(
         inArray(
@@ -184,22 +200,8 @@ export async function resolveFileGrant(
         and(
           eq(attachments.fileId, file.id),
           isNull(attachments.gateId),
-          visiblePredicate(
-            { forumId: threads.forumId, state: threads.state, authorId: threads.authorId },
-            guestScope,
-          ),
-          visiblePredicate(
-            { forumId: threads.forumId, state: posts.state, authorId: posts.authorId },
-            guestScope,
-          ),
-          visiblePredicate(
-            { forumId: threads.forumId, state: threads.state, authorId: threads.authorId },
-            scope,
-          ),
-          visiblePredicate(
-            { forumId: threads.forumId, state: posts.state, authorId: posts.authorId },
-            scope,
-          ),
+          visibleFileReference(guestScope),
+          visibleFileReference(scope),
         ),
       )
       .limit(1);
@@ -219,19 +221,7 @@ export async function resolveFileGrant(
     .from(attachments)
     .innerJoin(posts, eq(posts.id, attachments.postId))
     .innerJoin(threads, eq(threads.id, posts.threadId))
-    .where(
-      and(
-        eq(attachments.fileId, file.id),
-        visiblePredicate(
-          { forumId: threads.forumId, state: threads.state, authorId: threads.authorId },
-          scope,
-        ),
-        visiblePredicate(
-          { forumId: threads.forumId, state: posts.state, authorId: posts.authorId },
-          scope,
-        ),
-      ),
-    )
+    .where(and(eq(attachments.fileId, file.id), visibleFileReference(scope)))
     .orderBy(attachments.id);
 
   const downloadAllowed = new Map<number, boolean>();
@@ -589,10 +579,7 @@ export async function listEditableAttachments(postId: number): Promise<EditableA
     })
     .from(attachments)
     .innerJoin(files, eq(files.id, attachments.fileId))
-    .leftJoin(
-      postGates,
-      and(eq(postGates.id, attachments.gateId), eq(postGates.postId, attachments.postId)),
-    )
+    .leftJoin(postGates, attachmentGateJoin())
     .where(and(eq(attachments.postId, postId), eq(attachments.kind, "download")))
     .orderBy(asc(attachments.id));
   return rows.map((r) => ({

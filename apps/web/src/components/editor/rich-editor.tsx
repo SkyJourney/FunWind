@@ -2,7 +2,7 @@
 
 import { EditorContent, useEditor } from "@tiptap/react";
 import { useEffect, type ReactNode } from "react";
-import { editorExtensions } from "./markdown/extensions";
+import { editorExtensions } from "@/lib/editor/markdown/extensions";
 import type { InsertApi } from "./insert-api";
 import { EditorFrame } from "./editor-frame";
 import { EditorToolbar } from "./toolbar";

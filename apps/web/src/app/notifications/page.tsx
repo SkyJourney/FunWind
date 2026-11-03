@@ -23,8 +23,7 @@ const CATEGORY_TABS: { key: FeedCategory | undefined; label: string }[] = [
 ];
 
 /**
- * 精简通知页（M8 站长拍板 1）：合并时间线 + 游标分页 + 点击已读。
- * 分类 Tab / 批量操作 / 偏好设置归后续完整页。
+ * 通知中心：合并时间线、分类筛选、游标分页和批量已读；偏好在设置中心单独管理。
  */
 export default async function NotificationsPage({
   searchParams,
@@ -51,6 +50,9 @@ export default async function NotificationsPage({
       <header className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-2xl font-bold tracking-tight">通知</h1>
         <div className="flex items-center gap-3 text-sm">
+          <Link href="/settings/notifications" className="text-primary hover:underline">
+            通知偏好
+          </Link>
           <span className="text-xs text-muted-foreground">未读 {summary.total}</span>
           {summary.total > 0 && (
             <form action={markAllReadAction}>

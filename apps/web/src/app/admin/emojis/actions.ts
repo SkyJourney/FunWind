@@ -5,11 +5,13 @@ import { z } from "zod";
 import { asc, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect, notFound } from "next/navigation";
-import { emojiGroups, emojis, files, getWebDb, insertIdOf } from "@funwind/db";
+import { emojiGroups, emojis, getWebDb, insertIdOf } from "@funwind/db";
 import { writeAudit, type DbTx } from "@/lib/audit";
 import { isDuplicateKey } from "@/lib/auth/register";
 import { getStorageDir } from "@/lib/storage";
 import { processEmojiUpload } from "@/lib/emoji/admin";
+import { upsertFileRecordInTx } from "@/lib/uploads/file-record";
+import { moveWithinList } from "@/lib/admin/list-reorder";
 
 /**
  * 社区表情管理动作（M10.9，设计稿 §2.5）：门禁 emoji.manage（admin 默认持有）；
@@ -113,24 +115,7 @@ export const uploadGroupIconAction = defineAction({
     await getWebDb().transaction(async (tx) => {
       const current = await lockEmojiGroup(tx, input.id);
       if (!current) notFound();
-      // files 表只做内容登记（同 sha 去重）；不写 file_uploads、不占用户配额
-      await tx
-        .insert(files)
-        .ignore()
-        .values({
-          sha256: r.sha256,
-          storageKey: r.storageKey,
-          sizeBytes: r.sizeBytes,
-          mime: r.mime,
-          width: r.width,
-          height: r.height,
-          createdAt: sql`NOW()`,
-        });
-      const [fileRow] = await tx
-        .select({ id: files.id })
-        .from(files)
-        .where(eq(files.sha256, r.sha256))
-        .limit(1);
+      const { fileId } = await upsertFileRecordInTx(tx, r);
       await tx
         .update(emojiGroups)
         .set({ iconKey: r.storageKey, updatedAt: sql`NOW()` })
@@ -141,7 +126,7 @@ export const uploadGroupIconAction = defineAction({
         targetType: "emoji_group",
         targetId: input.id,
         before: { iconKey: current.iconKey },
-        after: { iconKey: r.storageKey, fileId: fileRow?.id, via: "admin" },
+        after: { iconKey: r.storageKey, fileId, via: "admin" },
         ip: ctx.ip,
       });
     });
@@ -271,20 +256,12 @@ export const moveGroupAction = defineAction({
         .from(emojiGroups)
         .orderBy(asc(emojiGroups.sort), asc(emojiGroups.id))
         .for("update");
-      const from = rows.findIndex((row) => row.id === input.id);
-      if (from < 0) return "missing";
-      const to = input.dir === "up" ? from - 1 : from + 1;
-      if (to < 0 || to >= rows.length) return "unchanged";
-      const ordered = [...rows];
-      const [moved] = ordered.splice(from, 1);
-      if (!moved) return "missing";
-      ordered.splice(to, 0, moved);
-      for (let i = 0; i < ordered.length; i++) {
-        const row = ordered[i]!;
-        if (row.sort === i + 1) continue;
+      const { kind, ordered, updates } = moveWithinList(rows, input.id, input.dir);
+      if (kind !== "moved") return kind;
+      for (const row of updates) {
         await tx
           .update(emojiGroups)
-          .set({ sort: i + 1, updatedAt: sql`NOW()` })
+          .set({ sort: row.sort, updatedAt: sql`NOW()` })
           .where(eq(emojiGroups.id, row.id));
       }
       await writeAudit(tx, {
@@ -357,24 +334,7 @@ export const uploadEmojiAction = defineAction({
       const current = await lockEmojiGroup(tx, group.id);
       if (!current) notFound();
       for (const { result: p, name } of processed) {
-        // files 表按 sha 去重登记（同内容可建多个名字）；不写 file_uploads（表情不占用户配额）
-        await tx
-          .insert(files)
-          .ignore()
-          .values({
-            sha256: p.sha256,
-            storageKey: p.storageKey,
-            sizeBytes: p.sizeBytes,
-            mime: p.mime,
-            width: p.width,
-            height: p.height,
-            createdAt: sql`NOW()`,
-          });
-        const [fileRow] = await tx
-          .select({ id: files.id })
-          .from(files)
-          .where(eq(files.sha256, p.sha256))
-          .limit(1);
+        const { fileId } = await upsertFileRecordInTx(tx, p);
         const [{ maxSort }] = await tx
           .select({ maxSort: sql<number>`COALESCE(MAX(${emojis.sort}), 0)` })
           .from(emojis)
@@ -402,7 +362,7 @@ export const uploadEmojiAction = defineAction({
             groupId: group.id,
             ext: p.ext,
             storageKey: p.storageKey,
-            fileId: fileRow?.id,
+            fileId,
             via: "admin",
           },
           ip: ctx.ip,
@@ -493,20 +453,12 @@ export const moveEmojiAction = defineAction({
       const group = await lockEmojiGroup(tx, probe.groupId);
       if (!group) return { kind: "missing" as const, groupId: probe.groupId };
       const rows = await lockGroupEmojiRows(tx, group.id);
-      const from = rows.findIndex((row) => row.id === input.id);
-      if (from < 0) return { kind: "missing" as const, groupId: group.id };
-      const to = input.dir === "up" ? from - 1 : from + 1;
-      if (to < 0 || to >= rows.length) return { kind: "unchanged" as const, groupId: group.id };
-      const ordered = [...rows];
-      const [moved] = ordered.splice(from, 1);
-      if (!moved) return { kind: "missing" as const, groupId: group.id };
-      ordered.splice(to, 0, moved);
-      for (let i = 0; i < ordered.length; i++) {
-        const row = ordered[i]!;
-        if (row.sort === i + 1) continue;
+      const { kind, ordered, updates } = moveWithinList(rows, input.id, input.dir);
+      if (kind !== "moved") return { kind, groupId: group.id };
+      for (const row of updates) {
         await tx
           .update(emojis)
-          .set({ sort: i + 1, updatedAt: sql`NOW()` })
+          .set({ sort: row.sort, updatedAt: sql`NOW()` })
           .where(eq(emojis.id, row.id));
       }
       await writeAudit(tx, {

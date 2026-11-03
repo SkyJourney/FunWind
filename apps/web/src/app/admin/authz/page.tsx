@@ -3,6 +3,9 @@ import { createRoleAction, deleteRoleAction } from "@/app/admin/actions";
 import { listRoles } from "@/lib/authz/admin";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { ConfirmSubmit } from "@/components/ui/confirm-submit";
+import { SubmitButton } from "@/components/ui/submit-button";
+import { ActionGroup } from "@/components/ui/action-group";
+import { controlLayout } from "@/components/ui/control-layout";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "角色与授权" };
@@ -34,9 +37,9 @@ export default async function AuthzPage({
           {roles.map((r) => (
             <div
               key={r.key}
-              className="flex items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3"
+              className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3"
             >
-              <div className="min-w-0">
+              <div className="min-w-0 flex-[1_1_16rem] [overflow-wrap:anywhere]">
                 <div className="flex flex-wrap items-center gap-2">
                   <Link href={`/admin/authz/${r.key}`} className="font-medium hover:text-primary">
                     {r.name}
@@ -59,10 +62,10 @@ export default async function AuthzPage({
                   <p className="truncate text-xs text-muted-foreground">{r.description}</p>
                 )}
               </div>
-              <div className="flex shrink-0 gap-2">
+              <ActionGroup className="gap-2">
                 <Link
                   href={`/admin/authz/${r.key}`}
-                  className="rounded-md border px-3 py-1 text-sm hover:bg-accent"
+                  className={`${controlLayout} rounded-md border px-3 py-1 text-sm hover:bg-accent`}
                 >
                   授权矩阵
                 </Link>
@@ -79,7 +82,7 @@ export default async function AuthzPage({
                     </ConfirmSubmit>
                   </form>
                 )}
-              </div>
+              </ActionGroup>
             </div>
           ))}
         </div>
@@ -87,39 +90,39 @@ export default async function AuthzPage({
 
       <section className="rounded-xl border bg-card p-5">
         <h2 className="mb-3 font-semibold">新建自定义角色</h2>
-        <form action={createRoleAction} className="flex flex-wrap items-end gap-3">
-          <label className="block space-y-1">
+        <form
+          action={createRoleAction}
+          className="flex max-w-full min-w-0 flex-wrap items-end gap-3"
+        >
+          <label className="block max-w-full min-w-0 flex-[1_1_12rem] space-y-1">
             <span className="text-xs text-muted-foreground">角色键（kebab-case）</span>
             <input
               name="key"
               required
               pattern="[a-z0-9]+(-[a-z0-9]+)*"
-              className="rounded-lg border border-input px-3 py-2 text-sm"
+              className="w-full max-w-full min-w-0 rounded-lg border border-input px-3 py-2 text-sm"
               placeholder="team-media"
             />
           </label>
-          <label className="block space-y-1">
+          <label className="block max-w-full min-w-0 flex-[1_1_12rem] space-y-1">
             <span className="text-xs text-muted-foreground">名称</span>
             <input
               name="name"
               required
-              className="rounded-lg border border-input px-3 py-2 text-sm"
+              className="w-full max-w-full min-w-0 rounded-lg border border-input px-3 py-2 text-sm"
               placeholder="媒体组"
             />
           </label>
-          <label className="block flex-1 space-y-1">
+          <label className="block max-w-full min-w-0 flex-[2_1_16rem] space-y-1">
             <span className="text-xs text-muted-foreground">说明</span>
             <input
               name="description"
               className="w-full rounded-lg border border-input px-3 py-2 text-sm"
             />
           </label>
-          <button
-            type="submit"
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
+          <SubmitButton className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
             创建
-          </button>
+          </SubmitButton>
         </form>
       </section>
     </div>

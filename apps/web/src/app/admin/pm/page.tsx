@@ -4,6 +4,7 @@ import { requireAdmin } from "@/lib/authz/require-admin";
 import { listPmMessagesPage, pmStats } from "@/lib/pm/admin";
 import { deleteMessageAction } from "./actions";
 import { fmtDateTime } from "@/lib/admin/format";
+import { buildAdminQuery, parseAdminPage } from "@/lib/admin/query";
 import { AdminFlash } from "@/components/admin/admin-flash";
 import { AdminFilterBar } from "@/components/admin/admin-filter-bar";
 import { UserPicker } from "@/components/admin/user-picker";
@@ -21,23 +22,15 @@ export default async function AdminPmPage({
   await requireAdmin();
   const sp = await searchParams;
   const q = typeof sp.q === "string" ? sp.q : "";
-  const page = Number(sp.page ?? "1") || 1;
+  const page = parseAdminPage(sp.page, "number-or-one");
 
   const [{ items, page: safePage, totalPages, unknownUser }, stats] = await Promise.all([
     listPmMessagesPage({ q, page }),
     pmStats(),
   ]);
 
-  const baseQuery = (over: Record<string, string>) => {
-    const p = new URLSearchParams();
-    if (q) p.set("q", q);
-    for (const [k, v] of Object.entries(over)) {
-      if (v) p.set(k, v);
-      else p.delete(k);
-    }
-    const qs = p.toString();
-    return `/admin/pm${qs ? `?${qs}` : ""}`;
-  };
+  const baseQuery = (over: Record<string, string> = {}) =>
+    buildAdminQuery("/admin/pm", { q }, over);
 
   const emptyText = unknownUser
     ? `没有名为「${q}」的用户（支持用户名精确匹配或数字 uid）。`

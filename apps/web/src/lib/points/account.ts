@@ -1,3 +1,5 @@
+import "server-only";
+
 import { eq, sql } from "drizzle-orm";
 import { pointAccounts } from "@funwind/db";
 import type { DbTx } from "@/lib/audit";

@@ -23,7 +23,7 @@
    独立切换随时可用（补充关系，见 THEME-SYSTEM.md §5）。
 6. Hero 配置位：复刻 LOGO 池模式（PNG 直存、`site.hero`、`/brand/hero`、`admin.hero.*` 审计），
    首页 `home.after-header` 之前渲染，无图不占位。
-7. 节日装扮自动切换（装扮方案 + 时间窗调度）→ [M11.1](M11.1-festival-decor.md)；本期交付插槽设计、
+7. 节日装扮自动切换（装扮方案 + 时间窗调度）→ [M11.1](M11.1-theme-engine.md)；本期交付插槽设计、
    素材管理与配置引擎地基。
 
 ## 范围（做什么）

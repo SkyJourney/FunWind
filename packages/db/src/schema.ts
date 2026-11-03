@@ -285,6 +285,31 @@ export const siteSettings = mysqlTable(
   (t) => [primaryKey({ columns: [t.key] })],
 );
 
+/**
+ * 主题包（M11.1，schema v2.7）：完整主题包引擎的包目录。
+ * definition 是经 surface-schema strict 校验后的 Surface 定义集（JSON）；assets 引用 decor 池文件
+ * （不嵌二进制）。内置包（is_builtin）可编辑 definition、不可删除；`default` 另外不可停用。
+ * 站点默认与用户偏好只存包 id（site.theme / user_profiles.theme_pack），回退链 default。
+ * 唯一写方 = /admin/themes 管理动作（事务 + 审计 + revision 乐观锁）与 bootstrap 幂等种子（只补缺）。
+ */
+export const themePackages = mysqlTable(
+  "theme_packages",
+  {
+    id: varchar("id", { length: 32 }).notNull(),
+    name: varchar("name", { length: 60 }).notNull(),
+    description: varchar("description", { length: 200 }).notNull().default(""),
+    schemaVersion: smallint("schema_version").notNull().default(1),
+    definition: json("definition").notNull(),
+    assets: json("assets").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    isBuiltin: boolean("is_builtin").notNull().default(false),
+    revision: int("revision", { unsigned: true }).notNull().default(1),
+    createdAt: dt("created_at").notNull(),
+    updatedAt: dt("updated_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.id] }), index("idx_theme_packages_enabled").on(t.enabled)],
+);
+
 // ============================================================
 // 版块
 // ============================================================
@@ -1016,6 +1041,85 @@ export const auditLog = mysqlTable(
     index("idx_audit_actor").on(t.actorId, t.createdAt),
     index("idx_audit_target").on(t.targetType, t.targetId),
     index("idx_audit_time").on(t.createdAt),
+  ],
+);
+
+/**
+ * 邮件发送记录（schema v2.8，邮件专项）：凡经 lib/mail 发出的邮件成败皆记一行，是邮件通道的审计日志。
+ * 只存收件人 / 主题 / 场景 / 结果，**不存正文**——验证类正文含一次性令牌链接。
+ * 保留期 90 天，由发送侧概率触发清理（lib/mail/transport.ts）。
+ */
+export const emailLog = mysqlTable(
+  "email_log",
+  {
+    id: bigint("id", { mode: "number", unsigned: true }).notNull().autoincrement(),
+    /** 类别：verify 验证令牌 / security 安全强制 / notice 场景通知 / digest 汇总 / system 系统 */
+    kind: varchar("kind", { length: 16 }).notNull(),
+    /** 场景标识 = 模板 id（如 verify-email、pm-received），后台按此筛选 */
+    scene: varchar("scene", { length: 48 }).notNull(),
+    toEmail: varchar("to_email", { length: 255 }).notNull(),
+    /** 收件用户（能解析到时记录；验证邮件发往未绑定地址时为空） */
+    userId: int("user_id", { unsigned: true }),
+    subject: varchar("subject", { length: 255 }).notNull(),
+    status: mysqlEnum("status", ["sent", "failed"]).notNull(),
+    /** 失败原因（SMTP 错误信息截断） */
+    error: varchar("error", { length: 500 }),
+    /** SMTP 返回的 Message-ID，便于到邮件服务商侧追查 */
+    messageId: varchar("message_id", { length: 255 }),
+    durationMs: int("duration_ms", { unsigned: true }),
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    index("idx_email_log_time").on(t.createdAt),
+    index("idx_email_log_user").on(t.userId, t.createdAt),
+    index("idx_email_log_status").on(t.status, t.createdAt),
+    index("idx_email_log_scene").on(t.scene, t.createdAt),
+  ],
+);
+
+/**
+ * 运营排期方案（M11.2，schema v2.9）：通用「某段时间内临时改变某处生效值」的载体。
+ *
+ * 一个方案 = 一个 effect（效果注册键）+ 该 effect 的配置 + 时间窗。
+ * effect 的合法键与配置结构定义在应用侧注册表（apps/web/src/lib/campaigns/effects.ts），
+ * 未知 effect 键在读写两侧都按失效处理（fail-closed）——与积分渠道、门控条件的口径一致。
+ *
+ * 时间窗为请求侧惰性判定（同 announcements）：`starts_at <= NOW() < ends_at`，ends_at 为 NULL 表示长期；
+ * 不依赖 cron，因此「到期回退」是读侧的行为，不需要写回。
+ *
+ * 冲突语义：同一 effect 的多个命中方案按 priority 最大者生效，相等取 id 最大（后创建）。
+ * 不同 effect 各自独立（换主题不会压制换 LOGO）。
+ *
+ * 与 site_settings 的区别：方案是需要分页/筛选/审计与乐观锁的内容实体，不以 JSON 键存放。
+ */
+export const campaigns = mysqlTable(
+  "campaigns",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    /** 运营方案名（后台展示），如「圣诞装扮」 */
+    name: varchar("name", { length: 60 }).notNull(),
+    /** effect 注册键，如 theme.pack / site.logo / site.hero */
+    effect: varchar("effect", { length: 32 }).notNull(),
+    /** 该 effect 的配置；写入前经注册表 zod 严格校验 */
+    config: json("config").notNull(),
+    startsAt: dt("starts_at").notNull(),
+    /** NULL = 长期有效（与 announcements 同口径） */
+    endsAt: dt("ends_at"),
+    /** 临时停用：不改时间窗，只让方案不参与生效 */
+    enabled: boolean("enabled").notNull().default(true),
+    /** 同一 effect 内冲突时取大者；相等取 id 更大者 */
+    priority: smallint("priority", { unsigned: true }).notNull().default(0),
+    /** 乐观锁：每次写 +1（G-20，旁路写同样递增） */
+    revision: int("revision", { unsigned: true }).notNull().default(1),
+    createdBy: int("created_by", { unsigned: true }),
+    createdAt: dt("created_at").notNull(),
+    updatedAt: dt("updated_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    index("idx_campaign_window").on(t.enabled, t.startsAt, t.endsAt),
+    index("idx_campaign_effect").on(t.effect, t.priority),
   ],
 );
 

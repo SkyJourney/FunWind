@@ -1,13 +1,6 @@
-import { and, eq, inArray, isNotNull, isNull, notExists, or, sql } from "drizzle-orm";
-import {
-  accountDeletionRequests,
-  getWebDb,
-  roleGrants,
-  roles,
-  userRestrictions,
-  userRoles,
-  users,
-} from "@funwind/db";
+import { and, eq, isNotNull, isNull, notExists, or, sql } from "drizzle-orm";
+import { getWebDb, roleGrants, roles, userRestrictions, userRoles, users } from "@funwind/db";
+import { userNotClosing } from "@/lib/identity-expr";
 import { restrictionActive } from "./restrictions";
 
 export type AuthzTransaction = Parameters<
@@ -54,20 +47,9 @@ async function globalPermissionHolders(
         userId === undefined ? undefined : eq(userRoles.userId, userId),
         eq(userRoles.scopeId, 0),
         or(isNull(userRoles.expiresAt), sql`${userRoles.expiresAt} > NOW()`),
-        eq(users.state, "active"),
+        userNotClosing(users.id, users.state),
         eq(users.legacyPasswordPending, false),
         isNotNull(users.passwordHash),
-        notExists(
-          tx
-            .select({ id: accountDeletionRequests.id })
-            .from(accountDeletionRequests)
-            .where(
-              and(
-                eq(accountDeletionRequests.userId, users.id),
-                inArray(accountDeletionRequests.status, ["pending", "completed"]),
-              ),
-            ),
-        ),
         notExists(
           tx
             .select({ id: userRestrictions.id })

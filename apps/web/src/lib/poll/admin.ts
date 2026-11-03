@@ -7,7 +7,7 @@ import { AdminError } from "@/lib/authz/admin";
 import { checkPermission } from "@/lib/authz/service";
 import type { DbTx } from "@/lib/audit";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
-import { pageBounds } from "@/lib/queries/paging";
+import { pageBounds } from "@/lib/paging";
 
 /**
  * 投票管理（M10 补做，admin.reports？否——用 forum.moderate 作用域 + site.admin 两级）：

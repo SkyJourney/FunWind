@@ -2,6 +2,7 @@ import { ArrowLeft } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { positiveIntParam } from "@/lib/utils";
 import { deletePostAction } from "@/app/actions/posts";
 import { ModerationForm } from "@/components/posting/moderation-form";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,17 +18,12 @@ type Params = {
   searchParams: Promise<{ error?: string }>;
 };
 
-const parsePid = (raw: string): number | null => {
-  const n = Number(raw);
-  return Number.isInteger(n) && n > 0 ? n : null;
-};
-
 /**
  * 删除确认页（M6.2）。无权限 / 不存在 → 404；有权但当前不能删（有别人的回复、主题已隐藏或删除）→ 说明。
  * 删除主题后跳回板块列表；版主删别人的内容必须填理由，理由由服务端判定（空理由跳回并提示）。
  */
 export default async function DeletePostPage({ params, searchParams }: Params) {
-  const pid = parsePid((await params).pid);
+  const pid = positiveIntParam((await params).pid);
   if (!pid) notFound();
   const { error } = await searchParams;
 

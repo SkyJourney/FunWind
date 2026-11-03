@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
+import { themeSurfaceStyle } from "@/lib/theme/surface-style";
 
 /**
  * 公告横幅（M9）：show_banner=true 且当前有效的公告取最新一条；游客与会员都可见（audience 过滤在服务端）。
@@ -37,17 +38,35 @@ export function AnnouncementBanner({ banner }: { banner: BannerAnnouncement | nu
   return (
     <div
       data-testid="announcement-banner"
-      className={`flex items-center justify-center gap-2 px-4 py-2 text-sm ${
-        banner.level === "important"
-          ? "bg-destructive/10 text-destructive"
-          : "bg-accent text-accent-foreground"
-      }`}
+      data-surface="banner-announce"
+      data-fw-theme-surface
+      className="flex items-center justify-center gap-2 px-4 py-2 text-sm"
+      style={themeSurfaceStyle("banner-announce", {
+        background:
+          banner.level === "important"
+            ? "color-mix(in srgb, var(--destructive) 10%, transparent)"
+            : "var(--accent)",
+        text: banner.level === "important" ? "var(--destructive)" : "var(--accent-foreground)",
+      })}
     >
-      <span className="truncate">📢 {banner.title}</span>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 bg-cover bg-center"
+        style={{
+          backgroundImage: "var(--sf-banner-announce-content-image, none)",
+          height: "var(--sf-banner-announce-content-image-height, 100%)",
+        }}
+      />
+      <span
+        className="relative z-10 truncate"
+        style={{ opacity: "calc(1 - var(--sf-banner-announce-content-hide-text, 0))" }}
+      >
+        📢 {banner.title}
+      </span>
       <button
         type="button"
         aria-label="关闭公告横幅"
-        className="shrink-0 text-muted-foreground hover:text-foreground"
+        className="relative z-10 shrink-0 text-muted-foreground hover:text-foreground"
         onClick={() => {
           setDismissed(true);
           try {

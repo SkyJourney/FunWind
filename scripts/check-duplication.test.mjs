@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { baselineMismatch, compareWithBaseline, extractMetrics } from "./check-duplication.mjs";
+import {
+  baselineMismatch,
+  checkFileLengths,
+  compareWithBaseline,
+  extractMetrics,
+} from "./check-duplication.mjs";
 
 const REPORT = {
   statistics: {
@@ -59,4 +64,43 @@ test("baselineMismatch：minTokens 变更使旧基线失效", () => {
   assert.deepEqual(baselineMismatch({ minTokens: 40 }, { minTokens: 40 }), []);
   assert.match(baselineMismatch({ minTokens: 40 }, { minTokens: 60 })[0], /不一致/);
   assert.match(baselineMismatch(null, { minTokens: 40 })[0], /基线缺失/);
+});
+
+test("checkFileLengths：超软限旧文件只能持平或下降，新超限文件直接拒绝", () => {
+  const limits = { lib: 600, components: 800, pages: 400 };
+  const baseline = { "apps/web/src/lib/old.ts": 700 };
+  assert.deepEqual(
+    checkFileLengths(
+      {
+        "apps/web/src/lib/old.ts": 690,
+        "apps/web/src/lib/new.ts": 600,
+        "apps/web/src/app/example/page.tsx": 400,
+      },
+      baseline,
+      limits,
+    ),
+    [],
+  );
+  assert.deepEqual(
+    checkFileLengths(
+      {
+        "apps/web/src/lib/old.ts": 701,
+        "apps/web/src/lib/new.ts": 601,
+        "apps/web/src/components/new.tsx": 801,
+        "apps/web/src/app/new/page.tsx": 401,
+      },
+      baseline,
+      limits,
+    ),
+    [
+      "apps/web/src/lib/old.ts: 701 行 > 既有基线 700（已超软限，只准缩小）",
+      "apps/web/src/lib/new.ts: 601 行 > 新文件软限 600，新增超限文件需先拆分",
+      "apps/web/src/components/new.tsx: 801 行 > 新文件软限 800，新增超限文件需先拆分",
+      "apps/web/src/app/new/page.tsx: 401 行 > 新文件软限 400，新增超限文件需先拆分",
+    ],
+  );
+  assert.deepEqual(
+    checkFileLengths({ "apps/web/src/app/actions/large.ts": 900 }, baseline, limits),
+    ["apps/web/src/lib/old.ts: 已从源码树消失，请从行数基线移除该白名单项"],
+  );
 });

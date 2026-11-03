@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { positiveIntParam } from "@/lib/utils";
 import { eq } from "drizzle-orm";
 import { FileText, MessageSquare, MessageSquareOff } from "lucide-react";
 import { getWebDb, userProfiles } from "@funwind/db";
@@ -24,13 +25,8 @@ import { getProfile, getUserReplies, getUserThreads } from "@/lib/queries/users"
 
 export const dynamic = "force-dynamic";
 
-const parseUid = (raw: string): number | null => {
-  const n = Number(raw);
-  return Number.isInteger(n) && n > 0 ? n : null;
-};
-
 export async function generateMetadata({ params }: { params: Promise<{ uid: string }> }) {
-  const uid = parseUid((await params).uid);
+  const uid = positiveIntParam((await params).uid);
   const profile = uid ? await getProfile(uid) : null;
   return { title: profile?.username ?? "用户" };
 }
@@ -46,7 +42,7 @@ export default async function ProfilePage({
   params: Promise<{ uid: string }>;
   searchParams: Promise<{ tab?: string; page?: string }>;
 }) {
-  const uid = parseUid((await params).uid);
+  const uid = positiveIntParam((await params).uid);
   if (!uid) notFound();
   // 不存在或已注销（含迁移生成的“已注销用户”占位账号）→ 404，占位账号不开个人页
   const [viewer, viewerSubject] = await Promise.all([getCurrentUser(), getCurrentSubject()]);

@@ -1,7 +1,8 @@
 import { getForumTree } from "@/lib/authz/snapshot";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { getHomeFeed } from "@/lib/queries/threads";
-import { parsePositiveInt, parseStreamPage } from "@/lib/stream/page";
+import { parseStreamPage } from "@/lib/stream/page";
+import { positiveIntParam } from "@/lib/utils";
 import { streamJson, streamRateLimit } from "@/lib/stream/respond";
 import type { HomeStreamItem } from "@/lib/stream/types";
 
@@ -19,7 +20,7 @@ export async function GET(request: Request): Promise<Response> {
   const params = new URL(request.url).searchParams;
   const page = parseStreamPage(params.get("page"));
   const sort = params.get("sort") === "new" ? ("new" as const) : ("last" as const);
-  const sectionId = parsePositiveInt(params.get("sec"));
+  const sectionId = positiveIntParam(params.get("sec")) ?? undefined;
 
   const viewer = await getCurrentSubject();
   const [feed, tree] = await Promise.all([

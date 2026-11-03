@@ -3,10 +3,11 @@ import { Search, Wind } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import type { SessionUser } from "@/lib/auth/session";
-import type { NavItem } from "@/lib/site-chrome";
+import type { NavItem } from "@/lib/chrome/site-chrome";
 import { MainNav, type NavLink } from "@/components/site/main-nav";
 import { ThemeMenu, type PackPref } from "@/components/site/theme-menu";
 import { UserMenu } from "@/components/site/user-menu";
+import { themeSurfaceStyle } from "@/lib/theme/surface-style";
 
 /**
  * 品牌 LOGO（M10.5 LOGO 池定稿）：优先级 = 后台池当前项（/brand/logo，chrome 传入）
@@ -63,15 +64,43 @@ export function BrandCard({
   tagline: string;
 }) {
   return (
-    <section className="rounded-xl border bg-card p-5 text-center">
+    <section
+      data-surface="hero-brand"
+      data-fw-theme-surface
+      className="relative overflow-hidden rounded-xl border p-5 text-center"
+      style={themeSurfaceStyle("hero-brand", {
+        background: "var(--card)",
+        borderColor: "var(--border)",
+        borderWidth: "1px",
+      })}
+    >
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 bg-cover bg-center"
+        style={{
+          backgroundImage: "var(--sf-hero-brand-content-image, none)",
+          height: "var(--sf-hero-brand-content-image-height, 100%)",
+        }}
+      />
       <Link
         href="/"
-        className="inline-flex flex-col items-center gap-2"
+        className="relative z-10 inline-flex flex-col items-center gap-2"
         aria-label={`${siteName} 首页`}
       >
         <BrandMark size={96} logoUrl={logoUrl} />
-        <span className="font-display text-lg font-bold tracking-tight">{siteName}</span>
-        <span className="text-xs text-muted-foreground">{tagline}</span>
+        <span
+          className="font-display text-lg font-bold tracking-tight"
+          style={{ opacity: "calc(1 - var(--sf-hero-brand-content-hide-text, 0))" }}
+        >
+          {siteName}
+        </span>
+        <span
+          data-surface-text="muted"
+          className="text-xs text-muted-foreground"
+          style={{ opacity: "calc(1 - var(--sf-hero-brand-content-hide-text, 0))" }}
+        >
+          {tagline}
+        </span>
       </Link>
     </section>
   );
@@ -113,10 +142,28 @@ export function SiteHeader({
     // viewTransitionName：页面过渡期间顶栏固定不动、层级高于页面内容组（globals.css 的 fw-site-header）
     // 表面（背景/毛玻璃/描边）走插槽令牌（M11，semantic.css 表面组），主题包可整体覆盖
     <header
-      className="sticky top-0 z-40 border-b border-[var(--header-border)] bg-[var(--header-bg)] backdrop-blur-[var(--header-blur)]"
-      style={{ viewTransitionName: "fw-site-header" }}
+      data-surface="header"
+      data-fw-theme-surface
+      className="sticky top-0 z-40 border-b bg-transparent"
+      style={{
+        ...themeSurfaceStyle("header", {
+          background: "var(--header-bg)",
+          borderColor: "var(--header-border)",
+          borderWidth: "1px",
+          blur: "var(--header-blur)",
+        }),
+        viewTransitionName: "fw-site-header",
+      }}
     >
-      <div className="mx-auto flex h-16 max-w-6xl items-center gap-2 px-4 sm:gap-3 sm:px-6 md:h-14">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 bg-cover bg-center"
+        style={{
+          backgroundImage: "var(--sf-header-content-image, none)",
+          height: "var(--sf-header-content-image-height, 100%)",
+        }}
+      />
+      <div className="relative z-10 mx-auto flex h-16 max-w-6xl items-center gap-2 px-4 sm:gap-3 sm:px-6 md:h-14">
         <Link
           href="/"
           aria-label={`${siteName} 首页`}
@@ -124,7 +171,12 @@ export function SiteHeader({
         >
           <BrandMark size={36} logoUrl={logoUrl} />
           {/* 站点名全端常显（M10.5 站长反馈：移动顶栏没有站点名）；展示字体插槽（--fw-font-display） */}
-          <span className="truncate font-display text-[15px] md:text-base">{siteName}</span>
+          <span
+            className="truncate font-display text-[15px] md:text-base"
+            style={{ opacity: "calc(1 - var(--sf-header-content-hide-text, 0))" }}
+          >
+            {siteName}
+          </span>
         </Link>
         <MainNav items={navLinks} className="hidden md:flex" />
         <div className="ml-auto flex items-center gap-0.5 sm:gap-1">

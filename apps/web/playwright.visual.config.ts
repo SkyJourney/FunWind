@@ -49,6 +49,9 @@ export default defineConfig({
       NEW_DB_NAME: "qysub_next_e2e",
       NEXT_DIST_DIR: process.env.NEXT_DIST_DIR ?? ".next-e2e-visual",
       TRUSTED_PROXY_HOPS: "0",
+      // 与 prod E2E 同口径：邮件一律落本地 Mailpit，防止根 .env 漂移影响站点行为
+      SMTP_URL: "smtp://127.0.0.1:1025",
+      MAIL_FROM: "青翼字幕组 <noreply@qingyisub.top>",
     },
   },
 });

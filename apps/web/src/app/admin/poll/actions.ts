@@ -17,7 +17,7 @@ export const closePollAction = defineAction({
   input: pollInput,
   async run(ctx, input) {
     try {
-      await closePoll({ userId: ctx.userId ?? 0, via: "admin", ip: ctx.ip }, input.pollId);
+      await closePoll(ctx.actor, input.pollId);
     } catch (e) {
       if (e instanceof AdminError) redirect(`/admin/poll?error=${encodeURIComponent(e.message)}`);
       throw e;
@@ -33,7 +33,7 @@ export const deletePollAction = defineAction({
   input: pollInput,
   async run(ctx, input) {
     try {
-      await deletePoll({ userId: ctx.userId ?? 0, via: "admin", ip: ctx.ip }, input.pollId);
+      await deletePoll(ctx.actor, input.pollId);
     } catch (e) {
       if (e instanceof AdminError) redirect(`/admin/poll?error=${encodeURIComponent(e.message)}`);
       throw e;
@@ -51,7 +51,7 @@ export const reopenPollAction = defineAction({
   input: pollInput,
   async run(ctx, input) {
     try {
-      await reopenPoll({ userId: ctx.userId ?? 0, via: "admin", ip: ctx.ip }, input.pollId);
+      await reopenPoll(ctx.actor, input.pollId);
     } catch (e) {
       if (e instanceof AdminError) redirect(`/admin/poll?error=${encodeURIComponent(e.message)}`);
       throw e;

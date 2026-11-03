@@ -20,11 +20,7 @@ export const deleteMessageAction = defineAction({
   input: deleteInput,
   async run(ctx, input) {
     try {
-      await deleteMessage(
-        { userId: ctx.userId ?? 0, via: "admin", ip: ctx.ip },
-        input.messageId,
-        input.reason,
-      );
+      await deleteMessage(ctx.actor, input.messageId, input.reason);
     } catch (e) {
       if (e instanceof AdminError) redirect(`/admin/pm?error=${encodeURIComponent(e.message)}`);
       throw e;

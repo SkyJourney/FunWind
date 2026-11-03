@@ -1,5 +1,15 @@
 import Link from "next/link";
-import { AtSign, Bell, KeyRound, ShieldCheck, UserRound, UserRoundX } from "lucide-react";
+import {
+  AtSign,
+  Bell,
+  ImagePlus,
+  KeyRound,
+  MessageSquare,
+  Palette,
+  ShieldCheck,
+  UserRound,
+  UserRoundX,
+} from "lucide-react";
 import { eq } from "drizzle-orm";
 import { getWebDb, users } from "@funwind/db";
 import { getCurrentUser } from "@/lib/auth/session";
@@ -25,6 +35,24 @@ const CARDS = [
     icon: UserRound,
     title: "个人资料",
     desc: "简介、签名、坐标、主页、生日与性别。",
+  },
+  {
+    href: "/settings/appearance",
+    icon: Palette,
+    title: "外观",
+    desc: "设置本设备的明暗模式与账号同步的主题包。",
+  },
+  {
+    href: "/settings/avatar",
+    icon: ImagePlus,
+    title: "头像",
+    desc: "上传并裁剪个人头像。",
+  },
+  {
+    href: "/settings/pm",
+    icon: MessageSquare,
+    title: "私信偏好",
+    desc: "选择所有人、仅我关注的人或关闭私信。",
   },
   {
     href: "/settings/notifications",

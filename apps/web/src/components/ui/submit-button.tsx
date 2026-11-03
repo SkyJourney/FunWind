@@ -2,6 +2,8 @@
 
 import { useFormStatus } from "react-dom";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { cn } from "@/lib/utils";
+import { controlLayout } from "@/components/ui/control-layout";
 
 /**
  * 表单提交按钮（防双击）：提交进行中禁用。
@@ -23,7 +25,12 @@ export function SubmitButton({
 } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type" | "className" | "disabled" | "children">) {
   const { pending } = useFormStatus();
   return (
-    <button type="submit" disabled={pending || disabled} className={className} {...rest}>
+    <button
+      type="submit"
+      disabled={pending || disabled}
+      className={cn(controlLayout, className)}
+      {...rest}
+    >
       {pending ? pendingText : children}
     </button>
   );

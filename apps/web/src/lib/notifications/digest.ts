@@ -8,8 +8,7 @@ import {
   users,
 } from "@funwind/db";
 import { sendUserEmail } from "@/lib/notifications/email";
-import { digestMail } from "@/lib/auth/mailer";
-import { APP_URL } from "@/lib/site";
+import { digestMail } from "@/lib/mail";
 
 /**
  * S7 每日汇总（docs/EMAIL-SCENARIOS.md 第三期）：给「开了 email 汇总偏好 + 有邮箱 + 24h 未活跃」的用户
@@ -116,17 +115,8 @@ export async function runDigestOnce(opts: { onlyUserId?: number } = {}): Promise
       continue;
     }
 
-    const sent = await sendUserEmail(userId, ({ siteName, siteUrl }) =>
-      digestMail(
-        {
-          siteUrl: siteUrl || APP_URL,
-          unreadPm,
-          newReplies,
-          newMentions,
-          newFollowers,
-        },
-        siteName,
-      ),
+    const sent = await sendUserEmail(userId, ({ brand }) =>
+      digestMail({ unreadPm, newReplies, newMentions, newFollowers }, brand),
     );
     if (sent) {
       result.sent++;

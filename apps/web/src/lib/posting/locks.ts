@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { forums, threads, userStats } from "@funwind/db";
+import { forums, threads } from "@funwind/db";
 import type { DbTx } from "@/lib/audit";
 
 /**
@@ -9,22 +9,6 @@ import type { DbTx } from "@/lib/audit";
  * 事务隔离级别必须是 READ COMMITTED（POINTS_TX_OPTIONS）：默认的 REPEATABLE READ 下对"不存在的行"加锁会产生间隙锁，
  * 不同用户首次建统计行时互相死锁（M5.6 前实测过）。
  */
-
-/**
- * 锁住用户的统计行；不存在就补一行再锁（迁移用户已有行，新注册用户在注册事务里建；这里兜底更早注册却没有行的用户）。
- * 先 SELECT … FOR UPDATE，缺失才 INSERT IGNORE——不要用 INSERT … ON DUPLICATE KEY UPDATE 当加锁手段（共享锁升级死锁）。
- */
-export async function lockUserStats(tx: DbTx, userId: number): Promise<void> {
-  const lock = () =>
-    tx
-      .select({ userId: userStats.userId })
-      .from(userStats)
-      .where(eq(userStats.userId, userId))
-      .for("update");
-  if ((await lock()).length > 0) return;
-  await tx.insert(userStats).ignore().values({ userId });
-  await lock();
-}
 
 /** 锁住主题行并返回加锁后的最新状态；不存在返回 null */
 export async function lockThread(tx: DbTx, threadId: number) {

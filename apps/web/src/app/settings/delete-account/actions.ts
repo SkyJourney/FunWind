@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { redirect } from "next/navigation";
 import { defineAction } from "@/lib/actions/define-action";
+import { errorHop, redirectWithError } from "@/lib/actions/hop";
 import {
   issueAccountDeletionEmailToken,
   requestAccountDeletionWithPassword,
@@ -11,9 +12,7 @@ import {
 import { destroyCurrentSession, setClosureAccessCookie } from "@/lib/auth/session";
 import { rateLimit } from "@/lib/auth/ratelimit";
 import { getCurrentUser } from "@/lib/auth/session";
-import { accountDeletionVerificationMail, sendMail } from "@/lib/auth/mailer";
-import { getSiteIdentity } from "@/lib/site-chrome";
-import { APP_URL } from "@/lib/site";
+import { accountDeletionVerificationMail, getMailBrand, sendMail } from "@/lib/mail";
 
 const passwordText = z.string().max(1024).default("");
 
@@ -45,7 +44,7 @@ export const requestAccountDeletionWithPasswordAction = defineAction({
       key: (ctx) => (ctx.userId === null ? null : `account-deletion:${ctx.userId}`),
       max: 3,
       windowMs: 60 * 60_000,
-      onLimit: () => redirect("/settings/delete-account?error=操作过于频繁，请稍后再试"),
+      onLimit: () => redirectWithError("/settings/delete-account", "操作过于频繁，请稍后再试"),
     },
   ],
   async run(ctx, input) {
@@ -61,7 +60,7 @@ export const requestAccountDeletionWithPasswordAction = defineAction({
       redirect("/closure");
     } catch (error) {
       if (error instanceof AccountDeletionError) {
-        redirect(`/settings/delete-account?error=${encodeURIComponent(errorText(error))}`);
+        redirect(errorHop("/settings/delete-account", errorText(error)));
       }
       throw error;
     }
@@ -75,7 +74,7 @@ export const sendAccountDeletionRequestEmailAction = defineAction({
     const user = await getCurrentUser();
     if (!user || user.id !== ctx.userId) redirect("/login");
     if (!rateLimit(`account-deletion-email:${user.id}`, 3, 60 * 60_000).allowed) {
-      redirect("/settings/delete-account?error=邮件发送过于频繁，请稍后再试");
+      redirectWithError("/settings/delete-account", "邮件发送过于频繁，请稍后再试");
     }
 
     let challenge: Awaited<ReturnType<typeof issueAccountDeletionEmailToken>>;
@@ -83,21 +82,20 @@ export const sendAccountDeletionRequestEmailAction = defineAction({
       challenge = await issueAccountDeletionEmailToken(user.id, "request");
     } catch (error) {
       if (error instanceof AccountDeletionError) {
-        redirect(`/settings/delete-account?error=${encodeURIComponent(errorText(error))}`);
+        redirect(errorHop("/settings/delete-account", errorText(error)));
       }
-      redirect("/settings/delete-account?error=暂时无法发送确认邮件");
+      redirectWithError("/settings/delete-account", "暂时无法发送确认邮件");
     }
     if (!challenge) redirect("/settings/delete-account?sent=1");
 
-    const identity = await getSiteIdentity().catch(() => undefined);
-    const url = `${identity?.url ?? APP_URL}/closure/verify?token=${encodeURIComponent(challenge.token)}`;
+    const brand = await getMailBrand();
+    const url = `${brand.siteUrl}/closure/verify?token=${encodeURIComponent(challenge.token)}`;
     try {
-      await sendMail(
-        challenge.email,
-        accountDeletionVerificationMail(url, "request", identity?.name),
-      );
+      await sendMail(challenge.email, accountDeletionVerificationMail(url, "request", brand), {
+        userId: ctx.userId,
+      });
     } catch {
-      redirect("/settings/delete-account?error=邮件发送失败，请稍后重试");
+      redirectWithError("/settings/delete-account", "邮件发送失败，请稍后重试");
     }
     redirect("/settings/delete-account?sent=1");
   },

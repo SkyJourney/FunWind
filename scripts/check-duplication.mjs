@@ -13,7 +13,7 @@
  *     参数变更会使旧基线失效，必须显式重建。
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -21,6 +21,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const JSCPD_BIN = path.join(ROOT, "node_modules", ".bin", "jscpd");
 const REPORT_PATH = path.join(ROOT, "node_modules", ".cache", "jscpd", "jscpd-report.json");
 const BASELINE_PATH = path.join(ROOT, "scripts", "duplication-baseline.json");
+const FILE_LENGTH_BASELINE_PATH = path.join(ROOT, "scripts", "file-length-baseline.json");
 const SCAN_PATHS = ["apps/web/src", "packages/db/src", "packages/content/src", "migration/src"];
 
 /** 从 jscpd 报告提取门禁指标；报告缺失或结构不对时抛错（宁可失败不可静默放行） */
@@ -71,6 +72,56 @@ function readJson(file) {
   return JSON.parse(readFileSync(file, "utf8"));
 }
 
+export function checkFileLengths(files, baseline, limits) {
+  const errors = [];
+  for (const [file, lines] of Object.entries(files)) {
+    const limit = file.startsWith("apps/web/src/lib/")
+      ? limits.lib
+      : file.startsWith("apps/web/src/components/")
+        ? limits.components
+        : file.startsWith("apps/web/src/app/") && /\/page\.tsx$/.test(file)
+          ? limits.pages
+          : null;
+    if (limit === null) continue;
+    const previous = baseline[file];
+    if (previous !== undefined) {
+      if (lines > previous) {
+        errors.push(`${file}: ${lines} 行 > 既有基线 ${previous}（已超软限，只准缩小）`);
+      }
+    } else if (lines > limit) {
+      errors.push(`${file}: ${lines} 行 > 新文件软限 ${limit}，新增超限文件需先拆分`);
+    }
+  }
+  for (const file of Object.keys(baseline)) {
+    if (!(file in files)) errors.push(`${file}: 已从源码树消失，请从行数基线移除该白名单项`);
+  }
+  return errors;
+}
+
+function currentSourceLineCounts() {
+  const files = {};
+  const walk = (directory, category) => {
+    for (const entry of readdirSync(path.join(ROOT, directory), { withFileTypes: true })) {
+      const file = path.posix.join(directory, entry.name);
+      const absolute = path.join(ROOT, file);
+      if (entry.isDirectory()) {
+        walk(file, category);
+      } else if (
+        /\.(?:ts|tsx)$/.test(file) &&
+        !/\.(?:test|spec)\.(?:ts|tsx)$/.test(file) &&
+        !/\.d\.ts$/.test(file) &&
+        (category !== "app" || /\/page\.tsx$/.test(file))
+      ) {
+        files[file] = readFileSync(absolute, "utf8").split(/\r?\n/).length - 1;
+      }
+    }
+  };
+  walk("apps/web/src/lib", "lib");
+  walk("apps/web/src/components", "components");
+  walk("apps/web/src/app", "app");
+  return files;
+}
+
 function runJscpd() {
   if (!existsSync(JSCPD_BIN)) {
     console.error("✘ 未找到 node_modules/.bin/jscpd，先 pnpm install");
@@ -116,13 +167,19 @@ function main() {
   const baseline = readJson(BASELINE_PATH);
   const mismatch = baselineMismatch(baseline, config);
   const { ok, reasons } = compareWithBaseline(metrics, baseline);
+  const fileLengthBaseline = readJson(FILE_LENGTH_BASELINE_PATH);
+  const fileLengthErrors = checkFileLengths(currentSourceLineCounts(), fileLengthBaseline, {
+    lib: 600,
+    components: 800,
+    pages: 400,
+  });
 
   console.log(
     `重复门禁：${metrics.sources} 个源文件，duplicatedLines=${metrics.duplicatedLines}（基线 ${baseline.duplicatedLines}），clones=${metrics.clones}（基线 ${baseline.clones}），percentage=${metrics.percentage}%（仅展示）`,
   );
 
-  if (!ok || mismatch.length > 0) {
-    for (const line of [...mismatch, ...reasons]) console.error(`✘ ${line}`);
+  if (!ok || mismatch.length > 0 || fileLengthErrors.length > 0) {
+    for (const line of [...mismatch, ...reasons, ...fileLengthErrors]) console.error(`✘ ${line}`);
     console.error(
       "处理：优先提取/复用消除新增重复；确需接受时运行 pnpm duplication:baseline 重新锚定并在提交说明里写明原因。",
     );

@@ -5,16 +5,11 @@ import { evaluate } from "@/lib/authz/evaluator";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
 import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
-import { applyGateDrafts } from "@/lib/gates/write";
-import {
-  registerSourceFiles,
-  type AttachmentInput,
-  type UploadedAttachment,
-} from "@/lib/gates/attachments";
+import type { AttachmentInput } from "@/lib/gates/attachments";
 import { extractKeys } from "@funwind/content";
+import { applyContentExtras } from "./content-extras";
 import { limitsFor } from "@/lib/limits/load";
 import { replaceThreadTags, resolveTagIds } from "@/lib/interact/tags";
-import { resolveMentionUserIds } from "@/lib/posting/mentions";
 import { POINTS_TX_OPTIONS } from "@/lib/points/retry";
 import { emit } from "@/modules/kernel/bus";
 import {
@@ -26,7 +21,8 @@ import {
 } from "@/lib/events/outbox";
 import type { EventName } from "@/modules/kernel/types";
 import { transitionContent } from "./transition";
-import { lockForum, lockThread, lockUserStats } from "./locks";
+import { lockUserStats } from "@/lib/locks";
+import { lockForum, lockThread } from "./locks";
 import {
   canDelete,
   canEdit,
@@ -39,6 +35,8 @@ import {
 import { checkReason, checkTitle } from "./text";
 import {
   Rollback,
+  enqueueMentions,
+  enqueueUploadEvents,
   err,
   gatePermissions,
   isError,
@@ -160,6 +158,36 @@ async function probe(postId: number) {
   return row ?? null;
 }
 
+/** 共用事务外探测与快照；恢复不读取写权限，规则事实沿用默认可写值。 */
+async function prepareMutation(viewer: Subject, postId: number, checkWrite = true) {
+  if (viewer.userId === null) return err("forbidden", "请先登录");
+  const hit = await probe(postId);
+  if (!hit) return err("not_found", "帖子不存在");
+  const snap = await getAuthzSnapshot();
+  const scope = { forumId: hit.forumId };
+  const actor: ActorFacts = {
+    userId: viewer.userId,
+    isModerator: evaluate(viewer, "forum.moderate", scope, snap).allowed,
+    canWrite: checkWrite ? evaluate(viewer, "forum.write", scope, snap).allowed : true,
+  };
+  return { hit, snap, actor };
+}
+
+/** 只抽相同锁序与目标重读；纯编辑不取版块锁，删除和恢复仍在重读前取锁。 */
+async function lockMutationTarget(
+  tx: DbTx,
+  hit: NonNullable<Awaited<ReturnType<typeof probe>>>,
+  lockForumRow: boolean,
+) {
+  await lockUserStats(tx, hit.authorId);
+  await lockThread(tx, hit.threadId);
+  if (lockForumRow) await lockForum(tx, hit.forumId);
+  const target = await readTarget(tx, hit.postId, hit.threadId, hit.forumId);
+  if (target === null) throw new Rollback(err("not_found", "帖子不存在"));
+  if (target === "conflict") throw new Rollback(err("conflict", "主题已被移动，请刷新后重试"));
+  return target;
+}
+
 /** 锁后的帖子事实（已持锁，读到的是最新值） */
 async function readTarget(tx: DbTx, postId: number, threadId: number, forumId: number) {
   const [p] = await tx
@@ -208,14 +236,14 @@ async function readTarget(tx: DbTx, postId: number, threadId: number, forumId: n
 }
 
 function facts(
-  viewer: Subject,
+  actor: ActorFacts,
   kind: "thread" | "reply",
   p: { authorId: number; state: string; ageSec: number },
   t: { state: string },
   othersVisibleReplies: number,
 ): { actor: ActorFacts; target: TargetFacts } {
   return {
-    actor: { userId: viewer.userId!, isModerator: false, canWrite: true },
+    actor,
     target: {
       kind,
       authorId: p.authorId,
@@ -249,13 +277,10 @@ interface PostFacts {
 
 /** 取判定所需的事实。不可见 / 不存在 / 游客 → null。调用方须自行确认帖子对观众可见（或只关心版主视角） */
 async function loadPostFacts(viewer: Subject, postId: number): Promise<PostFacts | null> {
-  if (viewer.userId === null) return null;
-  const hit = await probe(postId);
-  if (!hit) return null;
-  const snap = await getAuthzSnapshot();
+  const context = await prepareMutation(viewer, postId);
+  if (isError(context)) return null;
+  const { hit, actor } = context;
   const { forumId } = hit;
-  const isModerator = evaluate(viewer, "forum.moderate", { forumId }, snap).allowed;
-  const canWrite = evaluate(viewer, "forum.write", { forumId }, snap).allowed;
 
   const db = getWebDb();
   const [p] = await db
@@ -296,8 +321,7 @@ async function loadPostFacts(viewer: Subject, postId: number): Promise<PostFacts
         sql`${posts.floor} > 1`,
       ),
     );
-  const f = facts(viewer, kind, p, t, Number(others?.n ?? 0));
-  f.actor = { ...f.actor, isModerator, canWrite };
+  const f = facts(actor, kind, p, t, Number(others?.n ?? 0));
   return {
     postId,
     threadId: t.id,
@@ -404,13 +428,10 @@ export async function editPost(
   input: EditInput,
   deps: MutateDeps = {},
 ): Promise<MutateResult<EditOk>> {
-  if (viewer.userId === null) return err("forbidden", "请先登录");
-  const hit = await probe(input.postId);
-  if (!hit) return err("not_found", "帖子不存在");
-  const snap = await getAuthzSnapshot();
+  const context = await prepareMutation(viewer, input.postId);
+  if (isError(context)) return context;
+  const { hit, snap, actor } = context;
   const { forumId } = hit;
-  const isModerator = evaluate(viewer, "forum.moderate", { forumId }, snap).allowed;
-  const canWrite = evaluate(viewer, "forum.write", { forumId }, snap).allowed;
   // 门控与附件的新增权限归帖子作者（docs/GATES.md）：版主替作者改帖时，不得借自己的权限给作者增加付费门控或附件
   const author = viewer.userId === hit.authorId ? viewer : await loadSubject(hit.authorId);
   // 上传权限在事务外算出（纯内存快照），登记新附件时使用
@@ -419,24 +440,15 @@ export async function editPost(
   const body = prepareBody(input.source, limits.bodyMax);
   if (isError(body)) return body;
   const perms = gatePermissions(author, forumId, snap);
-  let uploads: UploadedAttachment[] = [];
   let enqueued: EnqueuedEvent[] = [];
 
   try {
     const out = await withPostingRetry(() =>
       getWebDb().transaction(async (tx): Promise<EditOk> => {
-        // 每次尝试都从空开始：被回滚尝试的附件与事件不得带进派发
-        uploads = [];
+        // 每次尝试都从空开始：被回滚尝试的事件不得带进派发。
         enqueued = [];
-        await lockUserStats(tx, hit.authorId);
-        await lockThread(tx, hit.threadId);
-        // 纯编辑不改版块计数，不取版块锁；状态迁移（transitionContent）会自己按需取版块锁。
-        // 主题是否被移动由持主题锁后的 readTarget 判定
-        const target = await readTarget(tx, hit.postId, hit.threadId, forumId);
-        if (target === null) throw new Rollback(err("not_found", "帖子不存在"));
-        if (target === "conflict")
-          throw new Rollback(err("conflict", "主题已被移动，请刷新后重试"));
-        const { p, t, kind, othersVisibleReplies } = target;
+        // 纯编辑不改版块计数，不取版块锁；移动冲突仍由持主题锁后的重读判定。
+        const { p, t, kind, othersVisibleReplies } = await lockMutationTarget(tx, hit, false);
 
         // 编辑冲突：渲染表单时看到的版本必须仍是当前版本
         const current = p.editedAt ?? null;
@@ -444,8 +456,7 @@ export async function editPost(
           throw new Rollback(err("conflict", "这条内容已被他人修改，请刷新后再编辑"));
         }
 
-        const f = facts(viewer, kind, p, t, othersVisibleReplies);
-        f.actor = { ...f.actor, isModerator, canWrite };
+        const f = facts(actor, kind, p, t, othersVisibleReplies);
         const decision = canEdit(f.actor, f.target, limits.editWindowSec);
         if (!decision.allowed) throw new Rollback(rejectOf(decision));
         let reason: string | null = null;
@@ -463,20 +474,21 @@ export async function editPost(
           title = checked.value;
         }
 
-        // 门控对账：已有解锁记录的门控只能改价，不能换方式、删除或挂着附件时删除
-        const gateRes = await applyGateDrafts(tx, hit.postId, body.gates, perms);
-        if (!gateRes.ok) throw new Rollback(err(gateRes.error.code, gateRes.error.message));
-        // 旧正文里的引用不重新校验归属（迁移来的旧图在作者编辑时不得被误拒）
-        const reg = await registerSourceFiles(tx, {
-          postId: hit.postId,
-          authorId: hit.authorId,
-          source: body.body,
-          attachments: input.attachments,
-          priorRefs: new Set(extractKeys(p.bodyMd ?? "")),
-          canUpload,
-        });
-        if (!reg.ok) throw new Rollback(err(reg.code, reg.message));
-        uploads = reg.uploaded;
+        // 权限归作者；旧正文引用不重新校验归属，编辑保留细分门控错误码。
+        const extras = await applyContentExtras(
+          tx,
+          hit.postId,
+          body,
+          perms,
+          {
+            authorId: hit.authorId,
+            attachments: input.attachments,
+            priorRefs: new Set(extractKeys(p.bodyMd ?? "")),
+            canUpload,
+          },
+          "edit",
+        );
+        if (isError(extras)) throw new Rollback(extras);
         // 标签（M8）：仅首帖编辑才动主题标签——回帖编辑表单不渲染标签输入，传入的 tags 一律忽略
         //（否则空数组会把整个主题的标签清空）；新标签的创建按作者权限（与门控/附件同口径）
         if (input.tags !== undefined && kind === "thread") {
@@ -490,33 +502,17 @@ export async function editPost(
           }
           await replaceThreadTags(tx, hit.threadId, tagRes.tagIds);
         }
-        // @提及（M8）：编辑只对**新增**的提及发事件（与旧正文对比），重复编辑不重复打扰
-        for (const mentionedUserId of await resolveMentionUserIds(
-          tx,
-          body.publicMd,
-          hit.authorId,
-          p.bodyMd ?? "",
-        )) {
-          enqueued.push(
-            await enqueueEventInTx(
-              tx,
-              "post.mentioned",
-              { postId: hit.postId, authorId: hit.authorId, mentionedUserId },
-              { actorId: viewer.userId ?? undefined, source: "posting" },
-            ),
-          );
-        }
-        // outbox（M7）：本次保存新建的附件与重新提审事件在事务内登记（编辑路径与发帖同机制）
-        for (const u of uploads) {
-          enqueued.push(
-            await enqueueEventInTx(
-              tx,
-              "attachment.uploaded",
-              { attachmentId: u.attachmentId, fileId: u.fileId, uploaderId: viewer.userId! },
-              { actorId: viewer.userId ?? undefined, source: "posting" },
-            ),
-          );
-        }
+        // 编辑只对新增提及发事件，沿用原状态口径与人数口径；作者与操作者不可混淆。
+        enqueued.push(
+          ...(await enqueueMentions(tx, {
+            postId: hit.postId,
+            authorId: hit.authorId,
+            actorId: viewer.userId!,
+            publicMd: body.publicMd,
+            priorBodyMd: p.bodyMd ?? "",
+          })),
+        );
+        enqueued.push(...(await enqueueUploadEvents(tx, extras.uploads, viewer.userId!)));
 
         const resubmit = decision.resubmit;
         const nextState = resubmit ? "pending" : (p.state as "visible" | "pending");
@@ -527,7 +523,7 @@ export async function editPost(
           .update(posts)
           .set({
             bodyMd: body.publicMd,
-            hasGate: gateRes.gateCount > 0,
+            hasGate: extras.gateCount > 0,
             editedAt: sql`GREATEST(NOW(), COALESCE(${posts.editedAt} + INTERVAL 1 SECOND, NOW()))`,
             state: nextState,
           })
@@ -616,28 +612,17 @@ export async function deletePost(
   input: DeleteInput,
   deps: MutateDeps = {},
 ): Promise<MutateResult<DeleteOk>> {
-  if (viewer.userId === null) return err("forbidden", "请先登录");
-  const hit = await probe(input.postId);
-  if (!hit) return err("not_found", "帖子不存在");
-  const snap = await getAuthzSnapshot();
+  const context = await prepareMutation(viewer, input.postId);
+  if (isError(context)) return context;
+  const { hit, actor } = context;
   const { forumId } = hit;
-  const isModerator = evaluate(viewer, "forum.moderate", { forumId }, snap).allowed;
-  const canWrite = evaluate(viewer, "forum.write", { forumId }, snap).allowed;
 
   try {
     const out = await withPostingRetry(() =>
       getWebDb().transaction(async (tx): Promise<DeleteOk> => {
-        await lockUserStats(tx, hit.authorId);
-        await lockThread(tx, hit.threadId);
-        await lockForum(tx, forumId);
-        const target = await readTarget(tx, hit.postId, hit.threadId, forumId);
-        if (target === null) throw new Rollback(err("not_found", "帖子不存在"));
-        if (target === "conflict")
-          throw new Rollback(err("conflict", "主题已被移动，请刷新后重试"));
-        const { p, t, kind, othersVisibleReplies } = target;
+        const { p, t, kind, othersVisibleReplies } = await lockMutationTarget(tx, hit, true);
 
-        const f = facts(viewer, kind, p, t, othersVisibleReplies);
-        f.actor = { ...f.actor, isModerator, canWrite };
+        const f = facts(actor, kind, p, t, othersVisibleReplies);
         const decision = canDelete(f.actor, f.target);
         if (!decision.allowed) throw new Rollback(rejectOf(decision));
         let reason: string | null = null;
@@ -690,27 +675,16 @@ export async function restorePost(
   input: RestoreInput,
   deps: MutateDeps = {},
 ): Promise<MutateResult<RestoreOk>> {
-  if (viewer.userId === null) return err("forbidden", "请先登录");
-  const hit = await probe(input.postId);
-  if (!hit) return err("not_found", "帖子不存在");
-  const snap = await getAuthzSnapshot();
-  const { forumId } = hit;
-  const isModerator = evaluate(viewer, "forum.moderate", { forumId }, snap).allowed;
+  const context = await prepareMutation(viewer, input.postId, false);
+  if (isError(context)) return context;
+  const { hit, actor } = context;
 
   try {
     const out = await withPostingRetry(() =>
       getWebDb().transaction(async (tx): Promise<RestoreOk> => {
-        await lockUserStats(tx, hit.authorId);
-        await lockThread(tx, hit.threadId);
-        await lockForum(tx, forumId);
-        const target = await readTarget(tx, hit.postId, hit.threadId, forumId);
-        if (target === null) throw new Rollback(err("not_found", "帖子不存在"));
-        if (target === "conflict")
-          throw new Rollback(err("conflict", "主题已被移动，请刷新后重试"));
-        const { p, t, kind, othersVisibleReplies } = target;
+        const { p, t, kind, othersVisibleReplies } = await lockMutationTarget(tx, hit, true);
 
-        const f = facts(viewer, kind, p, t, othersVisibleReplies);
-        f.actor = { ...f.actor, isModerator };
+        const f = facts(actor, kind, p, t, othersVisibleReplies);
         const decision = canRestore(f.actor, f.target);
         if (!decision.allowed) {
           throw new Rollback(

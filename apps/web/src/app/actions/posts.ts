@@ -1,10 +1,20 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
+import { eq } from "drizzle-orm";
+import { getWebDb, posts } from "@funwind/db";
 import { attachmentsField } from "@/lib/uploads/attachments-field";
-import { defineAction } from "@/lib/actions/define-action";
+import { defineAction, type ActionContext } from "@/lib/actions/define-action";
+import { getCurrentSubject } from "@/lib/authz/subject";
+import {
+  approveReview,
+  disableContent,
+  hidePost,
+  rejectReview,
+  type ReviewOutcome,
+} from "@/lib/moderation/review";
 import { deletePost, editPost, restorePost } from "@/lib/posting/mutate";
 import { locatePost, postPath } from "@/lib/queries/locate-post";
 
@@ -88,4 +98,79 @@ export const restorePostAction = defineAction({
     const loc = await locatePost(ctx.subject, r.postId);
     redirect(loc ? postPath(loc) : `/t/${r.threadId}`);
   },
+});
+
+const moderationPostInput = z.object({ postId: z.coerce.number().int().positive() });
+const moderationReasonInput = moderationPostInput.extend({ reason: z.string().min(1).max(500) });
+
+/** 屏蔽的前台公开入口：保留空理由业务校验、失败 404 与主题回跳。 */
+export const hidePostAction = defineAction({
+  name: "moderation.hide",
+  auth: "user",
+  input: moderationPostInput.extend({ reason: z.string().max(500).default("") }),
+  async run(ctx, input) {
+    const result = await hidePost(ctx.subject, input.postId, input.reason, ctx.actor);
+    if (!result.ok) notFound();
+    const [post] = await getWebDb()
+      .select({ threadId: posts.threadId })
+      .from(posts)
+      .where(eq(posts.id, input.postId));
+    const target = `/t/${post?.threadId ?? 0}`;
+    revalidatePath(target);
+    redirect(target);
+  },
+});
+
+type ContentReviewKind = "approve" | "reject" | "disable";
+
+/** 就地治理共用薄编排，保留既有后台回跳与刷新顺序，不引入后台 Action 依赖。 */
+async function runContentReview(
+  ctx: ActionContext,
+  input: { postId: number; reason?: string },
+  kind: ContentReviewKind,
+): Promise<void> {
+  const subject = await getCurrentSubject();
+  const actor = ctx.actor;
+  const result: ReviewOutcome =
+    kind === "approve"
+      ? await approveReview(subject, input.postId, actor)
+      : kind === "reject"
+        ? await rejectReview(subject, input.postId, input.reason!, actor)
+        : await disableContent(subject, input.postId, input.reason!, actor);
+  const errorPath = kind === "approve" ? "/admin/review" : "/admin/contents";
+  if (!result.ok) redirect(`${errorPath}?error=${encodeURIComponent(result.message)}`);
+  const paths =
+    kind === "disable"
+      ? ["/admin/contents", "/admin/review"]
+      : ["/admin/review", "/admin/contents"];
+  for (const path of paths) revalidatePath(path);
+  const target =
+    kind === "disable"
+      ? "/admin/contents?disabled=1"
+      : `/admin/review?${kind === "approve" ? "approved" : "rejected"}=1`;
+  redirect(target);
+}
+
+/** 前台就地通过：登录门后仍由服务校验 forum.moderate 作用域。 */
+export const approveContentAction = defineAction({
+  name: "moderation.approve_inline",
+  auth: "user",
+  input: moderationPostInput,
+  run: (ctx, input) => runContentReview(ctx, input, "approve"),
+});
+
+/** 前台就地驳回：理由输入与既有入口一致。 */
+export const rejectContentAction = defineAction({
+  name: "moderation.reject_inline",
+  auth: "user",
+  input: moderationReasonInput,
+  run: (ctx, input) => runContentReview(ctx, input, "reject"),
+});
+
+/** 前台封禁：复用服务状态机，保留终态与既有反馈。 */
+export const disableContentAction = defineAction({
+  name: "moderation.disable",
+  auth: "user",
+  input: moderationReasonInput,
+  run: (ctx, input) => runContentReview(ctx, input, "disable"),
 });

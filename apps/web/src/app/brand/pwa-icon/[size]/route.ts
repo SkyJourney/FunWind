@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
-import { getSiteChrome } from "@/lib/site-chrome";
+import { getSiteChrome } from "@/lib/chrome/site-chrome";
+import { getThemeCatalog } from "@/lib/theme/catalog";
 import { readLogoBytes } from "@/lib/brand/logo-pool-fs";
 
 /**
@@ -17,6 +18,15 @@ const SIZE_CONFIG = {
 
 type SizeKey = keyof typeof SIZE_CONFIG;
 
+function rgbOf(hex: string): { r: number; g: number; b: number } {
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return { r: 14, g: 116, b: 144 };
+  return {
+    r: Number.parseInt(hex.slice(1, 3), 16),
+    g: Number.parseInt(hex.slice(3, 5), 16),
+    b: Number.parseInt(hex.slice(5, 7), 16),
+  };
+}
+
 export async function GET(
   _req: Request,
   { params }: { params: Promise<{ size: string }> },
@@ -25,8 +35,12 @@ export async function GET(
   if (!(rawSize in SIZE_CONFIG)) return new Response(null, { status: 404 });
   const key = rawSize as SizeKey;
   const config = SIZE_CONFIG[key];
-  const [logo, chrome] = await Promise.all([readLogoBytes(), getSiteChrome()]);
-  const background = chrome.themePack === "qy2010" ? "#147ba9" : "#0e7490";
+  const [chrome, catalog] = await Promise.all([getSiteChrome(), getThemeCatalog()]);
+  // 读生效文件（含排期覆盖）；文件缺失时退回池当前项，再退回静态图标
+  const logo =
+    (chrome.logoActive ? await readLogoBytes(chrome.logoActive) : null) ?? (await readLogoBytes());
+  const themeColor = catalog.find((pack) => pack.id === chrome.themePack)?.themeColor ?? "#0e7490";
+  const background = rgbOf(themeColor);
 
   let bytes: Buffer;
   if (logo) {
@@ -37,16 +51,12 @@ export async function GET(
         width: config.size,
         height: config.size,
         channels: 4,
-        background: { r: 14, g: 116, b: 144, alpha: 1 },
+        background: { ...background, alpha: 1 },
       },
     })
       .composite([{ input: mark, gravity: "centre" }])
       .png()
       .toBuffer();
-    // qy2010 站点默认用情怀包的品牌青底；用轻量换底，不改 LOGO 内容
-    if (chrome.themePack === "qy2010") {
-      bytes = await sharp(bytes).flatten({ background }).png().toBuffer();
-    }
   } else {
     const fallback = path.join(process.cwd(), "public", "pwa", config.fallback);
     bytes = await readFile(fallback);

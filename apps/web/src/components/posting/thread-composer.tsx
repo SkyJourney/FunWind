@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EditorShell } from "@/components/editor/editor-shell";
 import { PollFieldsToggle } from "@/components/posting/poll-fields-toggle";
-import { readDraft, removeDraft, writeDraft } from "@/components/editor/draft";
+import { useTitleDraft } from "@/components/editor/use-title-draft";
 
 /**
  * 发主题表单（M6.3 第 5 步）。标题是普通输入框；正文是编辑器外壳（所见即所得 / 源码，见 components/editor）。
@@ -25,26 +24,7 @@ interface Props {
 }
 
 export function ThreadComposer({ action, forumId, draftKey, restore, titleMax, bodyMax }: Props) {
-  const titleRef = useRef<HTMLInputElement>(null);
-  const titleKey = draftKey === null ? null : `${draftKey}:title`;
-
-  useEffect(() => {
-    if (titleKey === null) return;
-    try {
-      if (!restore) {
-        removeDraft(titleKey);
-        return;
-      }
-      const saved = readDraft(titleKey);
-      if (saved !== null && titleRef.current) titleRef.current.value = saved;
-    } catch {
-      // 存储不可用：不恢复
-    }
-  }, [titleKey, restore]);
-
-  const saveTitle = () => {
-    if (titleKey !== null && titleRef.current) writeDraft(titleKey, titleRef.current.value);
-  };
+  const { titleRef, saveTitle } = useTitleDraft(draftKey, restore);
 
   return (
     <form action={action} className="space-y-4">

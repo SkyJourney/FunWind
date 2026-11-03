@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import { announcementReads, announcements, getWebDb, notifications, users } from "@funwind/db";
 import { nowBeijingWallTime } from "@/lib/datetime";
-import { publicUserId, publicUsername } from "@/lib/queries/public-identity";
+import { publicUserId, publicUsername } from "@/lib/identity-expr";
 
 /**
  * 读取契约（M8，docs/NOTIFICATIONS.md §6）：unreadSummary / list / markRead。

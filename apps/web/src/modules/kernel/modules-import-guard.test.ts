@@ -1,128 +1,83 @@
 // @vitest-environment node
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { buildGraph, loadSources, resolveModule } from "@/test/source-graph";
 
 /**
- * 守卫：使用模块内核的入口必须自行 `import "@/modules"`（硬约定 9，审查 P2-5）。
- *
- * 为什么：模块注册表（事件消费者、积分渠道声明、槽位）在 `@/modules` 求值时才建立。Server Action 与
- * route handler 各自是独立的服务端入口，不保证注册表已在该上下文求值；没求值时事件只落 `event_log`、
- * 消费者不会被调用——目前没有消费者所以无感，M8 通知订阅后会静默丢通知。
- *
- * 判定（静态分析，纯正则，不执行代码）：
- *  · 「触及内核」的文件 = 非 modules/ 目录下、有运行时（非 `import type`）引用 `@/modules/kernel/*` 的源文件，
- *    也就是会派发事件或读写注册表的代码（lib/authz/admin、lib/gates/unlock、lib/points/apply 等，自动发现，无需维护清单）；
- *  · 「入口」= route.ts 与文件头带 "use server" 的 Server Action 文件（所有会改数据的服务端入口）；
- *  · 入口经**传递**引用（任意层 import）能到达触及内核的文件，就必须保证注册表已被求值：入口自己或它（传递）引用的
- *    某个文件带有 `import "@/modules"` 即合规（M6.1：`lib/actions/define-action.ts` 顶部就有，所以经 defineAction 的入口天然满足；
- *    静态 import 在入口被加载时一定会求值，所以「可达」与「直接写」效果相同）。
- * 局限：只看静态 import，动态 `import()` 与按字符串拼路径的引用看不到；页面（page.tsx）只读，不在检查范围。
+ * 使用内核的 Action/route 必须在加载时静态求值注册表，动态触点也计入依赖图。
+ * 动态 import 注册表不等于已初始化；任意拼接路径不做数据流推断，由入口业务回归补充。
  */
+const SRC = join(import.meta.dirname, "../..");
 
-const SRC = join(__dirname, "../..");
-
-/** 分析一组源码（键 = 相对 src 的 POSIX 路径）。纯函数，便于用合成样例验证守卫本身 */
-/** 去掉注释再分析：注释里写着 `import "@/modules"` 或被注释掉的 import 不能算数（M6.1：守卫曾被文档注释里的这串字偶然满足） */
-const stripComments = (s: string) =>
-  s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|\s)\/\/.*$/gm, "$1");
-
-export function findViolations(rawSources: Record<string, string>): {
+export function findViolations(sources: Record<string, string>): {
   kernelTouching: string[];
   entries: string[];
   violations: { entry: string; via: string[] }[];
 } {
-  const sources: Record<string, string> = {};
-  for (const [f, src] of Object.entries(rawSources)) sources[f] = stripComments(src);
-  const keys = new Set(Object.keys(sources));
-  const resolveSpec = (from: string, spec: string): string | null => {
-    let base: string;
-    if (spec.startsWith("@/")) base = spec.slice(2);
-    else if (spec.startsWith(".")) {
-      const parts = from.split("/").slice(0, -1);
-      for (const seg of spec.split("/")) {
-        if (seg === "..") parts.pop();
-        else if (seg !== ".") parts.push(seg);
-      }
-      base = parts.join("/");
-    } else return null;
-    for (const c of [base, `${base}.ts`, `${base}.tsx`, `${base}/index.ts`, `${base}/index.tsx`]) {
-      if (keys.has(c)) return c;
-    }
-    return null;
-  };
-
-  // `import type … from` 不产生运行时依赖，剔除后再分析
-  const IMPORT_RE = /(?:import|export)\s+(?!type\b)(?:[^'";]*?\bfrom\s*)?["']([^"']+)["']/g;
-  const graph = new Map<string, Set<string>>();
-  for (const [file, src] of Object.entries(sources)) {
-    const deps = new Set<string>();
-    for (const m of src.matchAll(IMPORT_RE)) {
-      const r = resolveSpec(file, m[1]!);
-      if (r) deps.add(r);
-    }
-    graph.set(file, deps);
+  const { modules, graph } = buildGraph(sources);
+  const eagerGraph = new Map<string, string[]>();
+  const kernelTouching: string[] = [];
+  const entries: string[] = [];
+  const registryLoaders = new Set<string>();
+  for (const [path, source] of modules) {
+    const runtime = source.imports.filter((edge) => edge.runtime);
+    eagerGraph.set(
+      path,
+      runtime
+        .filter((edge) => !edge.dynamic)
+        .flatMap((edge) => {
+          const target = resolveModule(path, edge.specifier, sources);
+          return target ? [target] : [];
+        }),
+    );
+    if (
+      !path.startsWith("modules/") &&
+      runtime.some(
+        (edge) =>
+          edge.specifier.startsWith("@/modules/kernel/") ||
+          resolveModule(path, edge.specifier, sources)?.startsWith("modules/kernel/"),
+      )
+    )
+      kernelTouching.push(path);
+    if (/(^|\/)route\.(?:ts|mts)$/.test(path) || source.directives.includes("use server"))
+      entries.push(path);
+    if (
+      runtime.some(
+        (edge) =>
+          !edge.dynamic &&
+          (edge.specifier === "@/modules" ||
+            resolveModule(path, edge.specifier, sources) === "modules/index.ts"),
+      )
+    )
+      registryLoaders.add(path);
   }
-
-  const touchesKernelRe = /import\s+(?!type\b)[^;]*?from\s*["']@\/modules\/kernel/;
-  const kernelTouching = Object.entries(sources)
-    .filter(([f, src]) => !f.startsWith("modules/") && touchesKernelRe.test(src))
-    .map(([f]) => f)
-    .sort();
-  const kernelSet = new Set(kernelTouching);
-
-  const isEntry = (f: string, src: string) =>
-    /(^|\/)route\.ts$/.test(f) || /^\s*["']use server["']/.test(src);
-  const entries = Object.entries(sources)
-    .filter(([f, src]) => isEntry(f, src))
-    .map(([f]) => f)
-    .sort();
-
-  const reach = (start: string): Set<string> => {
+  kernelTouching.sort();
+  entries.sort();
+  const reach = (start: string, dependencies: Map<string, string[]>) => {
     const seen = new Set([start]);
     const stack = [start];
     while (stack.length) {
-      for (const d of graph.get(stack.pop()!) ?? []) {
-        if (!seen.has(d)) {
-          seen.add(d);
-          stack.push(d);
+      for (const next of dependencies.get(stack.pop()!) ?? []) {
+        if (!seen.has(next)) {
+          seen.add(next);
+          stack.push(next);
         }
       }
     }
     return seen;
   };
-
-  const importsModules = /import\s+["']@\/modules["']/;
   const violations: { entry: string; via: string[] }[] = [];
-  for (const e of entries) {
-    const r = reach(e);
-    const via = kernelTouching.filter((k) => r.has(k));
-    // 入口自己触及内核同样要求（via 里包含它自己）。合规 = 入口或其传递依赖里有文件 import "@/modules"
-    const loadsRegistry = [...r].some((f) => importsModules.test(sources[f] ?? ""));
-    if (via.length > 0 && !loadsRegistry) violations.push({ entry: e, via });
+  for (const entry of entries) {
+    const reachable = reach(entry, graph);
+    const via = kernelTouching.filter((path) => reachable.has(path));
+    const initialized = [...reach(entry, eagerGraph)].some((path) => registryLoaders.has(path));
+    if (via.length > 0 && !initialized) violations.push({ entry, via });
   }
-  return { kernelTouching: [...kernelSet].sort(), entries, violations };
-}
-
-function walk(dir: string): string[] {
-  return readdirSync(dir).flatMap((name) => {
-    const p = join(dir, name);
-    return statSync(p).isDirectory() ? walk(p) : /\.(ts|tsx)$/.test(name) ? [p] : [];
-  });
-}
-
-function loadSources(): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const p of walk(SRC)) {
-    const rel = relative(SRC, p).split(sep).join("/");
-    if (/\.test\.tsx?$/.test(rel)) continue;
-    out[rel] = readFileSync(p, "utf8");
-  }
-  return out;
+  return { kernelTouching, entries, violations };
 }
 
 describe('入口必须 import "@/modules"（硬约定 9）', () => {
-  const result = findViolations(loadSources());
+  const result = findViolations(loadSources(SRC));
 
   it('所有 Server Action 与 route handler：凡（传递）引用会触及内核的代码，自己或其传递依赖里都有 import "@/modules"', () => {
     expect(result.violations).toEqual([]);
@@ -233,6 +188,38 @@ describe("findViolations 自身（合成样例）", () => {
     });
     expect(r.kernelTouching).toEqual([]);
     expect(r.violations).toEqual([]);
+  });
+
+  it("动态触点同样需要静态初始化；动态加载注册表不能冒充启动保障", () => {
+    const entry = action("const next = import('@/lib/x');");
+    const input = { "lib/x.ts": kernelLib, "app/a/actions.ts": entry };
+    expect(findViolations(input).violations).toEqual([
+      { entry: "app/a/actions.ts", via: ["lib/x.ts"] },
+    ]);
+    expect(
+      findViolations({
+        ...input,
+        "app/a/actions.ts": entry + "\nconst registry = import('@/modules');",
+      }).violations,
+    ).toHaveLength(1);
+    expect(
+      findViolations({ ...input, "app/a/actions.ts": entry + "\nimport '@/modules';" }).violations,
+    ).toEqual([]);
+  });
+
+  it("通过动态中间层加载初始化器，不算入口加载时已初始化", () => {
+    const input = {
+      "lib/x.ts": kernelLib,
+      "lib/init.ts": "import '@/modules'; export const value = 1;",
+      "app/a/actions.ts": action("import '@/lib/x'; const init = import('@/lib/init');"),
+    };
+    expect(findViolations(input).violations).toHaveLength(1);
+    expect(
+      findViolations({
+        ...input,
+        "app/a/actions.ts": action("import '@/lib/x'; import '@/lib/init';"),
+      }).violations,
+    ).toEqual([]);
   });
 
   it("modules/ 目录自身不算触及内核；页面不是入口", () => {

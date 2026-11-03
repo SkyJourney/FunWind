@@ -47,7 +47,7 @@ pnpm migrate | verify:migration             # 青翼导入 v2（幂等）/ 对�
                                             # 先用临时库演练：NEW_DB_NAME=… 并用 packages/db/scripts/e2e-reset.ts 建空库
 pnpm test:e2e:run              # 同上但不启动 MailPit 容器（CI 用：MailPit 由 GitHub Actions 服务容器提供）
 pnpm --filter @funwind/web test:e2e:prod                  # 仅运行生产构建下的功能全量 E2E（真实 next build + next start）
-pnpm --filter @funwind/web modules:toggle <id> <on|off>   # 模块启停（写 audit_log）
+pnpm --filter @funwind/web modules:toggle <id> <on|off>   # 模块启停（写 audit_log；脚本兼容 server-only 标记）
 pnpm --filter @funwind/web perf:lcp                       # 生产构建 LCP 门禁
 pnpm --filter @funwind/web perf:posting                   # 发帖性能基准（服务层 createReply×200，p95 < 300ms）；须显式 NEW_DB_NAME=qysub_next_e2e
 ```
@@ -72,12 +72,14 @@ pnpm --filter @funwind/web perf:posting                   # 发帖性能基准�
 6. **渲染**：用户内容必须经 `lib/markdown.ts` + `lib/sanitize.ts` 管线，禁止 `dangerouslySetInnerHTML` 直出原文。管线启用的是**精简 GFM（只有表格与删除线，`singleTilde:false`，见 `lib/gfm-lite.ts`）**：不要换成完整 `remark-gfm`——它的自动链接会把紧跟 URL 的中文吞进链接，单波浪线删除线会误伤 1328 篇「语气词~」。
 7. **权限**：一律走 `lib/authz` 的 `checkPermission`；越权对外表现为 **404**（不暴露存在性）；不允许硬编码身份判断。
 8. **URL 已冻结**：`/f/{fid}`、`/t/{tid}`、`?page=`、`#p{pid}`（M13 的 301 依赖）。文件统一走 `/files/<storage_key>`（已取代 `/attachment/**`，S4-4 落地）；表情为 `/emoji/{id}.{ext}`（旧 50 枚是 public 静态 `{id}.gif`，新表情内容寻址由 `/emoji/[file]` 路由提供，id 冻结、已发布正文引用不能碎）。
-9. **模块**：扩事件/槽位 = 改 `modules/kernel/types.ts` + 同步 `docs/MODULES.md`；使用内核的 route handler 必须自行 `import "@/modules"`，Server Action 一律用 `defineAction`（`lib/actions/define-action.ts` 顶部已导入，经它的入口天然满足；`use-server-exports-guard.test.ts` 保证 `"use server"` 文件只导出 `defineAction(...)`）——凡（传递）引用会触及内核的代码（派发事件 / 读写注册表）都算，`modules-import-guard.test.ts` 静态分析并守护（入口或其传递依赖里有 `import "@/modules"` 即合规，注释里写的不算），新增入口漏写会直接变红。`/admin/**` 的 Action 必须声明 `auth: { admin: "…" }`（`admin-entry-guard.test.ts`）。
+9. **模块与 Action 边界**：扩事件/槽位 = 改 `modules/kernel/types.ts` + 同步 `docs/MODULES.md`；使用内核的 route handler 与 Server Action 必须在静态依赖加载时求值 `@/modules`。`defineAction` 保留模块初始化保障；`modules-import-guard.test.ts` 用 AST 检查静态与字面量动态依赖，动态 import 不能承担入口初始化。模块不得反向引用 `app/**`；所需 Action 由槽位宿主显式注入 context。Server Action 一律用 `defineAction`，`use-server-exports-guard.test.ts` 守护；`/admin/**` 的站点级 Action 声明 `auth: { admin: "…" }`，版主作用域例外由服务权限与专属守卫维护。前台共享组件只消费 `app/actions/**` 动作，不引入后台路由树。
 10. **schema 变更**：改 `packages/db/src/schema.ts` → `drizzle-kit generate` → 提交迁移 SQL → `db:verify` 通过；迁移程序与应用共用同一管线。开发库用 `MIGRATION_FORCE=1` 重跑部分步骤时注意步骤联动：`files` 组会拉起 users/content/badges，且 content 重跑会重置 threads 缓存计数列——**必须连带重跑 `counters`**（run.ts 已内置该联动）。
 11. **数据层双模式**：零数据部署是默认路径，青翼导入只是可选路径，应用代码不得依赖旧库。
 
 ## 架构要点
 
+- **依赖边界**：`src/test/architecture-guard.test.ts` 固定禁止 `authz→queries`、`uploads→posting`、根级 lib→业务域、lib→components、modules→app；静态、转发及字面量动态 import 均检查。app 直接值导入数据库按显式文件白名单管理；outbox 生产方须声明本次事件快路径。
+- **服务端模块**：数据库、会话、文件、凭据等明确服务入口加 `import "server-only"`，`src/test/server-only-guard.test.ts` 锁定服务清单并检查客户端运行时依赖闭包。分页、SQL 表达式、配额、主题渲染及共享编辑器扩展不按目录盲标；Vitest alias 与 Node CLI loader 只兼容 marker，不切换 React 条件。
 - **模块内核**（`src/modules/kernel`）：编译期注册（无热插拔）+ 同步事件总线（逐消费者隔离、落 `event_log`）+ UI 槽位；启停状态在 `module_state`。
 - **认证**（`lib/auth`）：不透明令牌 cookie，库内只存 SHA-256；argon2id；登录签发新会话 cookie（**旧会话行不会被销毁**，到期前一直有效，见 M5.6 遗留事项）；邮件令牌 reset/verify/claim 单次原子消费；`register.mode = invite|open`。
 - **权限**（`lib/authz` + `packages/db/src/authz-vocab.ts`）：`roles` / `permissions` / `role_grants` / `user_roles` 四表；
@@ -119,6 +121,7 @@ pnpm --filter @funwind/web perf:posting                   # 发帖性能基准�
 - 频控与权限快照都是进程内存实现（单实例语义），多实例前须换 Redis / 共享失效通道（M13）。浏览量计数（`lib/views`，每 10 秒批量刷入）同样是进程内，数字只是估计值。
 - `perf:posting` 拒绝任何非 `qysub_next_e2e` 的库名：根 `.env` 里的 `NEW_DB_NAME` 指向开发库，必须在命令行显式指定。
 - `TRUSTED_PROXY_HOPS`：生产环境必须显式设置（直连填 0，nginx 之后填层数），漏配会在首次取 IP 时报错；取不到可信 IP 时跳过 IP 级限额，只留账号/邮箱级。
+- server-only 服务对应的 Node/tsx CLI 脚本须由 package script 预加载 `scripts/server-only-register.mjs`；直接 `pnpm exec tsx <服务脚本>` 可能绕过兼容钩子，生产/运维命令以 package script 为准。
 - **跑 E2E 会重建包的 `dist`，与正在运行的 3100 开发服务器冲突**：`test:e2e:run` 开头会执行 `db:build`（重新 `tsc` 编译 `packages/db`、`packages/content` 的 `dist/`）。此时若 3100 正在编译，会读到写了一半或旧的 `dist`，报 `Export xxx doesn't exist in target module`（例如给 `@funwind/content` 新增导出后），页面一直 500 / 「阻断性错误」遮罩，**这是缓存了过期状态而不是代码有问题**。处理：E2E 跑完后重启 3100（`pnpm dev` 会先重建 `dist` 再启动）。改了 `packages/*` 的导出后同理——先重建再重启，别指望热更新。
 - **编辑器的 `focus()` 会让页面一步跳过去，`preventScroll: true` 拦不住**：「平滑滚到某处再聚焦编辑器」做不出来——滚动开始前 / 进行中聚焦都会取消平滑滚动（第二次点击看起来平滑只是因为编辑器已有焦点）。要平滑只能等 `scrollend` 之后再聚焦，但那样聚焦不在用户手势内，iOS 唤不起软键盘。回复悬浮按钮（`components/posting/reply-fab.tsx`）取舍为「瞬时跳转 + 立即聚焦」（站长拍板）。
 - **编辑器 E2E 写法的几个坑**（`e2e/editor-crud*.spec.ts` 踩过）：① ProseMirror 的选区同步是异步的，点击 / `End` 后紧跟按键会在旧选区上生效，定位后等 ~120ms；② 点编辑区空白处会落进 `TrailingNode` 在末尾自动补的空段落（光标跑到引用 / 列表外面），全选还会把它也包含进去——要点到内容元素本身；③ Radix 弹层 / 下拉在关闭时用 `setTimeout(0)` 延后把焦点还给触发按钮，脚本紧接着重开会被关掉，关闭后等一个 tick；④ ProseMirror 历史把 500ms 内相邻的编辑合并成一个撤销组，脚本跑太快一次 Ctrl+Z 会连前面的插入一起撤；⑤ 会员每天 20 次上传额度，反复重跑会耗尽，上传用例用管理员；⑥ 切换源码 / 所见即所得后编辑器重建，光标回到文档开头。
@@ -144,6 +147,16 @@ pnpm --filter @funwind/web perf:posting                   # 发帖性能基准�
 - ✅ **P1** 频控信任 `x-forwarded-for`、`checkPermission(userId)` 忽略入参、注册 `MAX(id)+1` 竞态与邀请码先核销 —— S4-2（`TRUSTED_PROXY_HOPS`、显式 `Subject`、自增 id + 同事务核销）及两次安全补丁（`6741138`、`8cc53ae`）。
 - ✅ **P2** `createCustomRole` 可改写内置角色、grant/revoke 不校验 —— S4-2。`/api/dev/*` 与 `/design` 生产可达 —— S4-6：统一守卫 `lib/dev-only.ts` + 守卫测试，生产构建实测 404。`tsconfig.tsbuildinfo` 误入库 —— S4-6 出库并加入 `.gitignore`。
 - ✅ **安全事项**：2026-10-24 已重写历史，口令 / 真实邮箱 / 第三方用户名在全部提交（808 个 blob）中命中为 0；口令只放根 `.env`，`pnpm check:secrets` 在 pre-push 与 CI 拦截回流。站长决定**不轮换**旧库口令（旧库仅本机只读使用）。
+
+## 评审规范（全项目审查立项，2026-10-31 拍板）
+
+以下四条为**评审时人工把关**的固定规范（区别于上文的自动化元测试守卫）；违反即打回，不接受"先合后补"：
+
+- **G-15 错误码↔渲染映射成对交付**：Server Action / 路由产生的每个提示参数（`?error=` / `?notice=` / `?saved=` 等）必须在目标页有消费者——无消费者的提示参数等于静默失败（批次 1 的 F-06 即违反此规）。新增入口时同步给出目标页的渲染映射与测试。
+- **G-16 新业务线必须配 E2E 且至少一条错误路径**：只有成功路径的 E2E 无法守护错误分支（批次 1 的 F-13 即违反此规）；错误路径用例（错误密码 / 频控 / 越权 404 等）与成功用例同批交付。
+- **G-19 管理编辑器错误态保留与版本保护**：保存失败不得清空用户工作成果。完整草稿按账号与实体隔离，包含名称、说明、配置及原 `expectedRevision`；恢复遵守 SSR/水合与 StrictMode 语义，不随无关 props 引用变化清档。冲突不得静默把旧草稿的版本换成服务端最新版本，必须保留旧锁并阻止无提示覆盖，明确确认放弃草稿、载入最新版本后才能重新编辑。参考 `ThemePackEditorForm`；存储不可用必须提示。此前无依赖数组的 effect 计数不能证明挂载次数或 Next/RSC 根因，复审更正见 `docs/reviews/2026-10-31-deep-responsive-review.md`。
+- **G-20 实体 revision 必须覆盖全部写路径**：带乐观锁的实体，旁路写（LOGO 绑定、启停、素材重算等）同样 revision+1，保证编辑页下次提交能感知并发（主题包全部写路径已符合）。
+- **自适应交互组件**：内容区可收缩，操作区独立 flex 换行，按钮本身单行且不收缩；复用 `ActionGroup`、`controlLayout`、`FileInput` 等布局契约。不以 UA/`isMobile` 分叉 DOM，不用整页 `overflow-x:hidden` 掩盖溢出。新管理表单须覆盖长名称、文件选择/错误/提交中状态及小容器，表格和工具栏只允许局部滚动；几何断言与目视检查都要做，不能只凭页面总宽度判定布局正确。
 
 ## 工作流
 

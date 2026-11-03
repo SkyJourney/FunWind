@@ -17,10 +17,6 @@ import { assignTeamMembership, revokeTeamMembership } from "@/lib/authz/team-mem
 
 /** 用户管理 Server Actions（M9，admin.users）：限制创建/解除、角色授予/撤销（复用 M5 服务）。 */
 
-function actor(userId: number | null, ip: string | null) {
-  return { userId: userId ?? 0, via: "admin" as const, ip };
-}
-
 const createInput = z.object({
   userId: z.coerce.number().int().positive(),
   kind: z.enum(["ban", "forum_ban", "mute", "no_avatar", "no_signature"]),
@@ -35,7 +31,7 @@ export const createRestrictionAction = defineAction({
   input: createInput,
   async run(ctx, input) {
     const endsAt = input.endsAt === "" ? null : `${input.endsAt.replace("T", " ")}:00`.slice(0, 19);
-    const r = await createRestriction(actor(ctx.userId, ctx.ip), {
+    const r = await createRestriction(ctx.actor, {
       userId: input.userId,
       kind: input.kind,
       scopeId: input.scopeId,
@@ -77,7 +73,7 @@ export const liftRestrictionAction = defineAction({
   auth: { admin: "admin.users" },
   input: liftInput,
   async run(ctx, input) {
-    const r = await liftRestriction(actor(ctx.userId, ctx.ip), input.restrictionId, input.note);
+    const r = await liftRestriction(ctx.actor, input.restrictionId, input.note);
     const back = `/admin/users/${input.userId}`;
     if (!r.ok) {
       const msg = r.code === "reason_required" ? "必须填写解除说明" : "限制不存在或已过期";
@@ -106,7 +102,7 @@ export const assignRoleAction = defineAction({
     try {
       if (isTeamMembershipRole(input.roleKey)) {
         if (input.scopeId !== 0) throw new AdminError("固定团队角色只能绑定为全站身份");
-        await assignTeamMembership(actor(ctx.userId, ctx.ip), {
+        await assignTeamMembership(ctx.actor, {
           userId: input.userId,
           roleKey: input.roleKey,
           expiresAt,
@@ -114,7 +110,7 @@ export const assignRoleAction = defineAction({
         });
       } else {
         await assignUserRole(
-          actor(ctx.userId, ctx.ip),
+          ctx.actor,
           input.userId,
           input.roleKey,
           input.scopeId,
@@ -146,20 +142,9 @@ export const revokeRoleAction = defineAction({
     try {
       if (isTeamMembershipRole(input.roleKey)) {
         if (input.scopeId !== 0) throw new AdminError("固定团队角色只能绑定为全站身份");
-        await revokeTeamMembership(
-          actor(ctx.userId, ctx.ip),
-          input.userId,
-          input.roleKey,
-          input.reason,
-        );
+        await revokeTeamMembership(ctx.actor, input.userId, input.roleKey, input.reason);
       } else {
-        await revokeUserRole(
-          actor(ctx.userId, ctx.ip),
-          input.userId,
-          input.roleKey,
-          input.scopeId,
-          input.reason,
-        );
+        await revokeUserRole(ctx.actor, input.userId, input.roleKey, input.scopeId, input.reason);
       }
     } catch (e) {
       if (e instanceof AdminError) redirect(`${back}?error=${encodeURIComponent(e.message)}`);
@@ -179,11 +164,7 @@ export const revokeUserSessionAction = defineAction({
   }),
   async run(ctx, input) {
     const back = `/admin/users/${input.userId}`;
-    const result = await revokeUserSessionByAdmin(
-      actor(ctx.userId, ctx.ip),
-      input.userId,
-      input.sessionId,
-    );
+    const result = await revokeUserSessionByAdmin(ctx.actor, input.userId, input.sessionId);
     if (!result.ok) redirect(`${back}?error=${encodeURIComponent("会话已不存在或已被吊销")}`);
     revalidatePath(back);
     redirect(`${back}?session=revoked`);
@@ -202,12 +183,7 @@ export const resolveUserAppealAction = defineAction({
   async run(ctx, input) {
     const back = `/admin/users/${input.userId}`;
     try {
-      await resolveUserAppeal(
-        actor(ctx.userId, ctx.ip),
-        input.appealId,
-        input.status,
-        input.result,
-      );
+      await resolveUserAppeal(ctx.actor, input.appealId, input.status, input.result);
     } catch (error) {
       if (error instanceof AppealError) {
         redirect(`${back}?error=${encodeURIComponent("申诉已处理或不存在，请刷新页面")}`);

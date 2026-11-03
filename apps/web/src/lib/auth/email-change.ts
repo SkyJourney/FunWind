@@ -1,3 +1,5 @@
+import "server-only";
+
 import { and, eq, ne } from "drizzle-orm";
 import { emailTokens, getWebDb, users } from "@funwind/db";
 import { writeAudit } from "@/lib/audit";

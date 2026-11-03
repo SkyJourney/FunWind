@@ -5,15 +5,102 @@
 
 ## [Unreleased]
 
+### Added（M11.2 · 运营排期引擎）
+
+- **通用排期引擎**：新表 `campaigns`（迁移 0023，schema v2.9，共 54 表）。一个方案 = 一个 effect + 配置 + 时间窗 `[starts_at, ends_at)`（`ends_at` 为空 = 长期），请求侧惰性判定，无 cron；到期靠读侧不再命中而回退，不需要写回。
+- **effect 注册表**（`lib/campaigns/effects.ts`）：本期注册 `theme.pack` / `site.logo` / `site.hero`，配置 `.strict()` 校验，未知 effect 与坏配置在读写两侧都被忽略或拒绝，一条坏方案不影响其他 effect。邀请码策略、积分加成等后续只加注册项，不改表。
+- **冲突语义**：按 effect 分区，分区内 `priority` 大者生效，相等取后创建；不同 effect 互不压制。排期只覆盖「站点默认」，用户自选主题包仍然优先。
+- **读取链**：`getSiteChrome()` 合成排期值，引用的包或素材失效时逐项回退常态。新增 `chrome.logoUrl` / `chrome.heroUrl`——`/brand/logo`、`/brand/hero` 不带 `?file=` 只读池当前项，仅覆盖 `logoActive` 不会真正换图；PWA 图标同步跟随生效文件。时间窗边界沿用 30 秒缓存，最多延迟 30 秒。
+- **后台 `/admin/campaigns`**（site.admin）：按 effect 分区的方案列表、状态徽标、同类重叠压制提示、新建/编辑/启停/删除；所有写路径同事务审计且 revision+1（G-20）；失败时表单内容与旧 revision 原样回显，版本冲突禁用保存，须明确放弃草稿后才能载入最新版本（G-19）。
+- **测试**：`lib/campaigns` 7 个文件 74 项（含真实临时库的窗口边界、合成链、乐观锁、审计与缓存失效）；E2E `campaigns.spec` 6 项（含会员 404、错误输入保留、版本冲突）；六档宽度布局矩阵新增长名称、编辑与错误回显场景。
+- **已实测门禁**：`verify:all` 全绿（Web 283 文件 / 2887 项，分支覆盖 86.72%；DB 73、content 55、migration 278；jscpd 1391/158，基线内）；全量 E2E 生产 391 + dev 8 全绿；六档宽度布局矩阵 6/6；`test:visual` 8/8；`pwa:lighthouse` 100/100。站长目视验收未执行。首轮 E2E 曾因 `default_no_logo` / `theme_no_logo` 跳转参数变更漏改两个 spec 而失败 2 项，已修。
+- **顺带修复**：编辑页从列表软导航进入时 `<select>` 不应用新的 `defaultValue`，下拉为空使 `required` 静默拦截提交，表单改为随编辑对象/版本/冲突状态重新挂载。`datetime.ts` 抽出 `isValidBeijingDateTime` 供复用。
+
+### Fixed（五批交付深度复审与自适应管理界面）
+
+- **组件化自适应**：新增共享操作组、控件单行基线、文件输入/名称与帖子页脚；内容区可收缩，操作区独立 flex 换行，按钮不压缩成竖排。不按设备分叉 DOM，不通过全局隐藏横向溢出掩盖问题。覆盖前台管理员/版主操作、附件、后台上传/授权/筛选、品牌素材卡及主题工作区。
+- **G-19 纠错与版本保护**：完整草稿按账号和主题包隔离，保留名称、说明、定义及原 `expectedRevision`；冲突禁止静默升锁覆盖他人，须确认放弃草稿并载入最新版本。撤回原无依赖数组 effect 计数作为挂载/RSC 根因证据的说法，替换只递增版本的旧 E2E 为两个编辑页真实并发保存回归。
+- **权限、事务与通知**：审核锁内重验状态、PM 发送方锁后复核注销、回帖查询排除首帖、同秒分页增加唯一排序、审核通过时保留直接回复通知对象；日志分页消除重复 `page` 参数。版主板块选择器只下发授权范围。
+- **邮件与素材**：注销邮件资格与发送移入后置任务后中性响应，旧邮箱告警去除不可兑现的找回承诺；PM 站内通知后的邮件故障隔离。主题导入改非激活入池，补偿不覆盖并发 active；GIF 全帧解码校验损坏数据并保留合法动画。静态守卫补齐 CommonJS 来源与多导出绑定检查。
+- **状态与证据**：按站长确认，将 M9.6、M11.1 标为已收口，保留历史真人/真机验收范围而不伪造执行记录。新增六档宽度 320/375/414/768/1024/1440 的管理身份、长文件名、上传后/错误/弹层场景回归。
+- **已实测门禁**：最终工作树 `verify:all` 全绿（Web 276 文件 / 2813 项，分支 86.62%；DB 73、content 55、migration 278；jscpd 1372/156，原基线未动）；完整 E2E 生产 385 + dev 8、既有视觉回归 8/8 全绿；六档管理布局累计 428 项场景检查，无几何异常与页面错误。截图及验收边界见 [复审报告](docs/reviews/2026-10-31-deep-responsive-review.md)。
+- **明确遗留**：outbox 已消费但尚未标记成功的重放仍可能重复累加通知 count；本轮只隔离邮件附带故障，没有新增持久消费回执，不宣称 exactly-once。
+
+### Added（全项目审查 + 邮件专项：批次 0）
+
+审查报告见 [docs/AUDIT-2026-10.md](docs/AUDIT-2026-10.md)（P0×2 / P1×24 / P2×29，处置分五批）；本条为批次 0「邮件专项」。
+
+- **`lib/mail` 邮件域**：模板层从 `lib/auth/mailer.ts` 迁出独立成域——统一 layout（品牌条 / 主题色顶边卡片 / 主按钮 + 备用链接 / 提示框 / 四类页脚）、**HTML + 纯文本双版本**、品牌跟随站点身份与默认主题包 PWA 主题色；15 个模板文案逐条重写（重置密码不再带认领话术、申诉驳回明确「未通过」、限制邮件给字段表与申诉入口、私信/售出/审核页脚说明频控与关闭入口），文案基线锚定单测。
+- **发送记录（审计日志）**：新表 `email_log`（迁移 0022，schema v2.8）——成败皆记一行，含场景/收件人/状态/错误/耗时，不存正文；保留 90 天自动清理。后台新增 `/admin/mail`（admin.logs）：筛选（状态/类别/邮箱或 uid）+ 分页 + 24 小时成败概览；`/admin/mail/preview` 模板预览页（样例渲染 + 纯文本对照）。
+- **发送可靠性**：注册验证邮件改 `after()` 不阻塞注册（审查 F-05）；换绑/重发验证邮件失败跳 `verification=failed` 页面提示重试；四处静默 `.catch(() => {})` 全部改为经 transport 记录；`sendMail`（失败可见）/`trySendMail`（尽力而为）双入口。
+- **固定规范 + 守卫**：`lib/mail/mail-guard.test.ts`——nodemailer 唯一出口、发信唯一导入源、新模板必须登记预览样例；后台新列表页起用共享件 `lib/admin/query.ts`（buildAdminQuery / parseAdminPage，审查 F-19 落地起点）。
+- 测试：layout/templates/log-query 单测 + 守卫；E2E 新增 `admin-mail.spec`（会员 404 / 测试邮件落记录可筛选 / 预览页切换）；重复的 `lib/auth/mailer.test.ts`（与 password.test.ts 全同）删除。
+
+### Fixed（审查批次 1：P0 修复 + 错误路径回归）
+
+- **注销/申诉/删号线 500 修复（F-01）**：三线 18 处 `redirect("…?error=中文")` 把未编码文案直接拼进 URL，Next 把跳转地址原样写入响应头、Node 对非 Latin-1 头字符抛 `ERR_INVALID_CHAR`——用户在「输错密码」这类正常错误路径上撞 500（3100 实机复现）。新增 `lib/actions/hop.ts`（`errorHop` / `redirectWithError`）统一编码，全部调用点替换；settings 页移除局部 errHop，直接复用共享实现。
+- **版主后台断点（F-02）**：`/admin` 首页守卫从 `requireAdmin()`（site.admin）改为 `requireModerator()`，与布局总门同口径——纯版主从「管理后台」入口直达内容审核队列（原先 404、跳转分支是死代码）。
+- **菜单-守卫对齐（F-03/F-04）**：「公告」「私信管理」菜单 need 收紧为 `site.admin`，与两页守卫一致（原先版主/持 admin.logs 者可见菜单但点入 404）。
+- **守卫上线（G-01/G-07）**：`redirect-encoding-guard.test.ts` 用 TypeScript 语法树扫描全部 `use server` 文件（不依赖文件名），识别别名、Unicode 转义、emoji 与未编码的 error/err 动态值（显式 `.code` 为机器码例外）；`admin-nav-guard.test.ts` 解析全部 NAV_GROUPS 权限对象，与目标页面首个守卫逐项断言，内容管理仅接受完整作用域鉴权，不把“已登录”当授权。站点菜单额外要求 `site.admin`，与 `requireAdmin` 组合权限一致；后台总门显式放行无板块的新站站长。
+- **门禁实测**：`verify:all` 全绿（Web 2,021 / DB 73 / content 55 / migration 278）；全量 E2E 生产 375 + dev 8 全绿；重复度 2003 行 / 213 克隆，未上调基线。开发库幂等应用 0022 并二次复验，53 表与用户 10,763 未变，`db:verify` 全绿。
+- **E2E 错误路径回归（F-13/F-14）**：新增 `error-redirects.spec` 7 案——注销页输错密码见文案而非 500、同标识符频控、末位站长保护、设置内申请注销密码错误、申诉频控、关闭 JavaScript 的 303 编码跳转、版主落 `/admin/review` 且看不到站点管理组、会员 `/admin` 404。同步修正聊天上滑 E2E 的两帧初始布局校正竞态，保留 30→60 条与滚动锚点断言。
+
+### Fixed（审查批次 2：业务一致性、安全与主题边界）
+
+- **互动与通知（F-06/F-07/F-24）**：点赞/关注超限回到校验后的站内路径，保留筛选/页码/锚点并显示错误 toast；私信、关注、点赞在事务提交后优先派发本次 outbox 事件，再做有界积压巡检，避免本次事件被旧积压拖延。举报状态和审计成功提交后，通知故障仅记录上下文，不再把已处理结果报成失败。
+- **偏好接口（F-08）**：通知、私信、主题的 PATCH 和表单入口共用用户级每分钟 60 次额度，PATCH 超限返回 429 与 `Retry-After`，写入前拒绝；主题目录校验收口到既有 setter，私信策略新建共享 update 服务，保留缺 profile 不补建的原语义。设置中心补外观/头像/私信卡片，通知中心补通知偏好入口。原报告“PATCH 手写主题 INSERT”经核实不成立，已更正。
+- **密码工作量统一**：登录、申诉、标识符注销共用 `verifyAccountPassword`，密码验证阶段恰好进行一次真实或同参数 dummy Argon2id 校验；dummy 命中不会认证成功。登录原频控和 legacy 受限兜底不变，申诉/注销不接受 legacy 密码。
+- **主题边界**：启用主题包最多 5 个（包含内置包），新建/复制/导入/重新启用在服务层同一事务锁下检查；满额不落包、不增加成功审计。主题列表显示启用数。ZIP 导入逐项记录补偿/恢复失败并显示警告；两个默认主题入口统一写服务，LOGO 联动失败不撤销主题保存，独立提示且有上下文日志，无 LOGO 的自定义包不误报未知。
+- **回归与规范**：新增偏好限流与不落库、密码校验次数、outbox 积压快路径、举报通知故障、主题并发容量、导入补偿/LOGO 部分失败的单元与临时库集成测试；默认主题两入口及主题容量错误路径补业务回归。主题系统与 AI 制作规范同步容量和失败语义。
+
+### Changed（审查批次 3：架构边界与服务端防线）
+
+- **模块与 Action 入口**：签到动作由首页/设计页槽位宿主显式注入，模块不再动态反向导入路由；缺依赖安全降级。前台屏蔽/通过/驳回/封禁入口收口 `app/actions/posts.ts`，继续复用原 moderation 权限及状态机；`PostActionLink` 只使用宿主传入的 action。
+- **跨域叶子下沉**：统计行锁迁到 `lib/locks.ts`，每日配额迁到 `lib/limits/quota.ts`，分页迁到 `lib/paging.ts`，公开身份 SQL 表达式迁到 `lib/identity-expr.ts`。私信页面预判下沉 `lib/pm/reachability.ts`，保留原页面提示及发送事务权威复核的边界。
+- **目录归域**：文件输出/表情输出/主题偏好/站点框架服务归入 uploads/emoji/theme/chrome；编辑器 Markdown 五文件依赖闭包与四个测试迁入 `lib/editor/markdown`，服务端往返与客户端编辑器仍共享同一实现，编辑器独立覆盖率阈值不变。旧路径及转发层清除。
+- **固定守卫**：新增 G-02/G-03/G-04/G-08，使用共享 TypeScript AST 导入图检查别名、转发、相对路径及字面量动态导入；禁止指定回边，锁定 app 数据库值导入白名单及 outbox 快路径纪律。模块初始化守卫不再漏掉动态触点，同时要求静态初始化注册表。
+- **服务端污染防线（G-05）**：44 个 IO/凭据服务入口添加真实 `server-only` 标记；客户端闭包排除类型导入并识别 Action 序列化边界。Vitest 与 Node/tsx 运维命令单独映射 marker，不切换 React 条件；纯函数与编辑器共享扩展保持可复用。
+- **通知读取**：铃铛 GET 明确返回 `Cache-Control: private, no-store`；未发现现有 CORS/SameSite 配置下的跨站读取利用链，不把只读 GET 无同源检查误记为 CSRF。已读 POST 的同源、身份及输入检查保留并补回归。
+
+### Changed（审查批次 4：重复消减、抽象收敛与大文件拆分）
+
+- **写路径骨架**：审核四动作抽 `runModerationAction`（事件在事务尝试内生成并随提交返回，被回滚的尝试不再污染快路径缓存）；发帖/回帖/编辑抽共享提及、门控与附件登记小函数；edit/delete/restore 共用探测→快照→锁后重读前置工具（编辑不取版块锁、恢复不查 canWrite 的既有差异显式保留）；投票读/写路径收口重复上下文加载。
+- **图像管线统一**：表情、板块图与普通上传共用 `lib/uploads/image-asset.ts` 的嗅探→去元数据→尺寸/字节限额→内容寻址落盘管线；files 表三处登记收口为 `upsertFileRecordInTx`（板块图 MIME 改用解码结果，修复 JPEG 的 `jpg` 扩展名反查缺口）；表情上下移抽 `moveWithinList` 纯函数。
+- **纯工具与身份谓词**：`isFutureBeijingDateTime` 合并三处未来时间校验；`forumSelectCols` 14 列单一来源防 schema 漂移；注销可见性谓词 `userNotDeleted`（读侧 completed）/`userNotClosing`（写侧 pending+completed）与 `lockActiveUserInTx` 统一，PM 双用户升序锁等语义例外按函数级豁免。
+- **后台与大文件**：后台 9 页 query/page 解析收口并新增 `AdminTabs`；`positiveIntParam` 统一帖子/版块/主题/用户页与 stream 路由参数解析；主题编辑器 1145→771 行（草稿纯函数、渐变控件、Surface Mock 拆出并单测）；帖子页 503→419 行（PostActionsRow/AttachmentList 服务端组件，锁定附件只计数不读元数据）；注销清理拆 `account-deletion-purge.ts`；`useTitleDraft` 合并双 composer 标题草稿；`ctx.actor` 统一审计操作者（按 auth 泛型收窄 userId，游客保持 null）。
+- **固定守卫（G-11/G-13/G-14）**：图像解码生产唯一出口与身份谓词来源追踪（AST 符号解析，含别名/namespace/barrel/动态导入绕过检测，语义例外按函数级精确豁免）；超限文件行数棘轮（13 个存量超限文件只减不增，新超限文件拒绝）。
+- **门禁实测**：`pnpm verify:all` 全绿（Web 269 文件 / 2709 项，分支覆盖 86.59%）；完整 E2E 生产 378 + dev 8 全绿；jscpd 由 1998 行 / 212 克隆下压至 **1365 行 / 156 克隆**（未上调 2005/214 基线）。
+
+### Fixed（审查批次 5：G-19 冲突丢草稿实证修复与规范收口）
+
+- **主题编辑器保存冲突丢草稿（G-19，实证 + 修复）**：E2E 三探针实证——冲突 redirect 是软导航（window 存活）但新 RSC 树仍整体重挂载编辑器子树（挂载计数：编辑器 4 次 / 相邻 client 组件 2 次），内存草稿全回服务端初始值；flash 常驻包装无效，确认重挂载在 RSC 树替换层，「同段软导航保留 state」不可依赖。最小修复：编辑器草稿随写 sessionStorage（键按包 id、挂载首帧跳过防覆盖待恢复值），编辑页带 err 参数重挂载时恢复、正常进入/保存成功清档、坏档经 strict schema 校验回退库内定义；不动 `defineAction` 骨架与全站 redirect+错误码模式。闭环 E2E：冲突 → 本地档恢复 → 直接再点保存成功（冲突页自带服务端最新 revision），草稿落库；组件单测 +4。
+- **规范与文档收口**：CLAUDE.md 新增「评审规范」四条（G-15 错误码↔渲染成对交付 / G-16 新业务线必配错误路径 E2E / G-19 编辑器草稿暂存 / G-20 revision 覆盖全部写路径）；M13-launch 新增「多实例与规模前置检查单」（G-17/G-18，上线门禁）；ROADMAP 注记五批收口；M11.1 补批次 4 拆分与批次 5 修复记录；knip 复核结论：全量误报为主（barrel 再导出 / 公开 schema 面 / `action={…}` 引用的 Server Action 等），零歧义死导出为零，记录不清。
+- **门禁实测**：`verify:all` 全绿（Web 269 文件 / 2713 项，分支覆盖 86.57%；DB 73、content 55、migration 278；jscpd 1365 行 / 156 克隆，基线未动）；完整 E2E（双阶段重建库）生产 379 + dev 8 全绿。
+
 ### Fixed（M10.6c：双轨密码默认迁移接线）
 
 - `pnpm migrate` 现于 `users` 后默认运行 `legacy-password`；`pnpm migrate users` 自动联动，保留独立补跑命令。旧库仍只读，只把有效 phpwind MD5+salt 材料写入 `legacy_password_hash` / `legacy_password_pending`，现代 `password_hash` 仍只存 Argon2id。
 - 迁移重跑保护：目标库已有现代密码的已认领账号不再参与旧 users/profile/avatar UPSERT，且回填谓词要求 modern/legacy hash 都为空，避免清空新密码或重开旧密码登录。
 - 回填核心抽成可注入 fake-query 函数；覆盖旧库只读、材料校验、非 active / 已认领 / 已回填跳过、游标分页与重复运行幂等。恢复 `qysub_next` 后单独补跑 legacy-password：10,698 条有效旧密码材料回填；SkyJourney 账号 pending 已核验（不记录哈希/邮箱）。
 
+### Added（M11.1：完整主题包引擎 + 管理闭环）
+
+施工手册见 [docs/milestones/M11.1-theme-engine.md](docs/milestones/M11.1-theme-engine.md)，装扮方案调度后续见 [M11.2](docs/milestones/M11.2-theme-switching.md)。
+
+- **后台主题工作区（Step 7）**：「站点管理 → 主题管理」侧栏入口；编辑页三区布局——Surface 属性表单 / 真实组件预览（浅深档 × 桌面移动）/ 内嵌素材库（上传、预览、删除、一键选用、引用徽标）。主题自带 LOGO 在工作区内上传/换绑/解绑（设默认时联动）。
+- **全站预览**：HMAC 签名 cookie 10 分钟内本人浏览器按该包渲染整站，不落库、不影响他人；「退出预览」即清。
+- **素材引用可见**：`/admin/decor` 与素材库卡片显示「被 N 个主题引用（区域）」；被引用素材删除被拒并给出清单。
+- **可编辑 Surface 主题包**：数据库包目录、区域能力白名单、浅/深档分别编辑与即时预览；fill/overlay 支持纯色、渐变多色标/alpha、素材图片位置与混合效果、边框/文字/blur/contentSlot。内置 default/qy2010 可编辑；删除/停用保护与 revision 乐观锁审计。
+- **主题素材 ZIP**：版本化 `theme.json` + decor/LOGO PNG 资源，SHA-256/CRC 校验、严格 ZIP 路径和大小限制、PNG 重新验真与导入资源 remap；拒绝坏包/外链/CSS 注入，被主题引用的装饰素材禁止移除。
+- **动态运行时**：启用 DB 包目录接入 SSR、ThemeMenu、外观页、站点默认和 PATCH；Surface CSS 由安全渲染器生成并在首帧注入，前台区域消费统一变量；显式 PWA 色值驱动 viewport/manifest 与 LOGO 图标底色。
+- **Fixed**：聊天页自动滚到底部后，若公告横幅在水合后出现会改变文档高度；下一帧校正滚动位置，避免最新消息和底部输入区脱离视口。
+- **Fixed（管理闭环断点）**：① Surface 图片 URL 从路径形式改为 `/brand/decor?file=` 查询参数（此前除首页 Hero 外所有主题图片 404）；② 图片遮罩的混合模式/透明度补全渲染与编辑器；③ ZIP 导入保留 PWA 元数据；④ 数据包明暗缺省档回退 default 包定义（SSR 与编辑器预览同口径）。
+- **制作规范文档**：新增 [docs/THEME-AUTHORING.md](docs/THEME-AUTHORING.md)——AI/人工可直读的主题制作口径：字段级 definition schema（配色/渐变/图片底纹/遮罩/内容插槽/PWA 色）、能力 × 区域矩阵、图片素材统一规格与上传/引用契约、ZIP 交付格式、三条制作路线与入库前自查清单。
+- **门禁实测（Step 7 后）**：`pnpm verify:all` 全绿（Web 1,979、DB 73、content 55、migration 278）；生产 E2E 365 + dev 8 全绿（1 例聊天滚动偶发 flake 复跑通过）；视觉矩阵 8/8（含 forum-band 图片底纹真实取图与编辑工作区基线）。站长真机目视签字仍待完成（清单见 THEME-SYSTEM.md §8）。
+
 ### Added（M11：主题包、主题插槽与 PWA）
 
-设计与分步进度见 [docs/milestones/M11-themes-pwa.md](docs/milestones/M11-themes-pwa.md)、插槽设计见 [docs/THEME-SYSTEM.md](docs/THEME-SYSTEM.md)，节日装扮自动化后续见 [M11.1](docs/milestones/M11.1-festival-decor.md)。
+设计与分步进度见 [docs/milestones/M11-themes-pwa.md](docs/milestones/M11-themes-pwa.md)、插槽设计见 [docs/THEME-SYSTEM.md](docs/THEME-SYSTEM.md)，完整主题引擎见 [M11.1](docs/milestones/M11.1-theme-engine.md)，切换调度后续见 [M11.2](docs/milestones/M11.2-theme-switching.md)。
 
 - **主题包 × 明暗模式正交**：`html[data-mode]`（next-themes，保留原 localStorage 键 `theme`）× `html[data-pack]`；注册表 `lib/theme-packs.ts`；`user_profiles.theme_pack`（schema v2.5 / 迁移 0020，NULL 跟随 `site.theme`）。全站默认主题在 `/admin/settings` 配置，用户在外观页或顶栏菜单即时自选；服务端直出 data-pack，刷新无闪烁。
 - **主题↔LOGO 池补充联动**：qy2010 自带当前「清爽侦探」青色半翼；设为全站默认时按 pack 标签幂等入 LOGO 池并激活，之后仍可独立切换；改回无自带 LOGO 的主题不会动现有 LOGO。日志保留 `via=theme` 来源标记。
@@ -310,7 +397,7 @@
 ### Tests（M6.3）
 
 - **单测**：编辑器目录 67 项（`components/editor/**`，含 jsdom 真实 Tiptap / CodeMirror 实例）；门控节点视图的事件归属与更新分支；工具栏命令逐个点击；预览成功 / 进行中 / HTTP 错误 / 网络异常 / 再次预览清错误；草稿读写清理与存储异常降级；提交暂存。`src/lib/posting/preview.test.ts`（含 `SECRET-PREVIEW` 泄露回归）、`roundtrip-check.test.ts`、`app/api/preview/route.test.ts`。
-- **覆盖率**（`vitest.config.ts`）：统计范围扩到 `src/components/editor/**`，阈值 行 90 / 分支 85 / 函数 90 / 语句 90；实测 语句 94.76 / 分支 90 / 函数 91.07 / 行 96.45。
+- **覆盖率**（`vitest.config.mts`）：统计范围扩到 `src/components/editor/**`，阈值 行 90 / 分支 85 / 函数 90 / 语句 90；实测 语句 94.76 / 分支 90 / 函数 91.07 / 行 96.45。
 - **E2E**：`e2e/support/editor.ts`（`bodyEditor` / `fillBody` / `fillSource`，按可访问名称定位，不依赖具体 DOM）；`edit.spec` 增加门控可视块、源码模式、往返不等价旧帖的说明与禁用切换；`reply.spec` 增加草稿恢复（含水合错误断言）与成功后不残留；`leak-sweep.spec` 增加五种视角的 `/api/preview` 扫描（带公开前言的正向对照）。
 - **验证**：`pnpm verify:all` 通过（web 单测 1023 项，包 251 项，lint / 格式 / 类型 / 构建）；`pnpm test:e2e` 通过（桌面 + 移动 131 项，生产冒烟 10 项，水合错误 0）；`pnpm check:secrets` 通过。
 - **未完成**：真机清单（iOS / Android 的拼音、手写、语音输入）尚待站长签字后勾选验收；M6.4 的图片上传与裁剪。
@@ -457,7 +544,7 @@
 
 S1b-1 度量出的转换侧缺陷全部修掉，`verify:render` 与 `verify:fidelity` 的棘轮上限全部降到 **0**（修前：引用吞字 2168、表格吞字 4、列表吞字 1、特殊字符被吃 1901 篇）。
 
-- **纯文本转义**（`escapeText`，只作用于普通文本节点，代码块内不动）：`\ * _ \` [ ] |` 一律转义；`~` 只转义连续 ≥2 个（单个是语气词）；`<` 默认转义；行首的 `# > - + 1.`、整行只由 `- = :` 与空白组成的行（`---`、`- - -`、`:-:`，会变标题 / 分割线 / 单列表格）、`:::` 转义。随机压测多次发现的形态都固定成了回归用例。
+- **纯文本转义**（`escapeText`，只作用于普通文本节点，代码块内不动）：`\ * _ \` [ ] |` 一律转义；`~` 只转义连续 ≥2 个（单个是语气词）；`<`默认转义；行首的`# > - + 1.`、整行只由 `- = :` 与空白组成的行（`---`、`- - -`、`:-:`，会变标题 / 分割线 / 单列表格）、`:::` 转义。随机压测多次发现的形态都固定成了回归用例。
 - **`<` 的策略**：旧站对 `<embed>`、`<<pp>>`、用户贴的错误页源码都是字面显示，所以默认转义；只有整篇以 `<标签` 开头的帖子（管理员贴的原生 HTML 页面，迁移库 7 篇）才放行白名单 HTML 标签。
 - **地址与显示文字分离**：`[url]` / `[img]` / `[email]` / 媒体 / `[attachment]` 的地址取 `flatText`（纯拼接原文，不渲染、不重复记告警和附件引用），显示文字仍转义；表格单元格里只补转义尚未转义的 `|`；列表项标记 `[*]` 的剥除同步改。
 - **块级空行**：引用 / 列表 / 表格前后各留空行（修懒续行吞字）；嵌套引用的空行输出 `>`；围栏之外每行去首尾空白（行首 ≥4 空格会变代码块，行尾两空格是硬换行）。
@@ -873,7 +960,6 @@ S1b-1 度量出的转换侧缺陷全部修掉，`verify:render` 与 `verify:fide
 - 登录频控改**双层**（IP 20 次/10 分钟 + 账号 5 次/10 分钟）——原单层 IP 限流对共享 NAT 过严且使 E2E 失真。
 - 迁移 UPSERT 回退 `VALUES()` 语法（`AS new` 别名在 ODKU 引用上存在歧义解析坑，技术债清单已记）。
 
-
 ### Added（M4 · 用户与认证）
 
 - **认证数据层**：sessions（SHA-256 令牌/可撤销/滑动续期）、invite_codes、site_settings
@@ -893,7 +979,6 @@ S1b-1 度量出的转换侧缺陷全部修掉，`verify:render` 与 `verify:fide
 
 - E2E 与 dev 服务抢 3100 端口导致 env 错配（注册打错库）：E2E 迁至 3200 + 配置内注入隔离库。
 
-
 ### Added（M3 · 内容只读渲染）
 
 - **topic_type 补迁**（M0 漏迁，150 行）：版块页主题分类筛选的前提；迁移实体 11→12，verify 23→24 项。
@@ -908,7 +993,6 @@ S1b-1 度量出的转换侧缺陷全部修掉，`verify:render` 与 `verify:fide
 - **数据状态呈现**：spam→404、屏蔽→blocked 视图、孤儿作者→已注销（81 个真实作者）、售帖→付费提示块。
 - **E2E 15 例**（真实数据夹具）+ **perf:lcp**（生产构建 LCP 断言 <2500ms：首页 128ms/版块 68ms/帖子 68ms）。
 - **URL 格式冻结**（BLUEPRINT §4.5）：`/f/{fid}`、`/t/{tid}`、`?page=`、`#p{pid}` + 旧站 301 源映射表。
-
 
 ### Added（基线审查修复轮 · P1–P3 全项）
 
@@ -932,7 +1016,6 @@ S1b-1 度量出的转换侧缺陷全部修掉，`verify:render` 与 `verify:fide
 - .dockerignore 补齐（构建上下文不再吞 node_modules/.next/dist）。
 - next-env.d.ts 出库；state.ts 重复导入合并；db verify.ts `void key` 清理。
 - BLUEPRINT §6/§9 文档漂移同步（pnpm 命令 + 根 .env 路径 + §2.3 新增时区/连接两条红线）。
-
 
 ### Added（M2 · 模块注册表内核）
 
@@ -1008,4 +1091,3 @@ S1b-1 度量出的转换侧缺陷全部修掉，`verify:render` 与 `verify:fide
 - 孤儿 uid（用户已删、帖仍在）确认为历史现象，方案：UI 渲染「已注销」。
 - 附件路径勘误：实际位于 `wwwroot/.../attachment/`（527MB，两代目录并存）；415 个中仅 1 个源盘即缺失。
 - pw8 遗留表情码 152 行（映射外）确认旧站亦无法渲染，保留原文；源帖截断/笔误标签原样保留，raw 可证。
-

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import { withE2eDb } from "./support/db";
+import { snapshotMailIds, waitForNewMail } from "./support/mailpit";
 import { loginAs, USERS } from "./support/session";
 
 const MEMBER_HASH =
@@ -33,31 +34,18 @@ async function cleanupMember() {
   });
 }
 
-async function latestMailLink(email: string, subjectPart: string, since: number): Promise<string> {
-  const deadline = Date.now() + 30_000;
-  while (Date.now() < deadline) {
-    const response = await fetch(`${MAIL_API}/messages?limit=30`);
-    const data = (await response.json()) as {
-      messages: { ID: string; Created: string; To: { Address: string }[]; Subject: string }[];
-    };
-    const mail = (data.messages ?? []).find(
-      (row) =>
-        row.To.some((to) => to.Address === email) &&
-        row.Subject.includes(subjectPart) &&
-        Date.parse(row.Created) >= since,
-    );
-    if (mail) {
-      const full = (await (await fetch(`${MAIL_API}/message/${mail.ID}`)).json()) as {
-        HTML: string;
-      };
-      const href = full.HTML.match(/href="(http[^"]+)"/)?.[1];
-      if (!href) throw new Error("邮件中未找到安全操作链接");
-      const link = new URL(href);
-      return `${link.pathname}${link.search}`;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-  throw new Error(`Mailpit 未收到预期邮件: ${subjectPart}`);
+async function latestMailLink(
+  email: string,
+  subjectPart: string,
+  knownIds: ReadonlySet<string>,
+): Promise<string> {
+  // 快照差集取新邮件：容器时钟漂移会让时间窗过滤把新邮件判旧（见 support/mailpit.ts）
+  const mail = await waitForNewMail(email, subjectPart, knownIds);
+  const full = (await (await fetch(`${MAIL_API}/message/${mail.ID}`)).json()) as { HTML: string };
+  const href = full.HTML.match(/href="(http[^"]+)"/)?.[1];
+  if (!href) throw new Error("邮件中未找到安全操作链接");
+  const link = new URL(href);
+  return `${link.pathname}${link.search}`;
 }
 
 test.describe.configure({ mode: "serial" });
@@ -276,7 +264,7 @@ test("邮箱无密码账号可以在页面中确认注销并撤销", async ({ br
     | undefined;
   const context = await browser.newContext({ baseURL: BASE_URL });
   const secondContext = await browser.newContext({ baseURL: BASE_URL });
-  const since = Date.now() - 1000;
+  const knownMails = await snapshotMailIds("alice@demo.local", "确认注销申请");
   try {
     await withE2eDb(async (q) => {
       const rows = await q.query<{
@@ -308,7 +296,7 @@ test("邮箱无密码账号可以在页面中确认注销并撤销", async ({ br
     await firstPage.getByRole("button", { name: "向已验证邮箱发送确认链接" }).click();
     await expect(firstPage.getByRole("status").filter({ hasText: "确认邮件已发送" })).toBeVisible();
 
-    const link = await latestMailLink("alice@demo.local", "确认注销申请", since);
+    const link = await latestMailLink("alice@demo.local", "确认注销申请", knownMails);
     await firstPage.goto(link);
     await expect(firstPage.getByRole("heading", { name: "确认账号安全操作" })).toBeVisible();
     await firstPage.getByRole("button", { name: "继续" }).click();

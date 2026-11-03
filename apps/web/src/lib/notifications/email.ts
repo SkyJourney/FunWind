@@ -1,7 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { getWebDb, notificationPreferences, siteSettings, users } from "@funwind/db";
-import { sendMail, type MailMessage } from "@/lib/auth/mailer";
-import { getSiteIdentity } from "@/lib/site-chrome";
+import { getMailBrand, trySendMail, type MailBrand, type MailMessage } from "@/lib/mail";
 import { rateLimit } from "@/lib/auth/ratelimit";
 
 /**
@@ -10,7 +9,7 @@ import { rateLimit } from "@/lib/auth/ratelimit";
  *    默认开），不查用户偏好——处罚送达与防盗号知情不因个人设置缺席。
  *  · 场景类（S4 私信 / S5 售出 / S6 审核通过 / S7 每日汇总）：**用户级 email 渠道偏好**，无记录 = 关
  *    （站内默认开、其它渠道默认关——数据模型既定口径）。
- *  · 发送恒为「尽力而为」：失败记日志不反噬主流程；模板在 mailer.ts（纯函数）。
+ *  · 发送恒为「尽力而为」：失败记日志与发送记录（email_log），不反噬主流程；模板在 lib/mail/templates.ts（纯函数）。
  */
 
 export async function securityEmailEnabled(): Promise<boolean> {
@@ -51,12 +50,12 @@ export async function userEmailEnabled(userId: number, type: string): Promise<bo
 }
 
 /**
- * 给用户发一封通知邮件（尽力而为）：解析收件邮箱与站点身份，无邮箱/发送失败记日志返回 false。
- * build 收到 { email, siteName, siteUrl }（站点身份已在调用方预取语义——这里走 chrome TTL 缓存，~0ms）。
+ * 给用户发一封通知邮件（尽力而为）：解析收件邮箱与邮件品牌，无邮箱返回 false；
+ * 发送失败由 transport 记录（email_log + 日志）后返回 false。品牌走 chrome/目录 TTL 缓存，~0ms。
  */
 export async function sendUserEmail(
   userId: number,
-  build: (ctx: { email: string; siteName: string; siteUrl: string }) => MailMessage,
+  build: (ctx: { email: string; brand: MailBrand }) => MailMessage,
 ): Promise<boolean> {
   try {
     const [row] = await getWebDb()
@@ -65,12 +64,8 @@ export async function sendUserEmail(
       .where(eq(users.id, userId))
       .limit(1);
     if (!row?.email) return false;
-    const identity = await getSiteIdentity();
-    await sendMail(
-      row.email,
-      build({ email: row.email, siteName: identity.name, siteUrl: identity.url }),
-    );
-    return true;
+    const brand = await getMailBrand();
+    return await trySendMail(row.email, build({ email: row.email, brand }), { userId });
   } catch (e) {
     console.error(`[notify-email] 用户 ${userId} 邮件发送失败:`, e);
     return false;

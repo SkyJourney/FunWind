@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, sql, type SQL } from "drizzle-orm";
 import { auditLog, eventLog, getWebDb } from "@funwind/db";
-import { pageBounds } from "@/lib/queries/paging";
+import { pageBounds } from "@/lib/paging";
 
 /**
  * 审计中心查询（M9）：audit_log 与 event_log 统一筛选/分页；CSV 行生成是纯函数（单测锚定转义）。
