@@ -134,15 +134,21 @@ async function processGif(
 ): Promise<ProcessedImage> {
   let meta: Metadata;
   try {
-    // pages: 1 只解码首帧，既用于校验，也用于头像
-    meta = await sharp(input, { limitInputPixels: maxPixels, pages: 1 }).metadata();
+    // 先读全动画元数据，再用 stats 流式解码全部帧，不将完整像素栈物化为 Buffer。
+    meta = await sharp(input, { limitInputPixels: maxPixels, animated: true }).metadata();
   } catch (e) {
     throw classify(e);
   }
   const w = meta.width ?? 0;
-  const h = meta.height ?? 0;
+  const h = meta.pageHeight ?? meta.height ?? 0;
+  const pages = meta.pages ?? 1;
   if (w <= 0 || h <= 0) throw new ProcessError("undecodable", "无法读取图片尺寸");
-  if (w * h > maxPixels) throw new ProcessError("pixels", "图片尺寸过大");
+  if (w * h * pages > maxPixels) throw new ProcessError("pixels", "图片尺寸过大");
+  try {
+    await sharp(input, { limitInputPixels: maxPixels, animated: true, failOn: "warning" }).stats();
+  } catch (e) {
+    throw classify(e);
+  }
 
   if (opts.avatar !== true) {
     if (opts.crop !== undefined && opts.crop !== null) {

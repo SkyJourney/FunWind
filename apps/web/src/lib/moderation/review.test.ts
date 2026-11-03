@@ -15,6 +15,11 @@ vi.mock("@funwind/db", async (original) => ({
 }));
 vi.mock("@/lib/authz/service", () => ({ checkPermission: vi.fn() }));
 vi.mock("@/lib/posting/transition", () => ({ transitionContent: vi.fn() }));
+vi.mock("@/lib/locks", () => ({ lockUserStats: vi.fn() }));
+vi.mock("@/lib/posting/locks", () => ({
+  lockThread: vi.fn(async () => ({ forumId: 6 })),
+  lockForum: vi.fn(),
+}));
 vi.mock("@/lib/events/outbox", () => ({
   enqueueEventInTx: vi.fn(),
   dispatchOutboxRows: vi.fn(),
@@ -75,10 +80,16 @@ const actions = [
 const reasonActions = actions.filter((action) => action.name !== "approve");
 const limit = vi.fn();
 const values = vi.fn();
+const lockedPost = vi.fn();
 const tx = {
   insert: vi.fn(() => ({ values })),
   select: vi.fn(() => ({
-    from: () => ({ where: () => ({ limit: async () => [{ authorId: 8 }] }) }),
+    from: () => ({
+      where: () => ({
+        limit: async () => [{ authorId: 8 }],
+        for: () => lockedPost(),
+      }),
+    }),
   })),
 };
 const transaction = vi.fn();
@@ -90,6 +101,9 @@ beforeEach(() => {
     typeof getWebDb
   >);
   limit.mockResolvedValue([{ ...context }]);
+  lockedPost.mockImplementation(async () => [
+    { state: (await limit())[0]?.postState, replyToPostId: null },
+  ]);
   values.mockResolvedValue(undefined);
   transaction.mockImplementation(async (fn) => fn(tx));
   vi.mocked(checkPermission).mockResolvedValue({ allowed: true, reason: "允许" });

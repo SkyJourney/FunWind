@@ -56,6 +56,7 @@ export async function listContentsPage(
   const stateCol = filters.kind === "thread" ? threads.state : posts.state;
   if (filters.state !== "all") conds.push(eq(stateCol, filters.state as never));
   if (filters.forumId) conds.push(eq(threads.forumId, filters.forumId));
+  if (filters.kind === "reply") conds.push(sql`${posts.id} <> ${threads.firstPostId}`);
   if (filters.scopeForumIds) {
     if (filters.scopeForumIds.length === 0) return { items: [], total: 0, page: 1, totalPages: 1 };
     conds.push(inArray(threads.forumId, filters.scopeForumIds));
@@ -141,7 +142,7 @@ export async function listContentsPage(
           .innerJoin(forums, eq(forums.id, threads.forumId))
           .leftJoin(users, eq(users.id, threads.authorId))
           .where(where)
-          .orderBy(desc(threads.createdAt))
+          .orderBy(desc(threads.createdAt), desc(threads.id))
           .limit(perPage)
           .offset(offset)
       : await base
@@ -151,7 +152,7 @@ export async function listContentsPage(
           .innerJoin(forums, eq(forums.id, threads.forumId))
           .leftJoin(users, eq(users.id, posts.authorId))
           .where(where)
-          .orderBy(desc(posts.createdAt))
+          .orderBy(desc(posts.createdAt), desc(posts.id))
           .limit(perPage)
           .offset(offset);
 

@@ -25,15 +25,16 @@ export interface BrandFsSpec {
 
 export type BrandAddErrorCode = "bad_type" | "too_large" | "oversize";
 
-export type BrandAddResult = { ok: true; pool: BrandPool } | { ok: false; code: BrandAddErrorCode };
+export type BrandAddResult =
+  { ok: true; file: string; pool: BrandPool } | { ok: false; code: BrandAddErrorCode };
 
 export interface BrandPoolFs {
-  /** 上传一枚 PNG 入池并设为当前；opts.pack = 主题包自带素材的来源标签 */
+  /** 上传一枚 PNG；默认入池即激活，preserveActive 供主题导入保留并发选择；pack 为来源标签。 */
   add(
     name: string,
     bytes: Uint8Array,
     actor?: ConfigActor,
-    opts?: { pack?: string },
+    opts?: { pack?: string; preserveActive?: boolean },
   ): Promise<BrandAddResult>;
   /** 读取池内素材字节（公开路由用）；不传 file 时取当前项，file 必须在池内；无可输出返回 null */
   readBytes(file?: string): Promise<Uint8Array | null>;
@@ -47,7 +48,7 @@ export function createBrandPoolFs(spec: BrandFsSpec): BrandPoolFs {
     name: string,
     bytes: Uint8Array,
     actor: ConfigActor = CLI_ACTOR,
-    opts: { pack?: string } = {},
+    opts: { pack?: string; preserveActive?: boolean } = {},
   ): Promise<BrandAddResult> {
     if (bytes.length > spec.maxBytes) return { ok: false, code: "too_large" };
     if (sniffType(bytes) !== "png") return { ok: false, code: "bad_type" };
@@ -72,7 +73,13 @@ export function createBrandPoolFs(spec: BrandFsSpec): BrandPoolFs {
     const filePath = path.join(dir, file);
     await writeFile(filePath, bytes, { flag: "wx" });
     try {
-      return { ok: true, pool: await pool.register(clean, file, actor, opts.pack) };
+      return {
+        ok: true,
+        file,
+        pool: await pool.register(clean, file, actor, opts.pack, {
+          preserveActive: opts.preserveActive,
+        }),
+      };
     } catch (error) {
       await unlink(filePath).catch(() => {});
       throw error;

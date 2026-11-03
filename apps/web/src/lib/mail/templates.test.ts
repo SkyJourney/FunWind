@@ -67,11 +67,16 @@ describe("模板 · 安全强制类", () => {
     expect(m.html).toContain("找回密码");
   });
 
-  it("emailChangedAlertMail：旧邮箱收件话术 + 夺回指引", () => {
+  it("emailChangedAlertMail：旧邮箱仅告警，提供仍可执行的安全路径，不承诺已失效的邮箱找回", () => {
     const m = emailChangedAlertMail();
     expect(m.subject).toBe("邮箱已更换 · 青翼字幕组");
     expect(m.html).toContain("本地址不再接收");
-    expect(m.html).toContain("夺回账号");
+    expect(m.text).toContain("旧邮箱已无法通过「找回密码」定位该账号");
+    expect(m.text).toContain("若你仍能登录");
+    expect(m.text).toContain("联系站点管理");
+    expect(m.text).toContain("/settings/password");
+    expect(m.text).not.toContain("夺回账号");
+    expect(m.text).not.toContain("/forgot");
   });
 
   it("emailChangedConfirmMail：验证邮件随后送达（不暴露内部术语）", () => {

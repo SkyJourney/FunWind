@@ -23,6 +23,7 @@ import {
 } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as outbox from "@/lib/events/outbox";
+import * as dbPackage from "@funwind/db";
 import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
@@ -372,6 +373,87 @@ describe.skipIf(skipDb)("私信（M10）", () => {
       await db()
         .delete(accountDeletionRequests)
         .where(eq(accountDeletionRequests.id, Number(closure.insertId)));
+    }
+  });
+
+  it.each(["pending", "completed"] as const)(
+    "旧 Subject 的发送者已有 %s 注销申请时拒绝私信且不落消息/事件",
+    async (status) => {
+      const sender = await loadSubject(DEMO.member);
+      const beforeMessages = await db().select().from(messages);
+      const beforeConversations = await db().select().from(conversations);
+      const beforeMembers = await db().select().from(conversationMembers);
+      const beforeEvents = await db().select().from(eventOutbox);
+      const beforeNotifications = await db().select().from(notifications);
+      await db()
+        .insert(accountDeletionRequests)
+        .values({
+          userId: DEMO.member,
+          status,
+          requestedAt: sql`NOW()`,
+          scheduledAt: sql`NOW() + INTERVAL 30 DAY`,
+        });
+      try {
+        expect(await sendMessage(sender, DEMO.admin, `注销发送者-${status}`)).toMatchObject({
+          ok: false,
+          code: "forbidden",
+        });
+        expect(await db().select().from(messages)).toEqual(beforeMessages);
+        expect(await db().select().from(conversations)).toEqual(beforeConversations);
+        expect(await db().select().from(conversationMembers)).toEqual(beforeMembers);
+        expect(await db().select().from(eventOutbox)).toEqual(beforeEvents);
+        expect(await db().select().from(notifications)).toEqual(beforeNotifications);
+      } finally {
+        await db()
+          .delete(accountDeletionRequests)
+          .where(eq(accountDeletionRequests.userId, DEMO.member));
+      }
+    },
+  );
+
+  it("注销先持发送者锁：发送等待提交后须重新检查注销申请，不产生私信副作用", async () => {
+    const sender = await loadSubject(DEMO.member);
+    const runtimeDb = db();
+    const originalTransaction = runtimeDb.transaction.bind(runtimeDb);
+    const beforeMessages = await db().select().from(messages);
+    const beforeEvents = await db().select().from(eventOutbox);
+    const beforeConversations = await db().select().from(conversations);
+    const locked = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const closure = originalTransaction(async (tx) => {
+      await tx.select({ id: users.id }).from(users).where(eq(users.id, DEMO.member)).for("update");
+      await tx.insert(accountDeletionRequests).values({
+        userId: DEMO.member,
+        status: "pending",
+        requestedAt: sql`NOW()`,
+        scheduledAt: sql`NOW() + INTERVAL 30 DAY`,
+      });
+      locked.resolve();
+      await release.promise;
+    });
+    await locked.promise;
+    vi.spyOn(dbPackage, "getWebDb").mockReturnValue(runtimeDb);
+    const entered = Promise.withResolvers<void>();
+    vi.spyOn(runtimeDb, "transaction").mockImplementation((fn, options) => {
+      entered.resolve();
+      return originalTransaction(fn, options);
+    });
+    const sending = sendMessage(sender, DEMO.admin, "等待注销提交后不能发信");
+    try {
+      await entered.promise;
+      release.resolve();
+      await closure;
+      expect(await sending).toMatchObject({ ok: false, code: "forbidden" });
+      expect(await db().select().from(messages)).toEqual(beforeMessages);
+      expect(await db().select().from(eventOutbox)).toEqual(beforeEvents);
+      expect(await db().select().from(conversations)).toEqual(beforeConversations);
+    } finally {
+      release.resolve();
+      await Promise.allSettled([closure, sending]);
+      vi.restoreAllMocks();
+      await db()
+        .delete(accountDeletionRequests)
+        .where(eq(accountDeletionRequests.userId, DEMO.member));
     }
   });
 

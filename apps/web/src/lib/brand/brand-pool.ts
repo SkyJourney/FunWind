@@ -64,10 +64,16 @@ export interface BrandPoolHandle {
   parse(raw: unknown): BrandPool;
   getRaw(): Promise<BrandPool>;
   setActive(file: string | null, actor?: ConfigActor): Promise<void>;
-  /** 停用并移出池（文件保留在磁盘，误删可手工找回）；当前项被移除则 active 归 null（前台回退占位/不渲染） */
-  remove(file: string, actor?: ConfigActor): Promise<void>;
-  /** 入池登记（DB 半）：由 fs 侧 add 在写盘成功后调用，入池即设为当前；pack = 主题包自带素材的来源标签 */
-  register(name: string, file: string, actor?: ConfigActor, pack?: string): Promise<BrandPool>;
+  /** 移出池（文件保留）；默认清空被移除的当前项，补偿指定 preserveActive 时拒绝删除当前项。 */
+  remove(file: string, actor?: ConfigActor, opts?: { preserveActive?: boolean }): Promise<void>;
+  /** 入池登记（DB 半）：由 fs 侧 add 在写盘成功后调用；pack = 主题包自带素材的来源标签 */
+  register(
+    name: string,
+    file: string,
+    actor?: ConfigActor,
+    pack?: string,
+    opts?: { preserveActive?: boolean },
+  ): Promise<BrandPool>;
 }
 
 const sqlNow = () => sql`NOW()`;
@@ -141,22 +147,27 @@ export function createBrandPool(spec: BrandPoolSpec): BrandPoolHandle {
         file ?? "none",
       );
     },
-    async remove(file, actor = CLI_ACTOR) {
+    async remove(file, actor = CLI_ACTOR, opts = {}) {
       await updatePool(
-        (pool) => ({
-          items: pool.items.filter((i) => i.file !== file),
-          active: pool.active === file ? null : pool.active,
-        }),
+        (pool) => {
+          if (opts.preserveActive && pool.active === file) {
+            throw new Error("active-asset-preserved");
+          }
+          return {
+            items: pool.items.filter((i) => i.file !== file),
+            active: pool.active === file ? null : pool.active,
+          };
+        },
         actor,
         `${spec.actionPrefix}.remove`,
         file,
       );
     },
-    register(name, file, actor = CLI_ACTOR, pack) {
+    register(name, file, actor = CLI_ACTOR, pack, opts = {}) {
       return updatePool(
         (pool) => ({
           items: [...pool.items, pack ? { file, name, pack } : { file, name }],
-          active: file,
+          active: opts.preserveActive ? pool.active : file,
         }),
         actor,
         `${spec.actionPrefix}.upload`,

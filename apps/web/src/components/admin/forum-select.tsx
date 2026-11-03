@@ -1,4 +1,7 @@
 import { getForumTree } from "@/lib/authz/snapshot";
+import { checkPermission, getModeratedForumIds } from "@/lib/authz/service";
+import { getCurrentSubject } from "@/lib/authz/subject";
+import { cn } from "@/lib/utils";
 
 /**
  * 板块选择器（M9.5）：服务端组件 <select>，层级缩进用 U+00A0（全角空格在等宽场景宽度不稳），
@@ -13,7 +16,7 @@ export async function ForumSelect({
   allLabel,
   globalLabel,
   kindFilter = "all",
-  className = "rounded-lg border border-input bg-background px-2 py-1.5 text-sm",
+  className,
   required = false,
 }: {
   name: string;
@@ -29,15 +32,27 @@ export async function ForumSelect({
   className?: string;
   required?: boolean;
 }) {
+  const subject = await getCurrentSubject();
+  const [siteAdmin, moderatedIds] = await Promise.all([
+    checkPermission(subject, "site.admin"),
+    getModeratedForumIds(subject),
+  ]);
+  const scopedIds = siteAdmin.allowed ? null : moderatedIds;
   const tree = await getForumTree();
-  const rows = tree.all().filter((f) => (kindFilter === "forum" ? f.kind === "forum" : true));
+  const rows = tree
+    .all()
+    .filter((f) => (kindFilter === "forum" ? f.kind === "forum" : true))
+    .filter((f) => scopedIds === null || scopedIds.includes(f.id));
   return (
     <select
       name={name}
       defaultValue={defaultValue !== null && defaultValue !== undefined ? String(defaultValue) : ""}
       aria-label={label}
       required={required}
-      className={className}
+      className={cn(
+        "max-w-full min-w-0 rounded-lg border border-input bg-background px-2 py-1.5 text-sm",
+        className,
+      )}
     >
       {allLabel !== undefined && <option value="">{allLabel}</option>}
       {globalLabel !== undefined && <option value="0">{globalLabel}</option>}

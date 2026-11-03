@@ -135,6 +135,109 @@ describe.skipIf(skipDb)("内容管理（M9.5）", () => {
     expect(hidden.items.some((i) => i.postId === Number(p.insertId))).toBe(true);
   });
 
+  it.each(["all", "visible", "hidden"] as const)(
+    "回帖列表 state=%s：主题标题命中时首帖不进入行、总数或分页",
+    async (state) => {
+      const title = `首帖排除-${state}`;
+      const seeded = await seedThread({ state: "visible", title });
+      await db()
+        .insert(posts)
+        .values([
+          {
+            threadId: seeded.threadId,
+            authorId: DEMO.member,
+            floor: 2,
+            bodyMd: "可见回帖",
+            state: "visible",
+            createdAt: "2026-05-02 10:00:00",
+          },
+          {
+            threadId: seeded.threadId,
+            authorId: DEMO.member,
+            floor: 3,
+            bodyMd: "隐藏回帖",
+            state: "hidden",
+            createdAt: "2026-05-02 10:00:00",
+          },
+        ]);
+      const expected = await db()
+        .select({ postId: posts.id })
+        .from(posts)
+        .where(
+          and(
+            eq(posts.threadId, seeded.threadId),
+            state === "all" ? undefined : eq(posts.state, state),
+          ),
+        );
+      const expectedIds = expected.map((row) => row.postId).filter((id) => id !== seeded.postId);
+      const first = await listContentsPage({
+        kind: "reply",
+        q: title,
+        state,
+        page: 1,
+        perPage: 1,
+        scopeForumIds: [REVIEW_FORUM],
+      });
+      expect(first.total).toBe(expectedIds.length);
+      expect(first.totalPages).toBe(expectedIds.length);
+      const ids: number[] = [];
+      for (let page = 1; page <= first.totalPages; page++) {
+        const result = await listContentsPage({
+          kind: "reply",
+          q: title,
+          state,
+          page,
+          perPage: 1,
+          scopeForumIds: [REVIEW_FORUM],
+        });
+        expect(result.items.every((item) => !item.isThread && item.postId !== seeded.postId)).toBe(
+          true,
+        );
+        ids.push(...result.items.map((item) => item.postId));
+      }
+      expect(ids.sort((a, b) => a - b)).toEqual(expectedIds.sort((a, b) => a - b));
+    },
+  );
+
+  it.each(["thread", "reply"] as const)(
+    "同时间戳分页：内容管理 %s 按 createdAt/id 倒序且跨页无漏行",
+    async (kind) => {
+      const title = `同秒分页-${kind}`;
+      const expectedIds: number[] = [];
+      for (let i = 0; i < 23; i++) {
+        const seeded = await seedThread({ state: "visible", title: `${title}-${i}` });
+        if (kind === "thread") expectedIds.push(seeded.postId);
+        else {
+          const [reply] = await db().insert(posts).values({
+            threadId: seeded.threadId,
+            authorId: DEMO.member,
+            floor: 2,
+            bodyMd: "同秒回帖",
+            state: "visible",
+            createdAt: "2026-05-01 10:00:00",
+          });
+          expectedIds.push(Number(reply.insertId));
+        }
+      }
+      const ids: number[] = [];
+      for (let page = 1; page <= 5; page++) {
+        const result = await listContentsPage({
+          kind,
+          q: title,
+          state: "all",
+          page,
+          perPage: 5,
+          scopeForumIds: [REVIEW_FORUM],
+        });
+        expect(result.total).toBe(23);
+        expect(result.totalPages).toBe(5);
+        ids.push(...result.items.map((item) => item.postId));
+      }
+      expect(new Set(ids).size).toBe(23);
+      expect(ids).toEqual(expectedIds.toReversed());
+    },
+  );
+
   it("作用域过滤：版主只看所辖版块（空数组=无权限 → 恒空）", async () => {
     await seedThread({ state: "visible", title: "作用域可见主题" });
     const scoped = await listContentsPage({

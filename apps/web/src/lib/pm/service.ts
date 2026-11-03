@@ -18,7 +18,7 @@ import { findActiveGlobalBan, restrictionActive } from "@/lib/authz/restrictions
 import { nowBeijingWallTime } from "@/lib/datetime";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
 import { limitsFor } from "@/lib/limits/load";
-import { publicUserId } from "@/lib/identity-expr";
+import { publicUserId, userNotClosing } from "@/lib/identity-expr";
 import {
   dispatchOutboxRows,
   enqueueEventInTx,
@@ -141,6 +141,16 @@ export async function sendMessage(
           .for("update");
         if (lockedUsers.length !== 2 || lockedUsers.some((user) => user.state !== "active")) {
           return { ok: false, code: "not_found", message: "对方不存在或已注销" };
+        }
+
+        // 注销申请也持有用户行锁；取得同一把锁后重验，不能继续相信请求开始时的主体快照。
+        const [sender] = await tx
+          .select({ id: users.id })
+          .from(users)
+          .where(and(eq(users.id, senderId), userNotClosing(users.id, users.state)))
+          .limit(1);
+        if (!sender) {
+          return { ok: false, code: "forbidden", message: "账号正在注销，不能发送私信" };
         }
 
         // 日配额在持有发送者行锁后判定：事务外计数会被并发请求同时通过（击穿每日上限）

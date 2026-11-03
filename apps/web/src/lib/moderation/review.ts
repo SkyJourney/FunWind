@@ -1,9 +1,11 @@
 import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { contentReviews, getWebDb, posts, threads, users } from "@funwind/db";
-import type { ConfigActor, DbTx } from "@/lib/audit";
+import type { ConfigActor } from "@/lib/audit";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import { transitionContent } from "@/lib/posting/transition";
+import { lockForum, lockThread } from "@/lib/posting/locks";
+import { lockUserStats } from "@/lib/locks";
 import { checkPermission } from "@/lib/authz/service";
 import type { Subject } from "@/lib/authz/types";
 import { publicUsername } from "@/lib/identity-expr";
@@ -127,6 +129,24 @@ async function runModerationAction(
     getWebDb().transaction(async (tx) => {
       // 被回滚尝试的事件不进入快路径缓存，也不泄露到下一次重试。
       const enqueued: EnqueuedEvent[] = [];
+      // 沿用迁移入口的锁序；同一事务内重验动作前置状态，不能把恢复白名单当成审核通过。
+      await lockUserStats(tx, ctx.authorId);
+      const lockedThread = await lockThread(tx, ctx.threadId);
+      const [lockedPost] = await tx
+        .select({ state: posts.state, replyToPostId: posts.replyToPostId })
+        .from(posts)
+        .where(eq(posts.id, postId))
+        .for("update");
+      if (!lockedThread || !lockedPost) {
+        return {
+          ok: false as const,
+          code: action === "approve" ? ("not_found" as const) : ("bad_state" as const),
+        };
+      }
+      await lockForum(tx, lockedThread.forumId);
+      if (spec.stateError(lockedPost.state)) {
+        return { ok: false as const, code: "bad_state" as const };
+      }
       const transition = await transitionContent(tx, postId, spec.to, {
         actorId: operatorId,
         ip: actor.ip,
@@ -154,6 +174,16 @@ async function runModerationAction(
       }
       if (action === "approve") {
         // 补发创建事件（pending 路径从未发过；作者首次获得积分入账）。
+        const [replyTarget] =
+          transition.kind === "reply" && lockedPost.replyToPostId !== null
+            ? await tx
+                .select({ authorId: posts.authorId })
+                .from(posts)
+                .where(
+                  and(eq(posts.id, lockedPost.replyToPostId), eq(posts.threadId, ctx.threadId)),
+                )
+                .limit(1)
+            : [];
         enqueued.push(
           transition.kind === "thread"
             ? await enqueueEventInTx(
@@ -176,7 +206,13 @@ async function runModerationAction(
                   postId,
                   forumId: ctx.forumId,
                   authorId: ctx.authorId,
-                  threadAuthorId: (await threadAuthor(tx, ctx.threadId)) ?? ctx.authorId,
+                  threadAuthorId: transition.threadAuthorId,
+                  ...(lockedPost.replyToPostId !== null && replyTarget
+                    ? {
+                        replyToPostId: lockedPost.replyToPostId,
+                        replyToAuthorId: replyTarget.authorId,
+                      }
+                    : {}),
                 },
                 { actorId: ctx.authorId, source: "moderation" },
               ),
@@ -226,15 +262,6 @@ export async function hidePost(
   actor: ConfigActor,
 ): Promise<ReviewOutcome> {
   return runModerationAction("hide", operator, postId, actor, reason);
-}
-
-async function threadAuthor(tx: DbTx, threadId: number): Promise<number | null> {
-  const [row] = await tx
-    .select({ authorId: threads.authorId })
-    .from(threads)
-    .where(eq(threads.id, threadId))
-    .limit(1);
-  return row?.authorId ?? null;
 }
 
 export type ReviewTab = "pending" | "removed";
@@ -316,7 +343,10 @@ export async function listReviewPage(
     .innerJoin(forums, eq(forums.id, threads.forumId))
     .leftJoin(users, eq(users.id, posts.authorId))
     .where(where)
-    .orderBy(opts.tab === "pending" ? asc(posts.createdAt) : desc(posts.createdAt))
+    .orderBy(
+      opts.tab === "pending" ? asc(posts.createdAt) : desc(posts.createdAt),
+      opts.tab === "pending" ? asc(posts.id) : desc(posts.id),
+    )
     .limit(perPage)
     .offset(offset);
 

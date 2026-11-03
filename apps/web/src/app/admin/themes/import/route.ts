@@ -1,9 +1,9 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { addDecor } from "@/lib/brand/decor-pool-fs";
-import { getDecorPoolRaw, removeDecor, setActiveDecor } from "@/lib/brand/decor-pool";
+import { removeDecor } from "@/lib/brand/decor-pool";
 import { addLogo } from "@/lib/brand/logo-pool-fs";
-import { getLogoPoolRaw, removeLogo, setActiveLogo } from "@/lib/brand/logo-pool";
+import { removeLogo } from "@/lib/brand/logo-pool";
 import { isSameOrigin } from "@/lib/net/same-origin";
 import { createThemePack, getThemePack, validatePackId } from "@/lib/theme/packs";
 import {
@@ -110,36 +110,34 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const actorConfig = { userId: actor.userId, via: "admin" as const, ip: actor.ip };
-  let decorActiveBefore: string | null = null;
-  let logoActiveBefore: string | null = null;
   const addedDecor: string[] = [];
   const addedLogo: string[] = [];
   const fileMap = new Map<string, string>();
   let created = false;
   let errorCode = "asset-import";
-  let stage = "read-decor-pool";
+  let stage = "import-assets";
   let currentAsset: AssetContext | null = null;
 
   try {
-    decorActiveBefore = (await getDecorPoolRaw()).active;
-    stage = "read-logo-pool";
-    logoActiveBefore = (await getLogoPoolRaw()).active;
     for (const asset of pack.assets) {
       stage = `import-${asset.kind}`;
       currentAsset = { kind: asset.kind, file: asset.poolFile };
       const displayName = `${pack.name} · ${asset.kind === "decor" ? "装饰" : "LOGO"}`;
       if (asset.kind === "decor") {
-        const result = await addDecor(displayName, asset.bytes, actorConfig);
+        const result = await addDecor(displayName, asset.bytes, actorConfig, {
+          preserveActive: true,
+        });
         if (!result.ok) throw new Error(result.code);
-        if (!result.pool.active) throw new Error("decor-import-missing-active");
-        fileMap.set(asset.poolFile, result.pool.active);
-        addedDecor.push(result.pool.active);
+        fileMap.set(asset.poolFile, result.file);
+        addedDecor.push(result.file);
       } else {
-        const result = await addLogo(displayName, asset.bytes, actorConfig, { pack: id });
+        const result = await addLogo(displayName, asset.bytes, actorConfig, {
+          pack: id,
+          preserveActive: true,
+        });
         if (!result.ok) throw new Error(result.code);
-        if (!result.pool.active) throw new Error("logo-import-missing-active");
-        fileMap.set(asset.poolFile, result.pool.active);
-        addedLogo.push(result.pool.active);
+        fileMap.set(asset.poolFile, result.file);
+        addedLogo.push(result.file);
       }
     }
 
@@ -172,7 +170,8 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   let cleanupFailed = false;
-  // 补偿逐项隔离，某一素材清理失败也必须继续处理后续素材与两个池的当前项。
+  // 导入入池不激活素材，因此无需恢复旧 active，避免覆盖期间发生的管理选择。
+  // 补偿逐项隔离，某一素材清理失败也必须继续处理后续素材。
   const compensate = async (phase: string, asset: AssetContext, run: () => Promise<void>) => {
     try {
       await run();
@@ -184,28 +183,14 @@ export async function POST(request: Request): Promise<Response> {
   if (!created) {
     for (const file of addedDecor) {
       await compensate("remove-decor", { kind: "decor", file }, () =>
-        removeDecor(file, actorConfig),
+        removeDecor(file, actorConfig, { preserveActive: true }),
       );
     }
     for (const file of addedLogo) {
-      await compensate("remove-logo", { kind: "logo", file }, () => removeLogo(file, actorConfig));
+      await compensate("remove-logo", { kind: "logo", file }, () =>
+        removeLogo(file, actorConfig, { preserveActive: true }),
+      );
     }
-  }
-  if (addedDecor.length > 0) {
-    await compensate("restore-decor", { kind: "decor", file: decorActiveBefore }, async () => {
-      await setActiveDecor(decorActiveBefore, actorConfig);
-      if ((await getDecorPoolRaw()).active !== decorActiveBefore) {
-        throw new Error("active-restore-mismatch");
-      }
-    });
-  }
-  if (addedLogo.length > 0) {
-    await compensate("restore-logo", { kind: "logo", file: logoActiveBefore }, async () => {
-      await setActiveLogo(logoActiveBefore, actorConfig);
-      if ((await getLogoPoolRaw()).active !== logoActiveBefore) {
-        throw new Error("active-restore-mismatch");
-      }
-    });
   }
 
   const warning = cleanupFailed ? "&warn=import-cleanup" : "";

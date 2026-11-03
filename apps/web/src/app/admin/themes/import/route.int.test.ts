@@ -101,8 +101,8 @@ function cleanupSpies() {
 function expectAllCompensations(spies: ReturnType<typeof cleanupSpies>) {
   expect(spies.removeDecor).toHaveBeenCalledTimes(2);
   expect(spies.removeLogo).toHaveBeenCalledTimes(2);
-  expect(spies.restoreDecor).toHaveBeenCalledExactlyOnceWith(oldDecor, actor);
-  expect(spies.restoreLogo).toHaveBeenCalledExactlyOnceWith(oldLogo, actor);
+  expect(spies.restoreDecor).not.toHaveBeenCalled();
+  expect(spies.restoreLogo).not.toHaveBeenCalled();
 }
 
 describe.skipIf(skipDb)("主题包导入（临时库 + 临时存储）", () => {
@@ -148,14 +148,14 @@ describe.skipIf(skipDb)("主题包导入（临时库 + 临时存储）", () => {
     }
   });
 
-  it("成功导入重映射明暗档与内容图，保留 PWA，并恢复两个池的原 active", async () => {
+  it("成功导入重映射明暗档与内容图，保留 PWA，全程不改变两个池的 active", async () => {
     const spies = cleanupSpies();
     const query = await importPack();
     expect(Object.fromEntries(query)).toEqual({ saved: "imported", id: packId });
     expect(spies.removeDecor).not.toHaveBeenCalled();
     expect(spies.removeLogo).not.toHaveBeenCalled();
-    expect(spies.restoreDecor).toHaveBeenCalledExactlyOnceWith(oldDecor, actor);
-    expect(spies.restoreLogo).toHaveBeenCalledExactlyOnceWith(oldLogo, actor);
+    expect(spies.restoreDecor).not.toHaveBeenCalled();
+    expect(spies.restoreLogo).not.toHaveBeenCalled();
     const pack = await packs.getThemePack(packId);
     expect(pack).not.toBeNull();
     const refs = packs.parseThemePackAssets(pack!.assets);
@@ -225,8 +225,6 @@ describe.skipIf(skipDb)("主题包导入（临时库 + 临时存储）", () => {
   it.each([
     ["removeDecor", "remove-decor", "decor"],
     ["removeLogo", "remove-logo", "logo"],
-    ["restoreDecor", "restore-decor", "decor"],
-    ["restoreLogo", "restore-logo", "logo"],
   ] as const)("%s 失败独立记录，继续后续补偿并保留 err + warn", async (method, stage, kind) => {
     vi.spyOn(packs, "createThemePack").mockResolvedValueOnce({ ok: false, code: "enabled-limit" });
     const spies = cleanupSpies();
@@ -251,22 +249,23 @@ describe.skipIf(skipDb)("主题包导入（临时库 + 临时存储）", () => {
     else expect((await decor.getDecorPoolRaw()).active).toBe(oldDecor);
   });
 
-  it("多项移除和两个恢复同时失败也逐项处理并记录，不提前终止", async () => {
+  it("多项移除同时失败也逐项处理并记录，不提前终止或改变 active", async () => {
     vi.spyOn(packs, "createThemePack").mockResolvedValueOnce({ ok: false, code: "enabled-limit" });
     const spies = cleanupSpies();
-    for (const [name, fn] of Object.entries(spies)) fn.mockRejectedValue(new Error(name));
+    spies.removeDecor.mockRejectedValue(new Error("remove-decor"));
+    spies.removeLogo.mockRejectedValue(new Error("remove-logo"));
     expect(Object.fromEntries(await importPack())).toEqual({
       err: "enabled-limit",
       warn: "import-cleanup",
     });
     expectAllCompensations(spies);
-    expect(console.error).toHaveBeenCalledTimes(7);
+    expect(console.error).toHaveBeenCalledTimes(5);
     expect((await decor.getDecorPoolRaw()).items).toHaveLength(3);
     expect((await logo.getLogoPoolRaw()).items).toHaveLength(3);
     expect(await packs.getThemePack(packId)).toBeNull();
   });
 
-  it("素材导入抛错记录素材来源与阶段，并清理此前成功入池的两个种类", async () => {
+  it("素材导入抛错记录素材来源与阶段，清理此前成功入池文件且保留 active", async () => {
     const originalAdd = logoFs.addLogo;
     const error = new Error("写入 LOGO 失败");
     vi.spyOn(logoFs, "addLogo").mockImplementationOnce(originalAdd).mockRejectedValueOnce(error);
@@ -313,57 +312,82 @@ describe.skipIf(skipDb)("主题包导入（临时库 + 临时存储）", () => {
     });
   });
 
-  it.each(["decor", "logo"] as const)(
-    "成功建包后 %s active 恢复抛错，保留成功状态并加 warn",
-    async (kind) => {
+  it.each(["created", "rejected"] as const)(
+    "导入结果 %s 也不会覆盖期间的并发 active 选择",
+    async (outcome) => {
+      const concurrentDecor = `decor-${"c".repeat(32)}.png`;
+      const concurrentLogo = `logo-${"d".repeat(32)}.png`;
+      const create = packs.createThemePack;
+      vi.spyOn(packs, "createThemePack").mockImplementationOnce(async (input) => {
+        await decor.decorPool.register("并发选装饰", concurrentDecor, actor);
+        await logo.registerLogo("并发选 LOGO", concurrentLogo, actor);
+        return outcome === "created" ? create(input) : { ok: false, code: "enabled-limit" };
+      });
       const spies = cleanupSpies();
-      const error = new Error("恢复当前项失败");
-      if (kind === "decor") spies.restoreDecor.mockRejectedValueOnce(error);
-      else spies.restoreLogo.mockRejectedValueOnce(error);
-      expect(Object.fromEntries(await importPack())).toEqual({
-        saved: "imported",
-        id: packId,
-        warn: "import-cleanup",
-      });
-      expect(spies.removeDecor).not.toHaveBeenCalled();
-      expect(spies.removeLogo).not.toHaveBeenCalled();
-      expect(spies.restoreDecor).toHaveBeenCalledOnce();
-      expect(spies.restoreLogo).toHaveBeenCalledOnce();
-      expect((await packs.getThemePack(packId))?.definition).toMatchObject({ pwa });
-      expect((await decor.getDecorPoolRaw()).items).toHaveLength(3);
-      expect((await logo.getLogoPoolRaw()).items).toHaveLength(3);
-      expect(console.error).toHaveBeenCalledExactlyOnceWith(expect.any(String), {
-        packId,
-        actorId: 1,
-        stage: `restore-${kind}`,
-        asset: { kind, file: kind === "decor" ? oldDecor : oldLogo },
-        reason: error,
-      });
+      const query = Object.fromEntries(await importPack());
+      expect(query).toEqual(
+        outcome === "created" ? { saved: "imported", id: packId } : { err: "enabled-limit" },
+      );
+      expect((await decor.getDecorPoolRaw()).active).toBe(concurrentDecor);
+      expect((await logo.getLogoPoolRaw()).active).toBe(concurrentLogo);
+      expect(spies.restoreDecor).not.toHaveBeenCalled();
+      expect(spies.restoreLogo).not.toHaveBeenCalled();
+      if (outcome === "created") {
+        expect(spies.removeDecor).not.toHaveBeenCalled();
+        expect(spies.removeLogo).not.toHaveBeenCalled();
+        expect(console.error).not.toHaveBeenCalled();
+      } else {
+        expectAllCompensations(spies);
+        expect((await decor.getDecorPoolRaw()).items).toHaveLength(2);
+        expect((await logo.getLogoPoolRaw()).items).toHaveLength(2);
+      }
     },
   );
 
-  it.each(["decor", "logo"] as const)(
-    "成功建包后 %s setActive 静默未生效，回读识别并加 warn",
-    async (kind) => {
-      if (kind === "decor") vi.spyOn(decor, "setActiveDecor").mockResolvedValueOnce(undefined);
-      else vi.spyOn(logo, "setActiveLogo").mockResolvedValueOnce(undefined);
-      expect(Object.fromEntries(await importPack())).toEqual({
-        saved: "imported",
-        id: packId,
-        warn: "import-cleanup",
-      });
-      expect(await packs.getThemePack(packId)).not.toBeNull();
-      expect(console.error).toHaveBeenCalledExactlyOnceWith(expect.any(String), {
-        packId,
-        actorId: 1,
-        stage: `restore-${kind}`,
-        asset: { kind, file: kind === "decor" ? oldDecor : oldLogo },
-        reason: expect.objectContaining({ message: "active-restore-mismatch" }),
-      });
-    },
-  );
+  it("失败补偿时本次导入图片已被并发选为 active，保留选择并明确告警，不删除当前项", async () => {
+    let selectedLogo: string | null = null;
+    vi.spyOn(packs, "createThemePack").mockImplementationOnce(async () => {
+      selectedLogo = (await logo.getLogoPoolRaw()).items.find(
+        (item) => item.file !== oldLogo,
+      )!.file;
+      await logo.setActiveLogo(selectedLogo, actor);
+      return { ok: false, code: "enabled-limit" };
+    });
+    expect(Object.fromEntries(await importPack())).toEqual({
+      err: "enabled-limit",
+      warn: "import-cleanup",
+    });
+    const pool = await logo.getLogoPoolRaw();
+    expect(pool.active).toBe(selectedLogo);
+    expect(pool.items).toContainEqual(expect.objectContaining({ file: selectedLogo }));
+    expect(pool.items).toHaveLength(2);
+    expect((await decor.getDecorPoolRaw()).active).toBe(oldDecor);
+    expect(console.error).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        stage: "remove-logo",
+        reason: expect.objectContaining({ message: "active-asset-preserved" }),
+      }),
+    );
+  });
 
-  it("导入前 active 为空时仍恢复为空，不擅自激活主题素材", async () => {
+  it("导入中的每次入池均保留 active，失败补偿前也没有临时激活主题图片", async () => {
+    const addDecor = decorFs.addDecor;
+    const addLogo = logoFs.addLogo;
+    vi.spyOn(decorFs, "addDecor").mockImplementation(async (...args) => {
+      const result = await addDecor(...args);
+      expect((await decor.getDecorPoolRaw()).active).toBe(oldDecor);
+      return result;
+    });
+    vi.spyOn(logoFs, "addLogo").mockImplementation(async (...args) => {
+      const result = await addLogo(...args);
+      expect((await logo.getLogoPoolRaw()).active).toBe(oldLogo);
+      return result;
+    });
+    expect(Object.fromEntries(await importPack())).toEqual({ saved: "imported", id: packId });
+  });
+
+  it("导入前 active 为空时仍保持为空，不擅自激活主题素材", async () => {
     await decor.setActiveDecor(null, actor);
     await logo.setActiveLogo(null, actor);
     expect(Object.fromEntries(await importPack())).toEqual({ saved: "imported", id: packId });

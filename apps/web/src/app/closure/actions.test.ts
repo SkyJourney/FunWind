@@ -12,7 +12,13 @@ import {
 import { accountDeletionVerificationMail, getMailBrand, trySendMail } from "@/lib/mail";
 import { sendClosureAccessEmailAction, sendClosureRequestEmailAction } from "./actions";
 
-const mocks = vi.hoisted(() => ({ ip: "203.0.113.8" as string | null }));
+const mocks = vi.hoisted(() => ({
+  ip: "203.0.113.8" as string | null,
+  deferred: [] as Array<() => Promise<void>>,
+}));
+vi.mock("next/server", () => ({
+  after: (task: () => Promise<void>) => mocks.deferred.push(task),
+}));
 vi.mock("@/modules", () => ({}));
 vi.mock("next/headers", () => ({
   headers: async () => new Headers(),
@@ -95,6 +101,7 @@ async function neutralHop(result: Promise<void>) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.deferred.length = 0;
   mocks.ip = "203.0.113.8";
   vi.mocked(rateLimit).mockReturnValue({ allowed: true, remaining: 1, retryAfterSec: 0 });
   vi.mocked(getMailBrand).mockResolvedValue(brand);
@@ -104,8 +111,12 @@ beforeEach(() => {
 });
 
 describe.each(entrances)("注销验证邮件：$kind", (entrance) => {
-  it("按原顺序签发 challenge、取品牌、编码链接并发送对应用途邮件，最后中性回跳", async () => {
+  it("先中性回跳，响应后才签发 challenge、取品牌、编码链接并发送对应用途邮件", async () => {
     await neutralHop(entrance.action(form()));
+    expect(mocks.deferred).toHaveLength(1);
+    expect(entrance.issue).not.toHaveBeenCalled();
+    expect(trySendMail).not.toHaveBeenCalled();
+    await mocks.deferred[0]!();
     expect(entrance.issue).toHaveBeenCalledExactlyOnceWith("Mixed@Example.com");
     expect(entrance.other).not.toHaveBeenCalled();
     expect(getMailBrand).toHaveBeenCalledExactlyOnceWith();
@@ -127,6 +138,9 @@ describe.each(entrances)("注销验证邮件：$kind", (entrance) => {
   it("无 challenge 时不读取品牌、不构造或发送邮件，但对外回跳完全相同", async () => {
     entrance.issue.mockResolvedValue(null);
     await neutralHop(entrance.action(form()));
+    expect(mocks.deferred).toHaveLength(1);
+    expect(entrance.issue).not.toHaveBeenCalled();
+    await mocks.deferred[0]!();
     expect(entrance.issue).toHaveBeenCalledExactlyOnceWith("Mixed@Example.com");
     expect(getMailBrand).not.toHaveBeenCalled();
     expect(accountDeletionVerificationMail).not.toHaveBeenCalled();
@@ -136,7 +150,39 @@ describe.each(entrances)("注销验证邮件：$kind", (entrance) => {
   it("发送失败返回 false 时仍用相同中性提示，不透露账号或邮件发送状态", async () => {
     vi.mocked(trySendMail).mockResolvedValue(false);
     await neutralHop(entrance.action(form()));
+    await expect(mocks.deferred[0]!()).resolves.toBeUndefined();
     expect(trySendMail).toHaveBeenCalledExactlyOnceWith(challenge.email, mail);
+  });
+
+  it("慢速签发与 SMTP 均不在中性响应之前执行，后台任务失败仅记录", async () => {
+    let release: ((value: typeof challenge) => void) | undefined;
+    entrance.issue.mockReturnValueOnce(
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    );
+    await neutralHop(entrance.action(form()));
+    expect(entrance.issue).not.toHaveBeenCalled();
+    const task = mocks.deferred[0]!();
+    expect(entrance.issue).toHaveBeenCalledOnce();
+    expect(trySendMail).not.toHaveBeenCalled();
+    release!(challenge);
+    await task;
+    expect(trySendMail).toHaveBeenCalledOnce();
+
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      entrance.issue.mockRejectedValueOnce(new Error("签发失败"));
+      await neutralHop(entrance.action(form()));
+      await expect(mocks.deferred[1]!()).resolves.toBeUndefined();
+      expect(error).toHaveBeenCalledWith(
+        "[closure] 注销验证邮件后台任务失败:",
+        { kind: entrance.kind },
+        expect.any(Error),
+      );
+    } finally {
+      error.mockRestore();
+    }
   });
 
   it.each([0, 1])("第 %s 个频控桶超限仍用相同中性提示且不签发 challenge", async (blocked) => {

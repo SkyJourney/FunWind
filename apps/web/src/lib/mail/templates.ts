@@ -88,7 +88,7 @@ export function accountDeletionVerificationMail(
 // 安全强制类（security）：后台统一开关，不查用户偏好
 // ============================================================
 
-/** S1/S2a 共用骨架：发生时间字段 + 找回密码按钮 + 安全页脚 */
+/** 密码修改告警骨架：发生时间字段 + 当前邮箱可用的找回密码按钮 + 安全页脚 */
 function securityNoticeWithRecovery(
   spec: { scene: string; title: string; subject: string; paragraph: string; footer: string },
   brand: MailBrand,
@@ -128,18 +128,21 @@ export function emailChangedAlertMail(
   brand: MailBrand = FALLBACK_BRAND,
   opts: { at?: string } = {},
 ): MailMessage {
-  return securityNoticeWithRecovery(
-    {
-      scene: "email-changed-alert",
-      title: "账号邮箱已更换",
-      subject: `邮箱已更换 · ${brand.siteName}`,
-      paragraph: `你的 ${brand.siteName} 账号绑定邮箱刚刚被更换为其它地址，本地址不再接收该账号的邮件。`,
-      footer:
-        "这是账号安全通知，不受通知偏好控制。如果这不是你的操作，请立即用本邮箱通过「找回密码」夺回账号。",
-    },
+  return renderMail({
+    kind: "security",
+    scene: "email-changed-alert",
     brand,
-    opts.at ?? nowBeijingWallTime(),
-  );
+    title: "账号邮箱已更换",
+    subject: `邮箱已更换 · ${brand.siteName}`,
+    paragraphs: [
+      `你的 ${brand.siteName} 账号绑定邮箱刚刚被更换为其它地址，本地址不再接收该账号的邮件。`,
+      "若你仍能登录，请立即在「设置 → 账号安全」修改密码并检查「设置 → 邮箱」。若无法登录，请通过你已知的站点管理联系方式联系站点管理，并保留这封邮件供人工核实；不要向任何人提供密码或验证链接。",
+    ],
+    fields: [{ label: "发生时间", value: `${opts.at ?? nowBeijingWallTime()}（北京时间）` }],
+    action: { href: `${brand.siteUrl}/settings/password`, label: "检查账号安全" },
+    footer:
+      "这是账号安全通知，不受通知偏好控制。旧邮箱已无法通过「找回密码」定位该账号；这封告警不提供自动恢复或撤销换绑功能。",
+  });
 }
 
 /** S2b：邮箱被换绑——发往新邮箱的确认 */

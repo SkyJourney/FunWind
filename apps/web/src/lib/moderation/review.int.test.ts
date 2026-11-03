@@ -10,7 +10,9 @@ import {
   contentReviews,
   DEMO,
   eventOutbox,
+  forums,
   getWebDb,
+  notifications,
   pointLedger,
   posts,
   siteSettings,
@@ -20,6 +22,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import * as outbox from "@/lib/events/outbox";
 import * as dbPackage from "@funwind/db";
 import { loadSubject } from "@/lib/authz/subject";
+import { invalidateAuthzSnapshot } from "@/lib/authz/snapshot";
 import type { Subject } from "@/lib/authz/types";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import {
@@ -30,7 +33,8 @@ import {
   listReviewPage,
   rejectReview,
 } from "./review";
-import { createThread } from "@/lib/posting/service";
+import { createReply, createThread } from "@/lib/posting/service";
+import { lockUserStats } from "@/lib/locks";
 
 let tdb: TempDb;
 let admin: Subject;
@@ -126,6 +130,130 @@ describe.skipIf(skipDb)("审核动作（M9）", () => {
     expect(earns.length).toBeGreaterThanOrEqual(1);
   });
 
+  it.each(["deleted", "hidden", "visible"] as const)(
+    "过期 approve：事务外读到 pending，但锁内已变成 %s 时不得恢复或补发事件",
+    async (state) => {
+      const { threadId, postId } = await seedPendingThread();
+      const runtimeDb = db();
+      const originalTransaction = runtimeDb.transaction.bind(runtimeDb);
+      const beforeReviews = await listContentReviews(postId);
+      const beforeEvents = await db().select().from(eventOutbox);
+      const beforeAudits = await db().select().from(auditLog);
+      const locked = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      const writer = originalTransaction(async (tx) => {
+        await lockUserStats(tx, DEMO.xiaoyi);
+        await tx
+          .select({ id: threads.id })
+          .from(threads)
+          .where(eq(threads.id, threadId))
+          .for("update");
+        await tx.select({ id: posts.id }).from(posts).where(eq(posts.id, postId)).for("update");
+        await tx.update(posts).set({ state }).where(eq(posts.id, postId));
+        await tx.update(threads).set({ state }).where(eq(threads.id, threadId));
+        locked.resolve();
+        await release.promise;
+      });
+      await locked.promise;
+      // 只观察事务入口；读、锁、迁移及回滚仍全部使用真实 MySQL 事务。
+      vi.spyOn(dbPackage, "getWebDb").mockReturnValue(runtimeDb);
+      const entered = Promise.withResolvers<void>();
+      vi.spyOn(runtimeDb, "transaction").mockImplementation((fn, options) => {
+        entered.resolve();
+        return originalTransaction(fn, options);
+      });
+      const approval = approveReview(admin, postId, ACTOR);
+      try {
+        await entered.promise;
+        release.resolve();
+        await writer;
+        expect(await approval).toMatchObject({ ok: false, code: "bad_state" });
+        expect(await postState(postId)).toBe(state);
+        expect((await db().select().from(threads).where(eq(threads.id, threadId)))[0]!.state).toBe(
+          state,
+        );
+        expect(await listContentReviews(postId)).toEqual(beforeReviews);
+        expect(await db().select().from(eventOutbox)).toEqual(beforeEvents);
+        expect(await db().select().from(auditLog)).toEqual(beforeAudits);
+      } finally {
+        release.resolve();
+        await Promise.allSettled([writer, approval]);
+      }
+    },
+  );
+
+  it.each(["other", "thread-author", "self", "none"] as const)(
+    "approve 引用回帖 %s：outbox 保存引用对象并由真实消费者通知正确用户",
+    async (targetKind) => {
+      const host = await createThread(admin, {
+        forumId: REVIEW_FORUM,
+        title: `审核引用-${targetKind}`,
+        source: "宿主正文",
+      });
+      if (!host.ok) throw new Error(host.message);
+      const author = await loadSubject(DEMO.xiaoyi);
+      let target: { postId: number; authorId: number; floor: number } | undefined;
+      if (targetKind === "thread-author")
+        target = { postId: host.postId, authorId: DEMO.admin, floor: 1 };
+      else if (targetKind !== "none") {
+        const targetAuthor = targetKind === "self" ? author : await loadSubject(DEMO.member);
+        const result = await createReply(targetAuthor, {
+          threadId: host.threadId,
+          source: `被引用-${targetKind}`,
+        });
+        if (!result.ok) throw new Error(result.message);
+        expect(await approveReview(admin, result.postId, ACTOR)).toEqual({ ok: true });
+        target = { postId: result.postId, authorId: targetAuthor.userId!, floor: result.floor };
+      }
+      const reply = await createReply(author, {
+        threadId: host.threadId,
+        source: `待审引用回复-${targetKind}`,
+        replyToPostId: target?.postId,
+      });
+      if (!reply.ok) throw new Error(reply.message);
+      expect(reply.state).toBe("pending");
+      expect(await outboxOf("thread.replied", { k: "postId", v: reply.postId })).toHaveLength(0);
+      expect(await approveReview(admin, reply.postId, ACTOR)).toEqual({ ok: true });
+      const events = await outboxOf("thread.replied", { k: "postId", v: reply.postId });
+      expect(events).toHaveLength(1);
+      expect(events[0]!.payload).toEqual({
+        threadId: host.threadId,
+        postId: reply.postId,
+        forumId: REVIEW_FORUM,
+        authorId: DEMO.xiaoyi,
+        threadAuthorId: DEMO.admin,
+        ...(target ? { replyToPostId: target.postId, replyToAuthorId: target.authorId } : {}),
+      });
+      expect(events[0]!.dispatchedAt).not.toBeNull();
+      const notices = await db()
+        .select()
+        .from(notifications)
+        .where(
+          and(eq(notifications.targetType, "thread"), eq(notifications.targetId, host.threadId)),
+        );
+      const direct = notices.filter((notice) => notice.type === "post.reply_to");
+      if (targetKind === "other") {
+        expect(direct).toHaveLength(1);
+        expect(direct[0]).toMatchObject({
+          userId: DEMO.member,
+          actorId: DEMO.xiaoyi,
+          targetType: "thread",
+          targetId: host.threadId,
+          groupKey: `post:${target!.postId}:replied`,
+          data: { floor: target!.floor, count: 1 },
+        });
+      } else expect(direct).toHaveLength(0);
+      const owner = notices.filter((notice) => notice.type === "post.replied");
+      expect(owner).toHaveLength(1);
+      expect(owner[0]).toMatchObject({
+        userId: DEMO.admin,
+        actorId: DEMO.xiaoyi,
+        groupKey: `thread:${host.threadId}:replied`,
+      });
+      expect(notices.some((notice) => notice.userId === DEMO.xiaoyi)).toBe(false);
+    },
+  );
+
   it("reject：pending→rejected、理由进 content_reviews、作者通知带理由、可重提", async () => {
     const { postId } = await seedPendingThread();
     const r = await rejectReview(admin, postId, "与版块主题无关", ACTOR);
@@ -193,6 +321,65 @@ describe.skipIf(skipDb)("审核动作（M9）", () => {
     const byForum = await listReviewPage(admin, { tab: "pending", forumId: REVIEW_FORUM, page: 1 });
     expect(byForum.items.every((i) => i.forumId === REVIEW_FORUM)).toBe(true);
   });
+
+  it.each(["pending", "removed"] as const)(
+    "同时间戳分页：审核 %s 按 createdAt/id 同向排序且跨页无漏行",
+    async (tab) => {
+      const [forum] = await db()
+        .insert(forums)
+        .values({ name: `审核同秒-${tab}`, readPolicy: "public" });
+      const forumId = Number(forum.insertId);
+      await db()
+        .update(forums)
+        .set({ path: `/${forumId}/` })
+        .where(eq(forums.id, forumId));
+      invalidateAuthzSnapshot();
+      const [thread] = await db()
+        .insert(threads)
+        .values({
+          forumId,
+          authorId: DEMO.member,
+          title: `同秒-${tab}`,
+          state: "visible",
+          createdAt: "2026-05-01 10:00:00",
+        });
+      const threadId = Number(thread.insertId);
+      const [first] = await db().insert(posts).values({
+        threadId,
+        authorId: DEMO.member,
+        floor: 1,
+        state: "visible",
+        createdAt: "2026-05-01 10:00:00",
+      });
+      await db()
+        .update(threads)
+        .set({ firstPostId: Number(first.insertId) })
+        .where(eq(threads.id, threadId));
+      const expectedIds: number[] = [];
+      for (let floor = 2; floor <= 24; floor++) {
+        const [reply] = await db()
+          .insert(posts)
+          .values({
+            threadId,
+            authorId: DEMO.member,
+            floor,
+            bodyMd: "同秒回帖",
+            state: tab === "pending" ? "pending" : floor % 2 ? "hidden" : "deleted",
+            createdAt: "2026-05-01 10:00:00",
+          });
+        expectedIds.push(Number(reply.insertId));
+      }
+      const ids: number[] = [];
+      for (let page = 1; page <= 5; page++) {
+        const result = await listReviewPage(admin, { tab, forumId, page, perPage: 5 });
+        expect(result.total).toBe(23);
+        expect(result.totalPages).toBe(5);
+        ids.push(...result.items.map((item) => item.postId));
+      }
+      expect(new Set(ids).size).toBe(23);
+      expect(ids).toEqual(tab === "pending" ? expectedIds : expectedIds.toReversed());
+    },
+  );
 
   it("disableContent：→ disabled 终态（M9.5）——状态、留痕、事件；理由必填与 bad_state", async () => {
     const { postId } = await seedPendingThread();
