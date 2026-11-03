@@ -41,6 +41,15 @@
 - **服务端污染防线（G-05）**：44 个 IO/凭据服务入口添加真实 `server-only` 标记；客户端闭包排除类型导入并识别 Action 序列化边界。Vitest 与 Node/tsx 运维命令单独映射 marker，不切换 React 条件；纯函数与编辑器共享扩展保持可复用。
 - **通知读取**：铃铛 GET 明确返回 `Cache-Control: private, no-store`；未发现现有 CORS/SameSite 配置下的跨站读取利用链，不把只读 GET 无同源检查误记为 CSRF。已读 POST 的同源、身份及输入检查保留并补回归。
 
+### Changed（审查批次 4：重复消减、抽象收敛与大文件拆分）
+
+- **写路径骨架**：审核四动作抽 `runModerationAction`（事件在事务尝试内生成并随提交返回，被回滚的尝试不再污染快路径缓存）；发帖/回帖/编辑抽共享提及、门控与附件登记小函数；edit/delete/restore 共用探测→快照→锁后重读前置工具（编辑不取版块锁、恢复不查 canWrite 的既有差异显式保留）；投票读/写路径收口重复上下文加载。
+- **图像管线统一**：表情、板块图与普通上传共用 `lib/uploads/image-asset.ts` 的嗅探→去元数据→尺寸/字节限额→内容寻址落盘管线；files 表三处登记收口为 `upsertFileRecordInTx`（板块图 MIME 改用解码结果，修复 JPEG 的 `jpg` 扩展名反查缺口）；表情上下移抽 `moveWithinList` 纯函数。
+- **纯工具与身份谓词**：`isFutureBeijingDateTime` 合并三处未来时间校验；`forumSelectCols` 14 列单一来源防 schema 漂移；注销可见性谓词 `userNotDeleted`（读侧 completed）/`userNotClosing`（写侧 pending+completed）与 `lockActiveUserInTx` 统一，PM 双用户升序锁等语义例外按函数级豁免。
+- **后台与大文件**：后台 9 页 query/page 解析收口并新增 `AdminTabs`；`positiveIntParam` 统一帖子/版块/主题/用户页与 stream 路由参数解析；主题编辑器 1145→771 行（草稿纯函数、渐变控件、Surface Mock 拆出并单测）；帖子页 503→419 行（PostActionsRow/AttachmentList 服务端组件，锁定附件只计数不读元数据）；注销清理拆 `account-deletion-purge.ts`；`useTitleDraft` 合并双 composer 标题草稿；`ctx.actor` 统一审计操作者（按 auth 泛型收窄 userId，游客保持 null）。
+- **固定守卫（G-11/G-13/G-14）**：图像解码生产唯一出口与身份谓词来源追踪（AST 符号解析，含别名/namespace/barrel/动态导入绕过检测，语义例外按函数级精确豁免）；超限文件行数棘轮（13 个存量超限文件只减不增，新超限文件拒绝）。
+- **门禁实测**：`pnpm verify:all` 全绿（Web 269 文件 / 2709 项，分支覆盖 86.59%）；完整 E2E 生产 378 + dev 8 全绿；jscpd 由 1998 行 / 212 克隆下压至 **1365 行 / 156 克隆**（未上调 2005/214 基线）。
+
 ### Fixed（M10.6c：双轨密码默认迁移接线）
 
 - `pnpm migrate` 现于 `users` 后默认运行 `legacy-password`；`pnpm migrate users` 自动联动，保留独立补跑命令。旧库仍只读，只把有效 phpwind MD5+salt 材料写入 `legacy_password_hash` / `legacy_password_pending`，现代 `password_hash` 仍只存 Argon2id。

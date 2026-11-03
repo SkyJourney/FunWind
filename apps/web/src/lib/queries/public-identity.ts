@@ -1,8 +1,9 @@
 import "server-only";
 
-import { and, asc, eq, isNull, notExists, or, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 import { cache } from "react";
-import { accountDeletionRequests, getWebDb, roles, userRoles, users } from "@funwind/db";
+import { getWebDb, roles, userRoles, users } from "@funwind/db";
+import { userNotDeleted } from "@/lib/identity-expr";
 
 export interface PublicRoleIdentity {
   key: string;
@@ -21,21 +22,10 @@ export const publicRolesOf = cache(async (userId: number): Promise<PublicRoleIde
     .where(
       and(
         eq(userRoles.userId, userId),
-        eq(users.state, "active"),
+        userNotDeleted(users.id, users.state),
         eq(roles.kind, "custom"),
         eq(roles.isPublic, true),
         or(isNull(userRoles.expiresAt), sql`${userRoles.expiresAt} > NOW()`),
-        notExists(
-          getWebDb()
-            .select({ id: accountDeletionRequests.id })
-            .from(accountDeletionRequests)
-            .where(
-              and(
-                eq(accountDeletionRequests.userId, users.id),
-                eq(accountDeletionRequests.status, "completed"),
-              ),
-            ),
-        ),
       ),
     )
     .orderBy(asc(userRoles.scopeId), asc(roles.name))

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/authz/require-admin";
-import { buildAdminQuery } from "@/lib/admin/query";
+import { buildAdminQuery, parseAdminPage } from "@/lib/admin/query";
 import { pageBounds } from "@/lib/paging";
 import {
   MAIL_KINDS,
@@ -30,6 +30,7 @@ export default async function AdminMailPage({ searchParams }: Params) {
   await requireAdmin("admin.logs");
   const sp = await searchParams;
   const filter = parseEmailLogFilter(sp);
+  filter.page = parseAdminPage(sp.page);
   filter.limit = PER_PAGE;
 
   const [{ items, total }, summary] = await Promise.all([

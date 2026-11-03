@@ -10,6 +10,9 @@ import {
   type ContentStateFilter,
 } from "@/lib/moderation/contents";
 import { fmtDateTime } from "@/lib/admin/format";
+import { buildAdminQuery, parseAdminPage } from "@/lib/admin/query";
+import { AdminTabs } from "@/components/admin/admin-tabs";
+import { AdminFilterBar } from "@/components/admin/admin-filter-bar";
 import { AdminFlash } from "@/components/admin/admin-flash";
 import { ForumSelect } from "@/components/admin/forum-select";
 import { Pagination } from "@/components/content/pagination";
@@ -83,7 +86,7 @@ export default async function AdminContentsPage({
   const state = STATE_TABS.some((t) => t.key === sp.state)
     ? (sp.state as ContentStateFilter)
     : "all";
-  const page = Number(sp.page ?? "1") || 1;
+  const page = parseAdminPage(sp.page, "number-or-one");
 
   // 作用域：site.admin / admin.recycle 看全站；版主看所辖版块
   const scopeForumIds = isSiteAdmin.allowed || hasRecycle.allowed ? null : moderated;
@@ -102,19 +105,14 @@ export default async function AdminContentsPage({
     scopeForumIds,
   });
 
-  const baseQuery = (over: Record<string, string>) => {
-    const p = new URLSearchParams();
-    if (kind === "reply") p.set("kind", "reply");
-    if (q) p.set("q", q);
-    if (forumId) p.set("forum", String(forumId));
-    if (state !== "all") p.set("state", state);
-    for (const [k, v] of Object.entries(over)) {
-      if (v) p.set(k, v);
-      else p.delete(k);
-    }
-    const qs = p.toString();
-    return `/admin/contents${qs ? `?${qs}` : ""}`;
+  const query = {
+    ...(kind === "reply" ? { kind } : {}),
+    ...(q ? { q } : {}),
+    ...(forumId ? { forum: forumId } : {}),
+    ...(state !== "all" ? { state } : {}),
   };
+  const baseQuery = (over: Record<string, string> = {}) =>
+    buildAdminQuery("/admin/contents", query, over);
 
   return (
     <div className="space-y-4">
@@ -132,43 +130,54 @@ export default async function AdminContentsPage({
       )}
 
       {/* 类型页签（形态已定稿：单菜单 + 页内页签） */}
-      <nav className="flex gap-2 text-sm" aria-label="内容类型">
-        <Link
-          href={baseQuery({ kind: "", page: "" })}
-          className={`flex items-center gap-1.5 rounded-full border px-3 py-1 ${
-            kind === "thread" ? "bg-primary text-primary-foreground" : "hover:bg-accent"
-          }`}
-        >
-          <Files className="size-3.5" aria-hidden /> 主题
-        </Link>
-        <Link
-          href={baseQuery({ kind: "reply", page: "" })}
-          className={`flex items-center gap-1.5 rounded-full border px-3 py-1 ${
-            kind === "reply" ? "bg-primary text-primary-foreground" : "hover:bg-accent"
-          }`}
-        >
-          <MessageSquare className="size-3.5" aria-hidden /> 回帖
-        </Link>
-      </nav>
+      <AdminTabs
+        label="内容类型"
+        activeKey={kind}
+        linkClassName="flex items-center gap-1.5 rounded-full border px-3 py-1"
+        tabs={[
+          {
+            key: "thread",
+            label: (
+              <>
+                <Files className="size-3.5" aria-hidden /> 主题
+              </>
+            ),
+            href: baseQuery({ kind: "", page: "" }),
+          },
+          {
+            key: "reply",
+            label: (
+              <>
+                <MessageSquare className="size-3.5" aria-hidden /> 回帖
+              </>
+            ),
+            href: baseQuery({ kind: "reply", page: "" }),
+          },
+        ]}
+      />
 
       {/* 筛选：状态 + 板块 + 关键词 */}
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <nav className="flex flex-wrap gap-1.5" aria-label="内容状态">
-          {STATE_TABS.map((t) => (
-            <Link
-              key={t.key}
-              href={baseQuery({ state: t.key === "all" ? "" : t.key, page: "" })}
-              className={`rounded-full border px-2.5 py-0.5 text-xs ${
-                state === t.key ? "bg-primary text-primary-foreground" : "hover:bg-accent"
-              }`}
-            >
-              {t.label}
-            </Link>
-          ))}
-        </nav>
-        <form action="/admin/contents" method="get" className="flex flex-wrap items-center gap-1.5">
-          {kind === "reply" && <input type="hidden" name="kind" value="reply" />}
-          {state !== "all" && <input type="hidden" name="state" value={state} />}
+        <AdminTabs
+          label="内容状态"
+          activeKey={state}
+          className="flex flex-wrap gap-1.5"
+          linkClassName="rounded-full border px-2.5 py-0.5 text-xs"
+          tabs={STATE_TABS.map((t) => ({
+            ...t,
+            href: baseQuery({ state: t.key === "all" ? "" : t.key, page: "" }),
+          }))}
+        />
+        <AdminFilterBar
+          action="/admin/contents"
+          method="get"
+          className="flex flex-wrap items-center gap-1.5"
+          submitClassName="rounded-lg border px-2.5 py-1 text-xs hover:bg-accent"
+          hidden={{
+            kind: kind === "reply" ? "reply" : undefined,
+            state: state !== "all" ? state : undefined,
+          }}
+        >
           <ForumSelect
             name="forum"
             label="按板块筛选"
@@ -182,10 +191,7 @@ export default async function AdminContentsPage({
             placeholder={kind === "thread" ? "标题关键词" : "正文 / 标题关键词"}
             className="w-40 rounded-lg border bg-background px-2.5 py-1 text-xs"
           />
-          <button type="submit" className="rounded-lg border px-2.5 py-1 text-xs hover:bg-accent">
-            筛选
-          </button>
-        </form>
+        </AdminFilterBar>
         <span className="text-xs text-muted-foreground">共 {total} 条</span>
       </div>
 

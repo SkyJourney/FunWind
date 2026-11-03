@@ -13,6 +13,26 @@ export function parseDbDateTime(s: string): Date {
   return new Date(hasZone ? iso : `${iso}${BEIJING_OFFSET}`);
 }
 
+/** 严格校验秒级北京墙面时间，拒绝日期溢出；只有晚于 nowMs 的有效时间才返回 true。 */
+export function isFutureBeijingDateTime(value: string, nowMs?: number): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return false;
+  const [year, month, day, hour, minute, second] = match.slice(1).map(Number);
+  const wall = new Date(Date.UTC(year!, month! - 1, day!, hour!, minute!, second!));
+  if (
+    wall.getUTCFullYear() !== year ||
+    wall.getUTCMonth() !== month! - 1 ||
+    wall.getUTCDate() !== day ||
+    wall.getUTCHours() !== hour ||
+    wall.getUTCMinutes() !== minute ||
+    wall.getUTCSeconds() !== second
+  ) {
+    return false;
+  }
+  const instant = parseDbDateTime(value).getTime();
+  return Number.isFinite(instant) && instant > (nowMs ?? Date.now());
+}
+
 /** 北京墙面时间的 DATETIME 字面量（与库内写入/比较语义一致）；atMs 缺省为当前时刻 */
 export function nowBeijingWallTime(atMs: number = Date.now()): string {
   const t = new Date(atMs + 8 * 3600 * 1000);

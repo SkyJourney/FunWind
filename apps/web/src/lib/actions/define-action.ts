@@ -9,6 +9,7 @@ import type { AdminActor } from "@/lib/authz/admin";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { getPasswordChangeUser } from "@/lib/auth/session";
 import type { Subject } from "@/lib/authz/types";
+import type { ConfigActor } from "@/lib/audit";
 import { clientIpFrom } from "@/lib/net/client-ip";
 import { formDataToObject } from "./form-data";
 
@@ -29,11 +30,15 @@ import { formDataToObject } from "./form-data";
 
 export type ActionAuth = "guest" | "user" | "password" | { admin: AdminPermission };
 
-export interface ActionContext {
+type ActionUserId<A extends ActionAuth> = A extends "guest" ? number | null : number;
+
+export interface ActionContext<A extends ActionAuth = ActionAuth> {
   /** 评估主体（游客也有：userId 为 null） */
   subject: Subject;
   /** 当前用户 id；guest 可为 null；user/password/admin 在通过各自门后一定非 null */
-  userId: number | null;
+  userId: ActionUserId<A>;
+  /** 统一审计操作者；沿用当前用户与可信 IP，不额外获取身份或权限 */
+  actor: ConfigActor & { userId: ActionUserId<A>; via: "admin"; ip: string | null };
   /** true 表示仅通过旧密码强制换密受限门，不能被当作普通登录主体 */
   passwordChangeOnly: boolean;
   /** 可信客户端 IP；取不到（直连部署）为 null，此时 IP 级限额应跳过 */
@@ -42,24 +47,24 @@ export interface ActionContext {
   admin?: AdminActor;
 }
 
-export interface RateLimitPolicy<I> {
+export interface RateLimitPolicy<I, A extends ActionAuth = ActionAuth> {
   /** 限额键；返回 null 表示本次不适用（如取不到可信 IP 的 IP 级限额） */
-  key: (ctx: ActionContext, input: I) => string | null;
+  key: (ctx: ActionContext<A>, input: I) => string | null;
   max: number;
   windowMs: number;
   /** 超限时做什么（必须是跳转 / 404，即抛出 Next 控制流异常）。刻意设为必填：不允许"忘了处理" */
-  onLimit: (ctx: ActionContext, input: I) => Promise<never> | never;
+  onLimit: (ctx: ActionContext<A>, input: I) => Promise<never> | never;
 }
 
-export interface ActionDef<I> {
+export interface ActionDef<I, A extends ActionAuth = ActionAuth> {
   /** 动作名（命名空间风格，如 gate.unlock）：用于日志与测试 */
   name: string;
-  auth: ActionAuth;
+  auth: A;
   /** 缺省表示不需要输入（如登出） */
   input?: ZodType<I>;
-  rateLimit?: RateLimitPolicy<I>[];
+  rateLimit?: RateLimitPolicy<I, A>[];
   /** 业务体：用 redirect() / notFound() 收尾（抛出），或正常返回（页面不跳转） */
-  run: (ctx: ActionContext, input: I, formData: FormData) => Promise<void>;
+  run: (ctx: ActionContext<A>, input: I, formData: FormData) => Promise<void>;
 }
 
 /** 可注入的依赖：单测替换；真实导出的 defineAction 用下面的 realDeps */
@@ -84,8 +89,8 @@ const realDeps: ActionDeps = {
 };
 
 export function createDefineAction(deps: ActionDeps) {
-  return function defineAction<I = undefined>(
-    def: ActionDef<I>,
+  return function defineAction<I = undefined, const A extends ActionAuth = ActionAuth>(
+    def: ActionDef<I, A>,
   ): (formData: FormData) => Promise<void> {
     return async function action(formData: FormData): Promise<void> {
       // 1. 鉴权 —— admin 先于一切（含读取表单、取主体）：入口的第一个 await 就是它
@@ -106,11 +111,15 @@ export function createDefineAction(deps: ActionDeps) {
         redirect(deps.loginPath);
       }
       if (def.auth === "password" && userId === null) redirect(deps.loginPath);
-      const ctx: ActionContext = {
+      const ip = admin ? admin.ip : await deps.getIp();
+      // 登录门已排除非 guest 的空用户；泛型条件类型在运行时不能随 auth 分支自动收窄。
+      const actionUserId = userId as ActionContext<A>["actor"]["userId"];
+      const ctx: ActionContext<A> = {
         subject,
-        userId,
+        userId: actionUserId,
+        actor: { userId: actionUserId, via: "admin", ip },
         passwordChangeOnly,
-        ip: admin ? admin.ip : await deps.getIp(),
+        ip,
         admin,
       };
 

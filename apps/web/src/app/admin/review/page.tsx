@@ -8,6 +8,9 @@ import { getModeratedForumIds } from "@/lib/authz/service";
 import { requireModerator } from "@/lib/authz/require-admin";
 import { listReviewPage } from "@/lib/moderation/review";
 import { fmtDateTime } from "@/lib/admin/format";
+import { buildAdminQuery, parseAdminPage } from "@/lib/admin/query";
+import { AdminTabs } from "@/components/admin/admin-tabs";
+import { AdminFilterBar } from "@/components/admin/admin-filter-bar";
 import { ForumSelect } from "@/components/admin/forum-select";
 import { AdminFlash } from "@/components/admin/admin-flash";
 import { Pagination } from "@/components/content/pagination";
@@ -53,7 +56,7 @@ export default async function ReviewPage({ searchParams }: Params) {
   const tab = sp.tab === "removed" ? "removed" : "pending";
   const forumId = Number(sp.forum ?? "0") || undefined;
   const kind = sp.kind === "thread" || sp.kind === "reply" ? sp.kind : undefined;
-  const page = Number(sp.page ?? "1") || 1;
+  const page = parseAdminPage(sp.page, "number-or-one");
 
   const {
     items,
@@ -67,18 +70,13 @@ export default async function ReviewPage({ searchParams }: Params) {
     page,
   });
 
-  const baseQuery = (over: Record<string, string>) => {
-    const p = new URLSearchParams();
-    if (tab !== "pending") p.set("tab", tab);
-    if (forumId) p.set("forum", String(forumId));
-    if (kind) p.set("kind", kind);
-    for (const [k, v] of Object.entries(over)) {
-      if (v) p.set(k, v);
-      else p.delete(k);
-    }
-    const qs = p.toString();
-    return `/admin/review${qs ? `?${qs}` : ""}`;
+  const query = {
+    ...(tab !== "pending" ? { tab } : {}),
+    ...(forumId ? { forum: forumId } : {}),
+    ...(kind ? { kind } : {}),
   };
+  const baseQuery = (over: Record<string, string> = {}) =>
+    buildAdminQuery("/admin/review", query, over);
 
   return (
     <div className="space-y-4">
@@ -98,28 +96,23 @@ export default async function ReviewPage({ searchParams }: Params) {
         </AdminFlash>
       )}
 
-      <nav className="flex gap-2 text-sm" aria-label="审核视图">
-        <Link
-          href={baseQuery({ tab: "" })}
-          className={`rounded-full border px-3 py-1 ${tab === "pending" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
-        >
-          待审核
-        </Link>
-        <Link
-          href={baseQuery({ tab: "removed" })}
-          className={`rounded-full border px-3 py-1 ${tab === "removed" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
-        >
-          已删隐内容
-        </Link>
-      </nav>
+      <AdminTabs
+        label="审核视图"
+        activeKey={tab}
+        tabs={[
+          { key: "pending", label: "待审核", href: baseQuery({ tab: "" }) },
+          { key: "removed", label: "已删隐内容", href: baseQuery({ tab: "removed" }) },
+        ]}
+      />
 
       {/* 筛选栏：板块（所辖）+ 类型 */}
-      <form
+      <AdminFilterBar
         action="/admin/review"
         method="get"
-        className="flex flex-wrap items-center gap-2 text-sm"
+        hidden={{ tab: tab !== "pending" ? tab : undefined }}
+        resetHref={tab === "removed" ? "/admin/review?tab=removed" : "/admin/review"}
+        total={<span className="ml-auto text-xs text-muted-foreground">共 {total} 条</span>}
       >
-        {tab !== "pending" && <input type="hidden" name="tab" value={tab} />}
         <ForumSelect
           name="forum"
           label="按板块筛选"
@@ -137,17 +130,7 @@ export default async function ReviewPage({ searchParams }: Params) {
           <option value="thread">主题</option>
           <option value="reply">回帖</option>
         </select>
-        <button type="submit" className="rounded-lg border px-3 py-1.5 hover:bg-accent">
-          筛选
-        </button>
-        <Link
-          href={tab === "removed" ? "/admin/review?tab=removed" : "/admin/review"}
-          className="text-xs text-muted-foreground hover:text-foreground"
-        >
-          重置
-        </Link>
-        <span className="ml-auto text-xs text-muted-foreground">共 {total} 条</span>
-      </form>
+      </AdminFilterBar>
 
       {items.length === 0 ? (
         <EmptyState

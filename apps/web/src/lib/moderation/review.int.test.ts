@@ -16,7 +16,9 @@ import {
   siteSettings,
   threads,
 } from "@funwind/db";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import * as outbox from "@/lib/events/outbox";
+import * as dbPackage from "@funwind/db";
 import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
@@ -78,6 +80,8 @@ beforeAll(async () => {
 afterAll(async () => {
   await tdb?.teardown();
 });
+
+afterEach(() => vi.restoreAllMocks());
 
 describe.skipIf(skipDb)("审核动作（M9）", () => {
   it("approve：pending→visible、content_reviews 落行、补发 thread.created、计数就位、作者积分入账", async () => {
@@ -284,7 +288,93 @@ describe.skipIf(skipDb)("审核动作（M9）", () => {
     expect(history.some((h) => h.decision === "rejected")).toBe(true);
   });
 
-  it("not_found：不存在的帖子；dispatchOutboxRows 失败路径（事务回滚）后无 outbox 残留", async () => {
+  it.each([
+    { name: "approve", state: "pending", run: (id: number) => approveReview(admin, id, ACTOR) },
+    {
+      name: "reject",
+      state: "pending",
+      run: (id: number) => rejectReview(admin, id, "理由", ACTOR),
+    },
+    { name: "hide", state: "visible", run: (id: number) => hidePost(admin, id, "理由", ACTOR) },
+    {
+      name: "disable",
+      state: "pending",
+      run: (id: number) => disableContent(admin, id, "理由", ACTOR),
+    },
+  ])("$name：事务尾部失败整体回滚，死锁重试只派发最终提交事件", async (action) => {
+    const { threadId, postId } = await seedPendingThread();
+    if (action.state === "visible") await approveReview(admin, postId, ACTOR);
+    const runtimeDb = db();
+    vi.spyOn(dbPackage, "getWebDb").mockReturnValue(runtimeDb);
+    const originalTransaction = runtimeDb.transaction.bind(runtimeDb);
+    const originalEnqueue = outbox.enqueueEventInTx;
+    const attempted: outbox.EnqueuedEvent[] = [];
+    const enqueue = vi.spyOn(outbox, "enqueueEventInTx").mockImplementation(async (...args) => {
+      const row = await originalEnqueue(...args);
+      attempted.push(row);
+      return row;
+    });
+    // 收集真实提交后的快路径输入，隔离消费者另开的事务与补派。
+    const dispatch = vi.spyOn(outbox, "dispatchOutboxRows").mockResolvedValue(undefined);
+    const sweep = vi.spyOn(outbox, "sweepPending").mockResolvedValue(undefined);
+    const beforeReviews = await listContentReviews(postId);
+    const beforeEvents = await db().select().from(eventOutbox);
+    const beforeAudits = await db().select().from(auditLog);
+    let attempts = 0;
+    let failure: Error | null = new Error("事务提交前故障");
+    vi.spyOn(runtimeDb, "transaction").mockImplementation((fn, options) =>
+      originalTransaction(async (tx) => {
+        const result = await fn(tx);
+        attempts++;
+        if (failure) {
+          const error = failure;
+          failure = null;
+          throw error;
+        }
+        return result;
+      }, options),
+    );
+
+    // 所有业务、审核历史、审计与入队操作执行完后失败，必须一并回滚。
+    await expect(action.run(postId)).rejects.toThrow("事务提交前故障");
+    expect(attempts).toBe(1);
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(sweep).not.toHaveBeenCalled();
+    expect(await postState(postId)).toBe(action.state);
+    expect((await db().select().from(threads).where(eq(threads.id, threadId)))[0]!.state).toBe(
+      action.state,
+    );
+    expect(await listContentReviews(postId)).toEqual(beforeReviews);
+    expect(await db().select().from(eventOutbox)).toEqual(beforeEvents);
+    expect(await db().select().from(auditLog)).toEqual(beforeAudits);
+
+    attempted.length = 0;
+    enqueue.mockClear();
+    attempts = 0;
+    failure = Object.assign(new Error("注入死锁"), { code: "ER_LOCK_DEADLOCK", errno: 1213 });
+    expect(await action.run(postId)).toEqual({ ok: true });
+    expect(attempts).toBe(2);
+    const perAttempt = action.name === "approve" ? 2 : 1;
+    expect(attempted).toHaveLength(perAttempt * 2);
+    expect(dispatch).toHaveBeenCalledOnce();
+    const dispatched = dispatch.mock.calls[0]![0];
+    expect(dispatched.map((row) => row.id)).toEqual(
+      attempted.slice(perAttempt).map((row) => row.id),
+    );
+    const committedIds = (await db().select({ id: eventOutbox.id }).from(eventOutbox)).map(
+      (row) => row.id,
+    );
+    expect(dispatched.every((row) => committedIds.includes(row.id))).toBe(true);
+    expect(attempted.slice(0, perAttempt).every((row) => !committedIds.includes(row.id))).toBe(
+      true,
+    );
+    expect(await listContentReviews(postId)).toHaveLength(
+      beforeReviews.length + (action.name === "hide" ? 0 : 1),
+    );
+    expect(await db().select().from(auditLog)).toHaveLength(beforeAudits.length + 1);
+  });
+
+  it("not_found：不存在的帖子", async () => {
     expect(await approveReview(admin, 99999999, ACTOR)).toMatchObject({
       ok: false,
       code: "not_found",

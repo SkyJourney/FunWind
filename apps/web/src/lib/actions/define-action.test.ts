@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
 import { getModules } from "@/modules/kernel/registry";
@@ -7,6 +7,7 @@ import { GUEST_SUBJECT, type Subject } from "@/lib/authz/types";
 import {
   createDefineAction,
   defineAction as realDefineAction,
+  type ActionContext,
   type ActionDeps,
 } from "./define-action";
 
@@ -66,9 +67,10 @@ describe("鉴权", () => {
     const run = vi.fn(async () => undefined);
     await define({ name: "t", auth: "guest", run })(form());
     expect(run).toHaveBeenCalledOnce();
-    const ctx = (run.mock.calls[0] as unknown[])[0] as { userId: number | null; ip: string | null };
+    const ctx = (run.mock.calls[0] as unknown[])[0] as ActionContext;
     expect(ctx.userId).toBeNull();
     expect(ctx.ip).toBe("203.0.113.9");
+    expect(ctx.actor).toEqual({ userId: null, via: "admin", ip: ctx.ip });
     expect(deps).toBeTruthy();
   });
 
@@ -94,7 +96,9 @@ describe("鉴权", () => {
     const member = setup();
     const runB = vi.fn(async () => undefined);
     await member.define({ name: "t", auth: "user", run: runB })(form());
-    expect(((runB.mock.calls[0] as unknown[])[0] as { userId: number }).userId).toBe(7);
+    const ctx = (runB.mock.calls[0] as unknown[])[0] as ActionContext<"user">;
+    expect(ctx.userId).toBe(7);
+    expect(ctx.actor).toEqual({ userId: 7, via: "admin", ip: ctx.ip });
   });
 
   it("password：普通登录用户或旧密码待换密受限会话可执行，游客不可执行", async () => {
@@ -114,7 +118,12 @@ describe("鉴权", () => {
     const restrictedRun = vi.fn(async () => undefined);
     await restricted.define({ name: "t", auth: "password", run: restrictedRun })(form());
     expect(restrictedRun).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: 42, passwordChangeOnly: true, subject: GUEST_SUBJECT }),
+      expect.objectContaining({
+        userId: 42,
+        actor: { userId: 42, via: "admin", ip: "203.0.113.9" },
+        passwordChangeOnly: true,
+        subject: GUEST_SUBJECT,
+      }),
       undefined,
       expect.any(FormData),
     );
@@ -164,16 +173,83 @@ describe("鉴权", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
-  it("admin：ctx 的 userId / ip / admin 来自 requireAdmin 的结果", async () => {
-    const { define } = setup();
+  it.each(["198.51.100.1", null])(
+    "admin：操作者沿用 requireAdmin 的用户与 IP %s，不重复获取 IP 或权限",
+    async (ip) => {
+      const requireAdmin = vi.fn(async () => ({ userId: 99, ip }));
+      const getSubject = vi.fn(async () => MEMBER);
+      const getIp = vi.fn(async () => "203.0.113.9");
+      const { define } = setup({ requireAdmin, getSubject, getIp });
+      const run = vi.fn(async () => undefined);
+      await define({ name: "t", auth: { admin: "admin.roles" }, run })(form());
+      const ctx = (run.mock.calls[0] as unknown[])[0] as ActionContext;
+      expect(ctx).toMatchObject({
+        userId: 99,
+        ip,
+        admin: { userId: 99, ip },
+        actor: { userId: 99, via: "admin", ip },
+      });
+      expect(requireAdmin).toHaveBeenCalledExactlyOnceWith("admin.roles");
+      expect(getSubject).toHaveBeenCalledOnce();
+      expect(getIp).not.toHaveBeenCalled();
+    },
+  );
+
+  it("guest：登录访客保留用户 id，缺失可信 IP 保持 null，操作者不触发额外依赖", async () => {
+    const getSubject = vi.fn(async () => MEMBER);
+    const getIp = vi.fn(async () => null);
+    const requireAdmin = vi.fn(async () => ({ userId: 99, ip: "198.51.100.1" }));
+    const getPasswordChangeUserId = vi.fn(async () => null);
+    const { define } = setup({ getSubject, getIp, requireAdmin, getPasswordChangeUserId });
     const run = vi.fn(async () => undefined);
-    await define({ name: "t", auth: { admin: "admin.roles" }, run })(form());
-    const ctx = (run.mock.calls[0] as unknown[])[0] as {
-      userId: number;
-      ip: string;
-      admin: { userId: number };
-    };
-    expect(ctx).toMatchObject({ userId: 99, ip: "198.51.100.1", admin: { userId: 99 } });
+    await define({ name: "t", auth: "guest", run })(form());
+    const ctx = (run.mock.calls[0] as unknown[])[0] as ActionContext;
+    expect(ctx.actor).toEqual({ userId: 7, via: "admin", ip: null });
+    expect(ctx.actor.ip).toBe(ctx.ip);
+    expect(getSubject).toHaveBeenCalledOnce();
+    expect(getIp).toHaveBeenCalledOnce();
+    expect(getPasswordChangeUserId).not.toHaveBeenCalled();
+    expect(requireAdmin).not.toHaveBeenCalled();
+  });
+
+  it("操作者在频控前构造，同一引用交给频控与业务体，登录声明收窄用户类型", async () => {
+    const { define } = setup();
+    let actor: ActionContext["actor"] | undefined;
+    await define({
+      name: "t",
+      auth: "user",
+      rateLimit: [
+        {
+          key: (ctx) => {
+            expectTypeOf(ctx.userId).toEqualTypeOf<number>();
+            expectTypeOf(ctx.actor.userId).toEqualTypeOf<number>();
+            actor = ctx.actor;
+            return "k";
+          },
+          max: 1,
+          windowMs: 1000,
+          onLimit: () => redirect("/limited"),
+        },
+      ],
+      async run(ctx) {
+        expect(ctx.actor).toBe(actor);
+        expect(ctx.actor).toEqual({ userId: 7, via: "admin", ip: ctx.ip });
+      },
+    })(form());
+    define({
+      name: "guest-types",
+      auth: "guest",
+      async run(ctx) {
+        expectTypeOf(ctx.actor.userId).toEqualTypeOf<number | null>();
+      },
+    });
+    define({
+      name: "admin-types",
+      auth: { admin: "admin.roles" },
+      async run(ctx) {
+        expectTypeOf(ctx.actor.userId).toEqualTypeOf<number>();
+      },
+    });
   });
 });
 

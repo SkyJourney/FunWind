@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_STREAM_PAGE, parsePositiveInt, parseStreamPage, withPageParam } from "./page";
+import { MAX_STREAM_PAGE, parseStreamPage, withPageParam } from "./page";
 
 describe("parseStreamPage", () => {
   it("缺省 / 非数字 / 0 / 负数 → 第 1 页", () => {
@@ -15,15 +15,6 @@ describe("parseStreamPage", () => {
   it("超大页码与 Infinity 收束到上限，避免极深偏移", () => {
     expect(parseStreamPage("999999")).toBe(MAX_STREAM_PAGE);
     expect(parseStreamPage("Infinity")).toBe(MAX_STREAM_PAGE);
-  });
-});
-
-describe("parsePositiveInt", () => {
-  it("正整数通过，其余为 undefined", () => {
-    expect(parsePositiveInt("12")).toBe(12);
-    for (const raw of [null, undefined, "", "0", "-1", "1.5", "x"]) {
-      expect(parsePositiveInt(raw)).toBeUndefined();
-    }
   });
 });
 

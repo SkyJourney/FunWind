@@ -19,8 +19,15 @@ export function buildAdminQuery(
   return qs ? `${path}?${qs}` : path;
 }
 
-/** 页码解析：非正整数（缺省 / 脏输入）一律回 1 */
-export function parseAdminPage(raw: string | undefined): number {
+/**
+ * 页码解析：默认拒绝非正整数；既有列表用 number-or-one 保留 Number(raw) || 1 的接受面，
+ * 小数 / 负数 / Infinity 继续交给原服务层的分页策略处理，不在展示层改变取整或夹取行为。
+ */
+export function parseAdminPage(
+  raw: string | undefined,
+  mode: "positive-integer" | "number-or-one" = "positive-integer",
+): number {
   const n = Number(raw ?? "1");
+  if (mode === "number-or-one") return n || 1;
   return Number.isInteger(n) && n > 0 ? n : 1;
 }

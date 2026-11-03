@@ -1,6 +1,7 @@
 import { Flame, Home, Layers, Newspaper } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { positiveIntParam } from "@/lib/utils";
 import { checkinAction } from "@/app/actions/checkin";
 import { Slot } from "@/modules/kernel/slot";
 import { FeedCard } from "@/components/content/feed-card";
@@ -25,11 +26,6 @@ export const dynamic = "force-dynamic";
 
 type SearchParams = Promise<{ sec?: string; sort?: string; page?: string }>;
 
-const parseId = (raw: string | undefined): number | undefined => {
-  const n = Number(raw);
-  return Number.isInteger(n) && n > 0 ? n : undefined;
-};
-
 /**
  * 首页 = 全站内容流（M10.5 S5，D1 列表流定稿）：跨板块混排、分区 chips 过滤、
  * 最新回复/最新发布排序、偏移分页；xl 出右信息栏。板块目录在 /boards（底部 Tab「板块」）。
@@ -37,7 +33,7 @@ const parseId = (raw: string | undefined): number | undefined => {
  */
 export default async function HomePage({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams;
-  const sectionId = parseId(params.sec);
+  const sectionId = positiveIntParam(params.sec) ?? undefined;
   const sort = params.sort === "new" ? ("new" as const) : ("last" as const);
   const page = Math.max(1, Math.trunc(Number(params.page)) || 1);
 

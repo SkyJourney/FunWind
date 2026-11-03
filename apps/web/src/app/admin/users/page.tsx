@@ -3,6 +3,7 @@ import { Users } from "lucide-react";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { listAdminUsersPage } from "@/lib/authz/restrictions-admin";
 import { fmtDateTime } from "@/lib/admin/format";
+import { buildAdminQuery, parseAdminPage } from "@/lib/admin/query";
 import { AdminFilterBar } from "@/components/admin/admin-filter-bar";
 import { Pagination } from "@/components/content/pagination";
 import { EmptyState } from "@/components/empty-state";
@@ -56,7 +57,7 @@ export default async function AdminUsersPage({ searchParams }: Params) {
   const sort = SORTS.some((s) => s.key === sp.sort)
     ? (sp.sort as "recent" | "id" | "threads")
     : "recent";
-  const page = Number(sp.page ?? "1") || 1;
+  const page = parseAdminPage(sp.page, "number-or-one");
 
   const {
     items,
@@ -65,19 +66,12 @@ export default async function AdminUsersPage({ searchParams }: Params) {
     totalPages,
   } = await listAdminUsersPage({ q, status, lifecycle, credential, sort }, page);
 
-  const baseQuery = (over: Record<string, string>) => {
-    const p = new URLSearchParams();
-    if (q) p.set("q", q);
-    if (status !== "all") p.set("status", status);
-    if (lifecycle !== "active") p.set("lifecycle", lifecycle);
-    if (credential !== "all") p.set("credential", credential);
-    if (sort !== "recent") p.set("sort", sort);
-    for (const [k, v] of Object.entries(over)) {
-      if (v) p.set(k, v);
-      else p.delete(k);
-    }
-    const qs = p.toString();
-    return `/admin/users${qs ? `?${qs}` : ""}`;
+  const query = {
+    q,
+    status: status !== "all" ? status : undefined,
+    lifecycle: lifecycle !== "active" ? lifecycle : undefined,
+    credential: credential !== "all" ? credential : undefined,
+    sort: sort !== "recent" ? sort : undefined,
   };
 
   return (
@@ -234,7 +228,11 @@ export default async function AdminUsersPage({ searchParams }: Params) {
         </div>
       )}
 
-      <Pagination basePath={baseQuery({})} page={safePage} totalPages={totalPages} />
+      <Pagination
+        basePath={buildAdminQuery("/admin/users", query)}
+        page={safePage}
+        totalPages={totalPages}
+      />
     </div>
   );
 }

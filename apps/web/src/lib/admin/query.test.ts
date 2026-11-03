@@ -23,6 +23,22 @@ describe("buildAdminQuery", () => {
       "/admin/users?q=%E5%A4%9C%E9%9B%A8",
     );
   });
+
+  it("已存在键原位覆盖，新键追加；默认键须由页面省略而非预留 undefined", () => {
+    expect(
+      buildAdminQuery("/admin/review", { forum: 7, kind: "reply" }, { tab: "removed", page: "" }),
+    ).toBe("/admin/review?forum=7&kind=reply&tab=removed");
+    expect(buildAdminQuery("/admin/review", { tab: "removed", forum: 7 }, { tab: "pending" })).toBe(
+      "/admin/review?tab=pending&forum=7",
+    );
+  });
+
+  it("删除旧筛项不残留空值；数字 page=1 省略，字符串 page=1 沿用原约定", () => {
+    expect(buildAdminQuery("/admin/poll", { tab: "open", forum: 7 }, { tab: "", page: 1 })).toBe(
+      "/admin/poll?forum=7",
+    );
+    expect(buildAdminQuery("/admin/poll", {}, { page: "1" })).toBe("/admin/poll?page=1");
+  });
 });
 
 describe("parseAdminPage", () => {
@@ -32,5 +48,25 @@ describe("parseAdminPage", () => {
     expect(parseAdminPage("0")).toBe(1);
     expect(parseAdminPage("-3")).toBe(1);
     expect(parseAdminPage("7")).toBe(7);
+  });
+
+  it.each([
+    [undefined, 1, 1],
+    ["", 1, 1],
+    ["bad", 1, 1],
+    ["NaN", 1, 1],
+    ["0", 1, 1],
+    ["-3", 1, -3],
+    ["2.9", 1, 2.9],
+    ["Infinity", 1, Infinity],
+    ["-Infinity", 1, -Infinity],
+    ["01", 1, 1],
+    ["+1", 1, 1],
+    ["1e2", 100, 100],
+    ["0x10", 16, 16],
+  ])("%s 的严格与旧列表策略互不混淆", (raw, strict, legacy) => {
+    expect(parseAdminPage(raw)).toBe(strict);
+    expect(parseAdminPage(raw, "number-or-one")).toBe(legacy);
+    expect(parseAdminPage(raw, "number-or-one")).toBe(Number(raw ?? "1") || 1);
   });
 });

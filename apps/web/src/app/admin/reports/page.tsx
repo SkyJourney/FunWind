@@ -4,6 +4,9 @@ import { requireAdmin } from "@/lib/authz/require-admin";
 import { dismissReportBulkAction, handleReportAction } from "./actions";
 import { listReportPage } from "@/lib/reports/service";
 import { fmtDateTime } from "@/lib/admin/format";
+import { buildAdminQuery, parseAdminPage } from "@/lib/admin/query";
+import { AdminTabs } from "@/components/admin/admin-tabs";
+import { AdminFilterBar } from "@/components/admin/admin-filter-bar";
 import { ForumSelect } from "@/components/admin/forum-select";
 import { AdminFlash } from "@/components/admin/admin-flash";
 import { Pagination } from "@/components/content/pagination";
@@ -36,7 +39,7 @@ export default async function AdminReportsPage({ searchParams }: Params) {
     ? (sp.tab as "pending" | "resolved" | "dismissed")
     : "pending";
   const forumId = Number(sp.forum ?? "0") || undefined;
-  const page = Number(sp.page ?? "1") || 1;
+  const page = parseAdminPage(sp.page, "number-or-one");
 
   const {
     items,
@@ -45,17 +48,9 @@ export default async function AdminReportsPage({ searchParams }: Params) {
     totalPages,
   } = await listReportPage({ status: tab, forumId, page });
 
-  const baseQuery = (over: Record<string, string>) => {
-    const p = new URLSearchParams();
-    if (tab !== "pending") p.set("tab", tab);
-    if (forumId) p.set("forum", String(forumId));
-    for (const [k, v] of Object.entries(over)) {
-      if (v) p.set(k, v);
-      else p.delete(k);
-    }
-    const qs = p.toString();
-    return `/admin/reports${qs ? `?${qs}` : ""}`;
-  };
+  const query = { ...(tab !== "pending" ? { tab } : {}), ...(forumId ? { forum: forumId } : {}) };
+  const baseQuery = (over: Record<string, string> = {}) =>
+    buildAdminQuery("/admin/reports", query, over);
 
   return (
     <div className="space-y-4">
@@ -71,24 +66,22 @@ export default async function AdminReportsPage({ searchParams }: Params) {
         </AdminFlash>
       )}
 
-      <nav className="flex gap-2 text-sm" aria-label="举报状态">
-        {TABS.map((t) => (
-          <Link
-            key={t.key}
-            href={baseQuery({ tab: t.key === "pending" ? "" : t.key, page: "" })}
-            className={`rounded-full border px-3 py-1 ${tab === t.key ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
-          >
-            {t.label}
-          </Link>
-        ))}
-      </nav>
+      <AdminTabs
+        label="举报状态"
+        activeKey={tab}
+        tabs={TABS.map((t) => ({
+          ...t,
+          href: baseQuery({ tab: t.key === "pending" ? "" : t.key, page: "" }),
+        }))}
+      />
 
-      <form
+      <AdminFilterBar
         action="/admin/reports"
         method="get"
-        className="flex flex-wrap items-center gap-2 text-sm"
+        hidden={{ tab: tab !== "pending" ? tab : undefined }}
+        resetHref={tab === "pending" ? "/admin/reports" : `/admin/reports?tab=${tab}`}
+        total={<span className="ml-auto text-xs text-muted-foreground">共 {total} 条</span>}
       >
-        {tab !== "pending" && <input type="hidden" name="tab" value={tab} />}
         <ForumSelect
           name="forum"
           label="按板块筛选"
@@ -96,17 +89,7 @@ export default async function AdminReportsPage({ searchParams }: Params) {
           allLabel="全部板块"
           className="rounded-lg border border-input bg-background px-2 py-1.5 text-sm"
         />
-        <button type="submit" className="rounded-lg border px-3 py-1.5 hover:bg-accent">
-          筛选
-        </button>
-        <Link
-          href={tab === "pending" ? "/admin/reports" : `/admin/reports?tab=${tab}`}
-          className="text-xs text-muted-foreground hover:text-foreground"
-        >
-          重置
-        </Link>
-        <span className="ml-auto text-xs text-muted-foreground">共 {total} 条</span>
-      </form>
+      </AdminFilterBar>
 
       {items.length === 0 ? (
         <p className="rounded-xl border bg-card p-8 text-center text-sm text-muted-foreground">

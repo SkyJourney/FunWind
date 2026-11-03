@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { contentReviews, getWebDb, posts, threads, users } from "@funwind/db";
-import type { ConfigActor } from "@/lib/audit";
+import type { ConfigActor, DbTx } from "@/lib/audit";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import { transitionContent } from "@/lib/posting/transition";
@@ -16,7 +16,7 @@ import {
 } from "@/lib/events/outbox";
 
 /**
- * 内容审核动作（M9，docs/milestones/M9-admin.md §2）：approve / reject / hide。
+ * 内容审核动作（M9，docs/milestones/M9-admin.md §2）：approve / reject / hide / disable。
  * 权限=forum.moderate（作用域=帖子所在版块）；状态迁移全部走 transitionContent（计数/审计/幂等唯一入口）；
  * content_reviews 与审计同事务；事件经事务性 outbox。
  *
@@ -66,11 +66,46 @@ const checkReason = (
   return { ok: true };
 };
 
-/** 审核通过：pending → visible；写 content_reviews(approved)；补发 thread.created/thread.replied + content.moderated */
-export async function approveReview(
+type ModerationAction = "approve" | "reject" | "hide" | "disable";
+type ModerationSpec = {
+  to: "visible" | "rejected" | "hidden" | "disabled";
+  decision?: "approved" | "rejected" | "disabled";
+  stateError: (state: string) => string | null;
+};
+
+const MODERATION_ACTIONS: Record<ModerationAction, ModerationSpec> = {
+  approve: {
+    to: "visible",
+    decision: "approved",
+    stateError: (state) =>
+      state === "pending" ? null : `当前状态是 ${state}，只有待审内容可以通过`,
+  },
+  reject: {
+    to: "rejected",
+    decision: "rejected",
+    stateError: (state) =>
+      state === "pending" ? null : `当前状态是 ${state}，只有待审内容可以驳回`,
+  },
+  hide: {
+    to: "hidden",
+    stateError: (state) =>
+      state === "visible" ? null : `当前状态是 ${state}，只有可见内容可以屏蔽`,
+  },
+  disable: {
+    to: "disabled",
+    decision: "disabled",
+    stateError: (state) =>
+      state === "disabled" ? "该内容已被封禁" : state === "deleted" ? "已删除内容不能封禁" : null,
+  },
+};
+
+/** 共用审核流程；先鉴权、再状态、后理由，每次事务尝试只返回本次提交的事件。 */
+async function runModerationAction(
+  action: ModerationAction,
   operator: Subject,
   postId: number,
   actor: ConfigActor,
+  reason?: string,
 ): Promise<ReviewOutcome> {
   if (operator.userId === null) return { ok: false, code: "forbidden", message: "请先登录" };
   const operatorId = operator.userId;
@@ -79,201 +114,121 @@ export async function approveReview(
   if (!(await canModerate(operator, ctx.forumId))) {
     return { ok: false, code: "forbidden", message: "你不是该版块的版主" };
   }
-  if (ctx.postState !== "pending") {
-    return {
-      ok: false,
-      code: "bad_state",
-      message: `当前状态是 ${ctx.postState}，只有待审内容可以通过`,
-    };
+  const spec = MODERATION_ACTIONS[action];
+  const stateError = spec.stateError(ctx.postState);
+  if (stateError) return { ok: false, code: "bad_state", message: stateError };
+  if (action !== "approve") {
+    const reasonCheck = checkReason(reason!);
+    if (!reasonCheck.ok) return reasonCheck;
   }
+  const note = action === "approve" ? "" : reason!.trim();
 
-  const enqueued: EnqueuedEvent[] = [];
   const result = await withDeadlockRetry(() =>
     getWebDb().transaction(async (tx) => {
-      const transition = await transitionContent(tx, postId, "visible", {
+      // 被回滚尝试的事件不进入快路径缓存，也不泄露到下一次重试。
+      const enqueued: EnqueuedEvent[] = [];
+      const transition = await transitionContent(tx, postId, spec.to, {
         actorId: operatorId,
         ip: actor.ip,
         audit: true,
+        ...(action !== "approve" ? { reason: note } : {}),
+        ...(action === "disable" ? { actor: "moderator" as const } : {}),
       });
-      if (!transition.ok) return transition.code === "not_found" ? "not_found" : "bad_state";
-
-      await tx.insert(contentReviews).values({
-        postId,
-        reviewerId: operatorId,
-        decision: "approved",
-        note: "",
-        createdAt: sql`NOW()`,
-      });
-
-      // 补发创建事件（pending 路径从未发过；作者首次获得积分入账）
-      if (transition.kind === "thread") {
+      if (!transition.ok) {
+        return {
+          ok: false as const,
+          code:
+            action === "approve" && transition.code === "not_found"
+              ? ("not_found" as const)
+              : ("bad_state" as const),
+        };
+      }
+      if (spec.decision) {
+        await tx.insert(contentReviews).values({
+          postId,
+          reviewerId: operatorId,
+          decision: spec.decision,
+          note,
+          createdAt: nowBeijingWallTime(),
+        });
+      }
+      if (action === "approve") {
+        // 补发创建事件（pending 路径从未发过；作者首次获得积分入账）。
         enqueued.push(
-          await enqueueEventInTx(
-            tx,
-            "thread.created",
-            {
-              threadId: ctx.threadId,
-              postId,
-              forumId: ctx.forumId,
-              authorId: ctx.authorId,
-              title: ctx.title,
-            },
-            { actorId: ctx.authorId, source: "moderation" },
-          ),
-        );
-      } else {
-        enqueued.push(
-          await enqueueEventInTx(
-            tx,
-            "thread.replied",
-            {
-              threadId: ctx.threadId,
-              postId,
-              forumId: ctx.forumId,
-              authorId: ctx.authorId,
-              threadAuthorId: (await threadAuthor(tx, ctx.threadId)) ?? ctx.authorId,
-            },
-            { actorId: ctx.authorId, source: "moderation" },
-          ),
+          transition.kind === "thread"
+            ? await enqueueEventInTx(
+                tx,
+                "thread.created",
+                {
+                  threadId: ctx.threadId,
+                  postId,
+                  forumId: ctx.forumId,
+                  authorId: ctx.authorId,
+                  title: ctx.title,
+                },
+                { actorId: ctx.authorId, source: "moderation" },
+              )
+            : await enqueueEventInTx(
+                tx,
+                "thread.replied",
+                {
+                  threadId: ctx.threadId,
+                  postId,
+                  forumId: ctx.forumId,
+                  authorId: ctx.authorId,
+                  threadAuthorId: (await threadAuthor(tx, ctx.threadId)) ?? ctx.authorId,
+                },
+                { actorId: ctx.authorId, source: "moderation" },
+              ),
         );
       }
       enqueued.push(
         await enqueueEventInTx(
           tx,
           "content.moderated",
-          { postId, operatorId: operatorId, action: "approve" },
+          { postId, operatorId, action, ...(action !== "approve" ? { reason: note } : {}) },
           { actorId: operatorId, source: "moderation" },
         ),
       );
-      return null;
+      return { ok: true as const, enqueued };
     }, POINTS_TX_OPTIONS),
   );
-  if (result !== null) {
-    return {
-      ok: false,
-      code: result === "not_found" ? "not_found" : "bad_state",
-      message: "状态迁移失败",
-    };
-  }
-  await dispatchOutboxRows(enqueued);
+  if (!result.ok) return { ok: false, code: result.code, message: "状态迁移失败" };
+  await dispatchOutboxRows(result.enqueued);
   await sweepPending();
   return { ok: true };
 }
 
-/** 驳回：pending → rejected；理由必填，写 content_reviews(rejected, note) 与审计 */
+/** 审核通过：pending → visible；写审核记录，补发创建事件与审核事件。 */
+export async function approveReview(
+  operator: Subject,
+  postId: number,
+  actor: ConfigActor,
+): Promise<ReviewOutcome> {
+  return runModerationAction("approve", operator, postId, actor);
+}
+
+/** 驳回：pending → rejected；理由必填，审核记录与审计同事务。 */
 export async function rejectReview(
   operator: Subject,
   postId: number,
   reason: string,
   actor: ConfigActor,
 ): Promise<ReviewOutcome> {
-  if (operator.userId === null) return { ok: false, code: "forbidden", message: "请先登录" };
-  const operatorId = operator.userId;
-  const ctx = await loadPostContext(postId);
-  if (!ctx) return { ok: false, code: "not_found", message: "帖子不存在" };
-  if (!(await canModerate(operator, ctx.forumId))) {
-    return { ok: false, code: "forbidden", message: "你不是该版块的版主" };
-  }
-  if (ctx.postState !== "pending") {
-    return {
-      ok: false,
-      code: "bad_state",
-      message: `当前状态是 ${ctx.postState}，只有待审内容可以驳回`,
-    };
-  }
-  const reasonCheck = checkReason(reason);
-  if (!reasonCheck.ok) return { ok: false, code: reasonCheck.code, message: reasonCheck.message };
-
-  const enqueued: EnqueuedEvent[] = [];
-  const result = await withDeadlockRetry(() =>
-    getWebDb().transaction(async (tx) => {
-      const transition = await transitionContent(tx, postId, "rejected", {
-        actorId: operatorId,
-        ip: actor.ip,
-        reason: reason.trim(),
-        audit: true,
-      });
-      if (!transition.ok) return "bad_state";
-
-      await tx.insert(contentReviews).values({
-        postId,
-        reviewerId: operatorId,
-        decision: "rejected",
-        note: reason.trim(),
-        createdAt: sql`NOW()`,
-      });
-      enqueued.push(
-        await enqueueEventInTx(
-          tx,
-          "content.moderated",
-          { postId, operatorId: operatorId, action: "reject", reason: reason.trim() },
-          { actorId: operatorId, source: "moderation" },
-        ),
-      );
-      return null;
-    }, POINTS_TX_OPTIONS),
-  );
-  if (result !== null) return { ok: false, code: "bad_state", message: "状态迁移失败" };
-  await dispatchOutboxRows(enqueued);
-  await sweepPending();
-  return { ok: true };
+  return runModerationAction("reject", operator, postId, actor, reason);
 }
 
-/** 屏蔽：visible → hidden（版主理由必填）——M6 以来 hidden 的第一个写入口 */
+/** 屏蔽：visible → hidden；版主理由必填，不新增审核历史行。 */
 export async function hidePost(
   operator: Subject,
   postId: number,
   reason: string,
   actor: ConfigActor,
 ): Promise<ReviewOutcome> {
-  if (operator.userId === null) return { ok: false, code: "forbidden", message: "请先登录" };
-  const operatorId = operator.userId;
-  const ctx = await loadPostContext(postId);
-  if (!ctx) return { ok: false, code: "not_found", message: "帖子不存在" };
-  if (!(await canModerate(operator, ctx.forumId))) {
-    return { ok: false, code: "forbidden", message: "你不是该版块的版主" };
-  }
-  if (ctx.postState !== "visible") {
-    return {
-      ok: false,
-      code: "bad_state",
-      message: `当前状态是 ${ctx.postState}，只有可见内容可以屏蔽`,
-    };
-  }
-  const reasonCheck = checkReason(reason);
-  if (!reasonCheck.ok) return { ok: false, code: reasonCheck.code, message: reasonCheck.message };
-
-  const enqueued: EnqueuedEvent[] = [];
-  const result = await withDeadlockRetry(() =>
-    getWebDb().transaction(async (tx) => {
-      const transition = await transitionContent(tx, postId, "hidden", {
-        actorId: operatorId,
-        ip: actor.ip,
-        reason: reason.trim(),
-        audit: true,
-      });
-      if (!transition.ok) return "bad_state";
-      enqueued.push(
-        await enqueueEventInTx(
-          tx,
-          "content.moderated",
-          { postId, operatorId: operatorId, action: "hide", reason: reason.trim() },
-          { actorId: operatorId, source: "moderation" },
-        ),
-      );
-      return null;
-    }, POINTS_TX_OPTIONS),
-  );
-  if (result !== null) return { ok: false, code: "bad_state", message: "状态迁移失败" };
-  await dispatchOutboxRows(enqueued);
-  await sweepPending();
-  return { ok: true };
+  return runModerationAction("hide", operator, postId, actor, reason);
 }
 
-async function threadAuthor(
-  tx: Parameters<Parameters<ReturnType<typeof getWebDb>["transaction"]>[0]>[0],
-  threadId: number,
-): Promise<number | null> {
+async function threadAuthor(tx: DbTx, threadId: number): Promise<number | null> {
   const [row] = await tx
     .select({ authorId: threads.authorId })
     .from(threads)
@@ -385,9 +340,8 @@ export async function listReviewPage(
 }
 
 /**
- * 内容封禁：→ disabled（M9.5 新增终态，§9.2-B）
- * 语义：作者可见标题+封禁理由横幅，但**不可编辑、不可重提审核**；版主只能 disabled→deleted 彻底删。
- * 与 hidden/deleted 的区别：后两者可逆（版主可恢复），disabled 是不可逆治理封存（除非彻底删）。
+ * 内容封禁：→ disabled（M9.5 新增终态，§9.2-B）。
+ * 作者可见标题与理由但不可编辑、不可重审；版主只能再将其彻底删除。
  */
 export async function disableContent(
   operator: Subject,
@@ -395,56 +349,7 @@ export async function disableContent(
   reason: string,
   actor: ConfigActor,
 ): Promise<ReviewOutcome> {
-  if (operator.userId === null) return { ok: false, code: "forbidden", message: "请先登录" };
-  const operatorId = operator.userId;
-  const ctx = await loadPostContext(postId);
-  if (!ctx) return { ok: false, code: "not_found", message: "帖子不存在" };
-  if (!(await canModerate(operator, ctx.forumId))) {
-    return { ok: false, code: "forbidden", message: "你不是该版块的版主" };
-  }
-  if (ctx.postState === "disabled") {
-    return { ok: false, code: "bad_state", message: "该内容已被封禁" };
-  }
-  if (ctx.postState === "deleted") {
-    return { ok: false, code: "bad_state", message: "已删除内容不能封禁" };
-  }
-  const reasonCheck = checkReason(reason);
-  if (!reasonCheck.ok) return { ok: false, code: reasonCheck.code, message: reasonCheck.message };
-
-  const enqueued: EnqueuedEvent[] = [];
-  const result = await withDeadlockRetry(() =>
-    getWebDb().transaction(async (tx) => {
-      const transition = await transitionContent(tx, postId, "disabled", {
-        actorId: operatorId,
-        ip: actor.ip,
-        reason: reason.trim(),
-        audit: true,
-        actor: "moderator",
-      });
-      if (!transition.ok) return "bad_state";
-      // 封禁留痕：content_reviews 增行（decision=disabled，note=理由）——审核历史时间线的第 3 类记录
-      await tx.insert(contentReviews).values({
-        postId,
-        reviewerId: operatorId,
-        decision: "disabled",
-        note: reason.trim().slice(0, 255),
-        createdAt: nowBeijingWallTime(),
-      });
-      enqueued.push(
-        await enqueueEventInTx(
-          tx,
-          "content.moderated",
-          { postId, operatorId: operatorId, action: "disable", reason: reason.trim() },
-          { actorId: operatorId, source: "moderation" },
-        ),
-      );
-      return null;
-    }, POINTS_TX_OPTIONS),
-  );
-  if (result !== null) return { ok: false, code: "bad_state", message: "状态迁移失败" };
-  await dispatchOutboxRows(enqueued);
-  await sweepPending();
-  return { ok: true };
+  return runModerationAction("disable", operator, postId, actor, reason);
 }
 
 /** 审核历史（作者与版主可见）：content_reviews 全量行倒序（M9.5 §9.2-G1） */

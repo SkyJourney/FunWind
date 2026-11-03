@@ -22,11 +22,7 @@ export const disableContentAction = defineAction({
   input: postIdInput.extend({ reason: z.string().min(1).max(500) }),
   async run(ctx, input) {
     const subject = await getCurrentSubject();
-    const r = await disableContent(subject, input.postId, input.reason, {
-      userId: ctx.userId ?? 0,
-      via: "admin",
-      ip: ctx.ip,
-    });
+    const r = await disableContent(subject, input.postId, input.reason, ctx.actor);
     if (!r.ok) redirect(`/admin/contents?error=${encodeURIComponent(r.message)}`);
     revalidatePath("/admin/contents");
     revalidatePath("/admin/review");
@@ -41,11 +37,7 @@ export const approveContentAction = defineAction({
   input: postIdInput,
   async run(ctx, input) {
     const subject = await getCurrentSubject();
-    const r = await approveReview(subject, input.postId, {
-      userId: ctx.userId ?? 0,
-      via: "admin",
-      ip: ctx.ip,
-    });
+    const r = await approveReview(subject, input.postId, ctx.actor);
     if (!r.ok) redirect(`/admin/review?error=${encodeURIComponent(r.message)}`);
     revalidatePath("/admin/review");
     revalidatePath("/admin/contents");
@@ -60,11 +52,7 @@ export const rejectContentAction = defineAction({
   input: postIdInput.extend({ reason: z.string().min(1).max(500) }),
   async run(ctx, input) {
     const subject = await getCurrentSubject();
-    const r = await rejectReview(subject, input.postId, input.reason, {
-      userId: ctx.userId ?? 0,
-      via: "admin",
-      ip: ctx.ip,
-    });
+    const r = await rejectReview(subject, input.postId, input.reason, ctx.actor);
     if (!r.ok) redirect(`/admin/contents?error=${encodeURIComponent(r.message)}`);
     revalidatePath("/admin/review");
     revalidatePath("/admin/contents");
@@ -79,11 +67,7 @@ export const hideContentAction = defineAction({
   input: postIdInput.extend({ reason: z.string().min(1).max(500) }),
   async run(ctx, input) {
     const subject = await getCurrentSubject();
-    const r = await hidePost(subject, input.postId, input.reason, {
-      userId: ctx.userId ?? 0,
-      via: "admin",
-      ip: ctx.ip,
-    });
+    const r = await hidePost(subject, input.postId, input.reason, ctx.actor);
     if (!r.ok) redirect(`/admin/contents?error=${encodeURIComponent(r.message)}`);
     revalidatePath("/admin/contents");
     revalidatePath("/admin/review");
@@ -116,7 +100,7 @@ export const threadFlagsAction = defineAction({
         ...(input.featured !== undefined ? { featured: input.featured === "1" } : {}),
         ...(input.pinLevel !== undefined ? { pinLevel: input.pinLevel } : {}),
       },
-      { userId: ctx.userId ?? 0, via: "admin", ip: ctx.ip },
+      ctx.actor,
     );
     if (!r.ok) redirect(`/admin/contents?error=${encodeURIComponent(r.message)}`);
     revalidatePath("/admin/contents");

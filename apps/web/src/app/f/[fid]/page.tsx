@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { PencilLine } from "lucide-react";
 import { notFound } from "next/navigation";
+import { positiveIntParam } from "@/lib/utils";
 import { ThreadRow } from "@/components/content/thread-row";
 import { ThreadStream } from "@/components/content/thread-stream";
 import { Pagination } from "@/components/content/pagination";
@@ -23,20 +24,15 @@ type Params = {
   searchParams: Promise<{ page?: string; type?: string; tag?: string }>;
 };
 
-const parseFid = (raw: string): number | null => {
-  const n = Number(raw);
-  return Number.isInteger(n) && n > 0 ? n : null;
-};
-
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
-  const fid = parseFid((await params).fid);
+  const fid = positiveIntParam((await params).fid);
   // 与页面同一套权限：读不到的板块给通用标题，名称不经 <title> 泄露
   const forum = fid ? await getForumView(await getCurrentSubject(), fid) : null;
   return { title: forum?.name ?? "板块" };
 }
 
 export default async function ForumPage({ params, searchParams }: Params) {
-  const fid = parseFid((await params).fid);
+  const fid = positiveIntParam((await params).fid);
   if (!fid) notFound();
   const { page: pageRaw, type: typeRaw, tag: tagRaw } = await searchParams;
 

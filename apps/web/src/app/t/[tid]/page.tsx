@@ -1,9 +1,10 @@
 import { ViewBeacon } from "@/components/content/view-beacon";
 import { ImageLightbox } from "@/components/content/image-lightbox";
-import { ArrowLeft, Clock, Eye, MessageSquare, Paperclip, XCircle } from "lucide-react";
+import { ArrowLeft, Clock, Eye, MessageSquare, XCircle } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { positiveIntParam } from "@/lib/utils";
 import { Pagination } from "@/components/content/pagination";
 import { PostBody } from "@/components/content/post-body";
 import { UserBadge } from "@/components/content/user-badge";
@@ -14,10 +15,10 @@ import { likedPostIds } from "@/lib/interact/reactions";
 import { tagsOfThreads } from "@/lib/interact/tags";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { SubmitButton } from "@/components/ui/submit-button";
+import { PostActionsRow } from "@/components/content/post-actions-row";
+import { AttachmentList } from "@/components/content/attachment-list";
 import { ReplyComposer } from "@/components/posting/reply-composer";
 import { ReplyFab } from "@/components/posting/reply-fab";
-import { PostActionLink } from "@/components/posting/post-action-link";
 import { ReviewTimeline } from "@/components/content/review-timeline";
 import {
   approveContentAction,
@@ -37,7 +38,6 @@ import { getCurrentSubject } from "@/lib/authz/subject";
 import { limitsFor } from "@/lib/limits/load";
 import { listAttachments } from "@/lib/gates/attachments";
 import { loadGateViews } from "@/lib/gates/service";
-import { fileUrl } from "@/lib/files";
 import { loadReplyAccess } from "@/lib/posting/compose-access";
 import { postingNoticeText, REPLY_REVIEW_HINT } from "@/lib/posting/compose";
 import { getForumView } from "@/lib/queries/forums";
@@ -45,13 +45,10 @@ import { listReplies } from "@/lib/queries/posts";
 import { locateParents } from "@/lib/queries/locate-post";
 import { getCurrentThreadView } from "@/lib/queries/threads";
 import {
-  attachmentDenyReason,
   gateNoticeText,
-  lockedAttachmentNotice,
   parentLink,
   replyBadge,
   repliesHeading,
-  splitAttachments,
   threadBanner,
 } from "@/lib/queries/thread-page";
 
@@ -62,20 +59,15 @@ type Params = {
   searchParams: Promise<{ page?: string; gate?: string; reply?: string; vote?: string }>;
 };
 
-const parseTid = (raw: string): number | null => {
-  const n = Number(raw);
-  return Number.isInteger(n) && n > 0 ? n : null;
-};
-
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
-  const tid = parseTid((await params).tid);
+  const tid = positiveIntParam((await params).tid);
   // 与页面共用同一份带权限的加载结果：不可见的主题在这里同样是 null，标题不会经 <title> 泄露
   const thread = tid ? await getCurrentThreadView(tid) : null;
   return { title: thread?.title ?? "帖子" };
 }
 
 export default async function ThreadPage({ params, searchParams }: Params) {
-  const tid = parseTid((await params).tid);
+  const tid = positiveIntParam((await params).tid);
   if (!tid) notFound();
   const { page: pageRaw, gate: gateNotice, reply: replyCode, vote: voteError } = await searchParams;
 
@@ -121,72 +113,27 @@ export default async function ThreadPage({ params, searchParams }: Params) {
   const canReport =
     viewer.userId !== null && (await checkPermission(viewer, "forum.report")).allowed;
   const postActions = (postId: number, authorId: number | null, state: string) => (
-    <>
-      {canEditPost(authorId, state) && (
-        <>
-          <Link href={`/p/${postId}/edit`} className="text-primary hover:underline">
-            编辑
-          </Link>
-          <PostActionLink
-            postId={postId}
-            kind="delete"
-            action={deletePostAction}
-            reasonRequired={authorId !== viewer.userId}
-          />
-        </>
-      )}
-      {canHidePost(authorId, state) && (
-        <PostActionLink postId={postId} kind="hide" action={hidePostAction} />
-      )}
-      {/* M9.5 §9.2-D：pending 帖就地过审（版主不必跳后台队列）；封禁（→disabled，终态） */}
-      {canModerate && state === "pending" && (
-        <>
-          <form action={approveContentAction}>
-            <input type="hidden" name="postId" value={postId} />
-            <SubmitButton pendingText="通过中…" className="text-primary hover:underline">
-              通过
-            </SubmitButton>
-          </form>
-          <form action={rejectContentAction} className="inline-flex items-center gap-1">
-            <input type="hidden" name="postId" value={postId} />
-            <input
-              name="reason"
-              required
-              maxLength={255}
-              placeholder="驳回理由（必填）"
-              aria-label="驳回理由"
-              className="w-32 rounded border bg-background px-1.5 py-0.5 text-xs"
-            />
-            <SubmitButton pendingText="驳回中…" className="text-destructive hover:underline">
-              驳回
-            </SubmitButton>
-          </form>
-        </>
-      )}
-      {canModerate && (state === "visible" || state === "pending" || state === "rejected") && (
-        <form action={disableContentAction} className="inline-flex items-center gap-1">
-          <input type="hidden" name="postId" value={postId} />
-          <input
-            name="reason"
-            required
-            maxLength={255}
-            placeholder="封禁理由（作者可见）"
-            aria-label="封禁理由（作者可见）"
-            className="w-32 rounded border bg-background px-1.5 py-0.5 text-xs"
-          />
-          <SubmitButton pendingText="封禁中…" className="text-destructive hover:underline">
-            封禁
-          </SubmitButton>
-        </form>
-      )}
-      {canRestorePost(state) && (
-        <PostActionLink postId={postId} kind="restore" action={restorePostAction} />
-      )}
-      {/* 举报不排除自己的帖子会显得荒谬（M9.5 §9.2-F）：作者本人不显示举报入口 */}
-      {canReport && state === "visible" && authorId !== viewer.userId && (
-        <PostActionLink postId={postId} kind="report" action={reportPostAction} />
-      )}
-    </>
+    <PostActionsRow
+      postId={postId}
+      canEdit={canEditPost(authorId, state)}
+      canHide={canHidePost(authorId, state)}
+      canReview={canModerate && state === "pending"}
+      canDisable={
+        canModerate && (state === "visible" || state === "pending" || state === "rejected")
+      }
+      canRestore={canRestorePost(state)}
+      canReport={canReport && state === "visible" && authorId !== viewer.userId}
+      reasonRequired={authorId !== viewer.userId}
+      actions={{
+        delete: deletePostAction,
+        hide: hidePostAction,
+        approve: approveContentAction,
+        reject: rejectContentAction,
+        disable: disableContentAction,
+        restore: restorePostAction,
+        report: reportPostAction,
+      }}
+    />
   );
   const [attachments, parents, gates, pointsName] = await Promise.all([
     // 门控附件与隐藏正文同权：锁定项只带「存在一个」，不含文件名 / 存储键 / 大小（lib/gates/attachments.ts）
@@ -223,44 +170,13 @@ export default async function ThreadPage({ params, searchParams }: Params) {
     canLike: viewer.userId !== null,
   });
 
-  const attachmentList = (postId: number) => {
-    const list = attachments.get(postId) ?? [];
-    if (list.length === 0) return null;
-    const { open, lockedCount } = splitAttachments(list);
-    return (
-      <div className="mt-4 flex flex-wrap gap-2 border-t pt-3">
-        <Paperclip className="size-4 text-muted-foreground" />
-        {open.map((a) =>
-          canDownload ? (
-            <a
-              key={a.id}
-              href={fileUrl(a.storageKey)}
-              className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-accent"
-            >
-              📎 {a.originalName}
-              <span className="text-muted-foreground">（{a.downloads} 次下载）</span>
-            </a>
-          ) : (
-            <span
-              key={a.id}
-              className="inline-flex items-center gap-1 rounded-md border border-dashed px-2 py-1 text-xs text-muted-foreground"
-            >
-              📎 {a.originalName}
-              <span>（{attachmentDenyReason(viewer.userId === null)}）</span>
-            </span>
-          ),
-        )}
-        {lockedCount > 0 && (
-          <span
-            data-testid="locked-attachments"
-            className="inline-flex items-center gap-1 rounded-md border border-dashed px-2 py-1 text-xs text-muted-foreground"
-          >
-            {lockedAttachmentNotice(lockedCount)}
-          </span>
-        )}
-      </div>
-    );
-  };
+  const attachmentList = (postId: number) => (
+    <AttachmentList
+      attachments={attachments.get(postId) ?? []}
+      canDownload={canDownload}
+      isGuest={viewer.userId === null}
+    />
+  );
 
   return (
     <main className="mx-auto max-w-3xl space-y-4 px-4 py-8 sm:px-6">

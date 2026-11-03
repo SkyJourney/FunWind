@@ -3,6 +3,7 @@ import { Ticket } from "lucide-react";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { listInvitesPage } from "@/lib/admin/invites";
 import { fmtDateTime } from "@/lib/admin/format";
+import { buildAdminQuery, parseAdminPage } from "@/lib/admin/query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { ConfirmSubmit } from "@/components/ui/confirm-submit";
@@ -59,7 +60,7 @@ export default async function InvitesAdminPage({
     ? (sp.status as "all" | "available" | "used" | "expired")
     : "all";
   const batch = typeof sp.batch === "string" ? sp.batch : "";
-  const page = Number(sp.page ?? "1") || 1;
+  const page = parseAdminPage(sp.page, "number-or-one");
 
   const {
     items,
@@ -68,17 +69,12 @@ export default async function InvitesAdminPage({
     totalPages,
   } = await listInvitesPage({ status, batch, page });
 
-  const baseQuery = (over: Record<string, string>) => {
-    const p = new URLSearchParams();
-    if (status !== "all") p.set("status", status);
-    if (batch) p.set("batch", batch);
-    for (const [k, v] of Object.entries(over)) {
-      if (v) p.set(k, v);
-      else p.delete(k);
-    }
-    const qs = p.toString();
-    return `/admin/invites${qs ? `?${qs}` : ""}`;
+  const query = {
+    ...(status !== "all" ? { status } : {}),
+    ...(batch ? { batch } : {}),
   };
+  const baseQuery = (over: Record<string, string> = {}) =>
+    buildAdminQuery("/admin/invites", query, over);
 
   return (
     <div className="space-y-5">

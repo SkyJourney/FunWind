@@ -1,6 +1,7 @@
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { getProfile, getUserReplies, getUserThreads } from "@/lib/queries/users";
-import { parsePositiveInt, parseStreamPage } from "@/lib/stream/page";
+import { parseStreamPage } from "@/lib/stream/page";
+import { positiveIntParam } from "@/lib/utils";
 import { streamJson, streamNotFound, streamRateLimit } from "@/lib/stream/respond";
 
 /**
@@ -17,7 +18,7 @@ export async function GET(request: Request, { params }: Ctx): Promise<Response> 
   const limited = streamRateLimit(request);
   if (limited) return limited;
 
-  const uid = parsePositiveInt((await params).uid);
+  const uid = positiveIntParam((await params).uid) ?? undefined;
   if (uid === undefined) return streamNotFound();
   if (!(await getProfile(uid))) return streamNotFound();
 

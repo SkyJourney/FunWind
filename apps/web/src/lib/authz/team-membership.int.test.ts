@@ -128,14 +128,21 @@ describe.skipIf(skipDb)("团队成员服务 · 真实 MySQL", () => {
   });
 
   it("团队成员校验期限，并阻止普通授撤入口绕过成员服务", async () => {
-    await expect(
-      assignTeamMembership(ACTOR, {
-        userId: DEMO.team,
-        roleKey: ROLE_KEY,
-        expiresAt: "2000-01-01 00:00:00",
-        reason: "过期时间测试",
-      }),
-    ).rejects.toThrow(/未来北京时间/);
+    for (const expiresAt of [
+      "2000-01-01 00:00:00",
+      "2099-02-29 00:00:00",
+      "2096-02-30 00:00:00",
+      "2099-01-01T00:00:00",
+    ]) {
+      await expect(
+        assignTeamMembership(ACTOR, {
+          userId: DEMO.team,
+          roleKey: ROLE_KEY,
+          expiresAt,
+          reason: "过期或非法时间测试",
+        }),
+      ).rejects.toThrow("到期时间必须是有效的未来北京时间");
+    }
     await expect(assignUserRole(ACTOR, DEMO.team, ROLE_KEY, 0, null, "绕过测试")).rejects.toThrow(
       /团队成员服务/,
     );

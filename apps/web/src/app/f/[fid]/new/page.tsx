@@ -2,6 +2,7 @@ import { ArrowLeft } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { positiveIntParam } from "@/lib/utils";
 import { createThreadAction } from "@/app/actions/threads";
 import { ThreadComposer } from "@/components/posting/thread-composer";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,17 +21,12 @@ type Params = {
   searchParams: Promise<{ error?: string }>;
 };
 
-const parseFid = (raw: string): number | null => {
-  const n = Number(raw);
-  return Number.isInteger(n) && n > 0 ? n : null;
-};
-
 /**
  * 发新主题页（M6.2）。版块读不到 / 不存在 → 404（不暴露存在性）；能读但不能写 → 说明文字，不渲染表单。
  * 失败跳回（?error=…）时展示固定文案，并让草稿层恢复上次未发送的内容。
  */
 export default async function NewThreadPage({ params, searchParams }: Params) {
-  const fid = parseFid((await params).fid);
+  const fid = positiveIntParam((await params).fid);
   if (!fid) notFound();
   const { error } = await searchParams;
 

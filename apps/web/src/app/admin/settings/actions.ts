@@ -35,7 +35,7 @@ export const saveThemePackAction = defineAction({
   auth: { admin: "site.admin" },
   input: z.object({ pack: z.string().max(32) }),
   async run(ctx, input) {
-    const actor = { userId: ctx.userId ?? null, via: "admin" as const, ip: ctx.ip };
+    const actor = ctx.actor;
     const result = await setSiteDefaultThemePack(input.pack, actor);
     if (!result.ok) redirect("/admin/settings?err=theme");
     const logo = await tryApplyThemePackLogo(input.pack, { ...actor, via: "theme" });
@@ -71,11 +71,7 @@ export const saveIdentityAction = defineAction({
         tagline: input.tagline,
         url: input.url === "" ? "" : input.url.replace(/\/+$/, ""),
       },
-      {
-        userId: ctx.userId ?? null,
-        via: "admin",
-        ip: ctx.ip,
-      },
+      ctx.actor,
     );
     invalidateSiteChrome();
     revalidatePath("/", "layout");
@@ -88,15 +84,7 @@ export const saveRegisterModeAction = defineAction({
   auth: { admin: "site.admin" },
   input: z.object({ mode: z.enum(["invite", "open"]) }),
   async run(ctx, input) {
-    await setSetting(
-      "register.mode",
-      { mode: input.mode },
-      {
-        userId: ctx.userId ?? null,
-        via: "admin",
-        ip: ctx.ip,
-      },
-    );
+    await setSetting("register.mode", { mode: input.mode }, ctx.actor);
     revalidatePath("/admin/settings");
     revalidatePath("/register");
     done("register");
@@ -147,11 +135,7 @@ export const saveLimitsAction = defineAction({
       },
     });
     if (!merged.success) redirect("/admin/settings?err=limits");
-    await setSetting("limits", merged.data, {
-      userId: ctx.userId ?? null,
-      via: "admin",
-      ip: ctx.ip,
-    });
+    await setSetting("limits", merged.data, ctx.actor);
     revalidatePath("/admin/settings");
     done("limits");
   },
@@ -162,15 +146,7 @@ export const saveEmailVerificationAction = defineAction({
   auth: { admin: "site.admin" },
   input: z.object({ mode: z.enum(["open_only", "always"]) }),
   async run(ctx, input) {
-    await setSetting(
-      "email.verification",
-      { mode: input.mode },
-      {
-        userId: ctx.userId ?? null,
-        via: "admin",
-        ip: ctx.ip,
-      },
-    );
+    await setSetting("email.verification", { mode: input.mode }, ctx.actor);
     revalidatePath("/admin/settings");
     done("email_verification");
   },
@@ -183,15 +159,7 @@ export const saveEmailSecurityAction = defineAction({
   auth: { admin: "site.admin" },
   input: z.object({ enabled: z.string().default("") }),
   async run(ctx, input) {
-    await setSetting(
-      "email.security",
-      { enabled: input.enabled === "on" },
-      {
-        userId: ctx.userId ?? null,
-        via: "admin",
-        ip: ctx.ip,
-      },
-    );
+    await setSetting("email.security", { enabled: input.enabled === "on" }, ctx.actor);
     revalidatePath("/admin/settings");
     done("email_security");
   },
@@ -203,15 +171,7 @@ export const saveDigestHourAction = defineAction({
   auth: { admin: "site.admin" },
   input: z.object({ hour: z.coerce.number().int().min(0).max(23) }),
   async run(ctx, input) {
-    await setSetting(
-      "email.digest",
-      { hour: input.hour },
-      {
-        userId: ctx.userId ?? null,
-        via: "admin",
-        ip: ctx.ip,
-      },
-    );
+    await setSetting("email.digest", { hour: input.hour }, ctx.actor);
     revalidatePath("/admin/settings");
     done("digest_hour");
   },

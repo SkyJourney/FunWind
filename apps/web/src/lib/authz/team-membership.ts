@@ -1,18 +1,10 @@
 import "server-only";
 
 import { and, eq, inArray } from "drizzle-orm";
-import {
-  accountDeletionRequests,
-  badges,
-  getWebDb,
-  roles,
-  roleGrants,
-  userBadges,
-  userRoles,
-  users,
-} from "@funwind/db";
+import { badges, getWebDb, roles, roleGrants, userBadges, userRoles, users } from "@funwind/db";
 import { writeAudit, type ConfigActor } from "@/lib/audit";
-import { nowBeijingWallTime, parseDbDateTime } from "@/lib/datetime";
+import { isFutureBeijingDateTime, nowBeijingWallTime } from "@/lib/datetime";
+import { lockActiveUserInTx } from "@/lib/identity";
 import {
   dispatchOutboxRows,
   enqueueEventInTx,
@@ -35,31 +27,13 @@ export interface TeamMembershipRequest {
   reason: string;
 }
 
-function validFutureDateTime(value: string): boolean {
-  const match = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(value);
-  if (!match) return false;
-  const [year, month, day, hour, minute, second] = match.slice(1).map(Number);
-  const calendar = new Date(Date.UTC(year!, month! - 1, day!, hour!, minute!, second!));
-  if (
-    calendar.getUTCFullYear() !== year ||
-    calendar.getUTCMonth() !== month! - 1 ||
-    calendar.getUTCDate() !== day ||
-    calendar.getUTCHours() !== hour ||
-    calendar.getUTCMinutes() !== minute ||
-    calendar.getUTCSeconds() !== second
-  ) {
-    return false;
-  }
-  return parseDbDateTime(value).getTime() > Date.now();
-}
-
 /** 团队角色与同名 team 徽章同事务授予、续期或修复。 */
 export async function assignTeamMembership(
   actor: ConfigActor & { userId: number },
   input: TeamMembershipRequest,
 ): Promise<void> {
   if (!isTeamMembershipRole(input.roleKey)) throw new AdminError("团队角色不存在");
-  if (input.expiresAt !== null && !validFutureDateTime(input.expiresAt)) {
+  if (input.expiresAt !== null && !isFutureBeijingDateTime(input.expiresAt)) {
     throw new AdminError("到期时间必须是有效的未来北京时间");
   }
   const reason = input.reason.trim();
@@ -72,25 +46,12 @@ export async function assignTeamMembership(
     getWebDb().transaction(async (tx) => {
       enqueued = [];
       await lockSiteAdminInvariant(tx);
-      const [target] = await tx
-        .select({ id: users.id, state: users.state })
-        .from(users)
-        .where(eq(users.id, input.userId))
-        .limit(1)
-        .for("update");
-      if (!target || target.state !== "active") throw new AdminError("用户不存在或已注销");
-
-      const [closure] = await tx
-        .select({ id: accountDeletionRequests.id })
-        .from(accountDeletionRequests)
-        .where(
-          and(
-            eq(accountDeletionRequests.userId, input.userId),
-            inArray(accountDeletionRequests.status, ["pending", "completed"]),
-          ),
-        )
-        .limit(1);
-      if (closure) throw new AdminError("用户正在注销或已注销");
+      const target = await lockActiveUserInTx(tx, input.userId);
+      if (!target.ok) {
+        throw new AdminError(
+          target.code === "closing" ? "用户正在注销或已注销" : "用户不存在或已注销",
+        );
+      }
 
       const [role] = await tx
         .select({ key: roles.key, kind: roles.kind, name: roles.name })

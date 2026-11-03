@@ -102,6 +102,34 @@ describe.skipIf(skipDb)("@提及（M8）", () => {
     expect(await outboxMentionsFor(out.postId, DEMO.team)).toHaveLength(0);
   });
 
+  it("待审创建不派发提及；版主编辑保留新增提及口径，作者与操作者分开", async () => {
+    const out = await createThread(alice, {
+      forumId: 906,
+      title: "待审提及身份",
+      source: "待审原文 @demo_team",
+    });
+    if (!out.ok) throw new Error(out.message);
+    expect(out.state).toBe("pending");
+    expect(await outboxMentionsFor(out.postId, DEMO.team)).toHaveLength(0);
+    const admin = await loadSubject(DEMO.admin);
+    expect(
+      await editPost(admin, {
+        postId: out.postId,
+        source: "待审原文 @demo_team @demo_小翼",
+        expectedEditedAt: null,
+        reason: "修订正文",
+      }),
+    ).toMatchObject({ ok: true, state: "pending", resubmitted: false });
+    expect(await outboxMentionsFor(out.postId, DEMO.team)).toHaveLength(0);
+    const mentions = await outboxMentionsFor(out.postId, DEMO.xiaoyi);
+    expect(mentions).toHaveLength(1);
+    expect(mentions[0]).toMatchObject({
+      actorId: DEMO.admin,
+      source: "posting",
+      payload: { postId: out.postId, authorId: DEMO.alice, mentionedUserId: DEMO.xiaoyi },
+    });
+  });
+
   it("编辑新增提及：只对新提及发事件；已提及过的人不重复", async () => {
     const out = await createThread(
       alice,

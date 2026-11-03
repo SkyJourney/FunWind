@@ -11,18 +11,32 @@ export function AdminFilterBar({
   placeholder,
   keywordName = "q",
   defaultValue = "",
+  hidden,
+  total,
+  method,
+  className = "flex flex-wrap items-center gap-2 text-sm",
+  submitClassName = "rounded-lg border px-3 py-1.5 hover:bg-accent",
 }: {
   action: string;
   children?: React.ReactNode;
   /** 不带任何筛选的页面 URL（重置用） */
-  resetHref: string;
+  resetHref?: string;
   placeholder?: string;
   keywordName?: string;
   defaultValue?: string;
+  hidden?: Record<string, string | undefined>;
+  /** 筛选按钮 / 重置之后的总数或补充内容，沿用页面自己的标签与样式。 */
+  total?: React.ReactNode;
+  method?: "get";
+  className?: string;
+  submitClassName?: string;
 }) {
   const hasKeyword = placeholder !== undefined;
   return (
-    <form action={action} className="flex flex-wrap items-center gap-2 text-sm">
+    <form action={action} method={method} className={className}>
+      {Object.entries(hidden ?? {}).map(([name, value]) =>
+        value === undefined ? null : <input key={name} type="hidden" name={name} value={value} />,
+      )}
       {children}
       {hasKeyword && (
         <input
@@ -33,12 +47,15 @@ export function AdminFilterBar({
           className="w-44 rounded-lg border bg-background px-3 py-1.5 outline-none focus:ring-2 focus:ring-ring"
         />
       )}
-      <button type="submit" className="rounded-lg border px-3 py-1.5 hover:bg-accent">
+      <button type="submit" className={submitClassName}>
         筛选
       </button>
-      <Link href={resetHref} className="text-xs text-muted-foreground hover:text-foreground">
-        重置
-      </Link>
+      {resetHref !== undefined && (
+        <Link href={resetHref} className="text-xs text-muted-foreground hover:text-foreground">
+          重置
+        </Link>
+      )}
+      {total}
     </form>
   );
 }

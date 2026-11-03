@@ -9,7 +9,8 @@ import { isSameOrigin } from "@/lib/net/same-origin";
 import { getStorageDir } from "@/lib/storage";
 import { parseCropField } from "@/lib/uploads/crop";
 import { admit } from "@/lib/uploads/policy";
-import { ProcessError, processImage } from "@/lib/uploads/process-image";
+import { ProcessError } from "@/lib/uploads/process-image";
+import { processUploadImage } from "@/lib/uploads/image-asset";
 import { sniffType } from "@/lib/uploads/sniff";
 import { quotaPrecheck, storeUpload } from "@/lib/uploads/store";
 import {
@@ -154,8 +155,8 @@ async function handleUpload(
   };
   if (IMAGE_TYPES.has(sniffed)) {
     try {
-      const out = await processImage(bytes, { sniffed, crop, avatar: purpose === "avatar" });
-      // processImage 从不输出 BMP（BMP 统一编码为 PNG）；这道守卫只为收窄类型
+      const out = await processUploadImage(bytes, { sniffed, crop, avatar: purpose === "avatar" });
+      // 图像管线从不输出 BMP（BMP 统一编码为 PNG）；这道守卫只为收窄类型
       if (out.sniffed === "bmp") return json({ error: "unsupported_type" }, 415);
       stored = { bytes: out.bytes, sniffed: out.sniffed, width: out.width, height: out.height };
     } catch (e) {

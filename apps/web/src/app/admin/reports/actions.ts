@@ -19,12 +19,7 @@ export const handleReportAction = defineAction({
   auth: { admin: "admin.reports" },
   input: handleInput,
   async run(ctx, input) {
-    const r = await handleReport(
-      { userId: ctx.userId ?? 0, via: "admin", ip: ctx.ip },
-      input.reportId,
-      input.outcome,
-      input.note,
-    );
+    const r = await handleReport(ctx.actor, input.reportId, input.outcome, input.note);
     if (!r.ok) {
       const msg = r.code === "note_required" ? "必须填写处理说明" : "举报不存在或已处理";
       redirect(`/admin/reports?error=${encodeURIComponent(msg)}`);
@@ -48,10 +43,7 @@ export const dismissReportBulkAction = defineAction({
   auth: { admin: "admin.reports" },
   input: dismissBulkInput,
   async run(ctx, input) {
-    const r = await dismissReportsBulk(
-      { userId: ctx.userId ?? 0, via: "admin", ip: ctx.ip },
-      input.reportIds,
-    );
+    const r = await dismissReportsBulk(ctx.actor, input.reportIds);
     revalidatePath("/admin/reports");
     if (r.failed > 0) {
       redirect(

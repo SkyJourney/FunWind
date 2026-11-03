@@ -1,7 +1,8 @@
 import "server-only";
 
-import { and, eq, inArray, isNull, notExists, or, sql } from "drizzle-orm";
-import { accountDeletionRequests, getWebDb, userRoles, users } from "@funwind/db";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { getWebDb, userRoles, users } from "@funwind/db";
+import { userNotDeleted } from "@/lib/identity-expr";
 import {
   contentVisibleTo,
   evaluate,
@@ -82,18 +83,7 @@ export async function getForumModerators(
     .where(
       and(
         inArray(userRoles.roleKey, [...roleScope.keys()]),
-        eq(users.state, "active"),
-        notExists(
-          getWebDb()
-            .select({ id: accountDeletionRequests.id })
-            .from(accountDeletionRequests)
-            .where(
-              and(
-                eq(accountDeletionRequests.userId, users.id),
-                eq(accountDeletionRequests.status, "completed"),
-              ),
-            ),
-        ),
+        userNotDeleted(users.id, users.state),
         or(isNull(userRoles.expiresAt), sql`${userRoles.expiresAt} > NOW()`),
       ),
     );

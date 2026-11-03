@@ -56,6 +56,7 @@ const PACK_ID = "e2e-boundary-unit";
 const context: ActionContext = {
   userId: 90004,
   ip: "127.0.0.1",
+  actor: { userId: 90004, via: "admin", ip: "127.0.0.1" },
   passwordChangeOnly: false,
   subject: {
     userId: 90004,
@@ -66,7 +67,7 @@ const context: ActionContext = {
     registerMode: "invite",
   },
 };
-const actor = { userId: context.userId, ip: context.ip, via: "admin" };
+const actor = context.actor;
 
 /** mock 后导出即 run；此处只补回类型，不执行真实 defineAction 骨架。 */
 function runAction<I>(action: (form: FormData) => Promise<void>, input: I) {

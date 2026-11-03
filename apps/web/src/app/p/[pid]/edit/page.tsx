@@ -2,6 +2,7 @@ import { ArrowLeft } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { positiveIntParam } from "@/lib/utils";
 import { editPostAction } from "@/app/actions/posts";
 import { EditComposer } from "@/components/posting/edit-composer";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,17 +21,12 @@ type Params = {
   searchParams: Promise<{ error?: string }>;
 };
 
-const parsePid = (raw: string): number | null => {
-  const n = Number(raw);
-  return Number.isInteger(n) && n > 0 ? n : null;
-};
-
 /**
  * 编辑帖子页（M6.2）。不可见 / 无编辑权限 → 404；时限已过或主题已关闭 → 说明；门控数据读不全 → 明确告知，
  * 绝不带残缺正文渲染。失败跳回（?error=…）时展示固定文案，并恢复草稿；冲突时展示最新版本、不恢复草稿。
  */
 export default async function EditPostPage({ params, searchParams }: Params) {
-  const pid = parsePid((await params).pid);
+  const pid = positiveIntParam((await params).pid);
   if (!pid) notFound();
   const { error } = await searchParams;
 

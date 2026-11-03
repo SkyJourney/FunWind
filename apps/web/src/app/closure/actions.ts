@@ -30,6 +30,21 @@ const identifierText = z.string().trim().min(1).max(254);
 const passwordText = z.string().max(1024);
 const emailText = z.string().trim().min(3).max(254);
 
+/** 两类验证邮件共用发送与中性回跳，令牌用途和入口频控仍分别声明。 */
+async function sendClosureEmail(email: string, kind: "access" | "request"): Promise<never> {
+  const challenge =
+    kind === "access"
+      ? await issueAccountDeletionAccessForEmail(email)
+      : await issueAccountDeletionRequestForEmail(email);
+  if (challenge) {
+    const brand = await getMailBrand();
+    const url = `${brand.siteUrl}/closure/verify?token=${encodeURIComponent(challenge.token)}`;
+    // 尽力而为：失败已进发送日志，页面提示保持中性，不泄露账号存在性。
+    await trySendMail(challenge.email, accountDeletionVerificationMail(url, kind, brand));
+  }
+  redirect("/closure?sent=1");
+}
+
 export const startOrOpenClosureWithPasswordAction = defineAction({
   name: "account_deletion.start_or_open_password",
   auth: "guest",
@@ -93,16 +108,7 @@ export const sendClosureAccessEmailAction = defineAction({
       onLimit: () => redirect("/closure?sent=1"),
     },
   ],
-  async run(_ctx, input) {
-    const challenge = await issueAccountDeletionAccessForEmail(input.email);
-    if (challenge) {
-      const brand = await getMailBrand();
-      const url = `${brand.siteUrl}/closure/verify?token=${encodeURIComponent(challenge.token)}`;
-      // 尽力而为：失败已进 email_log，页面的「已发送」提示保持中性（不泄露账号存在性）
-      await trySendMail(challenge.email, accountDeletionVerificationMail(url, "access", brand));
-    }
-    redirect("/closure?sent=1");
-  },
+  run: (_ctx, input) => sendClosureEmail(input.email, "access"),
 });
 
 export const sendClosureRequestEmailAction = defineAction({
@@ -123,16 +129,7 @@ export const sendClosureRequestEmailAction = defineAction({
       onLimit: () => redirect("/closure?sent=1"),
     },
   ],
-  async run(_ctx, input) {
-    const challenge = await issueAccountDeletionRequestForEmail(input.email);
-    if (challenge) {
-      const brand = await getMailBrand();
-      const url = `${brand.siteUrl}/closure/verify?token=${encodeURIComponent(challenge.token)}`;
-      // 尽力而为：失败已进 email_log，页面的「已发送」提示保持中性（不泄露账号存在性）
-      await trySendMail(challenge.email, accountDeletionVerificationMail(url, "request", brand));
-    }
-    redirect("/closure?sent=1");
-  },
+  run: (_ctx, input) => sendClosureEmail(input.email, "request"),
 });
 
 export const consumeClosureEmailTokenAction = defineAction({

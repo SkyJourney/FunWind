@@ -11,6 +11,9 @@ import { getModeratedForumIds } from "@/lib/authz/service";
 import { listPollPage } from "@/lib/poll/admin";
 import { closePollAction, deletePollAction, reopenPollAction } from "./actions";
 import { fmtDateTime } from "@/lib/admin/format";
+import { buildAdminQuery, parseAdminPage } from "@/lib/admin/query";
+import { AdminTabs } from "@/components/admin/admin-tabs";
+import { AdminFilterBar } from "@/components/admin/admin-filter-bar";
 import { ForumSelect } from "@/components/admin/forum-select";
 import { AdminFlash } from "@/components/admin/admin-flash";
 import { Pagination } from "@/components/content/pagination";
@@ -44,7 +47,7 @@ export default async function AdminPollPage({ searchParams }: Params) {
   const sp = await searchParams;
   const tab = TABS.some((t) => t.key === sp.tab) ? (sp.tab as "all" | "open" | "closed") : "all";
   const forumId = Number(sp.forum ?? "0") || undefined;
-  const page = Number(sp.page ?? "1") || 1;
+  const page = parseAdminPage(sp.page, "number-or-one");
 
   const subject = await getCurrentSubject();
   const isSiteAdmin = (await checkPermission(subject, "site.admin")).allowed;
@@ -66,17 +69,9 @@ export default async function AdminPollPage({ searchParams }: Params) {
   const confirmDeleteId = Number(sp["confirm-delete"]);
   const confirmDelete = items.find((p) => p.pollId === confirmDeleteId);
 
-  const baseQuery = (over: Record<string, string>) => {
-    const p = new URLSearchParams();
-    if (tab !== "all") p.set("tab", tab);
-    if (forumId) p.set("forum", String(forumId));
-    for (const [k, v] of Object.entries(over)) {
-      if (v) p.set(k, v);
-      else p.delete(k);
-    }
-    const qs = p.toString();
-    return `/admin/poll${qs ? `?${qs}` : ""}`;
-  };
+  const query = { ...(tab !== "all" ? { tab } : {}), ...(forumId ? { forum: forumId } : {}) };
+  const baseQuery = (over: Record<string, string> = {}) =>
+    buildAdminQuery("/admin/poll", query, over);
 
   return (
     <div className="space-y-4">
@@ -124,20 +119,22 @@ export default async function AdminPollPage({ searchParams }: Params) {
         </div>
       )}
 
-      <nav className="flex gap-2 text-sm" aria-label="投票状态">
-        {TABS.map((t) => (
-          <Link
-            key={t.key}
-            href={baseQuery({ tab: t.key === "all" ? "" : t.key, page: "" })}
-            className={`rounded-full border px-3 py-1 ${tab === t.key ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
-          >
-            {t.label}
-          </Link>
-        ))}
-      </nav>
+      <AdminTabs
+        label="投票状态"
+        activeKey={tab}
+        tabs={TABS.map((t) => ({
+          ...t,
+          href: baseQuery({ tab: t.key === "all" ? "" : t.key, page: "" }),
+        }))}
+      />
 
-      <form action="/admin/poll" method="get" className="flex flex-wrap items-center gap-2 text-sm">
-        {tab !== "all" && <input type="hidden" name="tab" value={tab} />}
+      <AdminFilterBar
+        action="/admin/poll"
+        method="get"
+        hidden={{ tab: tab !== "all" ? tab : undefined }}
+        resetHref={tab === "all" ? "/admin/poll" : `/admin/poll?tab=${tab}`}
+        total={<span className="ml-auto text-xs text-muted-foreground">共 {total} 个</span>}
+      >
         <ForumSelect
           name="forum"
           label="按板块筛选"
@@ -145,17 +142,7 @@ export default async function AdminPollPage({ searchParams }: Params) {
           allLabel="全部板块"
           className="rounded-lg border border-input bg-background px-2 py-1.5 text-sm"
         />
-        <button type="submit" className="rounded-lg border px-3 py-1.5 hover:bg-accent">
-          筛选
-        </button>
-        <Link
-          href={tab === "all" ? "/admin/poll" : `/admin/poll?tab=${tab}`}
-          className="text-xs text-muted-foreground hover:text-foreground"
-        >
-          重置
-        </Link>
-        <span className="ml-auto text-xs text-muted-foreground">共 {total} 个</span>
-      </form>
+      </AdminFilterBar>
 
       {items.length === 0 ? (
         <EmptyState icon={ChartNoAxesColumn} title="没有投票（或你管辖的板块内没有）。" />

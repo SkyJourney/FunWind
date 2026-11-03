@@ -1,7 +1,7 @@
 "use server";
 
 import { randomBytes } from "node:crypto";
-import { defineAction } from "@/lib/actions/define-action";
+import { defineAction, type ActionContext } from "@/lib/actions/define-action";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -26,16 +26,10 @@ import { parseThemePackDefinition } from "@/lib/theme/surface-schema";
  * 设为全站默认时触发主题↔LOGO 联动（有自带 LOGO 才入池，docs/THEME-SYSTEM.md §5）。
  */
 
-const actorOf = (ctx: { userId: number | null; ip: string | null }) => ({
-  userId: ctx.userId,
-  via: "admin" as const,
-  ip: ctx.ip,
-});
-
 function packWriteFields(
   input: { id: string; name: string; description: string },
   definition: unknown,
-  actor: ReturnType<typeof actorOf>,
+  actor: ActionContext["actor"],
 ) {
   return {
     id: input.id.trim().toLowerCase(),
@@ -86,7 +80,7 @@ export const createThemePackAction = defineAction({
   async run(ctx, input) {
     const parsed = parseDefinitionOrRedirect(input.definition, "/admin/themes");
     await requireDecorAssets(parsed, "/admin/themes");
-    const result = await createThemePack(packWriteFields(input, parsed, actorOf(ctx)));
+    const result = await createThemePack(packWriteFields(input, parsed, ctx.actor));
     if (!result.ok) redirect(`/admin/themes?err=${result.code}`);
     revalidatePath("/admin/themes");
     redirect(`/admin/themes?saved=created&id=${encodeURIComponent(input.id.trim().toLowerCase())}`);
@@ -103,7 +97,7 @@ export const saveThemePackAction = defineAction({
     const parsed = parseDefinitionOrRedirect(input.definition, returnPath);
     await requireDecorAssets(parsed, returnPath);
     const result = await updateThemePack({
-      ...packWriteFields(input, parsed, actorOf(ctx)),
+      ...packWriteFields(input, parsed, ctx.actor),
       expectedRevision: input.revision,
     });
     if (!result.ok) {
@@ -124,7 +118,7 @@ export const toggleThemePackAction = defineAction({
     enabled: z.enum(["0", "1"]),
   }),
   async run(ctx, input) {
-    const result = await setThemePackEnabled(input.id, input.enabled === "1", actorOf(ctx));
+    const result = await setThemePackEnabled(input.id, input.enabled === "1", ctx.actor);
     if (!result.ok) redirect(`/admin/themes?err=${result.code}`);
     invalidateSiteChrome();
     revalidatePath("/admin/themes");
@@ -139,7 +133,7 @@ export const copyThemePackAction = defineAction({
   input: z.object({ sourceId: z.string().max(32) }),
   async run(ctx, input) {
     const newId = `${input.sourceId.slice(0, 19)}-copy-${randomBytes(3).toString("hex")}`;
-    const result = await copyThemePack(input.sourceId, newId, actorOf(ctx));
+    const result = await copyThemePack(input.sourceId, newId, ctx.actor);
     if (!result.ok) redirect(`/admin/themes?err=${result.code}`);
     revalidatePath("/admin/themes");
     redirect(`/admin/themes?saved=copied&id=${encodeURIComponent(newId)}`);
@@ -152,7 +146,7 @@ export const deleteThemePackAction = defineAction({
   auth: { admin: "site.admin" },
   input: z.object({ id: z.string().max(32) }),
   async run(ctx, input) {
-    const result = await deleteThemePack(input.id, actorOf(ctx));
+    const result = await deleteThemePack(input.id, ctx.actor);
     if (!result.ok) redirect(`/admin/themes?err=${result.code}`);
     invalidateSiteChrome();
     revalidatePath("/admin/themes");
@@ -166,7 +160,7 @@ export const setDefaultThemePackAction = defineAction({
   auth: { admin: "site.admin" },
   input: z.object({ id: z.string().max(32) }),
   async run(ctx, input) {
-    const actor = actorOf(ctx);
+    const actor = ctx.actor;
     const result = await setSiteDefaultThemePack(input.id, actor);
     if (!result.ok) redirect(`/admin/themes?err=${result.code}`);
     const logo = await tryApplyThemePackLogo(input.id, { ...actor, via: "theme" });

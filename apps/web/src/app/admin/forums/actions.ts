@@ -7,7 +7,7 @@ import { redirect } from "next/navigation";
 import { addPrefix, createForum, deleteForum, removePrefix, updateForum } from "@/lib/forums/admin";
 import { processForumIcon } from "@/lib/forums/icon";
 import { getStorageDir } from "@/lib/storage";
-import { MIME_OF } from "@/lib/uploads/types";
+import { upsertFileRecordInTx } from "@/lib/uploads/file-record";
 
 /**
  * 版块管理动作（M10.6a）：门禁 site.admin（LOGO 同判例，站点级结构语义）。
@@ -153,34 +153,18 @@ export const uploadForumIconAction = defineAction({
         `${input.back || `/admin/forums/${input.fid}`}?iconErr=${encodeURIComponent(r.message)}`,
       );
     }
-    const { files, forums, getWebDb } = await import("@funwind/db");
-    const { eq, sql } = await import("drizzle-orm");
+    const { forums, getWebDb } = await import("@funwind/db");
+    const { eq } = await import("drizzle-orm");
     const { writeAudit } = await import("@/lib/audit");
     await getWebDb().transaction(async (tx) => {
-      await tx
-        .insert(files)
-        .ignore()
-        .values({
-          sha256: r.sha256,
-          storageKey: r.storageKey,
-          sizeBytes: r.sizeBytes,
-          mime: MIME_OF[r.ext as keyof typeof MIME_OF],
-          width: r.width,
-          height: r.height,
-          createdAt: sql`NOW()`,
-        });
-      const [fileRow] = await tx
-        .select({ id: files.id })
-        .from(files)
-        .where(eq(files.sha256, r.sha256))
-        .limit(1);
+      const { fileId } = await upsertFileRecordInTx(tx, r);
       await tx.update(forums).set({ iconKey: r.storageKey }).where(eq(forums.id, input.fid));
       await writeAudit(tx, {
         actorId: ctx.userId,
         action: "admin.forum.icon",
         targetType: "forum",
         targetId: input.fid,
-        after: { storageKey: r.storageKey, fileId: fileRow?.id, via: "admin" },
+        after: { storageKey: r.storageKey, fileId, via: "admin" },
         ip: ctx.ip,
       });
     });

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { queryAuditLogs, queryEventLogs } from "@/lib/admin/logs";
 import { pageBounds } from "@/lib/paging";
+import { buildAdminQuery, parseAdminPage } from "@/lib/admin/query";
 import { JsonViewerButton } from "@/components/admin/json-viewer";
 import { Pagination } from "@/components/content/pagination";
 import { AdminListMeta, AdminTable } from "@/components/admin/admin-list";
@@ -22,20 +23,13 @@ export default async function AdminLogsPage({ searchParams }: Params) {
   const tab = sp.tab === "events" ? "events" : "audit";
   const action = typeof sp.action === "string" && sp.action ? sp.action : undefined;
   const actorId = Number(sp.actor ?? "0") || undefined;
-  const page = Number(sp.page ?? "1") || 1;
+  const page = parseAdminPage(sp.page, "number-or-one");
   const filter = { action, actorId, limit: PER_PAGE, page };
 
   const result = tab === "events" ? await queryEventLogs(filter) : await queryAuditLogs(filter);
   const { page: safePage, totalPages } = pageBounds(result.total, page, PER_PAGE);
 
-  const baseQuery = (over: Record<string, string | number>) => {
-    const p = new URLSearchParams();
-    p.set("tab", tab);
-    if (action) p.set("action", action);
-    if (actorId) p.set("actor", String(actorId));
-    for (const [k, v] of Object.entries(over)) p.set(k, String(v));
-    return `/admin/logs?${p.toString()}`;
-  };
+  const baseQuery = buildAdminQuery("/admin/logs", { tab, action, actor: actorId });
 
   return (
     <div className="space-y-4">
@@ -90,7 +84,8 @@ export default async function AdminLogsPage({ searchParams }: Params) {
       </div>
 
       <AdminListMeta total={result.total} page={safePage} totalPages={totalPages} />
-      <Pagination basePath={baseQuery({ page: "" })} page={safePage} totalPages={totalPages} />
+      {/* 保留原日志分页的空 page 参数；重复 page 的既有行为另列问题，不混入等价提取。 */}
+      <Pagination basePath={`${baseQuery}&page=`} page={safePage} totalPages={totalPages} />
 
       <AdminTable
         colSpan={6}

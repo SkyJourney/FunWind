@@ -2,7 +2,8 @@ import { getCurrentSubject } from "@/lib/authz/subject";
 import { tagByName } from "@/lib/interact/tags";
 import { getForumView } from "@/lib/queries/forums";
 import { listThreads } from "@/lib/queries/threads";
-import { parsePositiveInt, parseStreamPage } from "@/lib/stream/page";
+import { parseStreamPage } from "@/lib/stream/page";
+import { positiveIntParam } from "@/lib/utils";
 import { streamJson, streamNotFound, streamRateLimit } from "@/lib/stream/respond";
 
 /**
@@ -19,12 +20,12 @@ export async function GET(request: Request, { params }: Ctx): Promise<Response> 
   const limited = streamRateLimit(request);
   if (limited) return limited;
 
-  const fid = parsePositiveInt((await params).fid);
+  const fid = positiveIntParam((await params).fid) ?? undefined;
   if (fid === undefined) return streamNotFound();
 
   const query = new URL(request.url).searchParams;
   const page = parseStreamPage(query.get("page"));
-  const prefixId = parsePositiveInt(query.get("type")) ?? 0;
+  const prefixId = positiveIntParam(query.get("type")) ?? 0;
   const tagRaw = query.get("tag");
   const tag = tagRaw ? await tagByName(tagRaw) : null;
 

@@ -12,13 +12,14 @@ import { createHash, randomBytes } from "node:crypto";
 import { mkdir, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { and, count, eq, gte, sql } from "drizzle-orm";
-import { files, fileUploads, getWebDb, userProfiles } from "@funwind/db";
+import { fileUploads, getWebDb, userProfiles } from "@funwind/db";
 import type { DbExecutor } from "@/lib/audit";
 import { lockUserStats } from "@/lib/locks";
 import { dailyQuotaExceeded } from "@/lib/limits/quota";
 import { withDeadlockRetry, POINTS_TX_OPTIONS } from "@/lib/points/retry";
 import { MIME_OF, type SniffedType } from "./types";
 import { storageKeyFor } from "./policy";
+import { upsertFileRecordInTx } from "./file-record";
 
 export interface StoreInput {
   userId: number;
@@ -113,26 +114,19 @@ export async function storeUpload(
         return null;
       }
 
-      // 按内容哈希去重：已存在则复用行，不改已有字段
-      await tx
-        .insert(files)
-        .ignore()
-        .values({
-          sha256,
-          storageKey,
-          sizeBytes: input.bytes.byteLength,
-          mime,
-          width: input.width,
-          height: input.height,
-          createdAt: sql`NOW()`,
-        });
-      const [row] = await tx.select({ id: files.id }).from(files).where(eq(files.sha256, sha256));
-      if (!row) throw new Error("files 插入后查不到行（不应发生）");
+      const { fileId } = await upsertFileRecordInTx(tx, {
+        sha256,
+        storageKey,
+        sizeBytes: input.bytes.byteLength,
+        mime,
+        width: input.width,
+        height: input.height,
+      });
 
       // 每次成功上传都记一行（含去重命中），配额口径不随去重改变
       await tx.insert(fileUploads).values({
         userId: input.userId,
-        fileId: row.id,
+        fileId,
         sizeBytes: input.bytes.byteLength,
         createdAt: sql`NOW()`,
       });
@@ -140,10 +134,10 @@ export async function storeUpload(
       if (input.avatar) {
         await tx
           .insert(userProfiles)
-          .values({ userId: input.userId, avatarFileId: row.id })
-          .onDuplicateKeyUpdate({ set: { avatarFileId: row.id } });
+          .values({ userId: input.userId, avatarFileId: fileId })
+          .onDuplicateKeyUpdate({ set: { avatarFileId: fileId } });
       }
-      return row.id;
+      return fileId;
     }, POINTS_TX_OPTIONS),
   );
 

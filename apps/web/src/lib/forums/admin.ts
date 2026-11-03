@@ -3,6 +3,7 @@ import { forumPrefixes, forums, getWebDb } from "@funwind/db";
 import { writeAudit, type DbTx } from "@/lib/audit";
 import { invalidateAuthzSnapshot } from "@/lib/authz/snapshot";
 import type { ForumNode } from "./forum-tree";
+import { forumSelectCols } from "./select";
 
 /**
  * 版块管理服务（M10.6a，docs/milestones/M10.6-feature-completion.md 批次 a）：
@@ -92,29 +93,15 @@ export function planMove(rows: readonly ForumNode[], fid: number, newParentId: n
   return { ok: true, updates };
 }
 
-const forumCols = {
-  id: forums.id,
-  parentId: forums.parentId,
-  path: forums.path,
-  depth: forums.depth,
-  kind: forums.kind,
-  name: forums.name,
-  description: forums.description,
-  iconKey: forums.iconKey,
-  sortOrder: forums.sortOrder,
-  readPolicy: forums.readPolicy,
-  writePolicy: forums.writePolicy,
-  reviewPolicy: forums.reviewPolicy,
-  isListed: forums.isListed,
-  isArchived: forums.isArchived,
-};
-
 export async function listForumRows(): Promise<ForumNode[]> {
-  return (await getWebDb().select(forumCols).from(forums).orderBy(asc(forums.id))) as ForumNode[];
+  return (await getWebDb()
+    .select(forumSelectCols)
+    .from(forums)
+    .orderBy(asc(forums.id))) as ForumNode[];
 }
 
 async function loadAllForums(tx: DbTx): Promise<ForumNode[]> {
-  return (await tx.select(forumCols).from(forums).orderBy(asc(forums.id))) as ForumNode[];
+  return (await tx.select(forumSelectCols).from(forums).orderBy(asc(forums.id))) as ForumNode[];
 }
 
 export async function createForum(

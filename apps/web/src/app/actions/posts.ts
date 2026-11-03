@@ -103,18 +103,13 @@ export const restorePostAction = defineAction({
 const moderationPostInput = z.object({ postId: z.coerce.number().int().positive() });
 const moderationReasonInput = moderationPostInput.extend({ reason: z.string().min(1).max(500) });
 
-/** 前台治理仍沿用既有审计来源；权限由 moderation 服务按帖子所在版块判定。 */
-function moderationActor(ctx: ActionContext) {
-  return { userId: ctx.userId ?? 0, via: "admin" as const, ip: ctx.ip };
-}
-
 /** 屏蔽的前台公开入口：保留空理由业务校验、失败 404 与主题回跳。 */
 export const hidePostAction = defineAction({
   name: "moderation.hide",
   auth: "user",
   input: moderationPostInput.extend({ reason: z.string().max(500).default("") }),
   async run(ctx, input) {
-    const result = await hidePost(ctx.subject, input.postId, input.reason, moderationActor(ctx));
+    const result = await hidePost(ctx.subject, input.postId, input.reason, ctx.actor);
     if (!result.ok) notFound();
     const [post] = await getWebDb()
       .select({ threadId: posts.threadId })
@@ -135,7 +130,7 @@ async function runContentReview(
   kind: ContentReviewKind,
 ): Promise<void> {
   const subject = await getCurrentSubject();
-  const actor = moderationActor(ctx);
+  const actor = ctx.actor;
   const result: ReviewOutcome =
     kind === "approve"
       ? await approveReview(subject, input.postId, actor)

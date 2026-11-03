@@ -2,6 +2,7 @@ import { ArrowLeft } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { positiveIntParam } from "@/lib/utils";
 import { reportPostAction } from "@/app/actions/reports";
 import { reportPostTarget } from "@/lib/reports/service";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,14 +18,9 @@ type Params = {
   searchParams: Promise<{ error?: string; done?: string }>;
 };
 
-const parsePid = (raw: string): number | null => {
-  const n = Number(raw);
-  return Number.isInteger(n) && n > 0 ? n : null;
-};
-
 /** 举报确认页（M9）：理由必填；同人同帖幂等（already 由服务层给出可读提示）。 */
 export default async function ReportPostPage({ params, searchParams }: Params) {
-  const pid = parsePid((await params).pid);
+  const pid = positiveIntParam((await params).pid);
   if (!pid) notFound();
   const user = await getCurrentUser();
   if (!user) notFound();

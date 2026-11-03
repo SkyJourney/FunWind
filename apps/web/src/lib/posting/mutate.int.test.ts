@@ -14,7 +14,9 @@ import {
   siteSettings,
   threads,
 } from "@funwind/db";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import * as permissions from "@/lib/authz/evaluator";
+import * as postingLocks from "./locks";
 import { invalidateAuthzSnapshot } from "@/lib/authz/snapshot";
 import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
@@ -459,6 +461,42 @@ describe.skipIf(skipDb)("编辑 / 删除 / 恢复 · 真实 MySQL", () => {
         expect.objectContaining({ postId: r.postId, action: "restore", operatorId: DEMO.admin }),
       ],
     ]);
+  });
+
+  it("公共前置保持锁与权限差异：编辑不取版块锁，删除/恢复取锁，恢复不评估写权限", async () => {
+    const thread = await mkThread(member, FORUM, "写路径前置差异");
+    const lockForum = vi.spyOn(postingLocks, "lockForum");
+    const evaluate = vi.spyOn(permissions, "evaluate");
+    try {
+      expect(
+        await editPost(
+          member,
+          {
+            postId: thread.postId,
+            title: "写路径前置差异",
+            source: "编辑后的正文",
+            expectedEditedAt: null,
+          },
+          deps,
+        ),
+      ).toMatchObject({ ok: true });
+      expect(lockForum).not.toHaveBeenCalled();
+      expect(evaluate.mock.calls.some(([, permission]) => permission === "forum.write")).toBe(true);
+
+      lockForum.mockClear();
+      expect(await deletePost(member, { postId: thread.postId }, deps)).toMatchObject({ ok: true });
+      expect(lockForum).toHaveBeenCalled();
+      lockForum.mockClear();
+      evaluate.mockClear();
+      expect(
+        await restorePost(admin, { postId: thread.postId, reason: "误删" }, deps),
+      ).toMatchObject({ ok: true });
+      expect(lockForum).toHaveBeenCalled();
+      expect(evaluate.mock.calls.map(([, permission]) => permission)).toEqual(["forum.moderate"]);
+    } finally {
+      lockForum.mockRestore();
+      evaluate.mockRestore();
+    }
   });
 
   it("已删除的内容作者不能再编辑；对照：可见的内容作者能编辑", async () => {
