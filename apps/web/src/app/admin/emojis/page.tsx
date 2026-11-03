@@ -5,6 +5,7 @@ import { emojiGroups, emojis, getWebDb } from "@funwind/db";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { FileInput } from "@/components/ui/file-input";
 import { Pagination } from "@/components/content/pagination";
 import { pageBounds } from "@/lib/paging";
 import {
@@ -163,7 +164,7 @@ export default async function AdminEmojisPage({ searchParams }: Params) {
           </form>
           <ul className="divide-y" data-testid="group-list">
             {groups.map((g) => (
-              <li key={g.id} className="flex flex-wrap items-center gap-2 py-2.5 text-sm">
+              <li key={g.id} className="flex min-w-0 flex-wrap items-center gap-2 py-2.5 text-sm">
                 {g.iconKey && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -230,17 +231,15 @@ export default async function AdminEmojisPage({ searchParams }: Params) {
                 </span>
                 <form
                   action={uploadGroupIconAction}
-                  className="flex w-full items-center gap-2 sm:w-auto"
+                  className="flex w-full max-w-full min-w-0 flex-wrap items-center gap-2"
                 >
                   <input type="hidden" name="id" value={g.id} />
                   <input type="hidden" name="back" value={back} />
-                  <input
-                    type="file"
+                  <FileInput
                     name="icon"
                     required
                     accept=".png,.gif,.webp,image/png,image/gif,image/webp"
                     aria-label={`分组「${g.name}」的标题图`}
-                    className="max-w-52 text-xs"
                   />
                   <SubmitButton
                     className="rounded px-2 py-1 text-xs hover:bg-accent"
@@ -251,7 +250,7 @@ export default async function AdminEmojisPage({ searchParams }: Params) {
                 </form>
                 <form
                   action={renameGroupAction}
-                  className="flex w-full items-center gap-2 sm:w-auto"
+                  className="flex max-w-full min-w-0 flex-[1_1_20rem] flex-wrap items-center gap-2"
                 >
                   <input type="hidden" name="id" value={g.id} />
                   <input type="hidden" name="back" value={back} />
@@ -325,14 +324,13 @@ export default async function AdminEmojisPage({ searchParams }: Params) {
             >
               <input type="hidden" name="groupId" value={groupId} />
               <input type="hidden" name="back" value={back} />
-              <input
-                type="file"
+              <FileInput
+                className="flex-[1_1_14rem]"
                 name="files"
                 multiple
                 required
                 accept=".png,.gif,.webp,image/png,image/gif,image/webp"
                 aria-label="选择表情文件（可多选）"
-                className="text-xs"
               />
               <SubmitButton
                 className="rounded-lg bg-primary px-3 py-1.5 font-medium text-primary-foreground hover:bg-primary/90"

@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useFormStatus } from "react-dom";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { controlLayout } from "@/components/ui/control-layout";
 import {
   Dialog,
   DialogClose,
@@ -50,7 +52,7 @@ export function ConfirmSubmit({
         ref={button}
         type="submit"
         formAction={formAction}
-        className={className}
+        className={cn(controlLayout, className)}
         disabled={pending}
       >
         {pending ? pendingText : children}

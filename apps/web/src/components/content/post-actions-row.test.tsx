@@ -82,11 +82,16 @@ describe("帖子动作服务端展示", () => {
       "封禁",
     ]);
     // 服务端元素中的 action 必须是同一函数，不能在提取后丢失或套成客户端处理器。
-    const review = element.props.children[2];
-    const disable = element.props.children[3];
+    expect(element).not.toBeNull();
+    const review = element!.props.children[2];
+    const disable = element!.props.children[3];
     expect(review.props.children[0].props.action).toBe(actions.approve);
     expect(review.props.children[1].props.action).toBe(actions.reject);
     expect(disable.props.action).toBe(actions.disable);
-    expect(container.firstElementChild?.tagName).toBe("FORM");
+    expect(container.firstElementChild).toHaveAttribute("aria-label", "内容操作");
+    expect(container.firstElementChild).toHaveClass("flex-wrap");
+    expect(screen.getByLabelText("驳回理由")).toHaveClass("min-w-0", "flex-1");
+    for (const button of screen.getAllByRole("button"))
+      expect(button).toHaveClass("shrink-0", "whitespace-nowrap");
   });
 });

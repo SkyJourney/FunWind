@@ -6,6 +6,7 @@ import { getForumTree } from "@/lib/authz/snapshot";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { AutoSubmitSelect } from "@/components/admin/auto-submit-select";
 import { ConfirmSubmit } from "@/components/ui/confirm-submit";
+import { SubmitButton } from "@/components/ui/submit-button";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "授权矩阵" };
@@ -153,12 +154,12 @@ export default async function RoleMatrixPage({
                     <form
                       key={p.key}
                       action={granted ? revokeAction : grantAction}
-                      className="flex items-center justify-between gap-2 py-0.5"
+                      className="flex min-w-0 flex-wrap items-center justify-between gap-2 py-0.5"
                     >
                       <input type="hidden" name="roleKey" value={roleKey} />
                       <input type="hidden" name="permissionKey" value={p.key} />
                       <input type="hidden" name="scopeId" value={String(scopeId)} />
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-[1_1_16rem] [overflow-wrap:anywhere]">
                         <code className="text-xs text-muted-foreground">{p.key}</code>
                         <span className="ml-2 text-sm">{p.description}</span>
                         {p.level && (
@@ -178,12 +179,9 @@ export default async function RoleMatrixPage({
                           已授权 ✓ 撤销
                         </ConfirmSubmit>
                       ) : (
-                        <button
-                          type="submit"
-                          className="rounded-md border px-3 py-1 text-xs hover:bg-accent"
-                        >
+                        <SubmitButton className="rounded-md border px-3 py-1 text-xs hover:bg-accent">
                           授权
-                        </button>
+                        </SubmitButton>
                       )}
                     </form>
                   );

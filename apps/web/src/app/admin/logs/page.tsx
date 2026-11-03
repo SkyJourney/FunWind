@@ -84,8 +84,7 @@ export default async function AdminLogsPage({ searchParams }: Params) {
       </div>
 
       <AdminListMeta total={result.total} page={safePage} totalPages={totalPages} />
-      {/* 保留原日志分页的空 page 参数；重复 page 的既有行为另列问题，不混入等价提取。 */}
-      <Pagination basePath={`${baseQuery}&page=`} page={safePage} totalPages={totalPages} />
+      <Pagination basePath={baseQuery} page={safePage} totalPages={totalPages} />
 
       <AdminTable
         colSpan={6}

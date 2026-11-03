@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { cn } from "@/lib/utils";
+import { ActionGroup } from "@/components/ui/action-group";
+import { controlLayout } from "@/components/ui/control-layout";
 
 /**
  * 后台筛选栏统一形态（M9.5）：GET 表单（筛选状态持久在 URL），关键词 + 若干 select 筛项 + 筛选/重置。
@@ -33,7 +36,7 @@ export function AdminFilterBar({
 }) {
   const hasKeyword = placeholder !== undefined;
   return (
-    <form action={action} method={method} className={className}>
+    <form action={action} method={method} className={cn("max-w-full min-w-0", className)}>
       {Object.entries(hidden ?? {}).map(([name, value]) =>
         value === undefined ? null : <input key={name} type="hidden" name={name} value={value} />,
       )}
@@ -44,17 +47,22 @@ export function AdminFilterBar({
           name={keywordName}
           defaultValue={defaultValue}
           placeholder={placeholder}
-          className="w-44 rounded-lg border bg-background px-3 py-1.5 outline-none focus:ring-2 focus:ring-ring"
+          className="w-44 max-w-full min-w-0 rounded-lg border bg-background px-3 py-1.5 outline-none focus:ring-2 focus:ring-ring"
         />
       )}
-      <button type="submit" className={submitClassName}>
-        筛选
-      </button>
-      {resetHref !== undefined && (
-        <Link href={resetHref} className="text-xs text-muted-foreground hover:text-foreground">
-          重置
-        </Link>
-      )}
+      <ActionGroup className="gap-2">
+        <button type="submit" className={cn(controlLayout, submitClassName)}>
+          筛选
+        </button>
+        {resetHref !== undefined && (
+          <Link
+            href={resetHref}
+            className={cn(controlLayout, "text-xs text-muted-foreground hover:text-foreground")}
+          >
+            重置
+          </Link>
+        )}
+      </ActionGroup>
       {total}
     </form>
   );

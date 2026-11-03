@@ -5,6 +5,7 @@ import { ForumTree } from "@/lib/forums/forum-tree";
 import { notFound } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { FileInput } from "@/components/ui/file-input";
 import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import {
@@ -151,17 +152,15 @@ export default async function ForumEditPage({
                 无图占位
               </div>
             )}
-            <div className="space-y-2 text-sm">
+            <div className="max-w-full min-w-0 flex-[1_1_18rem] space-y-2 text-sm">
               <form action={uploadForumIconAction} className="flex flex-wrap items-center gap-2">
                 <input type="hidden" name="fid" value={fid} />
                 <input type="hidden" name="back" value={`/admin/forums/${fid}`} />
-                <input
-                  type="file"
+                <FileInput
                   name="icon"
                   required
                   accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
                   aria-label="板块图文件（PNG/JPG/WebP，≤512×512、≤300KB）"
-                  className="max-w-56 text-xs"
                 />
                 <SubmitButton
                   className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"

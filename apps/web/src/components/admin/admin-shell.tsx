@@ -63,7 +63,7 @@ export function AdminShell({
   const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
 
   const nav = (
-    <nav aria-label="后台导航" className="flex-1 space-y-5 overflow-y-auto px-2">
+    <nav aria-label="后台导航" className="min-h-0 flex-1 space-y-5 overflow-y-auto px-2">
       {groups.map((group) => (
         <div key={group.label}>
           <p className="mb-1 px-2 text-xs font-medium tracking-wide text-muted-foreground">
@@ -102,7 +102,7 @@ export function AdminShell({
     <div className="flex h-full flex-col">
       <p className="px-4 pt-4 pb-3 text-sm font-semibold tracking-tight">清风社区 · 后台管理</p>
       {nav}
-      <div className="px-4 pt-2 pb-4">
+      <div className="shrink-0 border-t bg-card px-4 pt-2 pb-4">
         <Link
           href="/"
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-primary"
@@ -135,7 +135,7 @@ export function AdminShell({
                   </SheetTrigger>
                   <SheetContent side="left" className="w-64 overflow-y-auto">
                     <SheetTitle className="sr-only">后台导航</SheetTitle>
-                    <div className="h-full pb-6">{navBody}</div>
+                    <div className="min-h-0 flex-1 pb-6">{navBody}</div>
                   </SheetContent>
                 </Sheet>
               </span>

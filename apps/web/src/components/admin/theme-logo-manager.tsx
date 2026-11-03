@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useThemeRequest } from "@/components/admin/use-theme-request";
 import { ThemeFeedback, ThemeUploadButton } from "@/components/admin/theme-workspace-ui";
+import { controlLayout } from "@/components/ui/control-layout";
 
 /**
  * 主题自带 LOGO 管理（M11.1 Step 7）：在工作区内上传 / 换绑 / 解绑该包的 LOGO。
@@ -93,7 +94,7 @@ export function ThemeLogoManager({
           }}
         />
         {canManage && (
-          <label className="flex items-center gap-1 text-xs">
+          <label className="flex max-w-full min-w-0 flex-[1_1_16rem] flex-wrap items-center gap-1 text-xs">
             <span className="text-muted-foreground">从池中选择</span>
             <select
               value={logo ?? ""}
@@ -110,7 +111,7 @@ export function ThemeLogoManager({
                   "LOGO 已换绑。",
                 );
               }}
-              className="rounded border bg-background px-2 py-1"
+              className="max-w-full min-w-0 flex-1 rounded border bg-background px-2 py-1"
             >
               <option value="">（选择池内 LOGO）</option>
               {poolItems.map((item) => (
@@ -136,7 +137,7 @@ export function ThemeLogoManager({
                 "已解绑本主题的 LOGO。",
               )
             }
-            className="rounded-md border px-2.5 py-1 text-xs text-destructive hover:bg-destructive/10"
+            className={`${controlLayout} rounded-md border px-2.5 py-1 text-xs text-destructive hover:bg-destructive/10`}
           >
             解绑
           </button>

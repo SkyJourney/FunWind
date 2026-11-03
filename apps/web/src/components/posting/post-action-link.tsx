@@ -2,6 +2,8 @@
 
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { controlLayout } from "@/components/ui/control-layout";
 import {
   Dialog,
   DialogClose,
@@ -53,11 +55,12 @@ export function PostActionLink({
       <a
         ref={trigger}
         href={`/p/${postId}/${kind}`}
-        className={
+        className={cn(
+          controlLayout,
           kind === "report"
             ? "text-muted-foreground hover:text-primary"
-            : "text-primary hover:underline"
-        }
+            : "text-primary hover:underline",
+        )}
         onClick={(event) => {
           if (
             event.button !== 0 ||

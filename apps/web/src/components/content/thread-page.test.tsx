@@ -141,11 +141,14 @@ describe("帖子页的展示组件接线", () => {
           reasonRequired: userId !== 1,
         });
       else expect(userId).toBeNull();
-      expect(props.find((p) => p.postId === 12)).toMatchObject({
-        canEdit: moderate || userId === 2,
-        canReport: userId !== null && userId !== 2,
-        reasonRequired: userId !== 2,
-      });
+      const reply = props.find((p) => p.postId === 12);
+      if (userId === null) expect(reply).toBeUndefined();
+      else
+        expect(reply).toMatchObject({
+          canEdit: moderate || userId === 2,
+          canReport: userId !== 2,
+          reasonRequired: userId !== 2,
+        });
       for (const props of propsOf<ComponentProps<typeof AttachmentList>>(tree, AttachmentList))
         expect(props.isGuest).toBe(userId === null);
     },

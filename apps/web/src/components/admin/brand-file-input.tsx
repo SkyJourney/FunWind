@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { FileInput } from "@/components/ui/file-input";
 
 /**
  * 品牌素材上传文件输入（M9.5 LOGO 版起，M11 泛化给 Hero 共用）：选文件即校验大小与类型，
@@ -20,15 +21,16 @@ export function BrandFileInput({
   const kb = Math.round(maxBytes / 1024);
   const limit = kb >= 1024 ? `${Math.round(kb / 1024)}MB` : `${kb}KB`;
   return (
-    <label className="grid flex-1 gap-1 text-sm">
+    <label className="grid max-w-full min-w-0 flex-[1_1_18rem] gap-1 text-sm">
       PNG 文件（≤{limit}）
-      <input
-        type="file"
+      <FileInput
         name="file"
         accept="image/png"
         required
+        aria-invalid={error !== null}
+        showSelection={false}
         onChange={(e) => {
-          const f = e.target.files?.[0];
+          const f = e.currentTarget.files?.[0];
           if (!f) {
             setError(null);
             setFileName(null);
@@ -36,7 +38,7 @@ export function BrandFileInput({
           }
           if (f.type !== "image/png") {
             setError(`「${f.name}」不是 PNG（仅支持 PNG，文件魔数在服务端二次校验）`);
-            e.target.value = "";
+            e.currentTarget.value = "";
             setFileName(null);
             return;
           }
@@ -44,22 +46,25 @@ export function BrandFileInput({
             setError(
               `「${f.name}」约 ${Math.round(f.size / 1024)}KB 超过 ${limit}——请压缩后重试（${hint}）`,
             );
-            e.target.value = "";
+            e.currentTarget.value = "";
             setFileName(null);
             return;
           }
           setError(null);
           setFileName(f.name);
         }}
-        aria-invalid={error !== null}
-        className="rounded-lg border bg-background px-3 py-1.5 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-muted file:px-3 file:py-1.5 file:text-sm"
       />
       {error ? (
-        <span role="alert" className="text-xs text-destructive">
+        <span role="alert" className="min-w-0 text-xs [overflow-wrap:anywhere] text-destructive">
           {error}
         </span>
       ) : fileName ? (
-        <span className="text-xs text-muted-foreground">已选 {fileName}</span>
+        <span
+          className="min-w-0 text-xs [overflow-wrap:anywhere] text-muted-foreground"
+          title={fileName}
+        >
+          已选 {fileName}
+        </span>
       ) : null}
     </label>
   );

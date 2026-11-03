@@ -208,7 +208,15 @@ describe("最高重复四页的 URL 与筛选 DOM 快照", () => {
       "/admin/reports?forum=7&page=1",
     );
     const form = container.querySelector('form[action="/admin/reports"]')!;
-    expect(form).toHaveClass("flex flex-wrap items-center gap-2 text-sm", { exact: true });
+    expect(form).toHaveClass(
+      "min-w-0",
+      "max-w-full",
+      "flex",
+      "flex-wrap",
+      "items-center",
+      "gap-2",
+      "text-sm",
+    );
     expect([...new FormData(form as HTMLFormElement).entries()]).toEqual([["forum", "7"]]);
     expect(screen.getByText("该状态下没有举报。")).toBeInTheDocument();
   });
@@ -321,7 +329,14 @@ describe("最高重复四页的 URL 与筛选 DOM 快照", () => {
       "/admin/contents?q=%E5%A4%9C+%E9%9B%A8&forum=7&state=hidden&page=3",
     );
     const form = container.querySelector('form[action="/admin/contents"]') as HTMLFormElement;
-    expect(form).toHaveClass("flex flex-wrap items-center gap-1.5", { exact: true });
+    expect(form).toHaveClass(
+      "min-w-0",
+      "max-w-full",
+      "flex",
+      "flex-wrap",
+      "items-center",
+      "gap-1.5",
+    );
     expect([...new FormData(form).entries()]).toEqual([
       ["state", "hidden"],
       ["forum", "7"],
@@ -371,11 +386,11 @@ describe("其余页面 query/page 的兼容性", () => {
     expect(screen.getByRole("link", { name: "下一页" })).toHaveAttribute("href", expected);
   });
 
-  it("日志保留 tab=audit 及原有空 page 尾缀，不将既有重复参数问题藏在重构里", async () => {
+  it("日志分页保留筛选且只产生一个 page 参数", async () => {
     await show("logs", { action: "thread created", actor: "7", page: "2" });
     expect(screen.getByRole("link", { name: "下一页" })).toHaveAttribute(
       "href",
-      "/admin/logs?tab=audit&action=thread+created&actor=7&page=&page=3",
+      "/admin/logs?tab=audit&action=thread+created&actor=7&page=3",
     );
     expect(navLinks("日志类型")).toEqual([
       ["审计日志", "/admin/logs"],

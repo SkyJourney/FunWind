@@ -2,6 +2,8 @@ import "server-only";
 import Link from "next/link";
 import { PostActionLink } from "@/components/posting/post-action-link";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { ActionGroup } from "@/components/ui/action-group";
+import { controlLayout } from "@/components/ui/control-layout";
 
 type PostAction = (formData: FormData) => Promise<void>;
 
@@ -35,11 +37,15 @@ export function PostActionsRow({
     report: PostAction;
   };
 }) {
+  if (!canEdit && !canHide && !canReview && !canDisable && !canRestore && !canReport) return null;
   return (
-    <>
+    <ActionGroup aria-label="内容操作" data-post-actions={postId}>
       {canEdit && (
         <>
-          <Link href={`/p/${postId}/edit`} className="text-primary hover:underline">
+          <Link
+            href={`/p/${postId}/edit`}
+            className={`${controlLayout} text-primary hover:underline`}
+          >
             编辑
           </Link>
           <PostActionLink
@@ -60,7 +66,10 @@ export function PostActionsRow({
               通过
             </SubmitButton>
           </form>
-          <form action={actions.reject} className="inline-flex items-center gap-1">
+          <form
+            action={actions.reject}
+            className="flex max-w-full min-w-0 flex-[1_1_12rem] items-center gap-2"
+          >
             <input type="hidden" name="postId" value={postId} />
             <input
               name="reason"
@@ -68,7 +77,7 @@ export function PostActionsRow({
               maxLength={255}
               placeholder="驳回理由（必填）"
               aria-label="驳回理由"
-              className="w-32 rounded border bg-background px-1.5 py-0.5 text-xs"
+              className="min-w-0 flex-1 rounded border bg-background px-2 py-1 text-xs"
             />
             <SubmitButton pendingText="驳回中…" className="text-destructive hover:underline">
               驳回
@@ -77,7 +86,10 @@ export function PostActionsRow({
         </>
       )}
       {canDisable && (
-        <form action={actions.disable} className="inline-flex items-center gap-1">
+        <form
+          action={actions.disable}
+          className="flex max-w-full min-w-0 flex-[1_1_12rem] items-center gap-2"
+        >
           <input type="hidden" name="postId" value={postId} />
           <input
             name="reason"
@@ -85,7 +97,7 @@ export function PostActionsRow({
             maxLength={255}
             placeholder="封禁理由（作者可见）"
             aria-label="封禁理由（作者可见）"
-            className="w-32 rounded border bg-background px-1.5 py-0.5 text-xs"
+            className="min-w-0 flex-1 rounded border bg-background px-2 py-1 text-xs"
           />
           <SubmitButton pendingText="封禁中…" className="text-destructive hover:underline">
             封禁
@@ -94,6 +106,6 @@ export function PostActionsRow({
       )}
       {canRestore && <PostActionLink postId={postId} kind="restore" action={actions.restore} />}
       {canReport && <PostActionLink postId={postId} kind="report" action={actions.report} />}
-    </>
+    </ActionGroup>
   );
 }

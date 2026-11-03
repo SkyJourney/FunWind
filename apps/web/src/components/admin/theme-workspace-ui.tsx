@@ -5,6 +5,7 @@
  * 素材库 / LOGO 管理两个面板共用，避免同形态 JSX 重复。
  */
 import type { RefObject } from "react";
+import { controlLayout } from "@/components/ui/control-layout";
 
 export function ThemeUploadButton({
   pending,
@@ -20,13 +21,15 @@ export function ThemeUploadButton({
   onFile: (file: File) => void;
 }) {
   return (
-    <label className="cursor-pointer rounded-md border px-2.5 py-1 text-xs hover:bg-accent">
+    <label
+      className={`${controlLayout} relative max-w-full cursor-pointer rounded-md border px-2.5 py-1 text-xs focus-within:ring-2 focus-within:ring-ring hover:bg-accent`}
+    >
       {pending ? "处理中…" : label}
       <input
         ref={fileInput}
         type="file"
         accept={accept}
-        className="hidden"
+        className="sr-only"
         disabled={pending}
         onChange={(event) => {
           const file = event.target.files?.[0];
@@ -79,13 +82,13 @@ export function DecorAssetSelect({
   onChange: (file: string) => void;
 }) {
   return (
-    <label className="grid gap-1 text-xs">
+    <label className="grid max-w-full min-w-0 gap-1 text-xs">
       素材
       <select
         aria-label={ariaLabel}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="rounded border bg-background px-2 py-1.5"
+        className="w-full max-w-full min-w-0 rounded border bg-background px-2 py-1.5"
       >
         <option value="">选择装饰素材</option>
         {decorFiles.map((file) => (
@@ -118,13 +121,13 @@ export function BlendSelect({
   onChange: (blend: string) => void;
 }) {
   return (
-    <label className="grid gap-1 text-xs">
+    <label className="grid max-w-full min-w-0 gap-1 text-xs">
       混合模式
       <select
         aria-label={ariaLabel}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="rounded border bg-background px-2 py-1.5"
+        className="w-full max-w-full min-w-0 rounded border bg-background px-2 py-1.5"
       >
         {BLEND_OPTIONS.map((blend) => (
           <option key={blend} value={blend}>

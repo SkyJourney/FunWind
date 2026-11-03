@@ -4,6 +4,8 @@ import { useState } from "react";
 import { decorUrl } from "@/lib/theme/decor-url";
 import { useThemeRequest } from "@/components/admin/use-theme-request";
 import { ThemeFeedback, ThemeUploadButton } from "@/components/admin/theme-workspace-ui";
+import { ActionGroup } from "@/components/ui/action-group";
+import { controlLayout } from "@/components/ui/control-layout";
 import type { SurfaceCapabilities } from "@/lib/theme/surface-schema";
 
 /**
@@ -117,7 +119,7 @@ export function ThemeAssetLibrary({
           素材库还是空的——上传第一张底纹，让主题拥有图片质感。
         </p>
       ) : (
-        <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <ul className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-3">
           {items.map((item) => {
             const usageLabel = item.usage
               .map((ref) => `${ref.packName}（${ref.surfaceIds.join("、")}）`)
@@ -139,13 +141,13 @@ export function ThemeAssetLibrary({
                     被 {item.usage.length} 个主题引用：{usageLabel}
                   </p>
                 )}
-                <div className="flex flex-wrap gap-1">
+                <ActionGroup className="gap-1">
                   {canUseAsFill && (
                     <button
                       type="button"
                       disabled={pending}
                       onClick={() => onUseAsFill(item.file)}
-                      className="rounded border px-2 py-0.5 text-[11px] hover:bg-accent"
+                      className={`${controlLayout} rounded border px-2 py-0.5 text-[11px] hover:bg-accent`}
                     >
                       用作{activeSurfaceLabel}底纹
                     </button>
@@ -155,7 +157,7 @@ export function ThemeAssetLibrary({
                       type="button"
                       disabled={pending}
                       onClick={() => onUseAsContent(item.file)}
-                      className="rounded border px-2 py-0.5 text-[11px] hover:bg-accent"
+                      className={`${controlLayout} rounded border px-2 py-0.5 text-[11px] hover:bg-accent`}
                     >
                       用作内容图
                     </button>
@@ -164,11 +166,11 @@ export function ThemeAssetLibrary({
                     type="button"
                     disabled={pending}
                     onClick={() => void remove(item.file)}
-                    className="ml-auto rounded border px-2 py-0.5 text-[11px] text-destructive hover:bg-destructive/10"
+                    className={`${controlLayout} ml-auto rounded border px-2 py-0.5 text-[11px] text-destructive hover:bg-destructive/10`}
                   >
                     移除
                   </button>
-                </div>
+                </ActionGroup>
               </li>
             );
           })}

@@ -6,6 +6,7 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 import { BrandFileInput } from "@/components/admin/brand-file-input";
 import { AdminFlash } from "@/components/admin/admin-flash";
+import { ActionGroup } from "@/components/ui/action-group";
 
 type FormAction = (formData: FormData) => Promise<void>;
 
@@ -110,14 +111,14 @@ export function BrandPoolAdmin({
       {/* 上传 */}
       <Card>
         <CardContent className="pt-5">
-          <form action={actions.upload} className="flex flex-wrap items-end gap-3">
-            <label className="grid gap-1 text-sm">
+          <form action={actions.upload} className="flex min-w-0 flex-wrap items-end gap-3">
+            <label className="grid max-w-full min-w-0 flex-[1_1_12rem] gap-1 text-sm">
               名称
               <input
                 name="name"
                 maxLength={40}
                 placeholder={namePlaceholder}
-                className="w-48 rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                className="w-full max-w-full min-w-0 rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
               />
             </label>
             <BrandFileInput maxBytes={maxBytes} hint={fileHint} />
@@ -134,29 +135,33 @@ export function BrandPoolAdmin({
           {emptyText}
         </p>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,18rem),1fr))] gap-3">
           {pool.items.map((item) => {
             const active = pool.active === item.file;
             return (
               <Card key={item.file} className={active ? "border-primary/60" : undefined}>
-                <CardContent className="flex items-center gap-3 pt-5">
+                <CardContent className="flex min-w-0 flex-wrap items-center gap-3 pt-5">
                   {/* eslint-disable-next-line @next/next/no-img-element -- 管理页缩略图走公开品牌路由（池内项为管理员可见） */}
                   <img
                     src={previewUrl(item, active)}
                     alt={item.name}
-                    className={`${previewClassName} shrink-0 rounded-lg border`}
+                    className={`${previewClassName} max-w-full shrink-0 rounded-lg border`}
                   />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{item.name}</p>
+                  <div className="min-w-0 flex-[1_1_8rem]">
+                    <p className="truncate text-sm font-medium" title={item.name}>
+                      {item.name}
+                    </p>
                     {itemBadge?.(item)}
                     {active && (
                       <p className="mt-0.5 flex items-center gap-0.5 text-xs text-primary">
                         <CheckCircle2 className="size-3.5 shrink-0" aria-hidden /> 当前生效中
                       </p>
                     )}
-                    <p className="truncate text-xs text-muted-foreground">{item.file}</p>
+                    <p className="truncate text-xs text-muted-foreground" title={item.file}>
+                      {item.file}
+                    </p>
                   </div>
-                  <div className="flex shrink-0 flex-col gap-1.5">
+                  <ActionGroup className="basis-full border-t pt-3">
                     {!active && (
                       <form action={actions.setActive}>
                         <input type="hidden" name="file" value={item.file} />
@@ -184,7 +189,7 @@ export function BrandPoolAdmin({
                         </a>
                       </noscript>
                     </form>
-                  </div>
+                  </ActionGroup>
                 </CardContent>
               </Card>
             );

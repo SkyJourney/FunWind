@@ -47,14 +47,22 @@ describe("后台展示组件", () => {
     );
     const form = container.querySelector("form")!;
     expect(form).toHaveAttribute("method", "get");
-    expect(form).toHaveClass("flex flex-wrap items-center gap-2 text-sm", { exact: true });
-    expect([...form.children].map((el) => el.tagName)).toEqual([
-      "INPUT",
-      "SELECT",
-      "BUTTON",
-      "A",
-      "SPAN",
-    ]);
+    expect(form).toHaveClass(
+      "min-w-0",
+      "max-w-full",
+      "flex",
+      "flex-wrap",
+      "items-center",
+      "gap-2",
+      "text-sm",
+    );
+    expect([...form.children].map((el) => el.tagName)).toEqual(["INPUT", "SELECT", "DIV", "SPAN"]);
+    const actions = form.children[2]!;
+    expect(actions).toHaveClass("flex-wrap");
+    expect(within(actions as HTMLElement).getByRole("button", { name: "筛选" })).toHaveClass(
+      "shrink-0",
+      "whitespace-nowrap",
+    );
     expect([...new FormData(form).entries()]).toEqual([
       ["tab", "removed"],
       ["kind", "reply"],

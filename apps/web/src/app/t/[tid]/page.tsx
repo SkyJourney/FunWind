@@ -16,6 +16,7 @@ import { tagsOfThreads } from "@/lib/interact/tags";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { PostActionsRow } from "@/components/content/post-actions-row";
+import { PostFooter } from "@/components/content/post-footer";
 import { AttachmentList } from "@/components/content/attachment-list";
 import { ReplyComposer } from "@/components/posting/reply-composer";
 import { ReplyFab } from "@/components/posting/reply-fab";
@@ -285,15 +286,13 @@ export default async function ThreadPage({ params, searchParams }: Params) {
             returnPage={replies.page}
           />
           {attachmentList(thread.first.id)}
-          <div className="mt-3 flex items-center gap-3 text-xs">
-            <LikeButton {...likeProps(thread.first.id)} />
-            {(thread.first.editedAt || hasPostActions(thread.authorId, thread.state)) && (
-              <span className="flex items-center gap-3 text-muted-foreground">
-                {thread.first.editedAt && <span>最后编辑于 {thread.first.editedAt}</span>}
-                {postActions(thread.first.id, thread.authorId, thread.state)}
-              </span>
-            )}
-          </div>
+          <PostFooter
+            like={<LikeButton {...likeProps(thread.first.id)} />}
+            timestamp={thread.first.editedAt && `最后编辑于 ${thread.first.editedAt}`}
+          >
+            {hasPostActions(thread.authorId, thread.state) &&
+              postActions(thread.first.id, thread.authorId, thread.state)}
+          </PostFooter>
         </CardContent>
       </Card>
 
@@ -344,16 +343,12 @@ export default async function ThreadPage({ params, searchParams }: Params) {
                   returnPage={replies.page}
                 />
                 {attachmentList(f.id)}
-                <div className="flex items-center gap-3 text-xs">
-                  <LikeButton {...likeProps(f.id)} />
-                  <span className="flex items-center gap-3 text-muted-foreground">
-                    <span>
-                      {f.createdAt}
-                      {f.editedAt && ` · 编辑于 ${f.editedAt}`}
-                    </span>
-                    {postActions(f.id, f.authorId, f.state)}
-                  </span>
-                </div>
+                <PostFooter
+                  like={<LikeButton {...likeProps(f.id)} />}
+                  timestamp={`${f.createdAt}${f.editedAt ? ` · 编辑于 ${f.editedAt}` : ""}`}
+                >
+                  {hasPostActions(f.authorId, f.state) && postActions(f.id, f.authorId, f.state)}
+                </PostFooter>
               </CardContent>
             </Card>
           );
