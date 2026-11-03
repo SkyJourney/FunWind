@@ -1,8 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { renderPackCssVars } from "@/lib/theme/surface-render";
-import { parseThemePackDefinition } from "@/lib/theme/surface-schema";
+import {
+  definitionForThemePackControls,
+  definitionForThemePackPreview,
+} from "./theme/pack-save-draft";
 import { ContentSlotEditor } from "@/components/admin/theme/content-slot-editor";
 import {
   GradientAngleEditor,
@@ -39,18 +42,15 @@ type ImageFill = Extract<FillSpec, { type: "image" }>;
 type ImageOverlaySpec = Extract<OverlaySpec, { type: "image" }>;
 
 export function ThemePackEditor({
-  packId,
-  restoreDraft,
   surfaces,
   initialDefinition,
   fallbackDefinition,
   decorFiles,
   decorUsage,
+  onDefinitionChange,
 }: {
-  /** 草稿本地档键的组成部分：同包的冲突恢复不串到别的包 */
-  packId: string;
-  /** 页面带错误参数（err）时为 true：挂载时恢复上次草稿；正常进入则清除旧档 */
-  restoreDraft: boolean;
+  /** 表单统一暂存名称、说明、定义及原始版本；编辑器只报告已提交到视图的定义变化。 */
+  onDefinitionChange?: (definition: ThemePackDefinition) => void;
   surfaces: readonly SurfaceMeta[];
   initialDefinition: ThemePackDefinition;
   /** default 包定义：预览未配置的 Surface/档位时兜底，与 SSR 注入口径一致 */
@@ -60,7 +60,7 @@ export function ThemePackEditor({
   decorUsage?: ReadonlyMap<string, AssetLibraryItem["usage"]>;
 }) {
   const [draft, setDraft] = useState<Record<string, SurfaceDraft>>(() =>
-    toDraft(initialDefinition, surfaces),
+    toDraft(definitionForThemePackControls(initialDefinition), surfaces),
   );
   const [pwa, setPwa] = useState<ThemePackPwa>(() => initialDefinition.pwa ?? DEFAULT_PWA);
   const [active, setActive] = useState(surfaces[0]?.id ?? "header");
@@ -68,34 +68,8 @@ export function ThemePackEditor({
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   const current = draft[active]?.[mode] ?? {};
 
-  // G-19（全项目审查实证）：保存冲突等服务端错误 redirect 回本页时，编辑器子树会被
-  // 新 RSC 树整体重挂载（软导航存活但内存草稿全丢）。草稿随写 sessionStorage，
-  // 带 err 参数重挂载时恢复——错误路径不得清空用户工作成果；正常进入/保存成功
-  // 则清档，防止下次冲突误恢复过期草稿。
-  const draftKey = `fw.theme-pack.draft.${packId}`;
-  useEffect(() => {
-    if (!restoreDraft) {
-      try {
-        sessionStorage.removeItem(draftKey);
-      } catch {
-        // 存储不可用（隐私模式等）时静默降级：草稿不落本地档，行为等同修复前
-      }
-      return;
-    }
-    try {
-      const raw = sessionStorage.getItem(draftKey);
-      if (!raw) return;
-      const parsed = parseThemePackDefinition(JSON.parse(raw));
-      if (!parsed.ok) return; // 坏档（手改/截断）不恢复，回退库内定义
-      // 挂载时从 sessionStorage（外部系统）一次性同步草稿到 state：不能改惰性初始化——
-      // SSR 预渲染无 sessionStorage，会产生 hydration mismatch
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setDraft(toDraft(parsed.value, surfaces));
-      setPwa(parsed.value.pwa ?? DEFAULT_PWA);
-    } catch {
-      // 坏 JSON 不恢复
-    }
-  }, [restoreDraft, draftKey, surfaces]);
+  const [edited, setEdited] = useState(false);
+  const [baseDefinition] = useState(initialDefinition);
   const activeSurface = surfaces.find((surface) => surface.id === active);
   const gradientFill =
     current.fill?.type === "linear" || current.fill?.type === "radial" ? current.fill : undefined;
@@ -106,8 +80,15 @@ export function ThemePackEditor({
       : undefined;
   const overlayImage = current.overlay?.type === "image" ? current.overlay : undefined;
 
-  const setCap = <K extends keyof SurfaceCapabilities>(key: K, value: SurfaceCapabilities[K]) =>
+  const setCap = <K extends keyof SurfaceCapabilities>(key: K, value: SurfaceCapabilities[K]) => {
+    setEdited(true);
     setDraft((previous) => updateDraftCapability(previous, active, mode, key, value));
+  };
+
+  const updatePwa = (key: keyof ThemePackPwa, value: string) => {
+    setEdited(true);
+    setPwa((previous) => ({ ...previous, [key]: value }));
+  };
 
   const updateImageFill = (patch: Partial<ImageFill>) => {
     if (imageFill) setCap("fill", { ...imageFill, ...patch });
@@ -116,38 +97,43 @@ export function ThemePackEditor({
   const setContentSlot = (patch: Partial<NonNullable<SurfaceCapabilities["contentSlot"]>>) =>
     setCap("contentSlot", updateContentSlot(current.contentSlot, patch));
 
-  const definition = useMemo(() => definitionFromDraft(draft, pwa), [draft, pwa]);
+  const editedDefinition = useMemo(() => definitionFromDraft(draft, pwa), [draft, pwa]);
+  const definition = useMemo(
+    () =>
+      edited
+        ? {
+            ...baseDefinition,
+            ...editedDefinition,
+            surfaces: { ...baseDefinition.surfaces, ...editedDefinition.surfaces },
+          }
+        : baseDefinition,
+    [edited, editedDefinition, baseDefinition],
+  );
   const draftJson = useMemo(() => JSON.stringify(definition), [definition]);
-  // G-19：草稿每次变化随写本地档。挂载首轮跳过——恢复 effect 的 setDraft 尚未提交，
-  // 此时写入会把待恢复的草稿覆盖成库内初始值（dev StrictMode 双跑下必然发生）
-  const skipFirstWriteRef = useRef(true);
+  const safePreviewDefinition = useMemo(
+    () => definitionForThemePackPreview(definition),
+    [definition],
+  );
+  const previewCapabilities = safePreviewDefinition.surfaces[active]?.[mode] ?? {};
   useEffect(() => {
-    if (skipFirstWriteRef.current) {
-      skipFirstWriteRef.current = false;
-      return;
-    }
-    try {
-      sessionStorage.setItem(draftKey, draftJson);
-    } catch {
-      // 超限/不可用时静默降级：仅失去冲突恢复能力，编辑与保存不受影响
-    }
-  }, [draftJson, draftKey]);
+    if (edited) onDefinitionChange?.(definition);
+  }, [definition, edited, onDefinitionChange]);
   const previewVars = useMemo(
     () =>
-      renderPackCssVars(definition, fallbackDefinition)[
+      renderPackCssVars(safePreviewDefinition, fallbackDefinition)[
         mode === "light" ? "root:light" : "root:dark"
       ],
-    [definition, fallbackDefinition, mode],
+    [safePreviewDefinition, fallbackDefinition, mode],
   );
   const previewStyle = previewVars as CSSProperties;
   const activeLabel = activeSurface?.label ?? active;
 
   return (
-    <div className="space-y-4">
+    <div className="max-w-full min-w-0 space-y-4">
       <input type="hidden" name="definition" value={draftJson} />
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <section className="space-y-3" aria-label="主题区域设置">
-          <fieldset className="flex flex-wrap gap-4 rounded-lg border bg-card p-3">
+      <div className="grid max-w-full min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <section className="max-w-full min-w-0 space-y-3" aria-label="主题区域设置">
+          <fieldset className="flex max-w-full min-w-0 flex-wrap gap-4 rounded-lg border bg-card p-3">
             <legend className="px-1 text-xs font-medium text-muted-foreground">
               浏览器与 PWA 颜色
             </legend>
@@ -156,9 +142,7 @@ export function ThemePackEditor({
               <input
                 type="color"
                 value={pwa.themeColor}
-                onChange={(event) =>
-                  setPwa((value) => ({ ...value, themeColor: event.target.value }))
-                }
+                onChange={(event) => updatePwa("themeColor", event.target.value)}
                 className="h-8 w-14 rounded border"
               />
             </label>
@@ -167,14 +151,12 @@ export function ThemePackEditor({
               <input
                 type="color"
                 value={pwa.backgroundColor}
-                onChange={(event) =>
-                  setPwa((value) => ({ ...value, backgroundColor: event.target.value }))
-                }
+                onChange={(event) => updatePwa("backgroundColor", event.target.value)}
                 className="h-8 w-14 rounded border"
               />
             </label>
           </fieldset>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex max-w-full min-w-0 flex-wrap gap-1.5">
             {surfaces.map((surface) => (
               <button
                 key={surface.id}
@@ -189,7 +171,7 @@ export function ThemePackEditor({
               </button>
             ))}
           </div>
-          <div className="flex gap-2" role="group" aria-label="颜色模式">
+          <div className="flex min-w-0 flex-wrap gap-2" role="group" aria-label="颜色模式">
             {(["light", "dark"] as const).map((value) => (
               <button
                 key={value}
@@ -205,14 +187,14 @@ export function ThemePackEditor({
             ))}
           </div>
 
-          <div className="space-y-4 rounded-xl border bg-card p-4">
+          <div className="max-w-full min-w-0 space-y-4 rounded-xl border bg-card p-3 sm:p-4">
             {mode === "dark" && !draft[active]?.dark && (
               <p className="text-xs text-muted-foreground">
                 当前区域尚无深色定义；留空时运行时回退到默认主题的深色样式。
               </p>
             )}
             {activeSurface?.caps.includes("fill") && (
-              <fieldset className="space-y-3">
+              <fieldset className="max-w-full min-w-0 space-y-3">
                 <legend className="text-xs font-medium text-muted-foreground">背景填充</legend>
                 <div className="flex flex-wrap gap-3">
                   {(["solid", "linear", "radial", "image"] as const).map((type) => (
@@ -300,7 +282,7 @@ export function ThemePackEditor({
                 )}
 
                 {imageFill && (
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
                     <DecorAssetSelect
                       ariaLabel="填充素材"
                       value={imageFill.asset}
@@ -407,7 +389,7 @@ export function ThemePackEditor({
             )}
 
             {activeSurface?.caps.includes("overlay") && (
-              <fieldset className="space-y-3 border-t pt-3">
+              <fieldset className="max-w-full min-w-0 space-y-3 border-t pt-3">
                 <legend className="text-xs font-medium text-muted-foreground">覆盖遮罩</legend>
                 <div className="flex flex-wrap gap-3">
                   {(["none", "solid", "linear", "radial", "image"] as const).map((mode) => (
@@ -540,7 +522,7 @@ export function ThemePackEditor({
                 )}
 
                 {current.overlay?.type === "image" && (
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
                     <DecorAssetSelect
                       ariaLabel="遮罩素材"
                       value={overlayImage?.asset ?? ""}
@@ -716,10 +698,10 @@ export function ThemePackEditor({
           </div>
         </section>
 
-        <aside className="space-y-3">
+        <aside className="max-w-full min-w-0 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs font-medium text-muted-foreground">实时预览（未保存）</p>
-            <div className="flex gap-1" role="group" aria-label="预览宽度">
+            <div className="flex min-w-0 flex-wrap gap-1" role="group" aria-label="预览宽度">
               {(
                 [
                   ["desktop", "桌面"],
@@ -779,7 +761,7 @@ export function ThemePackEditor({
                 }}
               />
               <div className="relative">
-                <ThemeSurfaceMock surface={active} label={activeLabel} caps={current} />
+                <ThemeSurfaceMock surface={active} label={activeLabel} caps={previewCapabilities} />
               </div>
             </div>
           </div>

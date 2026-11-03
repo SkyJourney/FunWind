@@ -91,7 +91,11 @@ export const createThemePackAction = defineAction({
 export const saveThemePackAction = defineAction({
   name: "admin.theme.pack.save",
   auth: { admin: "site.admin" },
-  input: z.object({ ...packFields, revision: z.coerce.number().int().min(1) }),
+  input: z.object({
+    ...packFields,
+    revision: z.coerce.number().int().min(1),
+    submissionId: z.union([z.uuid(), z.literal("")]).optional(),
+  }),
   async run(ctx, input) {
     const returnPath = `/admin/themes/${encodeURIComponent(input.id)}`;
     const parsed = parseDefinitionOrRedirect(input.definition, returnPath);
@@ -105,7 +109,8 @@ export const saveThemePackAction = defineAction({
     }
     revalidatePath("/admin/themes");
     revalidatePath(`/admin/themes/${encodeURIComponent(input.id)}`);
-    redirect(`/admin/themes/${encodeURIComponent(input.id)}?saved=1`);
+    const ack = input.submissionId ? `&ack=${encodeURIComponent(input.submissionId)}` : "";
+    redirect(`/admin/themes/${encodeURIComponent(input.id)}?saved=1${ack}`);
   },
 });
 

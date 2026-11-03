@@ -101,7 +101,9 @@ test("管理员创建并编辑主题包：草稿预览与 definition 同步提�
   );
 
   await page.getByRole("button", { name: "保存主题包" }).click();
-  await expect(page).toHaveURL(`/admin/themes/${THEME_ID}?saved=1`);
+  await expect(page).toHaveURL(
+    (url) => url.pathname === `/admin/themes/${THEME_ID}` && url.searchParams.get("saved") === "1",
+  );
   await expect(page.getByText("主题包配置已保存。")).toBeVisible();
   const stored = await withE2eDb((q) =>
     q.query<{
@@ -325,7 +327,9 @@ test("主题管理后台入口可见；编辑区内嵌素材库可上传并选�
 
   // 保存后 revision +1 且引用写入
   await page.getByRole("button", { name: "保存主题包" }).click();
-  await expect(page).toHaveURL(`/admin/themes/${THEME_ID}?saved=1`);
+  await expect(page).toHaveURL(
+    (url) => url.pathname === `/admin/themes/${THEME_ID}` && url.searchParams.get("saved") === "1",
+  );
   const [afterSave] = await withE2eDb((q) =>
     q.query<{ revision: number }>("SELECT revision FROM theme_packages WHERE id = ?", [THEME_ID]),
   );
@@ -380,56 +384,109 @@ test("停用用户已选中的包 → 前台回退默认主题", async ({ page, 
   await expect(page.locator("html")).toHaveAttribute("data-pack", "default");
 });
 
-test("保存冲突不丢草稿（G-19 实证）：本地档恢复工作成果，重试保存成功", async ({
+test("保存冲突保留完整草稿与原版本；明确载入最新内容后才能重新编辑保存", async ({
   page,
   context,
 }) => {
   await loginAs(context, USERS.admin);
   await page.goto(`/admin/themes/${THEME_ID}`);
-  await expect(page.getByRole("heading", { name: /编辑主题包 · E2E 自定义主题/ })).toBeVisible();
-
-  // 改草稿：header 深色档颜色改为可识别值，并等隐藏 definition 同步（与既有用例同口径）
-  await page.getByRole("button", { name: "深色档" }).click();
-  await expect(page.getByTestId("theme-preview")).toHaveAttribute("data-mode", "dark");
-  await page.getByTestId("theme-fill-solid-color").fill("#1a2b3c");
+  const revisionInput = page.locator('input[name="revision"]');
+  const originalRevision = Number(await revisionInput.inputValue());
   const definitionInput = page.locator('input[name="definition"]');
+  await page.getByLabel("主题名称", { exact: true }).fill("本页未保存名称");
+  await page.getByLabel("说明", { exact: true }).fill("本页未保存说明");
+  await page.getByRole("button", { name: "深色档" }).click();
+  await page.getByTestId("theme-fill-solid-color").fill("#1a2b3c");
   await expect
     .poll(
       async () => JSON.parse(await definitionInput.inputValue()).surfaces.header?.dark?.fill?.color,
     )
     .toBe("#1a2b3c");
 
-  // 模拟并发保存：持锁页面的 revision 已过期后再提交 → conflict。
-  // G-19 实证结论：冲突 redirect 是软导航（window 存活）但编辑器子树仍被新 RSC 树
-  // 整体重挂载，纯内存草稿全丢——故编辑器草稿随写 sessionStorage、带 err 重挂载时恢复。
-  await withE2eDb((q) =>
-    q.exec("UPDATE theme_packages SET revision = revision + 1 WHERE id = ?", [THEME_ID]),
-  );
-  await page.getByRole("button", { name: "保存主题包" }).click();
-  await expect(page).toHaveURL(new RegExp(`/admin/themes/${THEME_ID}\\?err=conflict`));
-  await expect(page.getByText("版本冲突", { exact: false })).toBeVisible();
+  // 独立页面经真实保存 Action 改动内容，不再只递增 revision 而掩盖静默覆盖。
+  const otherPage = await context.newPage();
+  const otherErrors: string[] = [];
+  otherPage.on("pageerror", (error) => otherErrors.push(error.message));
+  try {
+    await otherPage.goto(`/admin/themes/${THEME_ID}`);
+    await otherPage.getByLabel("主题名称", { exact: true }).fill("另一管理员已保存名称");
+    await otherPage.getByLabel("说明", { exact: true }).fill("另一管理员已保存说明");
+    await otherPage.getByRole("button", { name: "深色档" }).click();
+    await otherPage.getByTestId("theme-fill-solid-color").fill("#654321");
+    await otherPage.getByRole("button", { name: "保存主题包" }).click();
+    await expect(otherPage).toHaveURL(
+      (url) =>
+        url.pathname === `/admin/themes/${THEME_ID}` && url.searchParams.get("saved") === "1",
+    );
+    expect(otherErrors).toEqual([]);
+  } finally {
+    await otherPage.close();
+  }
 
-  // 草稿经本地档恢复：重挂载后编辑器视图回到浅色档默认位，但隐藏 definition
-  // 必须带回用户改动（这是提交给服务端的实际负载，工作成果以它为准）
+  await page.getByRole("button", { name: "保存主题包" }).click();
+  await expect(page).toHaveURL(`/admin/themes/${THEME_ID}?err=conflict`);
+  const assertConflictDraft = async () => {
+    await expect(page.getByLabel("主题名称", { exact: true })).toHaveValue("本页未保存名称");
+    await expect(page.getByLabel("说明", { exact: true })).toHaveValue("本页未保存说明");
+    await expect(revisionInput).toHaveValue(String(originalRevision));
+    await expect
+      .poll(
+        async () =>
+          JSON.parse(await definitionInput.inputValue()).surfaces.header?.dark?.fill?.color,
+      )
+      .toBe("#1a2b3c");
+    await expect(page.getByRole("button", { name: "保存主题包" })).toBeDisabled();
+    await expect(page.getByText(/再次保存不会自动升级版本/)).toBeVisible();
+  };
+  await assertConflictDraft();
+  await page.reload();
+  await assertConflictDraft();
+
+  const readStored = async () => {
+    const [row] = await withE2eDb((q) =>
+      q.query<{ revision: number; name: string; description: string; definition: unknown }>(
+        "SELECT revision, name, description, definition FROM theme_packages WHERE id = ?",
+        [THEME_ID],
+      ),
+    );
+    return {
+      ...row!,
+      definition:
+        typeof row!.definition === "string"
+          ? JSON.parse(row!.definition)
+          : (row!.definition as {
+              surfaces: Record<string, { dark?: { fill?: { color?: string } } }>;
+            }),
+    };
+  };
+  const concurrent = await readStored();
+  expect(concurrent.revision).toBe(originalRevision + 1);
+  expect(concurrent.name).toBe("另一管理员已保存名称");
+  expect(concurrent.description).toBe("另一管理员已保存说明");
+  expect(concurrent.definition.surfaces.header?.dark?.fill?.color).toBe("#654321");
+
+  const loadLatest = page.getByRole("button", { name: "放弃草稿并载入最新版本" });
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await loadLatest.click();
+  await assertConflictDraft();
+  page.once("dialog", (dialog) => dialog.accept());
+  await loadLatest.click();
+  await expect(page.getByLabel("主题名称", { exact: true })).toHaveValue(concurrent.name);
+  await expect(page.getByLabel("说明", { exact: true })).toHaveValue(concurrent.description);
+  await expect(revisionInput).toHaveValue(String(concurrent.revision));
   await expect
     .poll(
       async () => JSON.parse(await definitionInput.inputValue()).surfaces.header?.dark?.fill?.color,
     )
-    .toBe("#1a2b3c");
-
-  // 闭环：冲突页由服务端新树渲染（revision 已刷新为库内最新），直接再点保存即可
-  // 成功，无需刷新页面——草稿落库，乐观锁恢复正常
+    .toBe("#654321");
+  await page.getByLabel("说明", { exact: true }).fill("载入新版本后重新编辑");
   await page.getByRole("button", { name: "保存主题包" }).click();
-  await expect(page).toHaveURL(new RegExp(`/admin/themes/${THEME_ID}\\?saved=1`));
-  const [saved] = await withE2eDb((q) =>
-    q.query<{ revision: number; definition: unknown }>(
-      "SELECT revision, definition FROM theme_packages WHERE id = ?",
-      [THEME_ID],
-    ),
+  await expect(page).toHaveURL(
+    (url) => url.pathname === `/admin/themes/${THEME_ID}` && url.searchParams.get("saved") === "1",
   );
-  expect(saved?.revision).toBe(6);
-  // mysql2 对 JSON 列自动反序列化，兼容两种形态
-  const savedDefinition =
-    typeof saved!.definition === "string" ? JSON.parse(saved!.definition) : saved!.definition;
-  expect(savedDefinition.surfaces.header?.dark?.fill?.color).toBe("#1a2b3c");
+  const stored = await readStored();
+  expect(stored.revision).toBe(concurrent.revision + 1);
+  expect(stored.name).toBe(concurrent.name);
+  expect(stored.description).toBe("载入新版本后重新编辑");
+  expect(stored.definition).toEqual(concurrent.definition);
 });
