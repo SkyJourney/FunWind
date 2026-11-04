@@ -35,7 +35,7 @@
 | [M11](milestones/M11-themes-pwa.md) | **主题包与 PWA**（qy2010 情怀包、主题插槽体系：表面/背景/板块卡/Hero、主题↔LOGO 池联动、暗色打磨、视觉回归基线；设计稿 [THEME-SYSTEM](THEME-SYSTEM.md)） | M12 | 三·完善 | 🟡 工程交付完成（Step 1–8、PR #3 合并、CI 双作业通过；真实设备签收待站长） |
 | [M11.1](milestones/M11.1-theme-engine.md) | **完整主题包引擎**（统一区域 Surface 抽象：填充/渐变/遮罩/图片底纹/边框/文字/blur/contentSlot；浅深档编辑器与实时预览；theme_packages 表、PWA 元数据、JSON+资源 ZIP 导入导出；decor 素材池） | M11 | 三·完善 | ✅ 已完成（工程与自动化门禁已交付；2026-10-31 站长原则性确认收口，历史真机清单保留为验收范围记录） |
 | [M11.2](milestones/M11.2-theme-switching.md) | **运营排期引擎**（通用 effect 注册表 + 时间窗，本期落主题包 / LOGO / Hero；后台 `/admin/campaigns`；顶栏挂件集合移出本期） | M11.1 | 三·完善 | ✅ 2026-11-03（`verify:all`、全量 E2E、`test:visual` 8/8、`pwa:lighthouse` 100/100 均实测通过，PR #6 合并；站长目视验收通过） |
-| [M11.3](milestones/M11.3-register-policy.md) | **注册策略基线**（开放 / 邀请注册独立开关、两开关皆关的「不开放注册」状态、开放注册邮箱验证登录门、免登录重发验证邮件） | M10.6 / M9.6 | 三·完善 | ⬜ 草案（Q1、Q7–Q10 已拍板；Q11 登录门标记存储、Q12 与现有验证策略的关系待确认） |
+| [M11.3](milestones/M11.3-register-policy.md) | **注册策略基线**（开放 / 邀请注册独立开关、两开关皆关的「不开放注册」状态、开放注册邮箱验证登录门、免登录重发验证邮件） | M10.6 / M9.6 | 三·完善 | ⬜ 草案，决策项已全部拍板（Q1、Q7–Q12），待开工；含迁移 0024（`users` 新增登录门标记列） |
 | [M11.4](milestones/M11.4-campaign-behavior-effects.md) | **排期引擎的行为类 effect**（开放注册窗口 / 积分加成；需先扩展注册表以容纳非单字符串目标） | M11.2 / M11.3 | 三·完善 | ⬜ 草案（Q2–Q6 已拍板；开工前置为 M11.3） |
 | [M12](milestones/M12-install-wizard.md) | 安装向导与零数据部署 | 数据层基建 | 三·完善 | ⬜ |
 | [M13](milestones/M13-launch.md) | 部署与社区重启 | P4 | 三·上线 | ⬜ |
