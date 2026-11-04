@@ -334,3 +334,18 @@ test("顶栏「注册」入口随开关显隐：双关时不再引导访客点�
     await admin.close();
   }
 });
+
+test("登录页页脚「注册」入口随开关显隐（读请求级策略，保存后立即变化）", async ({ page }) => {
+  const footerRegister = page.getByRole("main").getByRole("link", { name: "注册", exact: true });
+  await setPolicy({ open: false, invite: true, verifyEmail: false });
+  await page.goto("/login");
+  await expect(footerRegister).toBeVisible();
+  await expect(page.getByText("没有账号？")).toBeVisible();
+
+  await setPolicy({ open: false, invite: false, verifyEmail: false });
+  await page.goto("/login");
+  await expect(footerRegister).toHaveCount(0);
+  await expect(page.getByText("没有账号？")).toHaveCount(0);
+  // 其余入口不受影响
+  await expect(page.getByRole("link", { name: "忘记密码 / 认领老账号" })).toBeVisible();
+});

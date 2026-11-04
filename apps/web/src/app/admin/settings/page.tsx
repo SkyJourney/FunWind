@@ -262,7 +262,9 @@ export default async function SiteSettingsPage({
             <p
               role="alert"
               data-testid="register-closed-warning"
-              className="mb-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
+              // 浅色下 --warning（amber-600）在 warning/10 底上只有 2.86:1，不达 AA；这里仅对本条警示局部加深（混黑 30%，约 5.3:1），
+              // 深色沿用令牌（约 10:1）。--warning 是全站令牌（33 个文件 56 处使用），不在此处改动。
+              className="mb-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-[color-mix(in_srgb,var(--warning)_70%,black)] dark:text-warning"
             >
               {
                 "当前开放注册与邀请注册均已关闭：访客将看到「当前不开放注册」，无法创建新账号。已有账号的登录、找回密码与邮箱验证不受影响。"
