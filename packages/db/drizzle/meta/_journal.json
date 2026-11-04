@@ -169,6 +169,13 @@
       "when": 1793712581584,
       "tag": "0023_m11_2_campaigns",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "5",
+      "when": 1793757771509,
+      "tag": "0024_m11_3_login_verification",
+      "breakpoints": true
     }
   ]
 }
