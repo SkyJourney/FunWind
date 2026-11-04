@@ -1,7 +1,17 @@
 import { z } from "zod";
+import { alphaSchema, hexColorSchema } from "./color";
 import { SURFACES } from "./surface-registry";
+import { tokensSchema } from "./token-schema";
 export { isSurfaceId, SURFACES } from "./surface-registry";
 export type { SurfaceId } from "./surface-registry";
+export type {
+  ColorKey,
+  DisplayFont,
+  RadiusStep,
+  Shadow,
+  TokenSet,
+  ThemePackTokens,
+} from "./token-schema";
 
 /**
  * Surface 定义 schema（M11.1，docs/milestones/M11.1-theme-engine.md §0）。
@@ -9,18 +19,7 @@ export type { SurfaceId } from "./surface-registry";
  * 任何 CSS 字符串、URL、data URI、未知字段都在此层拒绝，绝不进入运行时样式。
  */
 
-/** #RRGGBB 严格色值（透明度用结构化 alpha 表达，不接受 rgba/css 函数） */
-export const hexColorSchema = z.string().regex(/^#[0-9A-Fa-f]{6}$/, "非法颜色（须 #RRGGBB）");
-
-/** alpha 0–1，最多保留两位小数 */
-export const alphaSchema = z
-  .number()
-  .min(0)
-  .max(1)
-  .refine(
-    (value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-8,
-    "透明度最多保留两位小数",
-  );
+/** 颜色与透明度的基础 schema 在 color.ts：语义令牌 schema 也要用，放在这里会形成循环依赖 */
 
 /** 渐变色标：颜色 + 不透明度 + 位置百分比（strict：未知字段拒绝，防任意 CSS 注入） */
 export const gradientStopSchema = z
@@ -141,11 +140,12 @@ export const themePackPwaSchema = z
   })
   .strict();
 
-/** 包 definition：SurfaceId → 明/暗定义与 PWA 颜色；未知字段/未知区域拒绝 */
+/** 包 definition：SurfaceId → 明/暗定义、PWA 颜色与可选的语义令牌层（tokens，M11.6）；未知字段/未知区域拒绝 */
 export const themePackDefinitionSchema = z
   .object({
     surfaces: z.record(z.string(), surfaceEntrySchema),
     pwa: themePackPwaSchema.optional(),
+    tokens: tokensSchema.optional(),
   })
   .strict();
 

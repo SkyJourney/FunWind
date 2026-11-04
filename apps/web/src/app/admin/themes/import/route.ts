@@ -6,58 +6,17 @@ import { addLogo } from "@/lib/brand/logo-pool-fs";
 import { removeLogo } from "@/lib/brand/logo-pool";
 import { isSameOrigin } from "@/lib/net/same-origin";
 import { createThemePack, getThemePack, validatePackId } from "@/lib/theme/packs";
+import { remapDefinitionAssets } from "@/lib/theme/remap-definition";
 import {
   MAX_THEME_PACK_ARCHIVE_BYTES,
   parseThemePackArchive,
 } from "@/lib/theme/theme-pack-archive";
-import type { SurfaceCapabilities, ThemePackDefinition } from "@/lib/theme/surface-schema";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function redirectTo(query: string): Response {
   return new Response(null, { status: 303, headers: { location: `/admin/themes?${query}` } });
-}
-
-function remapDefinition(
-  definition: ThemePackDefinition,
-  fileMap: ReadonlyMap<string, string>,
-): ThemePackDefinition {
-  const remapCapabilities = (caps: SurfaceCapabilities): SurfaceCapabilities => {
-    const remapped = { ...caps };
-    if (caps.fill?.type === "image") {
-      remapped.fill = {
-        ...caps.fill,
-        asset: fileMap.get(caps.fill.asset) ?? caps.fill.asset,
-      };
-    }
-    if (caps.overlay?.type === "image") {
-      remapped.overlay = {
-        ...caps.overlay,
-        asset: fileMap.get(caps.overlay.asset) ?? caps.overlay.asset,
-      };
-    }
-    if (caps.contentSlot?.image) {
-      remapped.contentSlot = {
-        ...caps.contentSlot,
-        image: fileMap.get(caps.contentSlot.image) ?? caps.contentSlot.image,
-      };
-    }
-    return remapped;
-  };
-  return {
-    // PWA 元数据不含资源引用，原样保留（此前丢失会导致导入包的 manifest 色回退默认）
-    ...(definition.pwa ? { pwa: definition.pwa } : {}),
-    surfaces: Object.fromEntries(
-      Object.entries(definition.surfaces).map(([id, entry]) => [
-        id,
-        {
-          light: remapCapabilities(entry.light),
-          ...(entry.dark ? { dark: remapCapabilities(entry.dark) } : {}),
-        },
-      ]),
-    ),
-  };
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -143,7 +102,7 @@ export async function POST(request: Request): Promise<Response> {
 
     stage = "create-pack";
     currentAsset = null;
-    const definition = remapDefinition(pack.definition, fileMap);
+    const definition = remapDefinitionAssets(pack.definition, fileMap);
     const assets = pack.assets.map((asset) => ({
       kind: asset.kind,
       poolFile: fileMap.get(asset.poolFile) ?? asset.poolFile,

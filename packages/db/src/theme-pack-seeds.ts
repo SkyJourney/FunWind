@@ -21,6 +21,10 @@ export interface BuiltinThemePackSeed {
         dark?: Record<string, unknown>;
       }
     >;
+    tokens?: {
+      light?: Record<string, unknown>;
+      dark?: Record<string, unknown>;
+    };
   };
 }
 

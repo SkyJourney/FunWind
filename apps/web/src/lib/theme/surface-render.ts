@@ -8,6 +8,7 @@ import type {
 } from "./surface-schema";
 import { isSurfaceId } from "./surface-registry";
 import { decorUrl } from "./decor-url";
+import { renderTokenVars } from "./token-render";
 
 /**
  * Surface 渲染器（M11.1 Step 1，纯函数）：包 definition → 固定 `--sf-<area>-*` CSS 变量键值对。
@@ -151,6 +152,7 @@ export function renderSurfaceEntry(
  * 选择器约定：`root:light`（:root，即默认浅色档）、`root:dark`（[data-mode="dark"] 档）。
  * 未注册区域在 schema 层已拒绝，此处二次防御跳过。
  * fallbackDefinition（通常 = default 包）：本包未声明的 Surface/档位用它兜底（回退链 包值 → default 包 → 内置 CSS）。
+ * 令牌（M11.6）：不继承 fallbackDefinition 的 tokens（基础层本来就在 CSS），只渲染本包自己的令牌。
  */
 export function renderPackCssVars(
   definition: ThemePackDefinition,
@@ -176,6 +178,16 @@ export function renderPackCssVars(
       }
     }
   }
+
+  // 令牌变量追加到 :root 与 [data-mode="dark"]（只渲染本包自己的，不继承 fallbackDefinition.tokens）
+  const tokens = definition.tokens;
+  if (tokens?.light) {
+    Object.assign(out["root:light"], renderTokenVars(tokens.light));
+  }
+  if (tokens?.dark) {
+    Object.assign(out["root:dark"], renderTokenVars(tokens.dark));
+  }
+
   return out;
 }
 
