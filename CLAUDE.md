@@ -135,6 +135,7 @@ pnpm layout:summary            # 汇总布局审计 JSON，有问题退出码 1�
 - **浏览器专属状态不能在 `useState` 初始化里读**（如 `localStorage`）：服务端渲染与客户端首次渲染不一致会水合失败，且 jsdom 单测看不出来（不走 SSR）。应改用 `useSyncExternalStore`（服务端快照返回空值）；`react-hooks/set-state-in-effect` 也禁止在 effect 里同步 setState。E2E 的草稿用例显式收集 `pageerror` 并断言无 `Hydration` 错误，因为 React 会静默重渲染成功。
 - **隐藏字段与 React 重渲染**：非受控 `<input type=hidden defaultValue>` 会在父组件每次重渲染时被写回 `defaultValue`，覆盖 ref 写入的值。用 `memo` 组件隔离（见 `editor-shell.tsx` 的 `HiddenSource`）。
 - **macOS 没有 `timeout` 命令**：本机跑长命令直接用工具的超时参数，不要套 `timeout`。
+- **定时任务在进程内调度**（M11.5，`lib/scheduler`，croner + `instrumentation.ts` + MySQL 命名锁）：默认关闭，**只有 `SCHEDULER=on` 才启动**；总表与新增任务的步骤见 `docs/SCHEDULED-JOBS.md`。命令行脚本与调度器共用同一份任务和同一把锁，所以调度器在跑时手动执行会被跳过（退出码 0）。**脚本收尾必须显式 `process.exit`**——`getWebDb` 的连接池会占着事件循环，只设 `exitCode` 进程不会结束。`GET_LOCK` 是服务器级的，锁名已带库名。croner 钉在 10.0.1（11.0.0 发布仅 9 天，等沉淀后再升）。
 - **目视验收走固定路径，不要另试办法**：Playwright 布局矩阵（`LayoutAudit`）+ 可读切块，规程见 `docs/VISUAL-VERIFICATION.md`。读图只读 `tiles/` 里 ≤800×800 的切块，**不读整页长图**（2026-11-04 随机码盲测：375×2400 整页图连 14px 都读不出，1280 宽图 12px 以下读错，800×800 内 9px 全对）；并行读多张时附件到达顺序与调用顺序不一致，按切块顶部的标签条对位；描述必须可证伪，读不清就写读不清。验证命令不要套管道（`cmd | tail` 的退出码是 `tail` 的，zsh 里也没有 `PIPESTATUS`）。
 
 ## M0–M5 审查缺口的处置状态（2026-10-23 审查 → M5.5 修复）

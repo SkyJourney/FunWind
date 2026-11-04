@@ -84,7 +84,7 @@ digest 跳过活跃用户）；`pnpm verify:all` + 全量 E2E 全绿。
   每小时运行比对后台配置时刻 [email.digest.hour，默认 20 点] + /settings/notifications 汇总开关行）；
 - 测试：mailer 模板 12 项单测、email 渠道 int 4 项、digest 管线 int 4 项、
   E2E 覆盖安全开关两态与 always 验证邮件（197+10 全绿）。
-- **部署注意**：生产启用 S7 需在服务器 crontab 加每小时整点任务运行 `pnpm --filter @funwind/web digest:run`（时刻后台可改）。Node 脚本以 `--import ./scripts/server-only-register.mjs --import tsx` 启动，解析 Next `server-only` 标记为服务端空实现；不切换 React 条件。
+- **部署注意**：生产启用 S7 需在服务器 crontab 加每小时整点任务运行 `pnpm --filter @funwind/web digest:run`（时刻后台可改）。注意它**没有**迁入进程内调度器（有整点与活跃判定，与系统 cron 双跑可能重复发信），所有定时任务的归属见 [定时任务汇总](SCHEDULED-JOBS.md)。Node 脚本以 `--import ./scripts/server-only-register.mjs --import tsx` 启动，解析 Next `server-only` 标记为服务端空实现；不切换 React 条件。
 
 ## 六、统一模板、发送记录与后台管理（2026-10-31 邮件专项 / 审查批次 0）
 
