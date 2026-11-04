@@ -20,7 +20,7 @@ import { tryApplyThemePackLogo } from "@/lib/theme/apply-pack-logo";
  * 身份/注册模式/频控三组。写入全走 setSetting（自带前后值审计）；身份保存失效 chrome 缓存。
  * 频控编辑器只 merge 它认识的字段（member/admin 两角色 + 站点级两项），其余角色原值保留，
  * 保存前整体过 limitsConfigSchema 校验——写坏配置会整体回落默认值（load.ts 口径），必须在这里拦住。
- * 邮件组（M10.6 收尾）：验证策略入 site_settings；SMTP 凭据按红线留在 env 不入库，后台只做状态展示与测试发信。
+ * 邮件组（M10.6 收尾）：SMTP 凭据按红线留在 env 不入库，后台只做状态展示与测试发信；注册与邮箱验证要求并入 register.policy（M11.3）。
  * 全站默认主题（M11）：site.theme + 主题↔LOGO 联动（docs/THEME-SYSTEM.md §5）。
  */
 
@@ -84,15 +84,29 @@ export const saveIdentityAction = defineAction({
   },
 });
 
-export const saveRegisterModeAction = defineAction({
+/**
+ * 注册策略（M11.3）：开放注册 / 邀请注册两个独立开关 + 「开放注册需验证邮箱」。
+ * 复选框未勾选时表单不提交该字段，所以用 `value="on"` 的可选枚举表示勾选。
+ * 取代原 saveRegisterModeAction（单选）与 saveEmailVerificationAction（open_only/always）：
+ * 写入新键 register.policy 后旧的 register.mode 不再参与判定（读兼容见 lib/auth/register-policy）。
+ * 两个开关都关是合法状态（访客看到「当前不开放注册」），保存时给专门提示，避免误操作无声发生。
+ */
+const checked = z.enum(["on"]).optional();
+
+export const saveRegisterPolicyAction = defineAction({
   name: "admin.settings.register",
   auth: { admin: "site.admin" },
-  input: z.object({ mode: z.enum(["invite", "open"]) }),
+  input: z.object({ open: checked, invite: checked, verifyEmail: checked }),
   async run(ctx, input) {
-    await setSetting("register.mode", { mode: input.mode }, ctx.actor);
+    const policy = {
+      open: input.open === "on",
+      invite: input.invite === "on",
+      verifyEmail: input.verifyEmail === "on",
+    };
+    await setSetting("register.policy", policy, ctx.actor);
     revalidatePath("/admin/settings");
     revalidatePath("/register");
-    done("register");
+    done(!policy.open && !policy.invite ? "register_closed" : "register");
   },
 });
 
@@ -143,17 +157,6 @@ export const saveLimitsAction = defineAction({
     await setSetting("limits", merged.data, ctx.actor);
     revalidatePath("/admin/settings");
     done("limits");
-  },
-});
-
-export const saveEmailVerificationAction = defineAction({
-  name: "admin.settings.email_verification",
-  auth: { admin: "site.admin" },
-  input: z.object({ mode: z.enum(["open_only", "always"]) }),
-  async run(ctx, input) {
-    await setSetting("email.verification", { mode: input.mode }, ctx.actor);
-    revalidatePath("/admin/settings");
-    done("email_verification");
   },
 });
 

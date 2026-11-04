@@ -1,7 +1,8 @@
 import { eq } from "drizzle-orm";
 import { getWebDb, users } from "@funwind/db";
 import { requireAdmin } from "@/lib/authz/require-admin";
-import { getEmailVerificationMode, getRegisterMode } from "@/lib/auth/settings";
+import { getRegisterPolicy } from "@/lib/auth/settings";
+import { registerAvailability } from "@/lib/auth/register-policy";
 import { getDigestHour, securityEmailEnabled } from "@/lib/notifications/email";
 import { getLimitsConfig } from "@/lib/limits/load";
 import { getSiteChrome, getSiteIdentity } from "@/lib/chrome/site-chrome";
@@ -12,10 +13,9 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import {
   saveDigestHourAction,
   saveEmailSecurityAction,
-  saveEmailVerificationAction,
   saveIdentityAction,
   saveLimitsAction,
-  saveRegisterModeAction,
+  saveRegisterPolicyAction,
   saveThemePackAction,
   sendTestMailAction,
 } from "./actions";
@@ -26,8 +26,8 @@ export const metadata = { title: "站点配置" };
 const FLASH: Record<string, string> = {
   identity: "站点身份已保存并即时生效。",
   register: "注册策略已保存。",
+  register_closed: "注册策略已保存：当前开放注册与邀请注册均已关闭，访客将看到「当前不开放注册」。",
   limits: "频控配置已保存。",
-  email_verification: "邮箱验证策略已保存。",
   mail_sent: "测试邮件已发出——请查收（dev 若用 Mailpit 则进 Mailpit，否则进真实邮箱）。",
   theme: "全站默认主题已保存并即时生效。",
   theme_logo:
@@ -64,7 +64,7 @@ const ROLE_FIELDS = [
 ] as const;
 
 /**
- * 站点配置（M10.6b）：身份（site.identity）/注册模式（register.mode）/频控（limits）。
+ * 站点配置（M10.6b）：身份（site.identity）/注册策略（register.policy，M11.3）/频控（limits）。
  * 写入全走 setSetting（自带审计）；M11 加全站默认主题（site.theme，含主题↔LOGO 联动）。
  */
 export default async function SiteSettingsPage({
@@ -74,34 +74,24 @@ export default async function SiteSettingsPage({
 }) {
   // 入口鉴权约定：第一个 await 必须是 requireAdmin（admin-entry-guard 静态守护）
   const admin = await requireAdmin("site.admin");
-  const [
-    identity,
-    mode,
-    limits,
-    verificationMode,
-    securityMail,
-    digestHour,
-    adminRow,
-    sp,
-    chrome,
-    catalog,
-  ] = await Promise.all([
-    getSiteIdentity(),
-    getRegisterMode(),
-    getLimitsConfig(),
-    getEmailVerificationMode(),
-    securityEmailEnabled(),
-    getDigestHour(),
-    getWebDb()
-      .select({ email: users.email })
-      .from(users)
-      .where(eq(users.id, admin.userId))
-      .limit(1),
-    searchParams,
-    getSiteChrome(),
-    getThemeCatalog(),
-  ]);
+  const [identity, policy, limits, securityMail, digestHour, adminRow, sp, chrome, catalog] =
+    await Promise.all([
+      getSiteIdentity(),
+      getRegisterPolicy(),
+      getLimitsConfig(),
+      securityEmailEnabled(),
+      getDigestHour(),
+      getWebDb()
+        .select({ email: users.email })
+        .from(users)
+        .where(eq(users.id, admin.userId))
+        .limit(1),
+      searchParams,
+      getSiteChrome(),
+      getThemeCatalog(),
+    ]);
   const adminEmail = adminRow[0]?.email ?? null;
+  const registrationClosed = registerAvailability(policy).kind === "closed";
   const flash = sp.saved ? FLASH[sp.saved] : undefined;
   const mailError = sp.mail_error ? MAIL_ERROR[sp.mail_error] : undefined;
   // env 未配置 ≠ 配了本机默认：判真展示（M9.5 站长反馈「无法区分没配和配了本机」）
@@ -268,34 +258,57 @@ export default async function SiteSettingsPage({
           <CardTitle>注册策略</CardTitle>
         </CardHeader>
         <CardContent>
-          <form action={saveRegisterModeAction} className="space-y-2 text-sm">
+          {registrationClosed && (
+            <p
+              role="alert"
+              data-testid="register-closed-warning"
+              className="mb-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
+            >
+              当前开放注册与邀请注册均已关闭：访客将看到「当前不开放注册」，无法创建新账号。
+              已有账号的登录、找回密码与邮箱验证不受影响。
+            </p>
+          )}
+          <form action={saveRegisterPolicyAction} className="space-y-2 text-sm">
             <label className="flex items-start gap-2">
               <input
-                type="radio"
-                name="mode"
-                value="invite"
-                defaultChecked={mode === "invite"}
+                type="checkbox"
+                name="open"
+                value="on"
+                defaultChecked={policy.open}
                 className="mt-1 size-4"
               />
               <span>
-                <span className="font-medium">邀请制</span>
+                <span className="font-medium">开放注册</span>
+                <span className="text-muted-foreground">——任何人凭邮箱即可注册，无需邀请码</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 pl-6">
+              <input
+                type="checkbox"
+                name="verifyEmail"
+                value="on"
+                defaultChecked={policy.verifyEmail}
+                className="mt-1 size-4"
+              />
+              <span>
+                <span className="font-medium">开放注册需验证邮箱</span>
                 <span className="text-muted-foreground">
-                  ——注册需持有效邀请码（当前可在「邀请码」页签发）
+                  ——开放注册的新账号必须先点邮件里的链接验证，否则无法登录；只对之后注册的账号生效，不影响已有账号
                 </span>
               </span>
             </label>
             <label className="flex items-start gap-2">
               <input
-                type="radio"
-                name="mode"
-                value="open"
-                defaultChecked={mode === "open"}
+                type="checkbox"
+                name="invite"
+                value="on"
+                defaultChecked={policy.invite}
                 className="mt-1 size-4"
               />
               <span>
-                <span className="font-medium">开放注册</span>
+                <span className="font-medium">邀请注册</span>
                 <span className="text-muted-foreground">
-                  ——凭邮箱注册，注册后需完成邮箱验证（未验证不开放写权限）
+                  ——持有效邀请码可注册（邀请码在「邀请码」页签发）。与开放注册同时开启时，邀请码选填；填了无效邀请码会直接报错，不会改走开放注册
                 </span>
               </span>
             </label>
@@ -308,7 +321,7 @@ export default async function SiteSettingsPage({
         </CardContent>
       </Card>
 
-      {/* 邮件（M10.6 收尾）：SMTP 凭据留在 env；后台做状态展示、测试发信与验证策略 */}
+      {/* 邮件（M10.6 收尾）：SMTP 凭据留在 env；后台做状态展示、测试发信与安全类邮件开关 */}
       <Card id="email">
         <CardHeader>
           <CardTitle>邮件</CardTitle>
@@ -354,45 +367,6 @@ export default async function SiteSettingsPage({
             <SubmitButton className="rounded-lg border px-3 py-1.5 hover:bg-accent disabled:opacity-60">
               发送测试邮件（发到我的邮箱：{adminEmail ?? "未绑定"}）
             </SubmitButton>
-          </form>
-
-          <form action={saveEmailVerificationAction} className="space-y-2 border-t pt-4">
-            <p className="font-medium">邮箱验证策略</p>
-            <label className="flex items-start gap-2">
-              <input
-                type="radio"
-                name="mode"
-                value="open_only"
-                defaultChecked={verificationMode === "open_only"}
-                className="mt-1 size-4"
-              />
-              <span>
-                <span className="font-medium">开放注册新账号验证（默认）</span>
-                <span className="text-muted-foreground">
-                  ——开放注册时新建的账号需要验证；要求会写入用户行，后续切换注册模式不改变既有账号
-                </span>
-              </span>
-            </label>
-            <label className="flex items-start gap-2">
-              <input
-                type="radio"
-                name="mode"
-                value="always"
-                defaultChecked={verificationMode === "always"}
-                className="mt-1 size-4"
-              />
-              <span>
-                <span className="font-medium">所有新账号验证</span>
-                <span className="text-muted-foreground">
-                  ——邀请注册的新账号也要验证；每个账号的要求固定在注册时，不受之后的注册模式切换影响
-                </span>
-              </span>
-            </label>
-            <div>
-              <SubmitButton className="rounded-lg bg-primary px-4 py-2 font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
-                保存验证策略
-              </SubmitButton>
-            </div>
           </form>
 
           <form action={saveEmailSecurityAction} className="space-y-2 border-t pt-4">
