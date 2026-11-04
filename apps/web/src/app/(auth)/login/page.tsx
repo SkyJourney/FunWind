@@ -25,26 +25,27 @@ export default async function LoginPage({
         resent === "1" ? "若该邮箱有待验证的账号，验证邮件已发出（请检查垃圾箱）。" : message
       }
       footer={
+        // 每个链接整体不换行，只允许在「 · 」分隔处折行：375px 下「注销申请」曾被从中间断成两行（M11.3 目视验收）
         <>
           {registrationOpen && (
             <>
               没有账号？
-              <Link className="text-primary hover:underline" href="/register">
+              <Link className="whitespace-nowrap text-primary hover:underline" href="/register">
                 注册
               </Link>
               {" · "}
             </>
           )}
           {/* 认领入口就是找回页：输入邮箱，老账号（无密码）会收到「认领」邮件。/claim 只有带令牌的子路由，不能直接访问 */}
-          <Link className="text-primary hover:underline" href="/forgot">
+          <Link className="whitespace-nowrap text-primary hover:underline" href="/forgot">
             忘记密码 / 认领老账号
           </Link>
           {" · "}
-          <Link className="text-primary hover:underline" href="/appeal">
+          <Link className="whitespace-nowrap text-primary hover:underline" href="/appeal">
             账号申诉
           </Link>
           {" · "}
-          <Link className="text-primary hover:underline" href="/closure">
+          <Link className="whitespace-nowrap text-primary hover:underline" href="/closure">
             注销申请
           </Link>
         </>

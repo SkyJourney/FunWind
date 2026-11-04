@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, type Page, type TestInfo } from "@playwright/test";
+import { exportReadableTiles } from "./readable-tiles";
 
 export const LAYOUT_AUDIT_ONLY = process.env.LAYOUT_AUDIT_ONLY === "1";
 const SCREENSHOTS = process.env.RUN_LAYOUT_SCREENSHOTS === "1";
@@ -18,7 +19,10 @@ type Snapshot = {
   url: string;
   findings: Finding[];
   geometry?: unknown;
+  /** 整页/区域原图，给人看或归档；多模态读图不要读它们（过大会被缩小，小字不可读） */
   screenshots: string[];
+  /** 带标签的可读切块（≤800×800），目视验收只读这些，见 docs/VISUAL-VERIFICATION.md */
+  tiles: string[];
 };
 
 /** 布局与权限逐项收集：默认在全部检查后严格失败，审查模式只导出 JSON，便于一次采全基线。 */
@@ -448,20 +452,38 @@ export class LayoutAudit {
       findings: geometry.findings,
       geometry,
       screenshots: [],
+      tiles: [],
     };
     this.snapshots.push(entry);
     const artifactId = `${String(++this.sequence).padStart(2, "0")}-${label.replace(/[^a-z0-9\u4e00-\u9fff-]+/gi, "-").slice(0, 90)}`;
     if (SCREENSHOTS) {
       const screenshot = this.info.outputPath("responsive", `${artifactId}.png`);
+      const tilesDir = this.info.outputPath("responsive", "tiles");
       await mkdir(path.dirname(screenshot), { recursive: true });
-      await this.page.screenshot({ path: screenshot, fullPage: true, animations: "disabled" });
+      // 标签带上视口宽度：同一轮读多张时靠标签对位，不靠附件顺序
+      const tag = `${this.page.viewportSize()?.width ?? "?"}px ${label}`;
+      const full = await this.page.screenshot({
+        path: screenshot,
+        fullPage: true,
+        animations: "disabled",
+      });
       entry.screenshots.push(screenshot);
+      entry.tiles.push(
+        ...(await exportReadableTiles(full, { label: tag, dir: tilesDir, baseName: artifactId })),
+      );
       for (const region of options.regions ?? []) {
         const locator = this.page.locator(region.selector).first();
         if (!(await locator.isVisible())) continue;
         const regionPath = this.info.outputPath("responsive", `${artifactId}-${region.name}.png`);
-        await locator.screenshot({ path: regionPath, animations: "disabled" });
+        const shot = await locator.screenshot({ path: regionPath, animations: "disabled" });
         entry.screenshots.push(regionPath);
+        entry.tiles.push(
+          ...(await exportReadableTiles(shot, {
+            label: `${tag} [${region.name}]`,
+            dir: tilesDir,
+            baseName: `${artifactId}-${region.name}`,
+          })),
+        );
       }
     }
     await this.persist();

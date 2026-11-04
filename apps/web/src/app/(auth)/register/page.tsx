@@ -66,7 +66,8 @@ export default async function RegisterPage({
         <Field label="邮箱" name="email" type="email" autoComplete="email" />
         <Field label="密码（至少 8 位）" name="password" password autoComplete="new-password" />
         <SubmitButton label={inviteRequired ? "凭邀请码注册" : "注册"} />
-        <p className="text-center text-xs text-muted-foreground">
+        {/* text-balance：均衡折行，避免说明末行只剩「录。」这种孤字（375px 目视验收发现） */}
+        <p className="text-center text-xs text-balance text-muted-foreground">
           {modeNote(availability.kind, policy)}
         </p>
       </form>

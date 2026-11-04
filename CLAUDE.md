@@ -50,6 +50,8 @@ pnpm --filter @funwind/web test:e2e:prod                  # 仅运行生产构�
 pnpm --filter @funwind/web modules:toggle <id> <on|off>   # 模块启停（写 audit_log；脚本兼容 server-only 标记）
 pnpm --filter @funwind/web perf:lcp                       # 生产构建 LCP 门禁
 pnpm --filter @funwind/web perf:posting                   # 发帖性能基准（服务层 createReply×200，p95 < 300ms）；须显式 NEW_DB_NAME=qysub_next_e2e
+pnpm test:layout               # 六档宽度（320–1440）布局矩阵：DOM 几何断言；RUN_LAYOUT_SCREENSHOTS=1 另导出截图与 ≤800px 的可读切块。含 db:build，3100 在跑时跑完需重启；目视验收规程见 docs/VISUAL-VERIFICATION.md
+pnpm layout:summary            # 汇总布局审计 JSON，有问题退出码 1（LAYOUT_AUDIT_ONLY=1 下用例恒为 ✓，问题只写在 JSON 里，必须跑它）
 ```
 
 改了 `packages/db` 后，web 依赖的是其 **构建产物**（`dist/`），先 `pnpm db:build`（`dev`/`build`/`migrate` 脚本已自带）。
@@ -133,6 +135,7 @@ pnpm --filter @funwind/web perf:posting                   # 发帖性能基准�
 - **浏览器专属状态不能在 `useState` 初始化里读**（如 `localStorage`）：服务端渲染与客户端首次渲染不一致会水合失败，且 jsdom 单测看不出来（不走 SSR）。应改用 `useSyncExternalStore`（服务端快照返回空值）；`react-hooks/set-state-in-effect` 也禁止在 effect 里同步 setState。E2E 的草稿用例显式收集 `pageerror` 并断言无 `Hydration` 错误，因为 React 会静默重渲染成功。
 - **隐藏字段与 React 重渲染**：非受控 `<input type=hidden defaultValue>` 会在父组件每次重渲染时被写回 `defaultValue`，覆盖 ref 写入的值。用 `memo` 组件隔离（见 `editor-shell.tsx` 的 `HiddenSource`）。
 - **macOS 没有 `timeout` 命令**：本机跑长命令直接用工具的超时参数，不要套 `timeout`。
+- **目视验收走固定路径，不要另试办法**：Playwright 布局矩阵（`LayoutAudit`）+ 可读切块，规程见 `docs/VISUAL-VERIFICATION.md`。读图只读 `tiles/` 里 ≤800×800 的切块，**不读整页长图**（2026-11-04 随机码盲测：375×2400 整页图连 14px 都读不出，1280 宽图 12px 以下读错，800×800 内 9px 全对）；并行读多张时附件到达顺序与调用顺序不一致，按切块顶部的标签条对位；描述必须可证伪，读不清就写读不清。验证命令不要套管道（`cmd | tail` 的退出码是 `tail` 的，zsh 里也没有 `PIPESTATUS`）。
 
 ## M0–M5 审查缺口的处置状态（2026-10-23 审查 → M5.5 修复）
 

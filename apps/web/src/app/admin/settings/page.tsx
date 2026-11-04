@@ -9,6 +9,7 @@ import { getSiteChrome, getSiteIdentity } from "@/lib/chrome/site-chrome";
 import { SITE_URL } from "@/lib/site";
 import { getThemeCatalog } from "@/lib/theme/catalog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ActionGroup } from "@/components/ui/action-group";
 import { SubmitButton } from "@/components/ui/submit-button";
 import {
   saveDigestHourAction,
@@ -183,16 +184,16 @@ export default async function SiteSettingsPage({
                 className={`${inputCls} w-56`}
               />
             </label>
-            <label className="grid gap-1 text-sm">
+            <label className="grid w-80 max-w-full min-w-0 gap-1 text-sm">
               副标题 / 描述（留空恢复默认）
               <input
                 name="tagline"
                 maxLength={80}
                 defaultValue={identity.tagline}
-                className={`${inputCls} w-80`}
+                className={`${inputCls} w-full`}
               />
             </label>
-            <label className="grid gap-1 text-sm">
+            <label className="grid w-72 max-w-full min-w-0 gap-1 text-sm">
               站点访问地址（留空用环境默认）
               <input
                 name="url"
@@ -201,7 +202,7 @@ export default async function SiteSettingsPage({
                 title="须以 http:// 或 https:// 开头"
                 placeholder={SITE_URL}
                 defaultValue={identity.url === SITE_URL ? "" : identity.url}
-                className={`${inputCls} w-72`}
+                className={`${inputCls} w-full`}
               />
             </label>
             <SubmitButton className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
@@ -366,10 +367,17 @@ export default async function SiteSettingsPage({
             </dd>
           </dl>
 
+          {/* 收件人邮箱不放进按钮文案：按钮必须单行不收缩，长邮箱会把页面撑出视口（375px 下实测 +25px）；
+              放进可换行的说明里，按钮只写动作，名称仍以「发送测试邮件」开头 */}
           <form action={sendTestMailAction}>
-            <SubmitButton className="rounded-lg border px-3 py-1.5 hover:bg-accent disabled:opacity-60">
-              发送测试邮件（发到我的邮箱：{adminEmail ?? "未绑定"}）
-            </SubmitButton>
+            <ActionGroup>
+              <SubmitButton className="rounded-lg border px-3 py-1.5 hover:bg-accent disabled:opacity-60">
+                发送测试邮件
+              </SubmitButton>
+              <span className="min-w-0 text-xs [overflow-wrap:anywhere] text-muted-foreground">
+                发到当前管理员邮箱：{adminEmail ?? "未绑定"}
+              </span>
+            </ActionGroup>
           </form>
 
           <form action={saveEmailSecurityAction} className="space-y-2 border-t pt-4">

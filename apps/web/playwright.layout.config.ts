@@ -2,6 +2,14 @@ import { defineConfig, devices } from "@playwright/test";
 
 process.env.NEW_DB_NAME = "qysub_next_e2e";
 
+/**
+ * 默认跑后台/帖子页矩阵与 M11.3 认证页矩阵。LAYOUT_SPEC=<文件名正则> 只跑指定文件，
+ * 目视验收时的临时用例也走这个开关，不必另写配置（docs/VISUAL-VERIFICATION.md）。
+ */
+const LAYOUT_SPECS = process.env.LAYOUT_SPEC
+  ? new RegExp(process.env.LAYOUT_SPEC)
+  : [/responsive-management\.spec\.ts$/, /responsive-register\.spec\.ts$/];
+
 /** 管理界面六档宽度专项；复用冻结构建可保留修复前后的同场景证据。 */
 export default defineConfig({
   fullyParallel: false,
@@ -13,7 +21,7 @@ export default defineConfig({
     {
       name: "production",
       testDir: "./e2e",
-      testMatch: "responsive-management.spec.ts",
+      testMatch: LAYOUT_SPECS,
       use: { ...devices["Desktop Chrome"] },
     },
   ],
