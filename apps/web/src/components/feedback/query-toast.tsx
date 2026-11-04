@@ -11,7 +11,6 @@ import { toast } from "sonner";
  * 错误 toast 仅消费明确登记的 notice 码，不改变各页 error 的语义。
  */
 const NOTICE_TEXT: Record<string, string> = {
-  "verify-email-sent": "注册成功——请查收邮箱完成验证（验证前可浏览，暂不能发帖）。",
   "password-reset": "新密码已生效，你已登录。",
   "password-changed": "新密码已生效。",
   claimed: "账号认领成功，欢迎回来！",

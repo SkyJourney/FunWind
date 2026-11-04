@@ -45,6 +45,11 @@ export interface RegisterInput {
   passwordHash: string;
   /** 签发时固定邮箱验证写权限门，避免站点注册模式切换影响既有账号 */
   emailVerificationRequired?: boolean;
+  /**
+   * 登录验证门（M11.3）：true = 验证邮箱前不能登录。仅开放注册且站点要求验证时为真；
+   * 首次验证成功即由 tokens.ts 清除。与上一项分开：改绑邮箱会重置验证状态，却不应拦登录。
+   */
+  loginVerificationRequired?: boolean;
   /** 邀请制必填；开放注册传 null */
   invite: string | null;
 }
@@ -60,6 +65,7 @@ export async function registerUser(input: RegisterInput): Promise<number> {
         emailKey: normalizeKey(input.email),
         passwordHash: input.passwordHash,
         emailVerificationRequired: input.emailVerificationRequired ?? false,
+        loginVerificationRequired: input.loginVerificationRequired ?? false,
         createdAt: sql`NOW()`,
       });
       const id = insertIdOf(inserted);

@@ -61,6 +61,40 @@ describe.skipIf(skipDb)("注册事务 · 真实 MySQL", () => {
     expect(row).toMatchObject({ emailVerifiedAt: null, emailVerificationRequired: true });
   });
 
+  it("登录验证门标记（M11.3）：默认 false；显式传入才写入，且与写权限门是两列", async () => {
+    const plain = await registerUser(input({ username: "无门甲", email: "nogate@example.com" }));
+    const gated = await registerUser(
+      input({
+        username: "登录门甲",
+        email: "gate@example.com",
+        emailVerificationRequired: true,
+        loginVerificationRequired: true,
+      }),
+    );
+    // 只要求写权限门、不要求登录门：覆盖「两列独立」——改绑邮箱就是这种形态
+    const writeOnly = await registerUser(
+      input({
+        username: "仅写门甲",
+        email: "writeonly@example.com",
+        emailVerificationRequired: true,
+      }),
+    );
+    const rows = await getWebDb().select().from(users);
+    const by = (id: number) => rows.find((r) => r.id === id);
+    expect(by(plain)).toMatchObject({
+      emailVerificationRequired: false,
+      loginVerificationRequired: false,
+    });
+    expect(by(gated)).toMatchObject({
+      emailVerificationRequired: true,
+      loginVerificationRequired: true,
+    });
+    expect(by(writeOnly)).toMatchObject({
+      emailVerificationRequired: true,
+      loginVerificationRequired: false,
+    });
+  });
+
   it("注册同事务建立 user_stats 行（计数全 0）；失败回滚时不留孤儿统计行", async () => {
     const id = await registerUser(input({ username: "统计甲", email: "stats1@example.com" }));
     const [row] = await getWebDb().select().from(userStats).where(eq(userStats.userId, id));
