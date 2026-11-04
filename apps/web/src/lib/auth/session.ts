@@ -50,7 +50,9 @@ export type SessionCreationFailure =
   | "password_change_required"
   | "password_change_not_required"
   | "account_closing"
-  | "banned";
+  | "banned"
+  /** 登录验证门（M11.3）：注册时被要求先验证邮箱的账号，在首次验证成功之前不能建立会话 */
+  | "email_unverified";
 
 export class SessionCreationError extends Error {
   constructor(readonly code: SessionCreationFailure) {
@@ -204,12 +206,21 @@ export async function createSessionInTx(
 ): Promise<string> {
   const token = generateToken();
   const [user] = await tx
-    .select({ state: users.state, legacyPasswordPending: users.legacyPasswordPending })
+    .select({
+      state: users.state,
+      legacyPasswordPending: users.legacyPasswordPending,
+      loginVerificationRequired: users.loginVerificationRequired,
+    })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1)
     .for("update");
   if (!user || user.state !== "active") throw new SessionCreationError("not_active");
+  // 登录验证门（M11.3）：唯一的会话创建入口，覆盖密码登录、reset/claim、注销撤销三条路径。
+  // 只看这一列，不看 emailVerifiedAt / emailVerificationRequired：改绑邮箱会重置后两者，却不应拦登录；
+  // 历史（导入）账号该列为 false，不受影响。首次验证成功即由 tokens.ts 清除，之后改绑邮箱也不会再被拦。
+  // 这里在行锁内读取，与建会话同一事务，不存在检查后被改的竞态。
+  if (user.loginVerificationRequired) throw new SessionCreationError("email_unverified");
   if (user.legacyPasswordPending !== legacyPasswordChangeOnly) {
     throw new SessionCreationError(
       legacyPasswordChangeOnly ? "password_change_not_required" : "password_change_required",

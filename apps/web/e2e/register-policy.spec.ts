@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { withE2eDb } from "./support/db";
 import { failOnPageErrors } from "./support/page-errors";
+import { snapshotMailIds, waitForNewMail } from "./support/mailpit";
 
 /**
  * M11.3 注册策略：四种开关组合下注册页与注册 Action 的行为。
@@ -181,4 +182,46 @@ test("开放注册要求验证：注册后不建会话，跳登录页提示查�
     );
     expect(u).toMatchObject({ email_verification_required: 1, login_verification_required: 1 });
   });
+});
+
+test("登录门全流程：未验证时正确密码也被拦；错误密码只见通用提示；验证后可登录", async ({
+  page,
+}) => {
+  await setPolicy({ open: true, invite: false, verifyEmail: true });
+  const name = unique("gate");
+  const email = `${name}@test.local`;
+  const known = await snapshotMailIds(email, "验证邮箱");
+  await page.goto("/register");
+  await fillAccount(page, name);
+  await page.getByRole("button", { name: "注册" }).click();
+  await expect(page).toHaveURL(/\/login\?message=/);
+
+  const login = async (password: string) => {
+    await page.goto("/login");
+    await page.getByLabel("用户名或邮箱").fill(name);
+    await page.getByLabel("密码", { exact: true }).fill(password);
+    await page.getByRole("button", { name: "登录" }).click();
+  };
+
+  // 错误密码：与不存在的账号完全一样，只有通用话术，看不到任何「验证」信息
+  await login("not-the-password");
+  await expect(page.getByText("用户名或密码错误")).toBeVisible();
+  await expect(page.getByText(/验证邮箱/)).toHaveCount(0);
+
+  // 正确密码但未验证：被登录门拦下，给出明确提示，且没有会话
+  await login(PASSWORD);
+  await expect(page.getByText(/请先验证邮箱/)).toBeVisible();
+  expect((await page.context().cookies()).find((c) => c.name === "fw_session")).toBeUndefined();
+
+  // 点邮件里的验证链接（确认页点按钮才消费）→ 回登录页 → 现在可以登录
+  const mail = await waitForNewMail(email, "验证邮箱", known);
+  const full = (await (await fetch(`${MAIL_API}/message/${mail.ID}`)).json()) as { HTML: string };
+  const link = full.HTML.match(/href="(http[^"]*\/verify\/[^"]+)"/)?.[1];
+  expect(link).toBeTruthy();
+  await page.goto(new URL(link!).pathname);
+  await page.getByRole("button", { name: "确认验证邮箱" }).click();
+  await expect(page.getByText("邮箱验证完成，请登录")).toBeVisible();
+
+  await login(PASSWORD);
+  await expect(page.getByRole("button", { name })).toBeVisible();
 });

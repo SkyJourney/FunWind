@@ -72,6 +72,13 @@ async function redirectSessionCreationFailure(
       );
     }
   }
+  if (code === "email_unverified") {
+    // 登录门（M11.3）。会话创建发生在密码校验通过之后，所以这条提示只会给「已证明知道密码」的人看到，
+    // 密码错误的人永远只看到「用户名或密码错误」——不会借此探测账号是否存在或是否未验证（防枚举）。
+    redirect(
+      "/login?error=" + encodeURIComponent("请先验证邮箱：点击注册邮件中的链接完成验证后即可登录"),
+    );
+  }
   redirect("/login?error=" + encodeURIComponent("账号状态已变化，请重新登录"));
 }
 

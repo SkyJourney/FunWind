@@ -290,6 +290,37 @@ describe.skipIf(skipDb)("账号注销生命周期 · 真实 MySQL", () => {
     expect(await getClosureAccess()).toBeNull();
   });
 
+  it("登录验证门（M11.3）：未验证账号撤销注销照常成功，只是不建会话——不能因门抛错让撤销事务回滚", async () => {
+    await db()
+      .update(users)
+      .set({ loginVerificationRequired: true })
+      .where(eq(users.id, DEMO.member));
+    try {
+      const request = await startOrOpenAccountDeletionWithPassword(
+        "demo_member",
+        PASSWORD,
+        "203.0.113.14",
+      );
+      expect(request?.started).toBe(true);
+      const cancelled = await cancelAccountDeletion(request!.accessToken);
+      // 与封禁一致：撤销成功（有 userId）、sessionToken 为 null，而不是抛出 email_unverified
+      expect(cancelled).toMatchObject({ userId: DEMO.member, sessionToken: null });
+      const [row] = await db()
+        .select({ status: accountDeletionRequests.status })
+        .from(accountDeletionRequests)
+        .where(eq(accountDeletionRequests.id, request!.requestId));
+      expect(row.status).toBe("cancelled");
+      expect(
+        await db().select().from(sessions).where(eq(sessions.userId, DEMO.member)),
+      ).toHaveLength(0);
+    } finally {
+      await db()
+        .update(users)
+        .set({ loginVerificationRequired: false })
+        .where(eq(users.id, DEMO.member));
+    }
+  });
+
   it("无普通会话时可用密码开启注销；已有全站封禁时撤销申请也不绕过封禁", async () => {
     const reason = "m9.6-closure-banned-user";
     await expect(

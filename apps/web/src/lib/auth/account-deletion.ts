@@ -22,7 +22,7 @@ import { restrictionActive } from "@/lib/authz/restrictions";
 import { type PasswordVerifier, verifyAccountPassword, verifyPassword } from "./password";
 import { generateToken, hashToken } from "./token";
 import { hashEmailKey } from "./tokens";
-import { createSessionInTx } from "./session";
+import { createSessionInTx, SessionCreationError } from "./session";
 import { purgeUserDataInTx, revertUserPollVotes } from "./account-deletion-purge";
 import {
   enqueueEventInTx,
@@ -485,7 +485,18 @@ export async function cancelAccountDeletion(
       )
       .limit(1)
       .for("update");
-    const sessionToken = ban ? null : await createSessionInTx(tx, candidate.userId, meta);
+    // 封禁与登录验证门（M11.3）一视同仁：撤销注销本身照常成功，只是不替用户建会话——
+    // 抛错会让整个撤销事务回滚，用户的注销申请反而撤销不掉。未验证账号撤销后按正常流程登录，会在那里被登录门拦下。
+    let sessionToken: string | null = null;
+    if (!ban) {
+      try {
+        sessionToken = await createSessionInTx(tx, candidate.userId, meta);
+      } catch (error) {
+        if (!(error instanceof SessionCreationError && error.code === "email_unverified")) {
+          throw error;
+        }
+      }
+    }
     await writeAudit(tx, {
       actorId: candidate.userId,
       action: "account.deletion.cancelled",
