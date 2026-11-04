@@ -38,7 +38,8 @@ export function PasswordField({
         onClick={() => setShow((v) => !v)}
         aria-label={show ? "隐藏密码" : "显示密码"}
         aria-pressed={show}
-        className="absolute top-1/2 right-1.5 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        // 视觉保持 32px（输入框只有 36px 高，放大会显得挤）；伪元素把点击热区外扩到 40px，不影响布局
+        className="absolute top-1/2 right-1.5 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors before:absolute before:-inset-1 before:content-[''] hover:bg-accent hover:text-foreground"
       >
         {show ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
       </button>

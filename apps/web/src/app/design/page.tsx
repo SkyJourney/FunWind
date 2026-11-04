@@ -73,10 +73,10 @@ const GRAY_SCALE = [
 ] as const;
 
 const SEMANTIC_ACCENTS = [
-  ["success / green-600", "var(--fw-green-600)"],
-  ["warning / amber-600", "var(--fw-amber-600)"],
+  ["success / green-800", "var(--fw-green-800)"],
+  ["warning / amber-800", "var(--fw-amber-800)"],
   ["info / blue-500", "var(--fw-blue-500)"],
-  ["destructive / red-600", "var(--fw-red-600)"],
+  ["destructive / red-700", "var(--fw-red-700)"],
 ] as const;
 
 const ROLE_COLORS = [

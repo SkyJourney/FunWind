@@ -9,8 +9,8 @@ import { USERS, loginAs } from "./support/session";
 /**
  * M11.3 注册策略相关界面的六档宽度布局（几何断言 + 截图/切块导出）。
  *
- * 覆盖 M11.3 新增或改动的三处界面：/register 的四种形态、/login 的登录门提示与重发表单、
- * /admin/settings 的「注册策略」块（含双关警示）。responsive-management 只管后台与帖子页矩阵，
+ * 覆盖 M11.3 新增或改动的界面：/register 的四种形态、/login 的登录门提示与重发表单、
+ * /admin/settings 的「注册策略」块（含双关警示）、/admin/users/[uid] 的「邮箱与验证」卡片（管理员代改邮箱）。responsive-management 只管后台与帖子页矩阵，
  * 这些页面此前不在任何跨尺寸检查里（评审规范要求新管理表单必须有几何断言与目视检查）。
  *
  * 策略切换走真实的后台保存动作：既覆盖设置块本身，也让站点框架缓存（30 秒）即时失效。
@@ -123,6 +123,19 @@ for (const width of LAYOUT_WIDTHS) {
               .evaluate((el) => el.getClientRects().length);
             expect(rects, `页脚链接 ${href} 被拆成多行`).toBe(1);
           }
+          // 「显示密码」按钮视觉 32px，点击热区须外扩到至少 40px（伪元素）：按钮四角外 3px 处命中的仍是按钮本身。
+          // 热区不改变布局，几何类检查看不到，所以单独断言
+          const reach = await page.getByRole("button", { name: "显示密码" }).evaluate((el) => {
+            const r = el.getBoundingClientRect();
+            const hits = (x: number, y: number) => document.elementFromPoint(x, y) === el;
+            return [
+              hits(r.left - 3, r.top - 3),
+              hits(r.right + 3, r.top - 3),
+              hits(r.left - 3, r.bottom + 3),
+              hits(r.right + 3, r.bottom + 3),
+            ];
+          });
+          expect(reach, "显示密码按钮的点击热区未外扩").toEqual([true, true, true, true]);
         });
         await signIn(USERS.admin);
         await settingsCard("admin-settings-register-default", async () => {
@@ -204,6 +217,20 @@ for (const width of LAYOUT_WIDTHS) {
             await expect(page.getByText("邀请码无效或已被使用")).toBeVisible();
           },
         );
+
+        // 用户详情页的「邮箱与验证」卡片：只审计该卡片并另存区域图；不提交（改邮箱的流程由 admin-user-email.spec 覆盖）
+        await signIn(USERS.admin);
+        await audit.step("admin-user-email-panel", async () => {
+          await page.goto(`/admin/users/${USERS.alice}`);
+          await expect(page.getByTestId("user-email-panel")).toBeVisible();
+          await expect(page.getByRole("button", { name: "修改邮箱并发送验证邮件" })).toBeVisible();
+          await audit.capture("admin-user-email-panel", {
+            roots: "#email",
+            buttons: "#email button",
+            required: ['#email input[name="email"]', "#email button"],
+            regions: [{ name: "email-panel", selector: "#email" }],
+          });
+        });
 
         // 状态 3：双关，不开放注册
         await signIn(USERS.admin);

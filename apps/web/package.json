@@ -21,6 +21,7 @@
     "outbox:drain": "node --import ./scripts/server-only-register.mjs --import tsx scripts/outbox-drain.ts",
     "account-deletion:drain": "node --import ./scripts/server-only-register.mjs --import tsx scripts/account-deletion-cron.mts",
     "digest:run": "node --import ./scripts/server-only-register.mjs --import tsx scripts/digest-cron.mts",
+    "unverified-accounts:purge": "node --import ./scripts/server-only-register.mjs --import tsx scripts/unverified-accounts-cron.mts",
     "notify:storm": "node --import ./scripts/server-only-register.mjs --import tsx scripts/notify-storm.ts",
     "verify:render": "tsx scripts/verify-render.ts",
     "verify:fidelity": "tsx scripts/verify-fidelity.ts"

@@ -12,11 +12,14 @@ import { getPointsName } from "@/lib/auth/settings";
 import { fmtDateTime } from "@/lib/admin/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { AdminFlash } from "@/components/admin/admin-flash";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
+import { UserEmailPanel } from "@/components/admin/user-email-panel";
 import { ForumSelect } from "@/components/admin/forum-select";
 import { Pagination } from "@/components/content/pagination";
 import {
   assignRoleAction,
+  changeUserEmailAction,
   createRestrictionAction,
   liftRestrictionAction,
   revokeRoleAction,
@@ -34,6 +37,7 @@ type Params = {
     lifted?: string;
     role?: string;
     session?: string;
+    emailChanged?: string;
     page?: string;
   }>;
 };
@@ -73,33 +77,27 @@ export default async function AdminUserDetailPage({ params, searchParams }: Para
         ? "注销申请中"
         : "活跃";
   const sp = sp0;
+  // 成功类反馈条文案：每个提示参数都有消费者（G-15）
+  const flashes = [
+    sp.restricted && "限制已生效（当事人会收到通知）。",
+    sp.lifted && "限制已解除（当事人会收到通知）。",
+    sp.role && "角色已更新。",
+    sp.session === "revoked" && "会话已吊销。",
+    sp.emailChanged === "sent" && "邮箱已修改，验证邮件已发往新地址；用户验证后才能恢复。",
+  ].filter((message): message is string => typeof message === "string");
 
   return (
     <div className="space-y-4">
-      {sp.error && (
-        <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {sp.error}
-        </p>
-      )}
-      {sp.restricted && (
-        <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
-          限制已生效（当事人会收到通知）。
-        </p>
-      )}
-      {sp.lifted && (
-        <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
-          限制已解除（当事人会收到通知）。
-        </p>
-      )}
-      {sp.role && (
-        <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
-          角色已更新。
-        </p>
-      )}
-      {sp.session === "revoked" && (
-        <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
-          会话已吊销。
-        </p>
+      {sp.error && <AdminFlash kind="error">{sp.error}</AdminFlash>}
+      {flashes.map((message) => (
+        <AdminFlash key={message} kind="success">
+          {message}
+        </AdminFlash>
+      ))}
+      {sp.emailChanged === "failed" && (
+        <AdminFlash kind="warning">
+          邮箱已修改，但验证邮件发送失败：请稍后再试，或让用户在登录页使用「重新发送验证邮件」。
+        </AdminFlash>
       )}
 
       <AdminPageHeader
@@ -120,14 +118,6 @@ export default async function AdminUserDetailPage({ params, searchParams }: Para
       <Card>
         <CardContent className="flex flex-wrap gap-x-8 gap-y-1 pt-6 text-sm">
           <span className="font-medium">{lifecycleLabel}</span>
-          <span className="text-muted-foreground">{detail.email ?? "（无邮箱）"}</span>
-          <span className={detail.emailVerifiedAt ? "text-success" : "text-warning"}>
-            {detail.emailVerifiedAt
-              ? "邮箱已验证"
-              : detail.emailVerificationRequired
-                ? "邮箱待验证（写入受限）"
-                : "邮箱未验证（账号未要求验证）"}
-          </span>
           <span className="text-muted-foreground">
             {detail.hasPassword ? "已设置密码" : "无密码 / 待认领"}
           </span>
@@ -157,7 +147,9 @@ export default async function AdminUserDetailPage({ params, searchParams }: Para
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <UserEmailPanel detail={detail} canEdit={!lifecycleReadOnly} action={changeUserEmailAction} />
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* 限制管理 */}
         <Card>
           <CardHeader>
@@ -354,7 +346,7 @@ export default async function AdminUserDetailPage({ params, searchParams }: Para
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle>最近会话</CardTitle>

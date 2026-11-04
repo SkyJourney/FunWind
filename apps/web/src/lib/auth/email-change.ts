@@ -3,17 +3,31 @@ import "server-only";
 import { and, eq, ne } from "drizzle-orm";
 import { emailTokens, getWebDb, users } from "@funwind/db";
 import { writeAudit } from "@/lib/audit";
+import { lockActiveUserInTx } from "@/lib/identity";
 import { isDuplicateKey } from "./register";
 import { hashEmailKey, issueEmailTokenInTx } from "./tokens";
 
 class TargetVerificationRateLimited extends Error {}
 
 export type EmailChangeResult =
-  | { kind: "changed"; beforeEmail: string | null; emailChanged: boolean; verifyToken: string }
+  | {
+      kind: "changed";
+      beforeEmail: string | null;
+      emailChanged: boolean;
+      /** 旧邮箱是否被用户验证过：没验证过的地址从未被证明属于该用户，管理员代改时不给它发告警 */
+      previouslyVerified: boolean;
+      verifyToken: string;
+    }
   | { kind: "taken" }
   | { kind: "missing" }
   | { kind: "unchanged" }
   | { kind: "rate_limited" };
+
+/**
+ * 审计归属。省略 = 用户自己改（记用户本人、动作 user.email.change）；
+ * 管理员代改时传入，同时启用与限制 / 角色授予一致的目标账号检查（注销冷静期与已注销账号一律拒绝）。
+ */
+export type EmailChangeAudit = { actorId: number; action: string };
 
 /** 改绑邮箱、清理旧令牌并签发新地址验证令牌；单次事务内串行化。 */
 export async function changeEmailAddress(
@@ -22,9 +36,14 @@ export async function changeEmailAddress(
   emailKey: string,
   ip: string | null,
   allowTargetVerification: () => boolean = () => true,
+  audit?: EmailChangeAudit,
 ): Promise<EmailChangeResult> {
   try {
     return await getWebDb().transaction(async (tx) => {
+      if (audit) {
+        const target = await lockActiveUserInTx(tx, userId);
+        if (!target.ok) return { kind: "missing" };
+      }
       const [current] = await tx
         .select({
           email: users.email,
@@ -60,8 +79,8 @@ export async function changeEmailAddress(
       await tx.delete(emailTokens).where(eq(emailTokens.userId, userId));
       const verifyToken = await issueEmailTokenInTx(tx, userId, "verify", emailKey);
       await writeAudit(tx, {
-        actorId: userId,
-        action: "user.email.change",
+        actorId: audit?.actorId ?? userId,
+        action: audit?.action ?? "user.email.change",
         targetType: "user",
         targetId: userId,
         before: { emailKey: current.emailKey ? hashEmailKey(current.emailKey) : null },
@@ -73,6 +92,7 @@ export async function changeEmailAddress(
         kind: "changed",
         beforeEmail: current.email,
         emailChanged: current.emailKey !== emailKey,
+        previouslyVerified: current.emailVerifiedAt !== null,
         verifyToken,
       };
     });

@@ -166,6 +166,7 @@ export async function purgeUserDataInTx(tx: DbTx, userId: number): Promise<void>
       legacyPasswordPending: false,
       emailVerifiedAt: null,
       emailVerificationRequired: false,
+      loginVerificationRequired: false,
       lastLoginAt: null,
       lastEmailDigestAt: null,
       state: "deleted",

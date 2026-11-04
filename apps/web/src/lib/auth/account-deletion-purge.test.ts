@@ -70,7 +70,7 @@ describe("注销清理清单守卫", () => {
       "update:event_log:payload,errorJson",
       "delete:event_outbox:",
       "update:messages:senderId",
-      "update:users:username,usernameKey,email,emailKey,passwordHash,legacyPasswordHash,legacyPasswordPending,emailVerifiedAt,emailVerificationRequired,lastLoginAt,lastEmailDigestAt,state",
+      "update:users:username,usernameKey,email,emailKey,passwordHash,legacyPasswordHash,legacyPasswordPending,emailVerifiedAt,emailVerificationRequired,loginVerificationRequired,lastLoginAt,lastEmailDigestAt,state",
     ]);
     expect(writes.find((write) => write.table === "users")?.values).toEqual({
       username: "已注销用户#42",
@@ -82,6 +82,7 @@ describe("注销清理清单守卫", () => {
       legacyPasswordPending: false,
       emailVerifiedAt: null,
       emailVerificationRequired: false,
+      loginVerificationRequired: false,
       lastLoginAt: null,
       lastEmailDigestAt: null,
       state: "deleted",

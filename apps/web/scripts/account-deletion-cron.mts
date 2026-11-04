@@ -16,8 +16,13 @@ async function main() {
   if (result.failed > 0) process.exitCode = 1;
 }
 
-main().catch((error: unknown) => {
-  console.error("[account-deletion] worker failed");
-  console.error(error instanceof Error ? error.name : "UnknownError");
-  process.exitCode = 1;
-});
+// 显式退出：getWebDb 的连接池会一直占着事件循环，只设 exitCode 进程不会结束，
+// 定时任务每调用一次就会留下一个不退出的进程（实测确认，见 account-deletion-script.int.test.ts）。
+// 用 exitCode 而不是直接 exit(0)：保留失败时的非零退出码。
+main()
+  .catch((error: unknown) => {
+    console.error("[account-deletion] worker failed");
+    console.error(error instanceof Error ? error.name : "UnknownError");
+    process.exitCode = 1;
+  })
+  .finally(() => process.exit(process.exitCode ?? 0));

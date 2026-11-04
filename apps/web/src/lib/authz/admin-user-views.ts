@@ -236,6 +236,8 @@ export async function adminUserDetail(
   email: string | null;
   emailVerifiedAt: string | null;
   emailVerificationRequired: boolean;
+  /** 登录验证门（M11.3）：true = 注册后一直没验证，无法登录 */
+  loginVerificationRequired: boolean;
   hasPassword: boolean;
   legacyPasswordPending: boolean;
   closureRequest: {
@@ -307,6 +309,10 @@ export async function adminUserDetail(
       >`CASE WHEN ${publicUserDeleted(users.id, users.state)} THEN NULL ELSE ${users.emailVerifiedAt} END`,
       emailVerificationRequired:
         sql<boolean>`(${users.emailVerificationRequired} AND NOT ${publicUserDeleted(users.id, users.state)})`.mapWith(
+          Boolean,
+        ),
+      loginVerificationRequired:
+        sql<boolean>`(${users.loginVerificationRequired} AND NOT ${publicUserDeleted(users.id, users.state)})`.mapWith(
           Boolean,
         ),
       hasPassword:

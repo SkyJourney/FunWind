@@ -26,7 +26,9 @@ export function AuthShell({
         </p>
       )}
       {message && (
-        <p className="rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-primary">
+        // 浅色下 primary 文字在 primary/10 底只有 4.49（默认）/ 3.75（qy2010），不达 AA；primary 是品牌色，
+        // 不动令牌，仅对这条提示条局部加深（混黑 20%：6.22 / 5.34）。深色沿用令牌（约 9.8:1）
+        <p className="rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-[color-mix(in_srgb,var(--primary)_80%,black)] dark:text-primary">
           {message}
         </p>
       )}

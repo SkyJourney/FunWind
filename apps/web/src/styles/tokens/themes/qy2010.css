@@ -36,8 +36,8 @@
   --accent-foreground: #33613f;
   --destructive: #a3425b; /* kiminitodoke 樱红 */
   --destructive-foreground: #ffffff;
-  --success: var(--fw-green-600);
-  --warning: #b8770a; /* phpwind 橙 #ff8800 加深可读 */
+  --success: var(--fw-green-800);
+  --warning: #8a5200; /* phpwind 橙 #ff8800 加深可读；M11.3 由 #b8770a 再加深，淡底 ≥4.5:1 */
   --info: var(--fw-blue-500);
   --border: #e0d9c0;
   --input: #e0d9c0;

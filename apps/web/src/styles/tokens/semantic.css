@@ -27,12 +27,14 @@
   --accent: var(--fw-cyan-50);
   --accent-foreground: var(--fw-cyan-800);
 
-  --destructive: var(--fw-red-600);
+  /* M11.3 校准：浅色下语义文字色在自己的 /10 淡底上须 ≥4.5:1（red-600 4.13 / green-600 2.96 / amber-600 2.86）。
+     令牌层统一加深，不逐处改；守卫见 src/test/token-contrast.test.ts */
+  --destructive: var(--fw-red-700);
   --destructive-foreground: #ffffff;
 
-  --success: var(--fw-green-600);
-  /* S3 校准：amber-500 → 600，警示条文字（warning/10 底）可读性达标 */
-  --warning: var(--fw-amber-600);
+  --success: var(--fw-green-800);
+  /* S3 校准 amber-500 → 600 仍不达标（淡底 2.86），M11.3 再校准到 800 */
+  --warning: var(--fw-amber-800);
   --info: var(--fw-blue-500);
 
   --border: var(--fw-gray-200);

@@ -38,12 +38,15 @@
   /* 语义色板 */
   --fw-green-500: #22c55e;
   --fw-green-600: #16a34a;
+  --fw-green-800: #166534; /* M11.3：浅色下 success 文字在 success/10 底 ≥4.5:1 */
   --fw-amber-400: #fbbf24;
   --fw-amber-500: #f59e0b;
   --fw-amber-600: #d97706;
+  --fw-amber-800: #92400e; /* M11.3：浅色下 warning 文字在 warning/10 底 ≥4.5:1（amber-600 仅 2.86） */
   --fw-red-400: #f87171;
   --fw-red-500: #ef4444;
   --fw-red-600: #dc2626;
+  --fw-red-700: #b91c1c; /* M11.3：浅色下 destructive 文字在 destructive/10 底 ≥4.5:1（red-600 为 4.13） */
   --fw-blue-400: #60a5fa;
   --fw-blue-500: #3b82f6;
 

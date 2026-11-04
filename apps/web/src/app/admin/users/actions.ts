@@ -14,6 +14,18 @@ import { assignUserRole, revokeUserRole } from "@/lib/authz/admin";
 import { AppealError, resolveUserAppeal } from "@/lib/authz/appeals";
 import { isTeamMembershipRole } from "@/lib/authz/team-role-mapping";
 import { assignTeamMembership, revokeTeamMembership } from "@/lib/authz/team-membership";
+import { isValidEmail } from "@/lib/auth/email";
+import { changeEmailAddress } from "@/lib/auth/email-change";
+import { rateLimit } from "@/lib/auth/ratelimit";
+import { hashEmailKey } from "@/lib/auth/tokens";
+import {
+  emailChangedAlertMail,
+  emailChangedConfirmMail,
+  getMailBrand,
+  trySendMail,
+  verifyEmailMail,
+} from "@/lib/mail";
+import { securityEmailEnabled } from "@/lib/notifications/email";
 
 /** 用户管理 Server Actions（M9，admin.users）：限制创建/解除、角色授予/撤销（复用 M5 服务）。 */
 
@@ -192,5 +204,61 @@ export const resolveUserAppealAction = defineAction({
     }
     revalidatePath(back);
     redirect(`${back}?appeal=resolved`);
+  },
+});
+
+/**
+ * 管理员代改用户邮箱并重新发起验证（M11.3 清账）。
+ * 站长拍板：留痕即可，不加理由字段与确认弹窗；不提供「手动标记已验证」，用户必须重走验证。
+ * 登录门不在这里动：注册时填错邮箱的账号，门要等用户点新地址里的链接才解除。
+ */
+export const changeUserEmailAction = defineAction({
+  name: "admin.user.email.change",
+  auth: { admin: "admin.users" },
+  input: z.object({
+    userId: z.coerce.number().int().positive(),
+    email: z.string().max(254),
+  }),
+  async run(ctx, input) {
+    const back = `/admin/users/${input.userId}`;
+    const fail = (message: string): never =>
+      redirect(`${back}?error=${encodeURIComponent(message)}`);
+    const email = input.email.trim();
+    if (email === "" || !isValidEmail(email)) return fail("邮箱格式不正确");
+
+    const key = email.toLowerCase();
+    const securityOn = await securityEmailEnabled();
+    const result = await changeEmailAddress(
+      input.userId,
+      email,
+      key,
+      ctx.ip,
+      // 目标地址限流：防止借管理员入口给第三方邮箱刷验证邮件
+      () => rateLimit(`email-change-to:${hashEmailKey(key)}`, 5, 60 * 60_000).allowed,
+      { actorId: ctx.userId, action: "admin.user.email.change" },
+    );
+    if (result.kind === "rate_limited") return fail("该地址的验证邮件发送过于频繁，请稍后再试");
+    if (result.kind === "taken") return fail("该邮箱已被其他账号使用");
+    if (result.kind === "missing") return fail("账号不存在、已注销或正在注销，不能修改邮箱");
+    if (result.kind === "unchanged") return fail("邮箱未变化：该账号邮箱已验证");
+
+    const brand = await getMailBrand();
+    // 安全告警只发给被用户验证过的旧地址：没验证过的地址从未被证明属于该用户（填错的邮箱可能是陌生人的），
+    // 向它发「账号邮箱已更换」会让陌生人知道该地址在本站注册过
+    if (securityOn && result.previouslyVerified) {
+      if (result.emailChanged && result.beforeEmail) {
+        await trySendMail(result.beforeEmail, emailChangedAlertMail(brand), {
+          userId: input.userId,
+        });
+      }
+      await trySendMail(email, emailChangedConfirmMail(brand), { userId: input.userId });
+    }
+    const sent = await trySendMail(
+      email,
+      verifyEmailMail(`${brand.siteUrl}/verify/${result.verifyToken}`, brand, { email }),
+      { userId: input.userId },
+    );
+    revalidatePath(back);
+    redirect(`${back}?emailChanged=${sent ? "sent" : "failed"}`);
   },
 });
