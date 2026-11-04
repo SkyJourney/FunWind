@@ -8,12 +8,12 @@
 ### Added（M11.2 · 运营排期引擎）
 
 - **通用排期引擎**：新表 `campaigns`（迁移 0023，schema v2.9，共 54 表）。一个方案 = 一个 effect + 配置 + 时间窗 `[starts_at, ends_at)`（`ends_at` 为空 = 长期），请求侧惰性判定，无 cron；到期靠读侧不再命中而回退，不需要写回。
-- **effect 注册表**（`lib/campaigns/effects.ts`）：本期注册 `theme.pack` / `site.logo` / `site.hero`，配置 `.strict()` 校验，未知 effect 与坏配置在读写两侧都被忽略或拒绝，一条坏方案不影响其他 effect。邀请码策略、积分加成等后续只加注册项，不改表。
+- **effect 注册表**（`lib/campaigns/effects.ts`）：本期注册 `theme.pack` / `site.logo` / `site.hero`，配置 `.strict()` 校验，未知 effect 与坏配置在读写两侧都被忽略或拒绝，一条坏方案不影响其他 effect。邀请码策略、积分加成等后续只加注册项，不改表（更正：注册表接口与后台表单目前只支持单字符串目标，行为类 effect 需先扩展，见 M11.4 草案）。
 - **冲突语义**：按 effect 分区，分区内 `priority` 大者生效，相等取后创建；不同 effect 互不压制。排期只覆盖「站点默认」，用户自选主题包仍然优先。
 - **读取链**：`getSiteChrome()` 合成排期值，引用的包或素材失效时逐项回退常态。新增 `chrome.logoUrl` / `chrome.heroUrl`——`/brand/logo`、`/brand/hero` 不带 `?file=` 只读池当前项，仅覆盖 `logoActive` 不会真正换图；PWA 图标同步跟随生效文件。时间窗边界沿用 30 秒缓存，最多延迟 30 秒。
 - **后台 `/admin/campaigns`**（site.admin）：按 effect 分区的方案列表、状态徽标、同类重叠压制提示、新建/编辑/启停/删除；所有写路径同事务审计且 revision+1（G-20）；失败时表单内容与旧 revision 原样回显，版本冲突禁用保存，须明确放弃草稿后才能载入最新版本（G-19）。
 - **测试**：`lib/campaigns` 7 个文件 74 项（含真实临时库的窗口边界、合成链、乐观锁、审计与缓存失效）；E2E `campaigns.spec` 6 项（含会员 404、错误输入保留、版本冲突）；六档宽度布局矩阵新增长名称、编辑与错误回显场景。
-- **已实测门禁**：`verify:all` 全绿（Web 283 文件 / 2887 项，分支覆盖 86.72%；DB 73、content 55、migration 278；jscpd 1391/158，基线内）；全量 E2E 生产 391 + dev 8 全绿；六档宽度布局矩阵 6/6；`test:visual` 8/8；`pwa:lighthouse` 100/100。站长目视验收未执行。首轮 E2E 曾因 `default_no_logo` / `theme_no_logo` 跳转参数变更漏改两个 spec 而失败 2 项，已修。
+- **已实测门禁**：`verify:all` 全绿（Web 283 文件 / 2887 项，分支覆盖 86.72%；DB 73、content 55、migration 278；jscpd 1391/158，基线内）；全量 E2E 生产 391 + dev 8 全绿；六档宽度布局矩阵 6/6；`test:visual` 8/8；`pwa:lighthouse` 100/100。站长目视验收判定通过（2026-11-03），M11.2 收口。首轮 E2E 曾因 `default_no_logo` / `theme_no_logo` 跳转参数变更漏改两个 spec 而失败 2 项，已修。
 - **顺带修复**：编辑页从列表软导航进入时 `<select>` 不应用新的 `defaultValue`，下拉为空使 `required` 静默拦截提交，表单改为随编辑对象/版本/冲突状态重新挂载。`datetime.ts` 抽出 `isValidBeijingDateTime` 供复用。
 
 ### Fixed（五批交付深度复审与自适应管理界面）
