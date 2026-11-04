@@ -31,6 +31,7 @@ describe.skipIf(skipDb)("站点框架配置（site-chrome）", () => {
       heroUrl: null,
       identity: { name: SITE_NAME, tagline: SITE_TAGLINE, url: SITE_URL }, // M10.6：身份可配（含访问地址），空库回默认
       themePack: "default", // M11：全站默认主题包未配置 → default
+      registrationOpen: true, // M11.3：默认邀请制 = 开放了邀请注册
     });
     await db()
       .insert(siteSettings)
@@ -171,6 +172,33 @@ describe.skipIf(skipDb)("站点框架配置（site-chrome）", () => {
     await db().delete(siteSettings).where(eq(siteSettings.key, "site.theme"));
     invalidateThemeCatalog();
     invalidateSiteChrome();
+  });
+
+  it("registrationOpen（M11.3）：开放或邀请至少开一个为真，双关为假；旧 register.mode 兼容；写坏回落邀请制", async () => {
+    const put = (key: string, value: unknown) =>
+      db()
+        .insert(siteSettings)
+        .values({ key, value: value as object, updatedAt: sql`NOW()` })
+        .onDuplicateKeyUpdate({ set: { value: value as object } });
+    const open = async () => {
+      invalidateSiteChrome();
+      return (await getSiteChrome()).registrationOpen;
+    };
+    try {
+      expect(await open()).toBe(true); // 键都没有 → 默认邀请制
+      await put("register.policy", { open: false, invite: false, verifyEmail: false });
+      expect(await open()).toBe(false); // 双关
+      await put("register.policy", { open: true, invite: false, verifyEmail: true });
+      expect(await open()).toBe(true);
+      await put("register.policy", { open: false, invite: true, verifyEmail: false });
+      expect(await open()).toBe(true);
+      // 新键写坏 → 回落邀请制（仍开放邀请注册），而不是被当成双关
+      await put("register.policy", { open: "yes" });
+      expect(await open()).toBe(true);
+    } finally {
+      await db().delete(siteSettings).where(eq(siteSettings.key, "register.policy"));
+      invalidateSiteChrome();
+    }
   });
 
   it("横幅查询：只取 show_banner 且有效；audience 过滤游客；下线后消失", async () => {

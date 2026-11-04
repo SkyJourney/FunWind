@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { withE2eDb } from "./support/db";
 import { failOnPageErrors } from "./support/page-errors";
+import { USERS, loginAs } from "./support/session";
 import { expectNoNewMail, snapshotMailIds, waitForNewMail } from "./support/mailpit";
 
 /**
@@ -297,4 +298,39 @@ test("防枚举：不存在的邮箱与待验证的邮箱得到完全相同的�
   expect(forReal).toEqual(forGhost);
   expect(forGhost.text).toBe("若该邮箱有待验证的账号，验证邮件已发出（请检查垃圾箱）。");
   await expectNoNewMail(ghost, "验证邮箱", ghostKnown);
+});
+
+test("顶栏「注册」入口随开关显隐：双关时不再引导访客点进一个只会说「不开放」的页面", async ({
+  page,
+}) => {
+  // 顶栏读站点框架缓存（30 秒），直接写库不会失效它；改走后台保存动作，保存会即时失效本进程缓存
+  const admin = await page.context().browser()!.newContext();
+  await loginAs(admin, USERS.admin);
+  const adminPage = await admin.newPage();
+  const save = async (flags: { open: boolean; invite: boolean }) => {
+    await adminPage.goto("/admin/settings");
+    for (const [name, on] of Object.entries(flags)) {
+      const box = adminPage.locator(`#register input[name="${name}"]`);
+      if (on) await box.check();
+      else await box.uncheck();
+    }
+    await adminPage.getByRole("button", { name: "保存注册策略" }).click();
+    await adminPage.waitForURL(/\/admin\/settings\?saved=/);
+  };
+  const headerRegister = (viewport: Page) =>
+    viewport.getByRole("banner").getByRole("link", { name: "注册" });
+  try {
+    await save({ open: false, invite: true });
+    await page.goto("/");
+    await expect(headerRegister(page)).toBeVisible();
+
+    await save({ open: false, invite: false });
+    await page.goto("/");
+    await expect(headerRegister(page)).toHaveCount(0);
+    // 登录入口不受影响
+    await expect(page.getByRole("banner").getByRole("link", { name: "登录" })).toBeVisible();
+  } finally {
+    await save({ open: false, invite: true });
+    await admin.close();
+  }
 });

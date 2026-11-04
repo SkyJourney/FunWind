@@ -264,8 +264,9 @@ export default async function SiteSettingsPage({
               data-testid="register-closed-warning"
               className="mb-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
             >
-              当前开放注册与邀请注册均已关闭：访客将看到「当前不开放注册」，无法创建新账号。
-              已有账号的登录、找回密码与邮箱验证不受影响。
+              {
+                "当前开放注册与邀请注册均已关闭：访客将看到「当前不开放注册」，无法创建新账号。已有账号的登录、找回密码与邮箱验证不受影响。"
+              }
             </p>
           )}
           <form action={saveRegisterPolicyAction} className="space-y-2 text-sm">

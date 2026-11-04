@@ -104,8 +104,11 @@ export const saveRegisterPolicyAction = defineAction({
       verifyEmail: input.verifyEmail === "on",
     };
     await setSetting("register.policy", policy, ctx.actor);
+    // 顶栏「注册」入口读 site chrome 缓存里的 registrationOpen：不失效的话保存后最多 30 秒仍显示旧状态
+    invalidateSiteChrome();
     revalidatePath("/admin/settings");
     revalidatePath("/register");
+    revalidatePath("/", "layout");
     done(!policy.open && !policy.invite ? "register_closed" : "register");
   },
 });
