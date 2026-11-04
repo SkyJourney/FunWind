@@ -203,9 +203,12 @@ export async function consumeEmailTokenInTx(
         ne(emailTokens.id, id),
       ),
     );
+  // 任何用途的令牌被成功消费都证明了邮箱归属，所以同一条 UPDATE 里一并清除登录验证门（M11.3）：
+  // 门的语义是「注册后必须先验证一次」，首次验证成功即永久清除。若不清除，早已验证过的用户改绑邮箱
+  // （会重置 email_verified_at）后下次登录会被重新拦住，违背「改绑只拦写权限、不拦登录」。
   await tx
     .update(users)
-    .set({ emailVerifiedAt: sql`NOW()` })
+    .set({ emailVerifiedAt: sql`NOW()`, loginVerificationRequired: false })
     .where(eq(users.id, candidate.userId));
   return candidate.userId;
 }

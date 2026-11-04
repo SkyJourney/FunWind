@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `login_verification_required` boolean DEFAULT false NOT NULL;

@@ -87,6 +87,13 @@ export const users = mysqlTable(
     emailVerifiedAt: dt("email_verified_at"),
     /** 注册时固定的邮箱验证门；不随站点注册模式变更 */
     emailVerificationRequired: boolean("email_verification_required").notNull().default(false),
+    /**
+     * 登录验证门（M11.3，schema v2.10）：true = 注册后必须先验证邮箱才能登录。
+     * 只在开放注册且站点要求验证时于注册事务内写入；**首次验证成功即清除**（tokens.ts），
+     * 所以改绑邮箱（会重置 email_verified_at）既不写也不依赖它——改绑只拦写权限，不拦登录。
+     * 与 email_verification_required 分开：后者两种来源（注册、改绑）都置真，无法区分；历史账号默认 false。
+     */
+    loginVerificationRequired: boolean("login_verification_required").notNull().default(false),
     /** deleted = 已注销：保留行以维持引用完整，个人信息已清除 */
     state: mysqlEnum("state", ["active", "deleted"]).notNull().default("active"),
     createdAt: dt("created_at").notNull(),

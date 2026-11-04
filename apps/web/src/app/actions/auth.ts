@@ -13,6 +13,7 @@ import type { EventName, EventPayloads } from "@/modules/kernel/types";
 import { attemptLogin } from "@/lib/auth/login";
 import { isValidEmail } from "@/lib/auth/email";
 import { requestAccountEmail } from "@/lib/auth/forgot";
+import { requestVerificationResend } from "@/lib/auth/resend-verification";
 import { hashPassword } from "@/lib/auth/password";
 import { checkUsername } from "@/lib/auth/username";
 import { takeInviteAttempt } from "@/lib/auth/invite-limit";
@@ -31,7 +32,8 @@ import {
 import { rateLimit } from "@/lib/auth/ratelimit";
 import { issueEmailToken, peekEmailTokenUserId } from "@/lib/auth/tokens";
 import { getMailBrand, trySendMail, verifyEmailMail } from "@/lib/mail";
-import { getRegisterMode, getEmailVerificationMode } from "@/lib/auth/settings";
+import { getRegisterPolicy } from "@/lib/auth/settings";
+import { chooseRegisterPath, pathRequiresVerification } from "@/lib/auth/register-policy";
 
 /**
  * 认证 Server Actions（M4）。
@@ -70,6 +72,14 @@ async function redirectSessionCreationFailure(
         "/login?error=" + encodeURIComponent(`账号已被封禁${until}：${ban.reason || "违规"}`),
       );
     }
+  }
+  if (code === "email_unverified") {
+    // 登录门（M11.3）。会话创建发生在密码校验通过之后，所以这条提示只会给「已证明知道密码」的人看到，
+    // 密码错误的人永远只看到「用户名或密码错误」——不会借此探测账号是否存在或是否未验证（防枚举）。
+    redirect(
+      "/login?unverified=1&error=" +
+        encodeURIComponent("请先验证邮箱：点击注册邮件中的链接完成验证后即可登录"),
+    );
   }
   redirect("/login?error=" + encodeURIComponent("账号状态已变化，请重新登录"));
 }
@@ -204,7 +214,7 @@ export const registerAction = defineAction({
     invite: text(200),
   }),
   async run(ctx, input) {
-    const mode = await getRegisterMode();
+    const policy = await getRegisterPolicy();
     const username = input.username.trim();
     const email = input.email.trim().toLowerCase();
     const password = input.password;
@@ -212,12 +222,19 @@ export const registerAction = defineAction({
 
     const fail = (msg: string): never => redirect(`/register?error=${encodeURIComponent(msg)}`);
 
-    // IP 未知时开放注册退回全局兜底桶（宽松，仅防批量灌号）；邀请制有邀请码把关，不需要
+    // 先判定这次提交走哪条路径（M11.3，规则见 lib/auth/register-policy）。
+    // 「不开放注册」与「缺邀请码」是确定性拒绝，必须在任何限流占额之前返回：
+    // 前者按设计不应消耗任何名额，后者不是在猜码，也不该挤占别人的额度。
+    const path = chooseRegisterPath(policy, invite !== "");
+    if (path.kind === "closed") fail("当前不开放注册");
+    if (path.kind === "invite-required") fail("请输入邀请码");
+
+    // IP 未知时开放注册退回全局兜底桶（宽松，仅防批量灌号）；邀请路径有邀请码把关，不需要
     const registerIpKey = ipRateKey("register", ctx.ip);
     if (
       !ipAllowed(registerIpKey, 5, 60 * 60_000) ||
       (registerIpKey === null &&
-        mode === "open" &&
+        path.kind === "open" &&
         !rateLimit("register-global", 60, 60 * 60_000).allowed)
     ) {
       fail("注册过于频繁，请稍后再试");
@@ -227,13 +244,14 @@ export const registerAction = defineAction({
     if (!isValidEmail(email)) fail("邮箱格式不正确");
     if (password.length < 8) fail("密码至少 8 位");
 
-    // 邀请制：邀请码是唯一门槛，猜测单独限速（先占后退，只有邀请码无效才留下计数）
-    const inviteAttempt = mode === "invite" ? takeInviteAttempt(ctx.ip) : null;
+    // 邀请路径：邀请码是门槛，猜测单独限速（先占后退，只有邀请码无效才留下计数）。
+    // 双开且没填邀请码走开放路径，不占邀请码名额——这里 path.kind 已经区分开了。
+    const inviteAttempt = path.kind === "invite" ? takeInviteAttempt(ctx.ip) : null;
     if (inviteAttempt && !inviteAttempt.allowed) fail("邀请码尝试过于频繁，请稍后再试");
 
     const passwordHash = await hashPassword(password);
-    const verificationMode = await getEmailVerificationMode();
-    const requiresEmailVerification = mode === "open" || verificationMode === "always";
+    // 只有开放路径且站点要求验证的账号带验证要求；邀请路径一律不要求（原 always 选项已移除，M11.3）
+    const requiresEmailVerification = pathRequiresVerification(policy, path);
 
     let newId: number;
     try {
@@ -241,8 +259,11 @@ export const registerAction = defineAction({
         username,
         email,
         passwordHash,
+        // 两列都写：旧列继续管写权限门，新列管登录门（改绑邮箱只动旧列，见 schema 注释）
         emailVerificationRequired: requiresEmailVerification,
-        invite: mode === "invite" ? invite : null,
+        loginVerificationRequired: requiresEmailVerification,
+        // 双开且填了邀请码走邀请路径；填了无效码由核销事务抛 InviteCodeError，不会降级成开放注册
+        invite: path.kind === "invite" ? invite : null,
       });
     } catch (e) {
       if (e instanceof RegisterError) {
@@ -254,9 +275,8 @@ export const registerAction = defineAction({
     }
     inviteAttempt?.refund();
 
-    // 邮箱验证要求已写入用户行；注册模式后续切换不会改变该账号的写权限门。
-    // 验证邮件不阻塞注册（F-05）：SMTP 故障时账号照常建立并登录，用户可在「设置 → 邮箱」重发；
-    // 失败已写入 email_log 发送记录。品牌在此预取（TTL 缓存命中），不在 after() 里做首个查询。
+    // 验证邮件不阻塞注册（F-05）：发信交给 after()，失败已写入 email_log 发送记录。
+    // 品牌在此预取（TTL 缓存命中），不在 after() 里做首个查询。
     if (requiresEmailVerification) {
       const token = await issueEmailToken(newId, "verify", email);
       const brand = await getMailBrand();
@@ -267,12 +287,22 @@ export const registerAction = defineAction({
       });
     }
 
+    await safeEmit("user.registered", { userId: newId });
+
+    // 要求验证的账号**不建会话**（M11.3 登录门）：验证邮箱之前不能登录，若在这里直接登录，登录门就形同虚设。
+    // 跳到登录页并提示查收邮件；邮件没收到或发信失败时，登录被拦的页面提供免登录的重发入口。
+    // 不要求验证的账号（邀请注册、站点没开验证）保持原行为：注册即登录。
+    if (requiresEmailVerification) {
+      redirect(
+        "/login?message=" +
+          encodeURIComponent("注册成功——请查收邮箱，点击邮件中的链接完成验证后即可登录"),
+      );
+    }
     await establishLoginSession(newId, {
       ip: ctx.ip,
       userAgent: (await headers()).get("user-agent") ?? "",
     });
-    await safeEmit("user.registered", { userId: newId });
-    redirect(requiresEmailVerification ? "/?notice=verify-email-sent" : "/");
+    redirect("/");
   },
 });
 
@@ -284,6 +314,20 @@ export const forgotAction = defineAction({
     // 判定与限额见 lib/auth/forgot.ts；无论结果如何都跳到同一个中性视图，响应时间也与邮箱是否存在无关
     await requestAccountEmail(input.email, ctx.ip, { defer: (task) => after(task) });
     redirect("/forgot?sent=1");
+  },
+});
+
+/**
+ * 免登录重发验证邮件（M11.3）：登录门拦住的用户用它自救。判定、防枚举与限流见 lib/auth/resend-verification.ts；
+ * 无论邮箱存在与否、是否待验证、是否被限流，都跳到同一个中性视图，响应时间也与之无关。
+ */
+export const resendVerificationAction = defineAction({
+  name: "auth.resend-verification",
+  auth: "guest",
+  input: z.object({ email: text(320) }),
+  async run(ctx, input) {
+    await requestVerificationResend(input.email, ctx.ip, { defer: (task) => after(task) });
+    redirect("/login?resent=1");
   },
 });
 

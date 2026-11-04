@@ -286,18 +286,19 @@ const adminCases = [
     ],
   },
   {
-    action: settings.saveRegisterModeAction,
+    // 复选框：勾选提交 "on"，未勾选整个字段缺席
+    action: settings.saveRegisterPolicyAction,
     service: mocks.setSetting,
     permission: "site.admin",
-    fields: { mode: "invite" },
-    args: ["register.mode", { mode: "invite" }, adminActor],
+    fields: { invite: "on" },
+    args: ["register.policy", { open: false, invite: true, verifyEmail: false }, adminActor],
   },
   {
-    action: settings.saveEmailVerificationAction,
+    action: settings.saveRegisterPolicyAction,
     service: mocks.setSetting,
     permission: "site.admin",
-    fields: { mode: "always" },
-    args: ["email.verification", { mode: "always" }, adminActor],
+    fields: { open: "on", verifyEmail: "on", invite: "on" },
+    args: ["register.policy", { open: true, invite: true, verifyEmail: true }, adminActor],
   },
   {
     action: settings.saveEmailSecurityAction,

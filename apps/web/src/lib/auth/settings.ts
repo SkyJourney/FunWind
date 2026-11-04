@@ -4,34 +4,38 @@ import { cache } from "react";
 import { eq, inArray, sql } from "drizzle-orm";
 import { getWebDb, siteSettings } from "@funwind/db";
 import { CLI_ACTOR, writeAudit, type ConfigActor } from "@/lib/audit";
+import { resolveRegisterPolicy, type RegisterPolicy } from "./register-policy";
 
 /** 站点配置（site_settings；M12 安装向导接管写入） */
 
 export type RegisterMode = "invite" | "open";
 
-/** 新注册账号的邮箱验证策略；计算结果写入用户行，后续注册模式切换不改变既有账号的验证门 */
-export type EmailVerificationMode = "open_only" | "always";
-
-export const getEmailVerificationMode = cache(async (): Promise<EmailVerificationMode> => {
-  const db = getWebDb();
-  const rows = await db
-    .select({ value: siteSettings.value })
+/**
+ * 注册策略（M11.3）：读新键 `register.policy`，不存在时按旧 `register.mode` 兼容映射（规则见 register-policy.ts）。
+ * 读不到或写坏都回落默认（邀请制）并告警，不让一份坏配置把注册意外放开或整体不可用。
+ * 取代原 `email.verification`（open_only/always）：验证要求现在只是策略里的一个布尔，且只作用于开放注册。
+ */
+export const getRegisterPolicy = cache(async (): Promise<RegisterPolicy> => {
+  const rows = await getWebDb()
+    .select({ key: siteSettings.key, value: siteSettings.value })
     .from(siteSettings)
-    .where(eq(siteSettings.key, "email.verification"))
-    .limit(1);
-  const mode = (rows[0]?.value as { mode?: string } | undefined)?.mode;
-  return mode === "always" ? "always" : "open_only";
+    .where(inArray(siteSettings.key, ["register.policy", "register.mode"]));
+  const byKey = new Map(rows.map((r) => [r.key, r.value]));
+  const { policy, error } = resolveRegisterPolicy(
+    byKey.get("register.policy"),
+    byKey.get("register.mode"),
+  );
+  if (error) console.warn(`[auth] site_settings.register.policy 无效，已回落到邀请制：${error}`);
+  return policy;
 });
 
+/**
+ * 旧的单选视图，由策略派生：仅「开放」开着且「邀请」关着才算 open，其余一律 invite。
+ * 目前只剩 `Subject.registerMode` 一个赋值方在用（全仓无消费者，见 M11.3 文档 §2）。
+ */
 export const getRegisterMode = cache(async (): Promise<RegisterMode> => {
-  const db = getWebDb();
-  const rows = await db
-    .select({ value: siteSettings.value })
-    .from(siteSettings)
-    .where(eq(siteSettings.key, "register.mode"))
-    .limit(1);
-  const mode = (rows[0]?.value as { mode?: string } | undefined)?.mode;
-  return mode === "open" ? "open" : "invite"; // 默认邀请制（保守）
+  const policy = await getRegisterPolicy();
+  return policy.open && !policy.invite ? "open" : "invite";
 });
 
 /** 站点设置写入：管理动作，值真正变化时同事务写 audit_log（前后值）；写入相同值是幂等空操作 */

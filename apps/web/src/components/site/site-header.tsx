@@ -113,6 +113,7 @@ export function SiteHeader({
   avatarUrl,
   notificationsOn,
   showAdmin,
+  registrationOpen,
   logoUrl,
   packPref,
   logoutAction,
@@ -125,6 +126,8 @@ export function SiteHeader({
   avatarUrl?: string | null;
   notificationsOn: boolean;
   showAdmin: boolean;
+  /** 是否开放注册；关闭时不显示「注册」入口（登录入口不受影响） */
+  registrationOpen: boolean;
   /** LOGO 池当前项输出地址（/brand/logo）；null = 无池项（回退静态素材/占位） */
   logoUrl?: string | null;
   /** 主题包偏好（M11）：登录用户传入，顶栏菜单与用户菜单可即时切换；游客 null */
@@ -207,9 +210,11 @@ export function SiteHeader({
               >
                 登录
               </Link>
-              <Button asChild size="sm" className="hidden sm:inline-flex">
-                <Link href="/register">注册</Link>
-              </Button>
+              {registrationOpen && (
+                <Button asChild size="sm" className="hidden sm:inline-flex">
+                  <Link href="/register">注册</Link>
+                </Button>
+              )}
             </>
           )}
         </div>

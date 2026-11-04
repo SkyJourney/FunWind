@@ -6,6 +6,7 @@ import { SITE_NAME, SITE_TAGLINE, SITE_URL } from "@/lib/site";
 import { DEFAULT_PACK, isPackValue, type PackId } from "@/lib/theme-packs";
 import { isKnownPackId } from "@/lib/theme/catalog";
 import { getActiveCampaignConfigs } from "@/lib/campaigns/service";
+import { registerAvailability, resolveRegisterPolicy } from "@/lib/auth/register-policy";
 
 /**
  * 站点框架配置（M9，site_settings JSON，不建独立表）：导航/友链/页脚。
@@ -41,6 +42,12 @@ export interface SiteChrome {
   identity: SiteIdentity;
   /** 全站默认主题包（M11，site.theme）：用户未设偏好时生效；未配置/未知 id 回退 default */
   themePack: string;
+  /**
+   * 当前是否开放注册（M11.3：开放或邀请至少开一个）。顶栏据此决定是否显示「注册」入口，
+   * 避免注册关闭时仍引导访客点进一个只会说「不开放」的页面。走本缓存（30 秒）、不增加查询；
+   * 注册页与注册 Action 各自重新读策略，所以这里的短暂滞后只影响入口显隐，不影响拒绝与否。
+   */
+  registrationOpen: boolean;
 }
 
 export interface SiteIdentity {
@@ -60,6 +67,7 @@ const EMPTY: SiteChrome = {
   heroUrl: null,
   identity: { name: SITE_NAME, tagline: SITE_TAGLINE, url: SITE_URL },
   themePack: DEFAULT_PACK,
+  registrationOpen: true,
 };
 const TTL_MS = 30_000;
 
@@ -90,6 +98,10 @@ export async function getSiteChrome(): Promise<SiteChrome> {
       heroUrl: hero.file ? brandUrl("hero", hero) : null,
       identity: parseIdentity(byKey.get("site.identity")),
       themePack: await resolveSiteThemePack(byKey.get("site.theme"), campaign.get("theme.pack")),
+      registrationOpen:
+        registerAvailability(
+          resolveRegisterPolicy(byKey.get("register.policy"), byKey.get("register.mode")).policy,
+        ).kind !== "closed",
     };
     g.__fwSiteChrome = { value: chrome, at: Date.now() };
     return chrome;
