@@ -1,0 +1,121 @@
+{
+  "meta": {
+    "pack": "qy2010",
+    "mode": "light"
+  },
+  "variables": {
+    "--background": "#f6f3e7",
+    "--foreground": "#33332f",
+    "--card": "#fffdf4",
+    "--card-foreground": "#33332f",
+    "--popover": "#fffdf4",
+    "--popover-foreground": "#33332f",
+    "--primary": "#147ba9",
+    "--primary-foreground": "#ffffff",
+    "--secondary": "#f3edc8",
+    "--secondary-foreground": "#6d4a0f",
+    "--muted": "#efe9d6",
+    "--muted-foreground": "#8a8265",
+    "--accent": "#e7f1e4",
+    "--accent-foreground": "#33613f",
+    "--destructive": "#a3425b",
+    "--destructive-foreground": "#ffffff",
+    "--success": "#166534",
+    "--warning": "#8a5200",
+    "--info": "#3b82f6",
+    "--border": "#e0d9c0",
+    "--input": "#e0d9c0",
+    "--ring": "#147ba9",
+    "--radius": "4px",
+    "--shadow-1": "rgba(120, 100, 40, 0.1) 0px 1px 2px 0px",
+    "--shadow-2": "rgba(120, 100, 40, 0.14) 0px 4px 12px 0px",
+    "--shadow-3": "rgba(120, 100, 40, 0.2) 0px 12px 32px 0px",
+    "--gradient-brand": "linear-gradient(120deg, rgb(155, 203, 165) 0%, rgb(239, 233, 181) 100%)",
+    "--band-width": "136px",
+    "--band-angle": "90deg",
+    "--band-fade": "0%",
+    "--band-mask-color": "#fffdf4",
+    "--band-dim-opacity": "1",
+    "--band-mask-display": "none",
+    "--fw-font-display": "\"Songti SC\", STSong, SimSun, Georgia, serif"
+  },
+  "elements": {
+    "页面包装": {
+      "background-color": "#f6f3e7",
+      "background-image": "repeating-linear-gradient(0deg, rgba(148, 130, 60, 0.024) 0px, rgba(148, 130, 60, 0.024) 1px, rgba(0, 0, 0, 0) 1px, rgba(0, 0, 0, 0) 3px), none"
+    },
+    "页眉": {
+      "background-color": "#00000000",
+      "border-bottom-color": "#ddd5b4",
+      "backdrop-filter": "blur(0px)"
+    },
+    "站名展示字体": {
+      "font-family": "\"Songti SC\", STSong, SimSun, Georgia, serif",
+      "color": "#000000"
+    },
+    "页脚": {
+      "background-color": "#00000000",
+      "border-top-color": "#ddd5b4",
+      "color": "#33332f"
+    },
+    "板块卡": {
+      "border-top-left-radius": "8px",
+      "background-color": "#00000000"
+    },
+    "板块卡图区": {
+      "width": "136px"
+    },
+    "页眉·底色层": {
+      "background-color": "#f8f5e8",
+      "background-image": "none",
+      "opacity": "1"
+    },
+    "页眉·遮罩层": {
+      "background-color": "#00000000",
+      "background-image": "none",
+      "opacity": "1"
+    },
+    "页脚·底色层": {
+      "background-color": "#f8f5e8",
+      "background-image": "none",
+      "opacity": "1"
+    },
+    "板块卡·底色层": {
+      "background-color": "#fffdf4",
+      "background-image": "none",
+      "opacity": "1"
+    },
+    "板块卡·遮罩层": {
+      "background-color": "#fffdf4",
+      "background-image": "none",
+      "opacity": "0"
+    },
+    "板块卡图区·渐隐遮罩": {
+      "display": "none",
+      "background-image": "linear-gradient(90deg, rgba(0, 0, 0, 0) 100%, rgb(255, 253, 244) 100%)"
+    },
+    "品牌渐变占位": {
+      "background-image": "linear-gradient(120deg, rgb(155, 203, 165) 0%, rgb(239, 233, 181) 100%)"
+    },
+    "阴影·shadow-1": {
+      "box-shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(120, 100, 40, 0.1) 0px 1px 2px 0px"
+    },
+    "阴影·shadow-2": {
+      "box-shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(120, 100, 40, 0.14) 0px 4px 12px 0px"
+    },
+    "阴影·shadow-3": {
+      "box-shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(120, 100, 40, 0.2) 0px 12px 32px 0px"
+    },
+    "卡片": {
+      "background-color": "#fffdf4",
+      "border-top-left-radius": "8px",
+      "box-shadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0.1) 0px 1px 3px 0px, rgba(0, 0, 0, 0.1) 0px 1px 2px -1px",
+      "color": "#33332f"
+    },
+    "主按钮": {
+      "background-color": "#147ba9",
+      "color": "#ffffff",
+      "border-top-left-radius": "4px"
+    }
+  }
+}
