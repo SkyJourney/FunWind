@@ -13,6 +13,7 @@ import type { EventName, EventPayloads } from "@/modules/kernel/types";
 import { attemptLogin } from "@/lib/auth/login";
 import { isValidEmail } from "@/lib/auth/email";
 import { requestAccountEmail } from "@/lib/auth/forgot";
+import { requestVerificationResend } from "@/lib/auth/resend-verification";
 import { hashPassword } from "@/lib/auth/password";
 import { checkUsername } from "@/lib/auth/username";
 import { takeInviteAttempt } from "@/lib/auth/invite-limit";
@@ -76,7 +77,8 @@ async function redirectSessionCreationFailure(
     // 登录门（M11.3）。会话创建发生在密码校验通过之后，所以这条提示只会给「已证明知道密码」的人看到，
     // 密码错误的人永远只看到「用户名或密码错误」——不会借此探测账号是否存在或是否未验证（防枚举）。
     redirect(
-      "/login?error=" + encodeURIComponent("请先验证邮箱：点击注册邮件中的链接完成验证后即可登录"),
+      "/login?unverified=1&error=" +
+        encodeURIComponent("请先验证邮箱：点击注册邮件中的链接完成验证后即可登录"),
     );
   }
   redirect("/login?error=" + encodeURIComponent("账号状态已变化，请重新登录"));
@@ -312,6 +314,20 @@ export const forgotAction = defineAction({
     // 判定与限额见 lib/auth/forgot.ts；无论结果如何都跳到同一个中性视图，响应时间也与邮箱是否存在无关
     await requestAccountEmail(input.email, ctx.ip, { defer: (task) => after(task) });
     redirect("/forgot?sent=1");
+  },
+});
+
+/**
+ * 免登录重发验证邮件（M11.3）：登录门拦住的用户用它自救。判定、防枚举与限流见 lib/auth/resend-verification.ts；
+ * 无论邮箱存在与否、是否待验证、是否被限流，都跳到同一个中性视图，响应时间也与之无关。
+ */
+export const resendVerificationAction = defineAction({
+  name: "auth.resend-verification",
+  auth: "guest",
+  input: z.object({ email: text(320) }),
+  async run(ctx, input) {
+    await requestVerificationResend(input.email, ctx.ip, { defer: (task) => after(task) });
+    redirect("/login?resent=1");
   },
 });
 

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { withE2eDb } from "./support/db";
 import { failOnPageErrors } from "./support/page-errors";
-import { snapshotMailIds, waitForNewMail } from "./support/mailpit";
+import { expectNoNewMail, snapshotMailIds, waitForNewMail } from "./support/mailpit";
 
 /**
  * M11.3 注册策略：四种开关组合下注册页与注册 Action 的行为。
@@ -224,4 +224,77 @@ test("登录门全流程：未验证时正确密码也被拦；错误密码只�
 
   await login(PASSWORD);
   await expect(page.getByRole("button", { name })).toBeVisible();
+});
+
+test("自救路径：被登录门拦下 → 免登录重发 → 收到新邮件 → 验证 → 登录", async ({ page }) => {
+  await setPolicy({ open: true, invite: false, verifyEmail: true });
+  const name = unique("rescue");
+  const email = `${name}@test.local`;
+  await page.goto("/register");
+  await fillAccount(page, name);
+  await page.getByRole("button", { name: "注册" }).click();
+  await expect(page).toHaveURL(/\/login\?message=/);
+
+  // 假设注册邮件丢了：登录被拦，页面出现重发表单
+  await page.getByLabel("用户名或邮箱").fill(name);
+  await page.getByLabel("密码", { exact: true }).fill(PASSWORD);
+  await page.getByRole("button", { name: "登录" }).click();
+  await expect(page.getByText(/请先验证邮箱/)).toBeVisible();
+  const form = page.getByTestId("resend-verification");
+  await expect(form).toBeVisible();
+
+  // 注册时的那封验证邮件不经过重发限流，所以账号冷却此时还没开始，第一次重发一定放行
+  const known = await snapshotMailIds(email, "验证邮箱");
+  await form.getByLabel("注册邮箱").fill(email);
+  await form.getByRole("button", { name: "重新发送验证邮件" }).click();
+  await expect(page).toHaveURL(/\/login\?resent=1/);
+  await expect(page.getByText("若该邮箱有待验证的账号")).toBeVisible();
+  await expect(page.getByTestId("resend-verification")).toBeVisible(); // 重发后表单仍在
+
+  const mail = await waitForNewMail(email, "验证邮箱", known);
+  const full = (await (await fetch(`${MAIL_API}/message/${mail.ID}`)).json()) as { HTML: string };
+  const link = full.HTML.match(/href="(http[^"]*\/verify\/[^"]+)"/)?.[1];
+  expect(link).toBeTruthy();
+  await page.goto(new URL(link!).pathname);
+  await page.getByRole("button", { name: "确认验证邮箱" }).click();
+  await expect(page.getByText("邮箱验证完成，请登录")).toBeVisible();
+
+  await page.getByLabel("用户名或邮箱").fill(name);
+  await page.getByLabel("密码", { exact: true }).fill(PASSWORD);
+  await page.getByRole("button", { name: "登录" }).click();
+  await expect(page.getByRole("button", { name })).toBeVisible();
+});
+
+test("防枚举：不存在的邮箱与待验证的邮箱得到完全相同的提示和跳转，且不存在的邮箱收不到邮件", async ({
+  page,
+}) => {
+  await setPolicy({ open: true, invite: false, verifyEmail: true });
+  // 一个真实的待验证账号，用来和不存在的邮箱做对照
+  const real = unique("enum");
+  await page.goto("/register");
+  await fillAccount(page, real);
+  await page.getByRole("button", { name: "注册" }).click();
+  await expect(page).toHaveURL(/\/login\?message=/);
+
+  const ghost = `ghost_${Date.now() % 1_000_000}@test.local`;
+  const ghostKnown = await snapshotMailIds(ghost, "验证邮箱");
+
+  const resend = async (email: string) => {
+    await page.goto("/login?unverified=1");
+    const form = page.getByTestId("resend-verification");
+    await form.getByLabel("注册邮箱").fill(email);
+    await form.getByRole("button", { name: "重新发送验证邮件" }).click();
+    await expect(page).toHaveURL(/\/login\?resent=1/);
+    return {
+      url: new URL(page.url()).search,
+      text: await page.getByText("若该邮箱有待验证的账号").innerText(),
+    };
+  };
+  const forGhost = await resend(ghost);
+  const forReal = await resend(`${real}@test.local`);
+
+  // 对外不可区分：跳转的查询串与页面提示文本逐字相同，不说「已发送」也不说「不存在」
+  expect(forReal).toEqual(forGhost);
+  expect(forGhost.text).toBe("若该邮箱有待验证的账号，验证邮件已发出（请检查垃圾箱）。");
+  await expectNoNewMail(ghost, "验证邮箱", ghostKnown);
 });
