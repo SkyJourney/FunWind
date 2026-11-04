@@ -1,0 +1,639 @@
+{
+  "numTotalTestSuites": 19,
+  "numPassedTestSuites": 19,
+  "numFailedTestSuites": 0,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 52,
+  "numPassedTests": 52,
+  "numFailedTests": 0,
+  "numPendingTests": 0,
+  "numTodoTests": 0,
+  "snapshot": {
+    "added": 0,
+    "failure": false,
+    "filesAdded": 0,
+    "filesRemoved": 0,
+    "filesRemovedList": [],
+    "filesUnmatched": 0,
+    "filesUpdated": 0,
+    "matched": 0,
+    "total": 0,
+    "unchecked": 0,
+    "uncheckedKeysByFile": [],
+    "unmatched": 0,
+    "updated": 0,
+    "didUpdate": false
+  },
+  "startTime": 1793811260675,
+  "success": true,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": ["contrast-advisor", "relativeLuminance"],
+          "fullName": "contrast-advisor relativeLuminance 黑色亮度接近 0",
+          "status": "passed",
+          "title": "黑色亮度接近 0",
+          "duration": 1.1651669999999967,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["contrast-advisor", "relativeLuminance"],
+          "fullName": "contrast-advisor relativeLuminance 白色亮度接近 1",
+          "status": "passed",
+          "title": "白色亮度接近 1",
+          "duration": 0.14541700000006585,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["contrast-advisor", "relativeLuminance"],
+          "fullName": "contrast-advisor relativeLuminance 中灰 #767676 的亮度",
+          "status": "passed",
+          "title": "中灰 #767676 的亮度",
+          "duration": 0.12550000000010186,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["contrast-advisor", "contrastRatio"],
+          "fullName": "contrast-advisor contrastRatio 黑白对比 21:1",
+          "status": "passed",
+          "title": "黑白对比 21:1",
+          "duration": 0.12033299999995961,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["contrast-advisor", "contrastRatio"],
+          "fullName": "contrast-advisor contrastRatio #767676 与白色的对比约 4.54",
+          "status": "passed",
+          "title": "#767676 与白色的对比约 4.54",
+          "duration": 0.4466660000000502,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["contrast-advisor", "contrastRatio"],
+          "fullName": "contrast-advisor contrastRatio 相同颜色对比 1:1",
+          "status": "passed",
+          "title": "相同颜色对比 1:1",
+          "duration": 0.6819580000000087,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["contrast-advisor", "compositeOver"],
+          "fullName": "contrast-advisor compositeOver 黑色 10% alpha 叠加白色",
+          "status": "passed",
+          "title": "黑色 10% alpha 叠加白色",
+          "duration": 1.8292079999999942,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["contrast-advisor", "compositeOver"],
+          "fullName": "contrast-advisor compositeOver alpha = 1 完全覆盖",
+          "status": "passed",
+          "title": "alpha = 1 完全覆盖",
+          "duration": 0.3947090000000344,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["contrast-advisor", "compositeOver"],
+          "fullName": "contrast-advisor compositeOver alpha = 0 完全透明",
+          "status": "passed",
+          "title": "alpha = 0 完全透明",
+          "duration": 0.37266599999998107,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["contrast-advisor", "evaluateContrast"],
+          "fullName": "contrast-advisor evaluateContrast 返回 18 项检查",
+          "status": "passed",
+          "title": "返回 18 项检查",
+          "duration": 1.5329580000000078,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["contrast-advisor", "evaluateContrast"],
+          "fullName": "contrast-advisor evaluateContrast 每项含 id / label / fg / bg / ratio / pass",
+          "status": "passed",
+          "title": "每项含 id / label / fg / bg / ratio / pass",
+          "duration": 1.146082999999976,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["contrast-advisor", "evaluateContrast"],
+          "fullName": "contrast-advisor evaluateContrast default 主题大部分组合通过",
+          "status": "passed",
+          "title": "default 主题大部分组合通过",
+          "duration": 0.15304199999991397,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["contrast-advisor", "evaluateContrast"],
+          "fullName": "contrast-advisor evaluateContrast 阈值为 4.5",
+          "status": "passed",
+          "title": "阈值为 4.5",
+          "duration": 0.05004199999996217,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["contrast-advisor", "evaluateContrast"],
+          "fullName": "contrast-advisor evaluateContrast 包含淡底检查（tintAlpha = 0.1）",
+          "status": "passed",
+          "title": "包含淡底检查（tintAlpha = 0.1）",
+          "duration": 0.1294589999999971,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        }
+      ],
+      "startTime": 1793811261287,
+      "endTime": 1793811261296.1294,
+      "status": "passed",
+      "message": "",
+      "name": "/Volumes/Projects/FunWind/apps/web/src/lib/theme/contrast-advisor.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": ["remap-definition"],
+          "fullName": "remap-definition 重映射 fill image 素材",
+          "status": "passed",
+          "title": "重映射 fill image 素材",
+          "duration": 1.3004159999999274,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["remap-definition"],
+          "fullName": "remap-definition 重映射 overlay image 素材",
+          "status": "passed",
+          "title": "重映射 overlay image 素材",
+          "duration": 0.16512499999998909,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["remap-definition"],
+          "fullName": "remap-definition 重映射 contentSlot image",
+          "status": "passed",
+          "title": "重映射 contentSlot image",
+          "duration": 0.14304199999992306,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["remap-definition"],
+          "fullName": "remap-definition 保留 pwa 段",
+          "status": "passed",
+          "title": "保留 pwa 段",
+          "duration": 0.4057080000000042,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["remap-definition"],
+          "fullName": "remap-definition 保留 tokens 段",
+          "status": "passed",
+          "title": "保留 tokens 段",
+          "duration": 0.2839159999999765,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["remap-definition"],
+          "fullName": "remap-definition 未映射的素材保持原样",
+          "status": "passed",
+          "title": "未映射的素材保持原样",
+          "duration": 0.13037499999995816,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["remap-definition"],
+          "fullName": "remap-definition 非 image 类型的 fill 不受影响",
+          "status": "passed",
+          "title": "非 image 类型的 fill 不受影响",
+          "duration": 0.10595899999998437,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        }
+      ],
+      "startTime": 1793811261248,
+      "endTime": 1793811261251.1304,
+      "status": "passed",
+      "message": "",
+      "name": "/Volumes/Projects/FunWind/apps/web/src/lib/theme/remap-definition.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": ["token-render", "renderTokenVars 黄金输出"],
+          "fullName": "token-render renderTokenVars 黄金输出 空 TokenSet 返回空对象",
+          "status": "passed",
+          "title": "空 TokenSet 返回空对象",
+          "duration": 1.8542919999999867,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-render", "renderTokenVars 黄金输出"],
+          "fullName": "token-render renderTokenVars 黄金输出 仅颜色",
+          "status": "passed",
+          "title": "仅颜色",
+          "duration": 0.24758399999996072,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-render", "renderTokenVars 黄金输出"],
+          "fullName": "token-render renderTokenVars 黄金输出 完整 qy2010 令牌集",
+          "status": "passed",
+          "title": "完整 qy2010 令牌集",
+          "duration": 0.39875000000006366,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-render", "renderTokenVars 黄金输出"],
+          "fullName": "token-render renderTokenVars 黄金输出 radius: none 映射为 0px",
+          "status": "passed",
+          "title": "radius: none 映射为 0px",
+          "duration": 0.11416699999995217,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-render", "renderTokenVars 黄金输出"],
+          "fullName": "token-render renderTokenVars 黄金输出 displayFont 枚举正确映射",
+          "status": "passed",
+          "title": "displayFont 枚举正确映射",
+          "duration": 0.15437499999995907,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-render", "renderTokenVars 黄金输出"],
+          "fullName": "token-render renderTokenVars 黄金输出 band.mask = true 输出 block",
+          "status": "passed",
+          "title": "band.mask = true 输出 block",
+          "duration": 0.08854099999996379,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-render", "防御性：跳过无效值"],
+          "fullName": "token-render 防御性：跳过无效值 颜色非 #RRGGBB 格式被跳过",
+          "status": "passed",
+          "title": "颜色非 #RRGGBB 格式被跳过",
+          "duration": 0.09283299999992778,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-render", "防御性：跳过无效值"],
+          "fullName": "token-render 防御性：跳过无效值 未知 radius 值被跳过",
+          "status": "passed",
+          "title": "未知 radius 值被跳过",
+          "duration": 0.0731670000000122,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-render", "防御性：跳过无效值"],
+          "fullName": "token-render 防御性：跳过无效值 未知 displayFont 值被跳过",
+          "status": "passed",
+          "title": "未知 displayFont 值被跳过",
+          "duration": 0.10820799999999053,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-render", "变量名白名单"],
+          "fullName": "token-render 变量名白名单 只输出固定键集合",
+          "status": "passed",
+          "title": "只输出固定键集合",
+          "duration": 1.1639579999999796,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        }
+      ],
+      "startTime": 1793811261290,
+      "endTime": 1793811261294.164,
+      "status": "passed",
+      "message": "",
+      "name": "/Volumes/Projects/FunWind/apps/web/src/lib/theme/token-render.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": ["token-schema", "接受有效 TokenSet"],
+          "fullName": "token-schema 接受有效 TokenSet 空对象",
+          "status": "passed",
+          "title": "空对象",
+          "duration": 2.1867919999999685,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-schema", "接受有效 TokenSet"],
+          "fullName": "token-schema 接受有效 TokenSet 仅颜色（部分键）",
+          "status": "passed",
+          "title": "仅颜色（部分键）",
+          "duration": 1.3804169999999658,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-schema", "接受有效 TokenSet"],
+          "fullName": "token-schema 接受有效 TokenSet 完整 TokenSet",
+          "status": "passed",
+          "title": "完整 TokenSet",
+          "duration": 2.6797090000000026,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-schema", "拒绝无效 TokenSet"],
+          "fullName": "token-schema 拒绝无效 TokenSet colors 含未知键",
+          "status": "passed",
+          "title": "colors 含未知键",
+          "duration": 0.7999159999999392,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-schema", "拒绝无效 TokenSet"],
+          "fullName": "token-schema 拒绝无效 TokenSet colors 值非 #RRGGBB",
+          "status": "passed",
+          "title": "colors 值非 #RRGGBB",
+          "duration": 0.7197499999999764,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-schema", "拒绝无效 TokenSet"],
+          "fullName": "token-schema 拒绝无效 TokenSet radius 非枚举值",
+          "status": "passed",
+          "title": "radius 非枚举值",
+          "duration": 0.1534159999999929,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-schema", "拒绝无效 TokenSet"],
+          "fullName": "token-schema 拒绝无效 TokenSet shadows 含未知键",
+          "status": "passed",
+          "title": "shadows 含未知键",
+          "duration": 0.13587500000005548,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-schema", "拒绝无效 TokenSet"],
+          "fullName": "token-schema 拒绝无效 TokenSet shadow 字段超范围",
+          "status": "passed",
+          "title": "shadow 字段超范围",
+          "duration": 0.30604200000004766,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-schema", "拒绝无效 TokenSet"],
+          "fullName": "token-schema 拒绝无效 TokenSet displayFont 非枚举值",
+          "status": "passed",
+          "title": "displayFont 非枚举值",
+          "duration": 0.2091249999999718,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-schema", "拒绝无效 TokenSet"],
+          "fullName": "token-schema 拒绝无效 TokenSet brandGradient 角度超范围",
+          "status": "passed",
+          "title": "brandGradient 角度超范围",
+          "duration": 0.19595800000001873,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-schema", "拒绝无效 TokenSet"],
+          "fullName": "token-schema 拒绝无效 TokenSet band.width 超范围",
+          "status": "passed",
+          "title": "band.width 超范围",
+          "duration": 0.13354100000003655,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-schema", "拒绝无效 TokenSet"],
+          "fullName": "token-schema 拒绝无效 TokenSet band.width 超过两位小数",
+          "status": "passed",
+          "title": "band.width 超过两位小数",
+          "duration": 0.7193750000000136,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-schema", "拒绝无效 TokenSet"],
+          "fullName": "token-schema 拒绝无效 TokenSet band 缺少必填字段",
+          "status": "passed",
+          "title": "band 缺少必填字段",
+          "duration": 0.8616660000000138,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-schema", "拒绝无效 TokenSet"],
+          "fullName": "token-schema 拒绝无效 TokenSet 顶层含未知键",
+          "status": "passed",
+          "title": "顶层含未知键",
+          "duration": 0.7882090000000517,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-schema", "tokensSchema（浅 / 深两档）"],
+          "fullName": "token-schema tokensSchema（浅 / 深两档） 空对象",
+          "status": "passed",
+          "title": "空对象",
+          "duration": 1.2308329999999614,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-schema", "tokensSchema（浅 / 深两档）"],
+          "fullName": "token-schema tokensSchema（浅 / 深两档） 仅浅色",
+          "status": "passed",
+          "title": "仅浅色",
+          "duration": 0.7547919999999522,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-schema", "tokensSchema（浅 / 深两档）"],
+          "fullName": "token-schema tokensSchema（浅 / 深两档） 浅 + 深",
+          "status": "passed",
+          "title": "浅 + 深",
+          "duration": 0.4097500000000309,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-schema", "tokensSchema（浅 / 深两档）"],
+          "fullName": "token-schema tokensSchema（浅 / 深两档） 拒绝未知顶层键",
+          "status": "passed",
+          "title": "拒绝未知顶层键",
+          "duration": 0.29216699999994944,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-schema", "常量完整性"],
+          "fullName": "token-schema 常量完整性 COLOR_KEYS 有 22 个",
+          "status": "passed",
+          "title": "COLOR_KEYS 有 22 个",
+          "duration": 0.6732090000000426,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-schema", "常量完整性"],
+          "fullName": "token-schema 常量完整性 RADIUS_STEPS 包含 none/sm/md/lg/xl",
+          "status": "passed",
+          "title": "RADIUS_STEPS 包含 none/sm/md/lg/xl",
+          "duration": 0.11074999999993906,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        },
+        {
+          "ancestorTitles": ["token-schema", "常量完整性"],
+          "fullName": "token-schema 常量完整性 DISPLAY_FONTS 包含 system/songti/serif",
+          "status": "passed",
+          "title": "DISPLAY_FONTS 包含 system/songti/serif",
+          "duration": 0.04912500000000364,
+          "failureMessages": [],
+          "meta": {},
+          "tags": [],
+          "benchmarks": []
+        }
+      ],
+      "startTime": 1793811261292,
+      "endTime": 1793811261308.1108,
+      "status": "passed",
+      "message": "",
+      "name": "/Volumes/Projects/FunWind/apps/web/src/lib/theme/token-schema.test.ts"
+    }
+  ]
+}
