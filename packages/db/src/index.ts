@@ -10,3 +10,4 @@ export * from "./seed-data.js";
 export * from "./seed-guard.js";
 export * from "./sql-result.js";
 export * from "./theme-pack-seeds.js";
+export * from "./theme-pack-upgrade.js";
