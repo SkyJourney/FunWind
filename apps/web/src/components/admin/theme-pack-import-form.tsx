@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { FileInput } from "@/components/ui/file-input";
 
 /** 同源上传主题 ZIP；正常启用脚本时用 fetch 避免整页跨域式表单导航。 */
 export function ThemePackImportForm() {
@@ -45,15 +46,10 @@ export function ThemePackImportForm() {
           className="w-52 rounded-lg border bg-background px-3 py-2 text-sm"
         />
       </label>
-      <label className="grid gap-1 text-sm">
+      {/* 文件框用项目的 FileInput：限制在父容器内，选择后完整文件名另行展示；裸的 type=file 在窄屏会按自身 321px 撑出整页 */}
+      <label className="grid max-w-full min-w-0 flex-[1_1_18rem] gap-1 text-sm">
         主题包 ZIP 文件
-        <input
-          name="archive"
-          type="file"
-          required
-          accept=".zip,application/zip"
-          className="max-w-full rounded-lg border bg-background px-3 py-2 text-sm"
-        />
+        <FileInput name="archive" required accept=".zip,application/zip" />
       </label>
       <button
         type="submit"
