@@ -652,3 +652,44 @@ describe("ThemePackEditor：全站语义令牌接线", () => {
     expect(definition()).toEqual(withTokens);
   });
 });
+
+describe("ThemePackEditor：令牌预览与对比度检查（3d）", () => {
+  const openTokens = () => {
+    (screen.getByTestId("theme-token-editor") as HTMLDetailsElement).open = true;
+  };
+  const tokenPreview = () => screen.getByTestId("token-preview");
+  const panel = () => screen.getByTestId("contrast-panel");
+
+  it("令牌预览跟着草稿走，与区域预览用同一份令牌", () => {
+    mount();
+    openTokens();
+    fireEvent.click(screen.getByRole("button", { name: "主色：覆盖" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "主色（全站）" }), {
+      target: { value: "#13579B" },
+    });
+    expect(tokenPreview().style.getPropertyValue("--primary")).toBe("#13579b");
+    expect(preview().style.getPropertyValue("--primary")).toBe("#13579b");
+  });
+
+  it("深色档没启用深色令牌：令牌预览与对比度检查不显示，区域预览照常", () => {
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: "深色档" }));
+    openTokens();
+    expect(screen.queryByTestId("token-preview")).toBeNull();
+    expect(screen.queryByTestId("contrast-panel")).toBeNull();
+    expect(preview()).toHaveAttribute("data-mode", "dark");
+  });
+
+  it("对比度检查按当前档计算：浅色档正文近白有缺口，深色档全部达标", () => {
+    mount({
+      initialDefinition: {
+        ...initialDefinition,
+        tokens: { light: { colors: { foreground: "#f8fafc" } }, dark: {} },
+      },
+    });
+    openTokens();
+    expect(within(panel()).getByText(/^3 项未达标，共 18 项/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "深色档" }));
+    expect(within(panel()).getByText("18 项全部达标（≥ 4.5:1）")).toBeInTheDocument();
+  });
+});

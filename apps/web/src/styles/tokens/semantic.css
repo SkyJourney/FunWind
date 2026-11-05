@@ -57,8 +57,14 @@
 
   /* 页面背景（body 与 [data-fw-page] 包装）：默认纯色；主题包可给纹理/图案多层背景 */
   --page-bg: var(--background);
+}
 
-  /* 品牌渐变（消费方：无图板块水印，forum-directory.tsx） */
+/* 品牌渐变（消费方：无图板块水印，forum-directory.tsx）。
+   单独成块，选择器同时覆盖后台的令牌预览容器（M11.6 Step 3d）：var() 在声明它的元素上取值，
+   只写在 :root 的话，预览里改了 --primary，这条渐变不会跟着变。公式只写这一处；
+   src/test/token-contrast.test.ts 守住「只有一处声明、选择器恰好是这两个」。 */
+:root,
+[data-token-preview] {
   --gradient-brand: linear-gradient(
     to bottom right,
     color-mix(in srgb, var(--primary) 15%, transparent),

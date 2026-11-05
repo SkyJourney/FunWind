@@ -10,6 +10,7 @@ import {
   BASE_SHADOWS,
   SHADOW_SLOTS,
 } from "@/lib/theme/token-base";
+import { TOKEN_PREVIEW_ATTR } from "@/lib/theme/token-preview";
 import { renderTokenVars } from "@/lib/theme/token-render";
 import { COLOR_KEYS, type ColorKey, type Shadow } from "@/lib/theme/token-schema";
 
@@ -297,5 +298,38 @@ describe("基础层非颜色事实与令牌 CSS 一致", () => {
     expect(bandLayer["--band-mask-color"]).toBe("var(--card)");
     expect(renderTokenVars({ band: BASE_BAND })).not.toHaveProperty("--band-mask-color");
     expect(Object.hasOwn(BASE_BAND, "maskColor")).toBe(false);
+  });
+});
+
+/**
+ * 品牌渐变的声明位置（M11.6 Step 3d）：var() 在声明它的元素上取值，后台令牌预览容器要让渐变跟着草稿的
+ * --primary / --accent / --secondary 变，所以 semantic.css 里它单独成块，选择器同时覆盖 :root 与预览容器。
+ * 守住三件事：只有一处声明；选择器恰好是这两个；公式仍然引用那三个颜色变量。
+ */
+describe("品牌渐变的声明位置", () => {
+  const css = read("semantic.css").replace(/\/\*[\s\S]*?\*\//g, "");
+  const at = css.indexOf("--gradient-brand");
+  const open = css.lastIndexOf("{", at);
+  const close = css.lastIndexOf("}", open);
+
+  it("semantic.css 里只声明一次", () => {
+    expect(css.match(/--gradient-brand\s*:/g)).toHaveLength(1);
+  });
+
+  it("第一个 :root 块里没有它（令牌守卫解析的就是那个块）", () => {
+    expect(semantic["--gradient-brand"]).toBeUndefined();
+  });
+
+  it("所在块的选择器恰好是 :root 加令牌预览属性", () => {
+    const selector = css
+      .slice(close + 1, open)
+      .replace(/\s+/g, " ")
+      .trim();
+    expect(selector).toBe(`:root, [${TOKEN_PREVIEW_ATTR}]`);
+  });
+
+  it("公式引用 primary、accent、secondary 三个变量（预览里才会跟着草稿变）", () => {
+    const body = css.slice(open + 1, css.indexOf("}", open));
+    for (const key of ["primary", "accent", "secondary"]) expect(body).toContain(`var(--${key})`);
   });
 });

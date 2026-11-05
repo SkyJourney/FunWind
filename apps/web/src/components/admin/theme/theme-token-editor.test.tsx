@@ -699,6 +699,118 @@ describe("ThemeTokenEditor：展示细节", () => {
   });
 });
 
+describe("ThemeTokenEditor：预览与对比度检查（3d）", () => {
+  const previewBox = () => screen.getByTestId("token-preview");
+  const panel = () => screen.getByTestId("contrast-panel");
+  const before = (a: Node, b: Node) =>
+    Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+
+  it("浅色档：预览与对比度检查都在，预览标明浅色档，默认主题有一项缺口", () => {
+    render(<Harness />);
+    openPanel();
+    expect(previewBox()).toHaveAttribute("data-preview-mode", "light");
+    expect(within(panel()).getByText(/^1 项未达标，共 18 项/)).toBeInTheDocument();
+  });
+
+  it("深色未启用：两块都不显示；启用后出现，并按深色档计算", async () => {
+    render(<Harness initial={{ light: { radius: "md" } }} />);
+    await click("切换档");
+    openPanel();
+    expect(screen.queryByTestId("token-preview")).toBeNull();
+    expect(screen.queryByTestId("contrast-panel")).toBeNull();
+    await click("启用深色令牌");
+    expect(previewBox()).toHaveAttribute("data-preview-mode", "dark");
+    expect(previewBox().style.getPropertyValue("--primary")).toBe(BASE_COLORS.dark.primary);
+    expect(within(panel()).getByText("18 项全部达标（≥ 4.5:1）")).toBeInTheDocument();
+  });
+
+  it("切换浅 / 深档，预览跟着换档", async () => {
+    render(<Harness initial={{ dark: {} }} />);
+    openPanel();
+    expect(previewBox()).toHaveAttribute("data-preview-mode", "light");
+    await click("切换档");
+    expect(previewBox()).toHaveAttribute("data-preview-mode", "dark");
+  });
+
+  it("预览跟着草稿走：覆盖并改主色立即生效，恢复继承后回到基础层", async () => {
+    render(<Harness />);
+    openPanel();
+    const primary = () => previewBox().style.getPropertyValue("--primary");
+    expect(primary()).toBe(BASE_COLORS.light.primary);
+    await click("主色：覆盖");
+    fireEvent.change(field("主色（全站）"), { target: { value: "#13579B" } });
+    expect(primary()).toBe("#13579b");
+    await click("主色：恢复继承");
+    expect(primary()).toBe(BASE_COLORS.light.primary);
+  });
+
+  it("对比度检查随草稿重算：正文覆盖成近白变 3 项未达标，改回去恢复 1 项", async () => {
+    render(<Harness />);
+    openPanel();
+    await click("正文：覆盖");
+    fireEvent.change(field("正文（全站）"), { target: { value: "#f8fafc" } });
+    expect(within(panel()).getByText(/^3 项未达标，共 18 项/)).toBeInTheDocument();
+    fireEvent.change(field("正文（全站）"), { target: { value: "#0f172a" } });
+    expect(within(panel()).getByText(/^1 项未达标，共 18 项/)).toBeInTheDocument();
+  });
+
+  it("点「定位」：继承的颜色行聚焦「覆盖」按钮，已覆盖的聚焦文本框；滚动的就是那一行", async () => {
+    render(<Harness />);
+    openPanel();
+    const scroll = vi.spyOn(Element.prototype, "scrollIntoView");
+    await click("主色文字 / 主色淡底（页面）：定位主色");
+    expect(screen.getByRole("button", { name: "主色：覆盖" })).toHaveFocus();
+    expect(scroll.mock.contexts.at(-1)).toBe(document.querySelector('[data-token-key="primary"]'));
+    await click("主色：覆盖");
+    await click("主色文字 / 主色淡底（页面）：定位主色");
+    expect(field("主色（全站）")).toHaveFocus();
+    await click("主色文字 / 主色淡底（页面）：定位页面底");
+    expect(screen.getByRole("button", { name: "页面底：覆盖" })).toHaveFocus();
+  });
+
+  it("吸顶预览挡住行时点「定位」会多滚一段（吸顶区与内容区的引用都接对了）", async () => {
+    render(<Harness />);
+    openPanel();
+    const wrapper = previewBox().parentElement!.parentElement!;
+    const row = document.querySelector<HTMLElement>('[data-token-key="primary"]')!;
+    const real = globalThis.getComputedStyle;
+    vi.stubGlobal("getComputedStyle", (element: Element) =>
+      element === wrapper ? ({ position: "sticky" } as CSSStyleDeclaration) : real(element),
+    );
+    wrapper.getBoundingClientRect = () => ({ bottom: 300 }) as DOMRect;
+    row.getBoundingClientRect = () => ({ top: 100 }) as DOMRect;
+    const by = vi.spyOn(window, "scrollBy").mockImplementation(() => {});
+    try {
+      await click("主色文字 / 主色淡底（页面）：定位主色");
+      expect(by).toHaveBeenCalledWith({ top: -208, behavior: "instant" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("只有 22 个颜色行带 data-token-key，键恰好是全部语义色（效果行没有）", () => {
+    render(<Harness />);
+    openPanel();
+    const keys = Array.from(document.querySelectorAll("[data-token-key]")).map((element) =>
+      element.getAttribute("data-token-key"),
+    );
+    expect([...keys].sort()).toEqual([...COLOR_KEYS].sort());
+  });
+
+  it("预览的包裹层只在 lg 以上吸顶、贴着页头下沿；顺序是预览、对比度检查、第一个颜色分组", () => {
+    render(<Harness />);
+    openPanel();
+    const wrapper = previewBox().parentElement!.parentElement!;
+    expect(wrapper.className).toContain("lg:sticky");
+    expect(wrapper.className).toContain("lg:top-14");
+    expect(wrapper.className).toContain("lg:z-10");
+    expect(wrapper.className).toContain("bg-card");
+    expect(wrapper.className).not.toMatch(/(^|\s)sticky(\s|$)/);
+    expect(before(wrapper, panel())).toBe(true);
+    expect(before(panel(), screen.getByRole("group", { name: "颜色 · 基础" }))).toBe(true);
+  });
+});
+
 describe("ThemeTokenEditor：可访问名称", () => {
   it("全部覆盖展开后，所有按钮、输入框、下拉框、复选框的名称互不相同", () => {
     const colors = Object.fromEntries(COLOR_KEYS.map((key) => [key, BASE_COLORS.light[key]]));

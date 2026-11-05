@@ -18,6 +18,7 @@ export function Swatch({ color }: { color: string }) {
  */
 export function OverrideRow({
   label,
+  tokenKey,
   overridden,
   inherited,
   onOverride,
@@ -25,6 +26,8 @@ export function OverrideRow({
   children,
 }: {
   label: string;
+  /** 令牌键，写成 data-token-key：对比度面板的「定位」按钮靠它找到这一行 */
+  tokenKey?: string;
   overridden: boolean;
   /** 继承时显示的内容（继承来源、基础值） */
   inherited: ReactNode;
@@ -34,7 +37,12 @@ export function OverrideRow({
   children: ReactNode;
 }) {
   return (
-    <div className="flex min-w-0 flex-wrap items-start gap-x-3 gap-y-1.5 text-xs">
+    // 行里任何控件有焦点时给整行淡底：「定位」跳过来后，继承的行只聚焦一个小按钮，要让人看出落在了哪一行。
+    // -mx-1 + px-1 互相抵消，内容宽度不变，淡底向两侧各多出 4px（仍在面板的内边距里）
+    <div
+      data-token-key={tokenKey}
+      className="-mx-1 flex min-w-0 flex-wrap items-start gap-x-3 gap-y-1.5 rounded-md px-1 text-xs has-[:focus]:bg-accent/60"
+    >
       <span className="w-full pt-1 text-muted-foreground sm:w-32 sm:shrink-0 sm:pt-2">{label}</span>
       <div className="flex min-w-0 flex-1 basis-40 flex-wrap items-start gap-x-3 gap-y-2">
         {overridden ? (

@@ -791,6 +791,12 @@ for (const width of LAYOUT_WIDTHS) {
         const tokenRegion = [
           { name: "token-editor", selector: '[data-testid="theme-token-editor"]' },
         ];
+        // 深色未启用时预览与对比度检查不渲染，那一步只要求面板本身
+        const tokenParts = [
+          '[data-testid="theme-token-editor"]',
+          '[data-testid="token-preview"]',
+          '[data-testid="contrast-panel"]',
+        ];
         await audit.step("admin-themes-default-token-editor", async () => {
           // 全站语义令牌：展开并逐类覆盖，颜色、数字、下拉、复选框在窄容器里都要能换行，不撑出横向滚动
           await tokenPanel.locator("summary").click();
@@ -809,7 +815,7 @@ for (const width of LAYOUT_WIDTHS) {
           await audit.capture("admin-themes-default-token-editor", {
             roots: ADMIN_ROOT,
             buttons: ADMIN_BUTTONS,
-            required: ['[data-testid="theme-token-editor"]'],
+            required: tokenParts,
             regions: tokenRegion,
           });
         });
@@ -831,9 +837,37 @@ for (const width of LAYOUT_WIDTHS) {
           await audit.capture("admin-themes-default-token-editor-invalid", {
             roots: ADMIN_ROOT,
             buttons: ADMIN_BUTTONS,
-            required: ['[data-testid="theme-token-editor"]'],
+            required: tokenParts,
             regions: tokenRegion,
           });
+        });
+        await audit.step("admin-themes-default-token-contrast", async () => {
+          // 对比度检查：正文覆盖成近白，出现本包造成的未达标行；展开全部 18 行，37 个按钮在窄容器里都要单行、不互相覆盖
+          const panel = page.getByTestId("contrast-panel");
+          await page.getByRole("button", { name: "正文：覆盖", exact: true }).click();
+          await page.getByRole("textbox", { name: "正文（全站）", exact: true }).fill("#f8fafc");
+          await expect(panel.getByText(/^3 项未达标，共 18 项/)).toBeVisible();
+          await panel.getByRole("button", { name: "显示全部", exact: true }).click();
+          await expect(panel.getByTestId("contrast-row")).toHaveCount(18);
+          await audit.capture("admin-themes-default-token-contrast", {
+            roots: ADMIN_ROOT,
+            buttons: ADMIN_BUTTONS,
+            required: ['[data-testid="contrast-panel"]'],
+            regions: [{ name: "contrast-panel", selector: '[data-testid="contrast-panel"]' }],
+          });
+          // 「定位」：聚焦到对应的颜色行；预览吸顶时（按计算样式判断，不按设备），行不能被预览盖住
+          await panel
+            .getByRole("button", { name: "正文文字 / 页面底：定位正文", exact: true })
+            .click();
+          await expect(
+            page.getByRole("textbox", { name: "正文（全站）", exact: true }),
+          ).toBeFocused();
+          const sticky = page.getByTestId("token-preview").locator("xpath=../..");
+          if ((await sticky.evaluate((el) => getComputedStyle(el).position)) === "sticky") {
+            const row = (await page.locator('[data-token-key="foreground"]').boundingBox())!;
+            const box = (await sticky.boundingBox())!;
+            expect(row.y).toBeGreaterThanOrEqual(box.y + box.height);
+          }
         });
         await audit.step("admin-themes-default-token-editor-dark", async () => {
           // 深色档：未启用时只有说明与启用按钮；启用后是全部继承的空集，可再逐项覆盖
@@ -841,6 +875,8 @@ for (const width of LAYOUT_WIDTHS) {
           await mode.getByRole("button", { name: "深色档", exact: true }).click();
           await expect(tokenPanel.getByText("深色未启用")).toBeVisible();
           await expect(tokenPanel.getByText(/本主题包没有深色令牌/)).toBeVisible();
+          await expect(page.getByTestId("token-preview")).toHaveCount(0);
+          await expect(page.getByTestId("contrast-panel")).toHaveCount(0);
           await audit.capture("admin-themes-default-token-editor-dark-off", {
             roots: ADMIN_ROOT,
             buttons: ADMIN_BUTTONS,
@@ -854,7 +890,7 @@ for (const width of LAYOUT_WIDTHS) {
           await audit.capture("admin-themes-default-token-editor-dark-on", {
             roots: ADMIN_ROOT,
             buttons: ADMIN_BUTTONS,
-            required: ['[data-testid="theme-token-editor"]'],
+            required: tokenParts,
             regions: tokenRegion,
           });
           // 仅修改浏览器内的草稿，不点保存，不改变 default 包。

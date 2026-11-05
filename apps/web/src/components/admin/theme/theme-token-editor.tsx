@@ -1,4 +1,10 @@
+"use client";
+
+import { useRef } from "react";
 import { ColorField } from "@/components/admin/theme/color-field";
+import { ContrastPanel } from "@/components/admin/theme/contrast-panel";
+import { contrastRows } from "@/components/admin/theme/contrast-rows";
+import { jumpToTokenRow } from "@/components/admin/theme/jump-to-row";
 import { OverrideRow, Swatch } from "@/components/admin/theme/override-row";
 import {
   COLOR_GROUPS,
@@ -10,8 +16,10 @@ import {
   updateTokens,
 } from "@/components/admin/theme/token-draft";
 import { TokenEffectsEditor, type EditTokens } from "@/components/admin/theme/token-effects-editor";
+import { TokenPreview } from "@/components/admin/theme/token-preview";
 import type { ThemePackDefinition } from "@/lib/theme/surface-schema";
 import { BASE_COLORS, type ColorMode } from "@/lib/theme/token-base";
+import type { ColorKey } from "@/lib/theme/token-schema";
 
 type Tokens = ThemePackDefinition["tokens"];
 
@@ -25,6 +33,9 @@ type Tokens = ThemePackDefinition["tokens"];
  *
  * `onChange` 接收函数形式的更新（与 React 的 setState 一致），由调用方基于最新状态计算。
  * 内层容器以 mode 为 key：切换浅 / 深时所有输入框重建，上一档没写完的文本不会留到另一档。
+ *
+ * Step 3d：面板顶部是令牌预览（大屏吸顶，渲染当前草稿）和对比度检查（只提示，不阻止保存）。
+ * 对比度行的「定位」按钮通过 `data-token-key` 找到颜色行，滚过去并聚焦。深色未启用时两者都不显示。
  */
 export function ThemeTokenEditor({
   mode,
@@ -39,6 +50,9 @@ export function ThemeTokenEditor({
   const darkOff = mode === "dark" && stored === undefined;
   const set = stored ?? {};
   const edit: EditTokens = (update) => onChange((previous) => updateTokens(previous, mode, update));
+  const contentRef = useRef<HTMLDivElement>(null);
+  const stickyRef = useRef<HTMLDivElement>(null);
+  const jump = (key: ColorKey) => jumpToTokenRow(contentRef.current, key, stickyRef.current);
 
   const turnOffDark = () => {
     const count = countOverrides(stored);
@@ -62,7 +76,7 @@ export function ThemeTokenEditor({
           {darkOff ? "深色未启用" : `已覆盖 ${countOverrides(stored)} 项`}
         </span>
       </summary>
-      <div key={mode} className="max-w-full min-w-0 space-y-4 border-t p-3 sm:p-4">
+      <div key={mode} ref={contentRef} className="max-w-full min-w-0 space-y-4 border-t p-3 sm:p-4">
         <p className="text-xs [overflow-wrap:anywhere] text-muted-foreground">
           这里的设置作用于整个站点（所有区域）。没有覆盖的项继承默认主题；点「覆盖」后从继承值开始修改，点「恢复继承」即删除覆盖。
         </p>
@@ -84,6 +98,15 @@ export function ThemeTokenEditor({
         )}
         {!darkOff && (
           <>
+            {/* 吸顶只在 lg 以上：小屏上预览占去大半个屏幕，改下面的项就看不到了。top-14 = 页头 56px；
+                底色不透明，滚过去的行不会从预览后面透出来 */}
+            <div
+              ref={stickyRef}
+              className="-mx-3 bg-card px-3 pb-2 sm:-mx-4 sm:px-4 lg:sticky lg:top-14 lg:z-10 lg:border-b"
+            >
+              <TokenPreview mode={mode} set={stored} />
+            </div>
+            <ContrastPanel rows={contrastRows(mode, stored)} onJump={jump} />
             {COLOR_GROUPS.map((group) => (
               <fieldset key={group.id} className="max-w-full min-w-0 space-y-2">
                 <legend className="text-xs font-medium text-muted-foreground">
@@ -96,6 +119,7 @@ export function ThemeTokenEditor({
                     <OverrideRow
                       key={key}
                       label={label}
+                      tokenKey={key}
                       overridden={override !== undefined}
                       inherited={
                         <>
