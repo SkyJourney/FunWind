@@ -49,7 +49,8 @@ export type ThemePackErrorCode =
   | "invalid-definition"
   | "enabled-limit"
   | "capacity-unavailable"
-  | "duplicate-id";
+  | "duplicate-id"
+  | "builtin-not-duplicable";
 
 export interface ThemePackResult<T = ThemePackSummary> {
   ok: boolean;
@@ -465,7 +466,7 @@ export async function deleteThemePack(
   });
 }
 
-/** 复制：以现有包为模板新建一个自定义包（新 id） */
+/** 复制：以现有包为模板新建一个自定义包（新 id）；内置包（default/qy2010）不可复制 */
 export async function copyThemePack(
   sourceId: string,
   newId: string,
@@ -475,6 +476,12 @@ export async function copyThemePack(
   if (idError) return { ok: false, code: idError };
   const source = await getThemePack(sourceId);
   if (!source) return { ok: false, code: "not-found" };
+
+  // 守卫：内置包不可复制
+  if (source.isBuiltin) {
+    return { ok: false, code: "builtin-not-duplicable" };
+  }
+
   return createThemePack({
     id: newId,
     name: `${source.name} 副本`.slice(0, 60),

@@ -4,7 +4,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { getWebDb } from "@funwind/db";
-import { backfillMissingSections, swapIfUnchanged } from "./upgrade-builtins";
+import { backfillMissingSections, resetToBuiltin, swapIfUnchanged } from "./upgrade-builtins";
 import { parseThemePackDefinition } from "./surface-schema";
 
 describe("upgrade-builtins 集成测试（真实 MySQL）", () => {
@@ -113,6 +113,28 @@ describe("upgrade-builtins 集成测试（真实 MySQL）", () => {
       const def = parseThemePackDefinition(row.definition);
       if (def?.ok) {
         expect(def.value.tokens?.light?.colors?.primary).toBe("#116a92");
+      }
+    });
+  });
+
+  describe("resetToBuiltin", () => {
+    it("重置为内置定义并递增 revision", async () => {
+      const builtinDef = {
+        surfaces: { page: { light: {} } },
+        tokens: { light: { colors: { primary: "#000000" } } },
+      };
+      const affected = await resetToBuiltin(testId, builtinDef);
+      expect(affected).toBe(1);
+
+      const rows = (
+        await db.execute(sql`SELECT definition, revision FROM theme_packages WHERE id = ${testId}`)
+      )[0] as unknown as Array<{ definition: unknown; revision: number }>;
+      const row = rows[0];
+      expect(row.revision).toBe(5);
+      const def = parseThemePackDefinition(row.definition);
+      if (def?.ok) {
+        expect(def.value.surfaces).toEqual(builtinDef.surfaces);
+        expect(def.value.tokens?.light?.colors?.primary).toBe("#000000");
       }
     });
   });

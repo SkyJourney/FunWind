@@ -3,17 +3,17 @@ import { sql } from "drizzle-orm";
 import { getWebDb } from "@funwind/db";
 
 /**
- * 内置包升级原语（M11.6 Step 2）：backfillMissingSections / swapIfUnchanged。
+ * 内置包升级原语（M11.6 Step 2）：backfillMissingSections / swapIfUnchanged / resetToBuiltin。
  *
  * 种子表用 INSERT IGNORE 语义「按主键补缺」，已存在的行不会得到新字段，导致内置包（如 qy2010）
- * 丢失后续升级追加的顶层段（如 tokens）。这两个原语用幂等 SQL 补齐缺失段或有条件替换值。
+ * 丢失后续升级追加的顶层段（如 tokens）。这些原语用幂等 SQL 补齐缺失段或有条件替换值。
  *
  * 背景：站长可通过后台编辑器修改内置包，我们不能无条件覆盖——只有「仍等于出厂值的字段」
  * 才自动升级，已改动的保持不动（尊重站长决策）。revision 随升级递增，触发已打开编辑页的冲突提示。
  */
 
 /**
- * 补齐顶层段（如 tokens、pwa）：只有缺失时才补，永不覆盖已有段。
+ * 补齐顶层段（如 tokens、pwa）：只在缺失时才补，永不覆盖已有段。
  * 同一条 UPDATE 里 revision + 1（触发编辑器冲突检测）。
  *
  * 用途：bootstrapDb 里调用，让内置包在重置库 / 安装向导 / db:bootstrap 时都得到新段。
@@ -74,6 +74,27 @@ export async function swapIfUnchanged(
   const [result] = await db.execute(
     sql.raw(
       `UPDATE theme_packages SET definition = JSON_REPLACE(definition, '${jsonPath}', CAST('${JSON.stringify(newValue).replace(/'/g, "''")}' AS JSON)), revision = revision + 1 WHERE id = '${id}' AND JSON_EXTRACT(definition, '${jsonPath}') = CAST('${JSON.stringify(oldValue).replace(/'/g, "''")}' AS JSON)`,
+    ),
+  );
+
+  return result?.affectedRows ?? 0;
+}
+
+/**
+ * 重置为内置定义：覆盖当前定义为种子定义，revision + 1。
+ *
+ * 用途：后台管理页面的「重置为内置定义」按钮——站长想采纳升级时用。
+ *
+ * @param id 包 id（如 "qy2010"）
+ * @param builtinDefinition 内置种子定义
+ * @returns 受影响行数（0 = 该包不存在）
+ */
+export async function resetToBuiltin(id: string, builtinDefinition: unknown): Promise<number> {
+  const db = getWebDb();
+
+  const [result] = await db.execute(
+    sql.raw(
+      `UPDATE theme_packages SET definition = CAST('${JSON.stringify(builtinDefinition).replace(/'/g, "''")}' AS JSON), revision = revision + 1 WHERE id = '${id}'`,
     ),
   );
 
