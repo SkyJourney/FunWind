@@ -78,3 +78,67 @@ describe("主题保存成功回执", () => {
     expect(dependencies.redirect).not.toHaveBeenCalled();
   });
 });
+
+describe("校验被拒时把具体问题带回编辑页（Step 3e）", () => {
+  const redirected = () => dependencies.redirect.mock.calls.map((call) => String(call[0]));
+  const issuesIn = (url: string) => new URL(url, "http://x").searchParams.getAll("issue");
+
+  it("invalid-definition：错误码后面跟着每条问题，顺序不变，逐条编码", async () => {
+    dependencies.update.mockResolvedValue({
+      ok: false,
+      code: "invalid-definition",
+      errors: ["surfaces.header.light.blur: Too big", "pwa.themeColor: 非法颜色（须 #RRGGBB）"],
+    });
+    await expect(saveThemePackAction(data(ID))).rejects.toThrow();
+    expect(redirected()).toEqual([
+      "/admin/themes/test?err=invalid-definition" +
+        `&issue=${encodeURIComponent("surfaces.header.light.blur: Too big")}` +
+        `&issue=${encodeURIComponent("pwa.themeColor: 非法颜色（须 #RRGGBB）")}`,
+    ]);
+  });
+
+  it("最多带 6 条；每条最长 120 字符", async () => {
+    dependencies.update.mockResolvedValue({
+      ok: false,
+      code: "invalid-definition",
+      errors: [...Array.from({ length: 9 }, (_, i) => `p${i}: 错`), "字".repeat(500)],
+    });
+    await expect(saveThemePackAction(data(ID))).rejects.toThrow();
+    const issues = issuesIn(redirected()[0]);
+    expect(issues).toEqual(["p0: 错", "p1: 错", "p2: 错", "p3: 错", "p4: 错", "p5: 错"]);
+    dependencies.redirect.mockClear();
+    dependencies.update.mockResolvedValue({
+      ok: false,
+      code: "invalid-definition",
+      errors: ["字".repeat(500)],
+    });
+    await expect(saveThemePackAction(data(ID))).rejects.toThrow();
+    expect([...issuesIn(redirected()[0])[0]]).toHaveLength(120);
+  });
+
+  it("没有 errors：只有错误码，不带 issue", async () => {
+    dependencies.update.mockResolvedValue({ ok: false, code: "invalid-definition" });
+    await expect(saveThemePackAction(data(ID))).rejects.toThrow();
+    expect(redirected()).toEqual(["/admin/themes/test?err=invalid-definition"]);
+  });
+
+  it.each(["conflict", "bad-name", "not-found", "capacity-unavailable"])(
+    "%s 即使带了 errors 也不带 issue（只有校验未通过才有可列的细节）",
+    async (code) => {
+      dependencies.update.mockResolvedValue({ ok: false, code, errors: ["pwa.themeColor: 错"] });
+      await expect(saveThemePackAction(data(ID))).rejects.toThrow();
+      expect(redirected()).toEqual([`/admin/themes/test?err=${code}`]);
+    },
+  );
+
+  it("校验未通过时不写 saved，也不返回 ack", async () => {
+    dependencies.update.mockResolvedValue({
+      ok: false,
+      code: "invalid-definition",
+      errors: ["a: 错"],
+    });
+    await expect(saveThemePackAction(data(ID))).rejects.toThrow();
+    expect(redirected()[0]).not.toMatch(/saved=|ack=/);
+    expect(dependencies.revalidate).not.toHaveBeenCalled();
+  });
+});

@@ -2,9 +2,11 @@ import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { getDecorPoolRaw } from "@/lib/brand/decor-pool";
 import { getLogoPoolRaw } from "@/lib/brand/logo-pool";
+import { MAX_ISSUES_SHOWN, parseIssues } from "@/lib/theme/issues";
 import { getDecorUsage, getThemePack, parseThemePackAssets } from "@/lib/theme/packs";
 import { SURFACES, type ThemePackDefinition } from "@/lib/theme/surface-schema";
 import { AdminFlash } from "@/components/admin/admin-flash";
+import { describeIssue } from "@/components/admin/theme/issue-text";
 import { ThemePackEditorForm } from "@/components/admin/theme-pack-editor-form";
 import { ThemeLogoManager } from "@/components/admin/theme-logo-manager";
 import { startThemePreviewAction } from "@/app/theme-preview-actions";
@@ -31,12 +33,14 @@ const ERR_TEXT: Record<string, string> = {
  */
 export default async function ThemePackEditPage(props: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ saved?: string; err?: string; ack?: string }>;
+  searchParams: Promise<{ saved?: string; err?: string; ack?: string; issue?: string | string[] }>;
 }) {
   // 入口鉴权约定：第一个 await 必须是 requireAdmin（admin-entry-guard 静态守护）
   const actor = await requireAdmin("site.admin");
   const { id } = await props.params;
   const sp = await props.searchParams;
+  // 具体问题只在「校验未通过」时有意义；别的错误码带了 issue 也不显示（查询参数不可信）
+  const issues = sp.err === "invalid-definition" ? parseIssues(sp.issue) : [];
   const pack = await getThemePack(id);
   if (!pack) notFound();
   const [decor, defaultPack, decorUsage, logoPool] = await Promise.all([
@@ -64,6 +68,19 @@ export default async function ThemePackEditPage(props: {
         </AdminFlash>
       )}
       {sp.err && <AdminFlash kind="error">{ERR_TEXT[sp.err] ?? "保存失败，请重试。"}</AdminFlash>}
+      {issues.length > 0 && (
+        <ul
+          aria-label="未通过校验的项"
+          className="max-w-full min-w-0 space-y-1 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-2 text-sm text-destructive"
+        >
+          {issues.slice(0, MAX_ISSUES_SHOWN).map((issue, index) => (
+            <li key={`${index}:${issue}`} className="[overflow-wrap:anywhere]">
+              {describeIssue(issue)}
+            </li>
+          ))}
+          {issues.length > MAX_ISSUES_SHOWN && <li>还有更多问题未列出，改好上面的再保存。</li>}
+        </ul>
+      )}
 
       {/* 全站预览（M11.1 Step 7）：10 分钟签名 cookie，仅本人浏览器按该包渲染，不落库 */}
       <form

@@ -896,6 +896,31 @@ for (const width of LAYOUT_WIDTHS) {
           // 仅修改浏览器内的草稿，不点保存，不改变 default 包。
         });
 
+        await audit.step("admin-themes-default-invalid-issues", async () => {
+          // 校验被拒时的具体问题列表（Step 3e）：带来 6 条，展示 5 条加「还有更多」；
+          // 含很长的连续字符与很长的消息，窄屏上要换行，不撑出横向滚动
+          await page.evaluate(() => sessionStorage.clear());
+          const issues = [
+            "surfaces.header.light.fill.stops.0.color: 非法颜色（须 #RRGGBB）",
+            "tokens.dark.shadows.s1.blur: Too big: expected number to be <=80",
+            `pwa.themeColor: ${"很长的消息".repeat(20)}`,
+            `elsewhere.unknown.path.${"x".repeat(90)}: ${"y".repeat(60)}`,
+            "tokens.light.band.width: Too big: expected number to be <=16",
+            "surfaces.footer.light.blur: 该区域不支持此能力",
+          ];
+          const query = issues.map((issue) => `issue=${encodeURIComponent(issue)}`).join("&");
+          await page.goto(`/admin/themes/default?err=invalid-definition&${query}`);
+          const list = page.getByRole("list", { name: "未通过校验的项" });
+          await expect(list.getByRole("listitem")).toHaveCount(6);
+          await expect(list.getByText("还有更多问题未列出")).toBeVisible();
+          await audit.capture("admin-themes-default-invalid-issues", {
+            roots: ADMIN_ROOT,
+            buttons: ADMIN_BUTTONS,
+            required: ['ul[aria-label="未通过校验的项"]'],
+            regions: [{ name: "issues", selector: 'ul[aria-label="未通过校验的项"]' }],
+          });
+        });
+
         // 运营排期：方案经界面创建并在结束时经界面删除（站点缓存只有走 Action 才会失效）。
         const campaignName = "排期布局回归".padEnd(60, "长");
         const campaignRow = page.getByTestId("campaign-row").filter({ hasText: campaignName });

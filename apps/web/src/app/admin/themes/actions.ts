@@ -17,6 +17,7 @@ import {
   setThemePackEnabled,
   updateThemePack,
 } from "@/lib/theme/packs";
+import { encodeIssues } from "@/lib/theme/issues";
 import { parseThemePackDefinition } from "@/lib/theme/surface-schema";
 
 /**
@@ -105,7 +106,9 @@ export const saveThemePackAction = defineAction({
       expectedRevision: input.revision,
     });
     if (!result.ok) {
-      redirect(`/admin/themes/${encodeURIComponent(input.id)}?err=${result.code}`);
+      // 校验被拒时把具体问题带回编辑页（Step 3e），其他错误码本来就没有可列的细节
+      const issues = result.code === "invalid-definition" ? encodeIssues(result.errors) : "";
+      redirect(`/admin/themes/${encodeURIComponent(input.id)}?err=${result.code}${issues}`);
     }
     revalidatePath("/admin/themes");
     revalidatePath(`/admin/themes/${encodeURIComponent(input.id)}`);

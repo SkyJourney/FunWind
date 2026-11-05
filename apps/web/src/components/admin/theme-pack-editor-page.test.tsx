@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ThemePackEditPage from "@/app/admin/themes/[id]/page";
@@ -40,10 +40,10 @@ vi.mock("next/navigation", () => ({
   },
 }));
 
-async function page(error?: string) {
+async function page(error?: string, issue?: string | string[]) {
   return ThemePackEditPage({
     params: Promise.resolve({ id: "test" }),
-    searchParams: Promise.resolve({ err: error }),
+    searchParams: Promise.resolve({ err: error, issue }),
   });
 }
 const field = (name: string) => screen.getByRole("textbox", { name });
@@ -123,5 +123,82 @@ describe("主题编辑页：真实接线的 G-19 回归", () => {
     render(await page("conflict"));
     expect(field("主题名称")).toHaveValue(initial.name);
     expect(screen.getByTestId("theme-fill-solid-color")).toHaveValue("#ffffff");
+  });
+});
+
+describe("主题编辑页：校验被拒时列出具体问题（Step 3e）", () => {
+  const list = () => screen.queryByRole("list", { name: "未通过校验的项" });
+  const texts = () =>
+    within(list()!)
+      .getAllByRole("listitem")
+      .map((li) => li.textContent);
+  const GENERIC = "包配置校验未通过，请检查分区定义。";
+
+  it("invalid-definition：逐条列出，路径翻成编辑器里的名字，消息原样；笼统提示仍在", async () => {
+    render(
+      await page("invalid-definition", [
+        "surfaces.header.light.blur: Too big: expected number to be <=24",
+        "tokens.dark.shadows.s1.blur: Too big: expected number to be <=80",
+      ]),
+    );
+    expect(texts()).toEqual([
+      "顶部导航 · 浅色档 · 毛玻璃模糊：Too big: expected number to be <=24",
+      "全站令牌 · 深色档 · 阴影 1 · 模糊：Too big: expected number to be <=80",
+    ]);
+    expect(screen.getByText(GENERIC)).toBeInTheDocument();
+  });
+
+  it("Next 在只有一个 issue 时给的是字符串，不是数组", async () => {
+    render(await page("invalid-definition", "pwa.themeColor: 非法颜色（须 #RRGGBB）"));
+    expect(texts()).toEqual(["浏览器与 PWA 颜色 · 浏览器主题色：非法颜色（须 #RRGGBB）"]);
+  });
+
+  it("认不出的路径原样显示，路径为空只显示消息", async () => {
+    render(await page("invalid-definition", ["elsewhere.foo: 错", ': Unrecognized key: "x"']));
+    expect(texts()).toEqual(["elsewhere.foo: 错", 'Unrecognized key: "x"']);
+  });
+
+  it.each([
+    ["conflict", ["pwa.themeColor: 错"]],
+    ["bad-json", ["pwa.themeColor: 错"]],
+    [undefined, ["pwa.themeColor: 错"]],
+  ])("err=%s 时即使带了 issue 也不显示列表（查询参数不可信）", async (err, issue) => {
+    render(await page(err, issue));
+    expect(list()).toBeNull();
+  });
+
+  it("invalid-definition 但没有 issue：没有列表，笼统提示照常", async () => {
+    render(await page("invalid-definition"));
+    expect(list()).toBeNull();
+    expect(screen.getByText(GENERIC)).toBeInTheDocument();
+  });
+
+  it.each([
+    [4, 4, false],
+    [5, 5, false],
+    [6, 5, true],
+    [20, 5, true],
+  ])("带来 %d 条：展示 %d 条，「还有更多」%s", async (carried, shown, more) => {
+    const issues = Array.from({ length: carried }, (_, i) => `pwa.themeColor: 问题${i}`);
+    render(await page("invalid-definition", issues));
+    const items = texts();
+    expect(items.filter((text) => text!.startsWith("浏览器与 PWA 颜色"))).toHaveLength(shown);
+    expect(items.some((text) => text!.includes("还有更多问题"))).toBe(more);
+    expect(items).toHaveLength(shown + (more ? 1 : 0));
+  });
+
+  it("重复的问题不会触发重复 key 的警告", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(await page("invalid-definition", ["pwa.themeColor: 错", "pwa.themeColor: 错"]));
+    expect(texts()).toHaveLength(2);
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("问题文字当文本渲染，不当 HTML", async () => {
+    const { container } = render(
+      await page("invalid-definition", ["elsewhere: <img src=x onerror=alert(1)>"]),
+    );
+    expect(texts()).toEqual(["elsewhere: <img src=x onerror=alert(1)>"]);
+    expect(container.querySelector("img")).toBeNull();
   });
 });
