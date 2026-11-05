@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { evaluateContrast } from "@/lib/theme/contrast-advisor";
+import { BASE_COLORS } from "@/lib/theme/token-base";
 import { COLOR_KEYS, type ColorKey } from "@/lib/theme/token-schema";
 
 /**
@@ -184,5 +185,20 @@ describe.each(Object.entries(THEMES))("%s：对比度顾问与独立实现一致
     expect(checks.filter((check) => !check.pass).map((check) => check.id)).toEqual(
       KNOWN_FAILURES[name],
     );
+  });
+});
+
+/**
+ * 基础层颜色表（lib/theme/token-base.ts）防漂移：TS 常量与令牌 CSS 解析出的值逐键相等。
+ * 常量供浏览器端（编辑器「继承默认」的占位值、对比度顾问给缺省键补缺）使用，那里读不到 CSS，
+ * 只能放一份拷贝；谁改了 semantic.css / dark.css 里的语义色而没同步常量，这里会变红。
+ */
+describe.each([
+  ["light", "默认·浅色"],
+  ["dark", "默认·暗色"],
+] as const)("基础层颜色表 %s 档与令牌 CSS 一致", (mode, themeName) => {
+  const color = THEMES[themeName];
+  it.each(COLOR_KEYS)("%s", (key) => {
+    expect(BASE_COLORS[mode][key]).toBe(toHex(color(`--${key}`)));
   });
 });
