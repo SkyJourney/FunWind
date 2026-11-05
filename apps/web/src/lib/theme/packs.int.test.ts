@@ -233,6 +233,16 @@ describe.skipIf(skipDb)("主题包写服务（M11.1 Step 5a）", () => {
     expect(await getThemePack("demo-pk-copy")).not.toBeNull();
   });
 
+  it("复制：内置包（default / qy2010）被拒（protected），且不会产生新行", async () => {
+    for (const sourceId of ["default", "qy2010"]) {
+      expect(await copyThemePack(sourceId, "demo-pk-copy", actor)).toMatchObject({
+        ok: false,
+        code: "protected",
+      });
+      expect(await getThemePack("demo-pk-copy")).toBeNull();
+    }
+  });
+
   it("definition 资产引用同步入 assets；复制保留 LOGO 引用且重算 decor 引用", async () => {
     const decor = `decor-${"a".repeat(32)}.png`;
     const logo = `logo-${"b".repeat(32)}.png`;

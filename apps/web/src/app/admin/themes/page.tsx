@@ -41,7 +41,7 @@ const ERR_TEXT: Record<string, string> = {
   "duplicate-id": "同名包已存在。",
   "not-found": "包不存在。",
   conflict: "包已被他人修改（版本冲突）——请刷新页面后重试，避免覆盖对方的改动。",
-  protected: "系统回退包或内置包不可删除/停用。",
+  protected: "default 包不可停用；内置包（含 default）不可删除、不可复制。",
   "invalid-definition": "包配置校验未通过，请检查分区定义（颜色须为 #RRGGBB、字段不可未知）。",
   "bad-json": "包配置不是合法 JSON。",
   "missing-assets": "配置引用了不存在的装饰素材，请先到装饰素材池补齐文件。",

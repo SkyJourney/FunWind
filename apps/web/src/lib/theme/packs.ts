@@ -49,8 +49,7 @@ export type ThemePackErrorCode =
   | "invalid-definition"
   | "enabled-limit"
   | "capacity-unavailable"
-  | "duplicate-id"
-  | "builtin-not-duplicable";
+  | "duplicate-id";
 
 export interface ThemePackResult<T = ThemePackSummary> {
   ok: boolean;
@@ -476,12 +475,7 @@ export async function copyThemePack(
   if (idError) return { ok: false, code: idError };
   const source = await getThemePack(sourceId);
   if (!source) return { ok: false, code: "not-found" };
-
-  // 守卫：内置包不可复制
-  if (source.isBuiltin) {
-    return { ok: false, code: "builtin-not-duplicable" };
-  }
-
+  if (source.isBuiltin) return { ok: false, code: "protected" };
   return createThemePack({
     id: newId,
     name: `${source.name} 副本`.slice(0, 60),
