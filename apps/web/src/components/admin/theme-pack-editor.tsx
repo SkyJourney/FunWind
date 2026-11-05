@@ -15,6 +15,7 @@ import {
   DEFAULT_PWA,
   DEFAULT_STOP,
   DEFAULT_STOP2,
+  DEFAULT_TEXT_COLORS,
   defaultOverlayGradient,
   definitionFromDraft,
   toDraft,
@@ -659,12 +660,12 @@ export function ThemePackEditor({
                     <ColorField
                       key={`text:${key}:${active}:${mode}`}
                       label={`${label}（文字色）`}
-                      value={current.text?.[key] ?? "#334155"}
+                      value={current.text?.[key] ?? DEFAULT_TEXT_COLORS[key]}
                       onChange={(hex) =>
                         setCap("text", {
-                          primary: current.text?.primary ?? "#334155",
-                          muted: current.text?.muted ?? "#64748b",
-                          link: current.text?.link ?? "#147ba9",
+                          primary: current.text?.primary ?? DEFAULT_TEXT_COLORS.primary,
+                          muted: current.text?.muted ?? DEFAULT_TEXT_COLORS.muted,
+                          link: current.text?.link ?? DEFAULT_TEXT_COLORS.link,
                           [key]: hex,
                         })
                       }

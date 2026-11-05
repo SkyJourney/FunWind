@@ -237,6 +237,13 @@ describe("ThemePackEditor：颜色输入（ColorField 接线）", () => {
   };
   const field = (name: string) => screen.getByRole("textbox", { name });
 
+  it("text 缺失时，三项文字色显示的就是各自真正会写入的默认值", () => {
+    mount();
+    expect(field("正文（文字色）")).toHaveValue("#334155");
+    expect(field("弱化文字（文字色）")).toHaveValue("#64748b");
+    expect(field("链接（文字色）")).toHaveValue("#147ba9");
+  });
+
   it("PWA 两个颜色的可访问名称就是可见文字", () => {
     mount();
     expect(field("浏览器主题色")).toHaveValue("#123456");

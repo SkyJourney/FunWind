@@ -20,6 +20,12 @@ export const DEFAULT_PWA: ThemePackPwa = {
   themeColor: "#0e7490",
   backgroundColor: "#f8fafc",
 };
+/** 文字色三项缺省时的默认值：编辑器的显示兜底与写入补全共用这一份，避免两处写出不同的色 */
+export const DEFAULT_TEXT_COLORS = {
+  primary: "#334155",
+  muted: "#64748b",
+  link: "#147ba9",
+} as const;
 export const DEFAULT_STOP = { color: "#147ba9", alpha: 1, position: 0 };
 export const DEFAULT_STOP2 = { color: "#f6f3e7", alpha: 1, position: 100 };
 
