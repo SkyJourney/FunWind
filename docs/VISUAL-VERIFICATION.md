@@ -1,7 +1,7 @@
 # 目视验收规程（Playwright 布局矩阵 + 可读切块）
 
 > 本文是**唯一入口**：做界面目视验收时，沿用仓库里现成的 Playwright 路径，不要另起炉灶试各种截图办法。
-> 最后更新：2026-11-04（M11.3 收口时沉淀；所有数字来自当天的盲测，不是推断）。
+> 最后更新：2026-11-05（M11.6 Step 3c 补充审计脚本的可见性自检与折叠面板的坑；§3 的盲测数字仍来自 2026-11-04 当天，不是推断）。
 
 ## 1. 一句话规程
 
@@ -26,7 +26,9 @@
 
 跑完后 Next 会改写 `apps/web/tsconfig.json`，`prettier --check` 会因此变红：提交前 `git checkout -- apps/web/tsconfig.json`。
 
-现有两个矩阵用例：`e2e/responsive-management.spec.ts`（后台、帖子页）与 `e2e/responsive-register.spec.ts`（M11.3 的注册页四形态、登录门提示与重发表单、设置页注册策略块）。
+现有两个矩阵用例：`e2e/responsive-management.spec.ts`（后台、帖子页、主题编辑器的令牌面板）与 `e2e/responsive-register.spec.ts`（M11.3 的注册页四形态、登录门提示与重发表单、设置页注册策略块）。
+
+另有 `e2e/layout-audit-visibility.spec.ts`：审计脚本自身的可见性自检（6 项），用 `setContent` 造受控页面，不访问站点，默认随矩阵一起跑。审计脚本改了判定逻辑，必须先让它通过。
 
 ## 3. 读图规程（必须遵守）
 
@@ -99,6 +101,7 @@ await audit.finish(); // 严格模式下汇总失败；审计模式只写 JSON
 - **别凭"构建缓存"之类的猜测改方向。** 怀疑旧代码时，先用探针打印元素当前的 class 与计算样式，确认服务的就是新代码。
 - 窄屏溢出的常见真因：`flex`/`grid` 子项里的 `<input>` 固定宽度（`w-80`）撑大父轨道。`min-w-0` 加 `max-w-full` 压不住它，要让**标签持有首选宽度**（`w-80 max-w-full min-w-0`），输入框用 `w-full`。
 - 按钮必须单行且不收缩（项目契约），所以别把长内容（邮箱）放进按钮文案；动作写在按钮里，长内容放进旁边可换行的说明（`ActionGroup` + `min-w-0 [overflow-wrap:anywhere]`）。
+- **折叠的 `<details>` 里的元素有盒子，但不可见。** Chromium 对折叠内容不渲染、不可点，却仍按展开后的流式位置给它们算出盒子，而这些盒子会落在后面真实按钮的位置上，只看盒子尺寸的判定会报出「操作控件互相覆盖」的误报（M11.6 Step 3c 实测，Chromium 156）。`LayoutAudit` 的 `visible()` 已并入 `checkVisibility()`。要审计折叠面板里的内容，先在场景里把它展开，再 `capture`。
 
 ## 6. 边界
 

@@ -117,6 +117,10 @@ export class LayoutAudit {
           const rect = paintedRect(element);
           return (
             !element.closest(".sr-only") &&
+            // 折叠的 <details> 内容不渲染、不可点、不进无障碍树，但 Chromium 仍给它们算出盒子
+            // （按展开时的流式位置，恰好会落在后面真实按钮的位置上），只看盒子尺寸会把它们误判成可见。
+            // checkVisibility() 对这类内容返回 false，对 <summary> 本身返回 true（实测，见 layout-audit-visibility.spec.ts）。
+            element.checkVisibility() &&
             style.display !== "none" &&
             style.visibility !== "hidden" &&
             rect.width > 0 &&
