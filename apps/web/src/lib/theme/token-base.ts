@@ -1,18 +1,67 @@
 import { hexColorSchema } from "./color";
-import { COLOR_KEYS, type ColorKey } from "./token-schema";
+import {
+  COLOR_KEYS,
+  type ColorKey,
+  type DisplayFont,
+  type RadiusStep,
+  type Shadow,
+  type TokenSet,
+} from "./token-schema";
 
 /**
- * 基础层颜色表（M11.6 Step 3b）：默认包的 22 个语义色在浅色（semantic.css）与暗色（dark.css）下的最终值。
+ * 基础层事实表（M11.6 Step 3b / 3c）：默认包在浅色（semantic.css）与暗色（dark.css）下的最终值。
  *
- * 令牌只覆盖基础层，缺省的键继承它。编辑器要给「继承默认」的颜色显示占位值，对比度顾问要用它给缺省键补缺，
- * 而这两处都运行在浏览器里，读不到 CSS，所以这里放一份 TS 常量。
+ * 令牌只覆盖基础层，缺省的键继承它。编辑器要给「继承默认」的颜色显示占位值、给「覆盖」按钮一个与继承值一致的起点，
+ * 对比度顾问要用它给缺省键补缺，而这几处都运行在浏览器里，读不到 CSS，所以这里放一份 TS 常量。
  * 常量和 CSS 是同一份事实的两份拷贝，防漂移由 src/test/token-contrast.test.ts 守住：
- * 它按同样的口径解析令牌 CSS，逐键比对。改了 CSS 里的语义色而没改这里，那条测试会变红。
+ * 它按同样的口径解析令牌 CSS，逐项比对。改了 CSS 里的基础值而没改这里，那条测试会变红。
  *
  * 暗色表是完整的 22 项（dark.css 自己定义了全部语义色），不依赖浅色表。
  */
 
 export type ColorMode = "light" | "dark";
+
+/** 阴影档位，对应 `--shadow-1/2/3` */
+export const SHADOW_SLOTS = ["s1", "s2", "s3"] as const;
+export type ShadowSlot = (typeof SHADOW_SLOTS)[number];
+
+type Band = NonNullable<TokenSet["band"]>;
+
+/** 基础层的圆角档：semantic.css 的 `--radius: var(--fw-radius-lg)` */
+export const BASE_RADIUS: RadiusStep = "lg";
+
+/** 基础层的展示字体档：primitives.css 的 `--fw-font-display: var(--fw-font-sans)` */
+export const BASE_FONT: DisplayFont = "system";
+
+/**
+ * 基础层阴影，作为「覆盖」按钮的起点。令牌只能表达单层阴影，
+ * 而浅色 s1 在基础层是两层叠加（`0 1px 2px / 0.06` 加 `0 1px 3px / 0.08`），这里取较大的第二层。
+ * 其余五项在基础层本来就是单层。
+ */
+export const BASE_SHADOWS: Readonly<Record<ColorMode, Readonly<Record<ShadowSlot, Shadow>>>> = {
+  light: {
+    s1: { x: 0, y: 1, blur: 3, spread: 0, color: "#0f172a", alpha: 0.08 },
+    s2: { x: 0, y: 4, blur: 12, spread: 0, color: "#0f172a", alpha: 0.1 },
+    s3: { x: 0, y: 12, blur: 32, spread: 0, color: "#0f172a", alpha: 0.16 },
+  },
+  dark: {
+    s1: { x: 0, y: 1, blur: 2, spread: 0, color: "#000000", alpha: 0.5 },
+    s2: { x: 0, y: 4, blur: 12, spread: 0, color: "#000000", alpha: 0.55 },
+    s3: { x: 0, y: 12, blur: 32, spread: 0, color: "#000000", alpha: 0.65 },
+  },
+};
+
+/**
+ * 基础层的板块卡参数（default.css）。遮罩终点色在基础层是 `var(--card)`，令牌里没有这个键就是跟随卡片底色，
+ * 所以这里不含 maskColor。
+ */
+export const BASE_BAND: Readonly<Omit<Band, "maskColor">> = {
+  width: 7,
+  angle: 105,
+  fade: 50,
+  dim: 0.85,
+  mask: true,
+};
 
 export const BASE_COLORS: Readonly<Record<ColorMode, Readonly<Record<ColorKey, string>>>> = {
   light: {

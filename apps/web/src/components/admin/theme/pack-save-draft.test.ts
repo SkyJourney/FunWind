@@ -91,6 +91,71 @@ describe("主题保存快照编解码", () => {
     expect(definitionForThemePackPreview(restored!.definition)).toEqual({ surfaces: {} });
   });
 
+  describe("语义令牌", () => {
+    const tokens = {
+      light: {
+        colors: { primary: "#112233" },
+        radius: "md",
+        shadows: { s1: { x: 1, y: 2, blur: 3, spread: 0, color: "#000000", alpha: 0.25 } },
+        brandGradient: { angle: 90, from: "#000000", to: "#ffffff" },
+        band: { width: 8.5, angle: 90, fade: 0, dim: 1, mask: false },
+      },
+      dark: {},
+    };
+    const withTokens = (value: unknown) => ({
+      ...draft,
+      definition: { ...draft.definition, tokens: value },
+    });
+
+    it("合法的令牌随草稿往返，预览也保留它们", () => {
+      const withValid = withTokens(tokens);
+      const restored = parseThemePackSaveDraft(JSON.stringify(withValid));
+      expect(restored).toEqual(withValid);
+      expect(restored?.definition.tokens).toEqual(tokens);
+      expect(definitionForThemePackPreview(restored!.definition).tokens).toEqual(tokens);
+    });
+
+    it("没有令牌的草稿不受影响", () => {
+      expect(parseThemePackSaveDraft(JSON.stringify(draft))).toEqual(draft);
+    });
+
+    it.each([
+      ["不是对象", "abc"],
+      ["null", null],
+      ["数组", []],
+      ["颜色不是 #RRGGBB", { light: { colors: { primary: "red" } } }],
+      ["圆角档位不存在", { light: { radius: "huge" } }],
+      ["阴影缺字段", { light: { shadows: { s1: { x: 1 } } } }],
+      [
+        "阴影越界",
+        {
+          light: {
+            shadows: { s1: { x: 999, y: 0, blur: 0, spread: 0, color: "#000000", alpha: 0.5 } },
+          },
+        },
+      ],
+      [
+        "NaN 序列化成的 null（不会被悄悄当成 0）",
+        {
+          light: {
+            shadows: { s1: { x: null, y: 0, blur: 0, spread: 0, color: "#000000", alpha: 0.5 } },
+          },
+        },
+      ],
+      ["板块卡缺遮罩开关", { dark: { band: { width: 7, angle: 105, fade: 50, dim: 0.85 } } }],
+      ["令牌集里有未知字段", { light: { unknownField: 1 } }],
+      ["令牌段里有未知字段", { light: {}, extra: 1 }],
+    ])("令牌不合 schema：整份草稿按损坏处理（%s）", (_name, bad) => {
+      expect(parseThemePackSaveDraft(JSON.stringify(withTokens(bad)))).toBeNull();
+    });
+
+    it("令牌损坏时，哪怕区域设置完好，也不恢复半份草稿", () => {
+      const bad = withTokens({ light: { radius: "huge" } });
+      expect(bad.definition.surfaces).toEqual(draft.definition.surfaces);
+      expect(parseThemePackSaveDraft(JSON.stringify(bad))).toBeNull();
+    });
+  });
+
   it.each([
     "{不完整JSON",
     "null",

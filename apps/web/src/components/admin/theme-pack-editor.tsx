@@ -26,6 +26,8 @@ import {
 } from "@/components/admin/theme/pack-draft";
 import { ColorField } from "@/components/admin/theme/color-field";
 import { ThemeSurfaceMock } from "@/components/admin/theme/surface-mock";
+import { ThemeTokenEditor } from "@/components/admin/theme/theme-token-editor";
+import { withTokens } from "@/components/admin/theme/token-draft";
 
 export type { SurfaceMeta } from "@/components/admin/theme/pack-draft";
 import { ThemeAssetLibrary, type AssetLibraryItem } from "@/components/admin/theme-asset-library";
@@ -42,6 +44,7 @@ import type {
 
 type ImageFill = Extract<FillSpec, { type: "image" }>;
 type ImageOverlaySpec = Extract<OverlaySpec, { type: "image" }>;
+type Tokens = ThemePackDefinition["tokens"];
 
 export function ThemePackEditor({
   surfaces,
@@ -65,6 +68,7 @@ export function ThemePackEditor({
     toDraft(definitionForThemePackControls(initialDefinition), surfaces),
   );
   const [pwa, setPwa] = useState<ThemePackPwa>(() => initialDefinition.pwa ?? DEFAULT_PWA);
+  const [tokens, setTokens] = useState<Tokens>(initialDefinition.tokens);
   const [active, setActive] = useState(surfaces[0]?.id ?? "header");
   const [mode, setMode] = useState<"light" | "dark">("light");
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
@@ -92,6 +96,11 @@ export function ThemePackEditor({
     setPwa((previous) => ({ ...previous, [key]: value }));
   };
 
+  const changeTokens = (update: (previous: Tokens) => Tokens) => {
+    setEdited(true);
+    setTokens(update);
+  };
+
   const updateImageFill = (patch: Partial<ImageFill>) => {
     if (imageFill) setCap("fill", { ...imageFill, ...patch });
   };
@@ -100,16 +109,20 @@ export function ThemePackEditor({
     setCap("contentSlot", updateContentSlot(current.contentSlot, patch));
 
   const editedDefinition = useMemo(() => definitionFromDraft(draft, pwa), [draft, pwa]);
+  // 令牌一律以 withTokens 写回：清空的令牌要从定义里删掉，只做展开合并会让基础定义里的旧令牌复活
   const definition = useMemo(
     () =>
       edited
-        ? {
-            ...baseDefinition,
-            ...editedDefinition,
-            surfaces: { ...baseDefinition.surfaces, ...editedDefinition.surfaces },
-          }
+        ? withTokens(
+            {
+              ...baseDefinition,
+              ...editedDefinition,
+              surfaces: { ...baseDefinition.surfaces, ...editedDefinition.surfaces },
+            },
+            tokens,
+          )
         : baseDefinition,
-    [edited, editedDefinition, baseDefinition],
+    [edited, editedDefinition, baseDefinition, tokens],
   );
   const draftJson = useMemo(() => JSON.stringify(definition), [definition]);
   const safePreviewDefinition = useMemo(
@@ -135,6 +148,21 @@ export function ThemePackEditor({
       <input type="hidden" name="definition" value={draftJson} />
       <div className="grid max-w-full min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <section className="max-w-full min-w-0 space-y-3" aria-label="主题区域设置">
+          <div className="flex min-w-0 flex-wrap gap-2" role="group" aria-label="颜色模式">
+            {(["light", "dark"] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={mode === value}
+                onClick={() => setMode(value)}
+                className={`rounded-md border px-2.5 py-1 text-xs ${
+                  mode === value ? "border-primary bg-accent" : "hover:bg-accent"
+                }`}
+              >
+                {value === "light" ? "浅色档" : "深色档"}
+              </button>
+            ))}
+          </div>
           <fieldset className="flex max-w-full min-w-0 flex-wrap gap-4 rounded-lg border bg-card p-3">
             <legend className="px-1 text-xs font-medium text-muted-foreground">
               浏览器与 PWA 颜色
@@ -156,6 +184,7 @@ export function ThemePackEditor({
               />
             </label>
           </fieldset>
+          <ThemeTokenEditor mode={mode} tokens={tokens} onChange={changeTokens} />
           <div className="flex max-w-full min-w-0 flex-wrap gap-1.5">
             {surfaces.map((surface) => (
               <button
@@ -171,22 +200,6 @@ export function ThemePackEditor({
               </button>
             ))}
           </div>
-          <div className="flex min-w-0 flex-wrap gap-2" role="group" aria-label="颜色模式">
-            {(["light", "dark"] as const).map((value) => (
-              <button
-                key={value}
-                type="button"
-                aria-pressed={mode === value}
-                onClick={() => setMode(value)}
-                className={`rounded-md border px-2.5 py-1 text-xs ${
-                  mode === value ? "border-primary bg-accent" : "hover:bg-accent"
-                }`}
-              >
-                {value === "light" ? "浅色档" : "深色档"}
-              </button>
-            ))}
-          </div>
-
           <div className="max-w-full min-w-0 space-y-4 rounded-xl border bg-card p-3 sm:p-4">
             {mode === "dark" && !draft[active]?.dark && (
               <p className="text-xs text-muted-foreground">

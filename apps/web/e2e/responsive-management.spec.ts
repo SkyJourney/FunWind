@@ -787,6 +787,78 @@ for (const width of LAYOUT_WIDTHS) {
             regions: [{ name: "color-fields", selector: 'section[aria-label="主题区域设置"]' }],
           });
         });
+        const tokenPanel = page.getByTestId("theme-token-editor");
+        const tokenRegion = [
+          { name: "token-editor", selector: '[data-testid="theme-token-editor"]' },
+        ];
+        await audit.step("admin-themes-default-token-editor", async () => {
+          // 全站语义令牌：展开并逐类覆盖，颜色、数字、下拉、复选框在窄容器里都要能换行，不撑出横向滚动
+          await tokenPanel.locator("summary").click();
+          await expect(tokenPanel.getByText(/没有覆盖的项继承默认主题/)).toBeVisible();
+          for (const name of ["主色", "卡片上的文字", "阴影 1", "品牌渐变", "板块卡"]) {
+            await page.getByRole("button", { name: `${name}：覆盖`, exact: true }).click();
+          }
+          await page.getByRole("checkbox", { name: "指定遮罩色", exact: true }).check();
+          await page.getByRole("combobox", { name: "圆角", exact: true }).selectOption("md");
+          await expect(
+            page.getByRole("textbox", { name: "阴影 1 模糊", exact: true }),
+          ).toBeVisible();
+          await expect(
+            page.getByRole("textbox", { name: "板块卡 遮罩色", exact: true }),
+          ).toBeVisible();
+          await audit.capture("admin-themes-default-token-editor", {
+            roots: ADMIN_ROOT,
+            buttons: ADMIN_BUTTONS,
+            required: ['[data-testid="theme-token-editor"]'],
+            regions: tokenRegion,
+          });
+        });
+        await audit.step("admin-themes-default-token-editor-invalid", async () => {
+          // 错误态：三类输入（颜色、整数、小数）的提示文字在窄容器里要换行
+          const color = page.getByRole("textbox", { name: "主色（全站）", exact: true });
+          const blur = page.getByRole("textbox", { name: "阴影 1 模糊", exact: true });
+          const width = page.getByRole("textbox", { name: "板块卡 图区宽度", exact: true });
+          await color.fill("#12");
+          await blur.fill("99");
+          await width.fill("17");
+          for (const field of [color, blur, width]) {
+            await expect(field).toHaveAttribute("aria-invalid", "true");
+          }
+          await expect(tokenPanel.getByText("须为 0 到 80 的整数，当前仍使用 3")).toBeVisible();
+          await expect(
+            tokenPanel.getByText("须为 0 到 16 的数（最多 2 位小数），当前仍使用 7"),
+          ).toBeVisible();
+          await audit.capture("admin-themes-default-token-editor-invalid", {
+            roots: ADMIN_ROOT,
+            buttons: ADMIN_BUTTONS,
+            required: ['[data-testid="theme-token-editor"]'],
+            regions: tokenRegion,
+          });
+        });
+        await audit.step("admin-themes-default-token-editor-dark", async () => {
+          // 深色档：未启用时只有说明与启用按钮；启用后是全部继承的空集，可再逐项覆盖
+          const mode = page.getByRole("group", { name: "颜色模式" });
+          await mode.getByRole("button", { name: "深色档", exact: true }).click();
+          await expect(tokenPanel.getByText("深色未启用")).toBeVisible();
+          await expect(tokenPanel.getByText(/本主题包没有深色令牌/)).toBeVisible();
+          await audit.capture("admin-themes-default-token-editor-dark-off", {
+            roots: ADMIN_ROOT,
+            buttons: ADMIN_BUTTONS,
+            required: ['[data-testid="theme-token-editor"]'],
+            regions: tokenRegion,
+          });
+          await page.getByRole("button", { name: "启用深色令牌", exact: true }).click();
+          await page.getByRole("button", { name: "主色：覆盖", exact: true }).click();
+          await page.getByRole("button", { name: "阴影 2：覆盖", exact: true }).click();
+          await expect(tokenPanel.getByText("已覆盖 2 项")).toBeVisible();
+          await audit.capture("admin-themes-default-token-editor-dark-on", {
+            roots: ADMIN_ROOT,
+            buttons: ADMIN_BUTTONS,
+            required: ['[data-testid="theme-token-editor"]'],
+            regions: tokenRegion,
+          });
+          // 仅修改浏览器内的草稿，不点保存，不改变 default 包。
+        });
 
         // 运营排期：方案经界面创建并在结束时经界面删除（站点缓存只有走 Action 才会失效）。
         const campaignName = "排期布局回归".padEnd(60, "长");

@@ -170,6 +170,37 @@ describe("ColorField", () => {
     expect(b).toHaveAccessibleDescription(/当前仍使用 #222222/);
   });
 
+  it("在文本框里按回车：不提交所在的表单，也不改动值（对照：同一表单里的普通文本框会提交）", async () => {
+    const onSubmit = vi.fn((event: { preventDefault: () => void }) => event.preventDefault());
+    render(
+      <form onSubmit={onSubmit}>
+        <Harness initial="#112233" />
+        <input aria-label="对照" />
+        <button type="submit">保存</button>
+      </form>,
+    );
+    await userEvent.type(box(), "{Enter}");
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(box()).toHaveValue("#112233");
+    await userEvent.type(screen.getByRole("textbox", { name: "对照" }), "{Enter}");
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it("没写完的文本按回车：不提交表单，已输入的文本和错误提示都还在", async () => {
+    const onSubmit = vi.fn((event: { preventDefault: () => void }) => event.preventDefault());
+    render(
+      <form onSubmit={onSubmit}>
+        <Harness />
+        <button type="submit">保存</button>
+      </form>,
+    );
+    await userEvent.clear(box());
+    await userEvent.type(box(), "#12{Enter}");
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(box()).toHaveValue("#12");
+    expect(box()).toHaveAttribute("aria-invalid", "true");
+  });
+
   it("testId 落在文本框上，className 落在最外层", () => {
     const { container } = render(
       <ColorField

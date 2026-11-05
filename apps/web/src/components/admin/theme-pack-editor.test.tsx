@@ -480,3 +480,175 @@ describe("ThemePackEditor：定义变更通知", () => {
     expect(onDefinitionChange).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("ThemePackEditor：全站语义令牌接线", () => {
+  const withTokens: ThemePackDefinition = {
+    ...initialDefinition,
+    tokens: {
+      light: { colors: { primary: "#112233", ring: "#445566" }, radius: "md" },
+      dark: { colors: { primary: "#aabbcc" } },
+    },
+  };
+  const tokenPanel = () => screen.getByTestId("theme-token-editor") as HTMLDetailsElement;
+  const openTokens = () => {
+    tokenPanel().open = true;
+  };
+  const summary = () => tokenPanel().querySelector("summary")!;
+  const primaryVar = () => preview().style.getPropertyValue("--primary");
+  const hasTokens = (definition: ThemePackDefinition) => Object.hasOwn(definition, "tokens");
+
+  it("版面顺序：颜色模式 → 浏览器与 PWA 颜色 → 全站语义令牌 → 区域按钮", () => {
+    mount();
+    const before = (a: Node, b: Node) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const mode = screen.getByRole("group", { name: "颜色模式" });
+    const pwa = screen.getByRole("group", { name: "浏览器与 PWA 颜色" });
+    const region = screen.getByRole("button", { name: "顶栏" });
+    expect(before(mode, pwa)).toBe(true);
+    expect(before(pwa, tokenPanel())).toBe(true);
+    expect(before(tokenPanel(), region)).toBe(true);
+  });
+
+  it("令牌面板默认收起", () => {
+    mount();
+    expect(tokenPanel().open).toBe(false);
+  });
+
+  it("没有编辑时，隐藏 definition 原样带着初始的令牌", () => {
+    const { definition } = mount({ initialDefinition: withTokens });
+    expect(definition()).toEqual(withTokens);
+  });
+
+  it("没有令牌的定义，编辑区域设置后也不会凭空出现 tokens", () => {
+    const { definition } = mount();
+    fireEvent.change(screen.getByTestId("theme-fill-solid-color"), {
+      target: { value: "#778899" },
+    });
+    expect(hasTokens(definition())).toBe(false);
+  });
+
+  it("覆盖并修改一个全站颜色：写进隐藏 definition 的 tokens，每次编辑通知表单一次", () => {
+    const onDefinitionChange = vi.fn();
+    const { definition } = mount({ onDefinitionChange });
+    openTokens();
+    fireEvent.click(screen.getByRole("button", { name: "主色：覆盖" }));
+    expect(definition().tokens).toEqual({ light: { colors: { primary: "#0e7490" } } });
+    expect(onDefinitionChange).toHaveBeenCalledTimes(1);
+    fireEvent.change(screen.getByRole("textbox", { name: "主色（全站）" }), {
+      target: { value: "#ABCDEF" },
+    });
+    expect(definition()).toEqual({
+      ...initialDefinition,
+      tokens: { light: { colors: { primary: "#abcdef" } } },
+    });
+    expect(onDefinitionChange).toHaveBeenCalledTimes(2);
+    expect(onDefinitionChange.mock.calls[1][0]).toEqual(definition());
+  });
+
+  it("预览元素带着令牌变量，随浅 / 深档切换", () => {
+    mount({ initialDefinition: withTokens });
+    expect(primaryVar()).toBe("#112233");
+    expect(preview().style.getPropertyValue("--ring")).toBe("#445566");
+    expect(preview().style.getPropertyValue("--radius")).toBe("var(--fw-radius-md)");
+    fireEvent.click(screen.getByRole("button", { name: "深色档" }));
+    expect(primaryVar()).toBe("#aabbcc");
+    expect(preview().style.getPropertyValue("--ring")).toBe("");
+    expect(preview().style.getPropertyValue("--radius")).toBe("");
+  });
+
+  it("改全站颜色，预览立即用上新值", () => {
+    mount();
+    expect(primaryVar()).toBe("");
+    openTokens();
+    fireEvent.click(screen.getByRole("button", { name: "主色：覆盖" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "主色（全站）" }), {
+      target: { value: "#13579b" },
+    });
+    expect(primaryVar()).toBe("#13579b");
+  });
+
+  it("基础定义里原有的令牌全部恢复继承后，隐藏 definition 里没有 tokens 键，之后改别的也不会复活", () => {
+    const { definition } = mount({
+      initialDefinition: {
+        ...initialDefinition,
+        tokens: { light: { colors: { primary: "#112233" } } },
+      },
+    });
+    openTokens();
+    fireEvent.click(screen.getByRole("button", { name: "主色：恢复继承" }));
+    expect(hasTokens(definition())).toBe(false);
+    expect(definition()).toEqual(initialDefinition);
+    fireEvent.change(screen.getByTestId("theme-fill-solid-color"), {
+      target: { value: "#778899" },
+    });
+    fireEvent.change(screen.getByLabelText("浏览器主题色"), { target: { value: "#112233" } });
+    expect(hasTokens(definition())).toBe(false);
+    expect(primaryVar()).toBe("");
+  });
+
+  it("只改区域设置或 PWA 时，令牌原样保留", () => {
+    const { definition } = mount({ initialDefinition: withTokens });
+    fireEvent.change(screen.getByTestId("theme-fill-solid-color"), {
+      target: { value: "#778899" },
+    });
+    fireEvent.change(screen.getByLabelText("PWA 背景色"), { target: { value: "#445566" } });
+    expect(definition().tokens).toEqual(withTokens.tokens);
+  });
+
+  it("深色档启用深色令牌：definition 里只新增空的 dark 集，浅色档的令牌不变", () => {
+    const { definition } = mount({
+      initialDefinition: { ...initialDefinition, tokens: { light: { radius: "md" } } },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "深色档" }));
+    openTokens();
+    expect(summary()).toHaveTextContent("深色未启用");
+    fireEvent.click(screen.getByRole("button", { name: "启用深色令牌" }));
+    expect(definition().tokens).toEqual({ light: { radius: "md" }, dark: {} });
+    expect(summary()).toHaveTextContent("已覆盖 0 项");
+  });
+
+  it("没写完或越界的令牌输入不进入 definition，预览也不会塌成空白", () => {
+    const shadow = { x: 0, y: 1, blur: 3, spread: 0, color: "#000000", alpha: 0.1 };
+    const { definition } = mount({
+      initialDefinition: {
+        ...initialDefinition,
+        tokens: { light: { colors: { primary: "#112233" }, shadows: { s1: shadow } } },
+      },
+    });
+    openTokens();
+    fireEvent.change(screen.getByRole("textbox", { name: "主色（全站）" }), {
+      target: { value: "#ABCDEF" },
+    });
+    const saved = JSON.stringify(definition());
+    fireEvent.change(screen.getByRole("textbox", { name: "阴影 1 模糊" }), {
+      target: { value: "99" },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "主色（全站）" }), {
+      target: { value: "#12" },
+    });
+    expect(JSON.stringify(definition())).toBe(saved);
+    expect(primaryVar()).toBe("#abcdef");
+    expect(preview().style.getPropertyValue("--shadow-1")).toBe("0px 1px 3px 0px rgb(0 0 0 / 0.1)");
+  });
+
+  it("顶部的浅 / 深切换同时驱动令牌面板、区域控件与预览", () => {
+    mount({ initialDefinition: withTokens });
+    openTokens();
+    expect(screen.getByRole("textbox", { name: "主色（全站）" })).toHaveValue("#112233");
+    expect(screen.getByTestId("theme-fill-solid-color")).toHaveValue("#ffffff");
+    expect(preview()).toHaveAttribute("data-mode", "light");
+    fireEvent.click(screen.getByRole("button", { name: "深色档" }));
+    expect(screen.getByRole("textbox", { name: "主色（全站）" })).toHaveValue("#aabbcc");
+    expect(screen.getByTestId("theme-fill-solid-color")).toHaveValue("#111111");
+    expect(preview()).toHaveAttribute("data-mode", "dark");
+  });
+
+  it("切换浅 / 深档本身不算编辑：不通知表单，definition 不变", () => {
+    const onDefinitionChange = vi.fn();
+    const { definition } = mount({ initialDefinition: withTokens, onDefinitionChange });
+    fireEvent.click(screen.getByRole("button", { name: "深色档" }));
+    fireEvent.click(screen.getByRole("button", { name: "浅色档" }));
+    expect(onDefinitionChange).not.toHaveBeenCalled();
+    expect(definition()).toEqual(withTokens);
+  });
+});

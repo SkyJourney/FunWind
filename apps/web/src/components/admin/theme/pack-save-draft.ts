@@ -1,4 +1,5 @@
 import { parseThemePackDefinition, type ThemePackDefinition } from "@/lib/theme/surface-schema";
+import { tokensSchema } from "@/lib/theme/token-schema";
 
 export interface ThemePackSaveDraft {
   userId: number;
@@ -98,6 +99,15 @@ export function parseThemePackSaveDraft(raw: string): ThemePackSaveDraft | null 
       value.definition.pwa !== undefined &&
       (!isRecord(value.definition.pwa) ||
         Object.values(value.definition.pwa).some((color) => typeof color !== "string"))
+    ) {
+      return null;
+    }
+    // 令牌编辑器的数字框与颜色框只提交合法值，所以编辑器写出的草稿里 tokens 一定通过 schema。
+    // 通不过说明存储被改坏或 schema 收紧过：整份草稿按损坏处理（回到服务端内容并给出提示），
+    // 而不是把一个预览会塌成空白、输入框会显示 undefined 的半残定义交给编辑器。
+    if (
+      value.definition.tokens !== undefined &&
+      !tokensSchema.safeParse(value.definition.tokens).success
     ) {
       return null;
     }

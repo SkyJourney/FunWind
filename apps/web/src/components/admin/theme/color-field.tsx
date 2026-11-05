@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
+import { blockEnterSubmit } from "@/components/admin/theme/enter-guard";
 import { Input } from "@/components/ui/input";
 import { hexColorSchema } from "@/lib/theme/color";
 import { cn } from "@/lib/utils";
@@ -66,6 +67,7 @@ export function ColorField({
           spellCheck={false}
           autoComplete="off"
           autoCapitalize="off"
+          onKeyDown={blockEnterSubmit}
           className="h-8 w-24 px-2 font-mono text-xs md:text-xs"
         />
         <input

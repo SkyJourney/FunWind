@@ -1,10 +1,12 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { StrictMode, type ComponentProps } from "react";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ThemePackEditorForm } from "./theme-pack-editor-form";
 import { themePackSaveDraftKey, type ThemePackSaveDraft } from "./theme/pack-save-draft";
+import type { ThemePackDefinition } from "@/lib/theme/surface-schema";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
@@ -489,5 +491,108 @@ describe("主题保存表单：SSR 与水合", () => {
       await act(async () => root?.unmount());
       container.remove();
     }
+  });
+});
+
+describe("主题保存表单：全站语义令牌（G-19）", () => {
+  const serverTokens: ThemePackDefinition = {
+    ...definition,
+    tokens: { light: { colors: { primary: "#112233" }, radius: "md" } },
+  };
+  const tokenPanel = () => screen.getByTestId("theme-token-editor") as HTMLDetailsElement;
+  const primary = () => screen.getByRole("textbox", { name: "主色（全站）" });
+  const payload = (container: HTMLElement) =>
+    JSON.parse(
+      container.querySelector<HTMLInputElement>('input[name="definition"]')!.value,
+    ) as ThemePackDefinition;
+
+  it("编辑令牌即写入完整快照；出错刷新后从快照恢复令牌、名称与原版本", () => {
+    const first = mount({ initialDefinition: serverTokens });
+    tokenPanel().open = true;
+    fireEvent.change(primary(), { target: { value: "#ABCDEF" } });
+    fireEvent.change(name(), { target: { value: "改过的名称" } });
+    const draft = read();
+    expect(draft.expectedRevision).toBe(4);
+    expect(draft.name).toBe("改过的名称");
+    expect(draft.definition.tokens).toEqual({
+      light: { colors: { primary: "#abcdef" }, radius: "md" },
+    });
+    first.unmount();
+
+    const { container } = mount({ initialDefinition: serverTokens, error: "invalid-definition" });
+    expect(name()).toHaveValue("改过的名称");
+    tokenPanel().open = true;
+    expect(primary()).toHaveValue("#abcdef");
+    expect(payload(container).tokens).toEqual(draft.definition.tokens);
+    expect(revision(container)).toBe("4");
+  });
+
+  it("冲突时草稿里的令牌与原版本一并保留；确认载入最新版本后换成服务端的令牌", () => {
+    const stale: ThemePackSaveDraft = {
+      ...saved,
+      definition: { ...definition, tokens: { light: { colors: { primary: "#445566" } } } },
+    };
+    seed(stale);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const { container } = mount({ initialDefinition: serverTokens, error: "conflict" });
+    tokenPanel().open = true;
+    expect(primary()).toHaveValue("#445566");
+    expect(revision(container)).toBe("3");
+    expect(save()).toBeDisabled();
+    expect(read().definition.tokens).toEqual({ light: { colors: { primary: "#445566" } } });
+
+    fireEvent.click(loadLatest());
+    tokenPanel().open = true;
+    expect(primary()).toHaveValue("#112233");
+    expect(payload(container).tokens).toEqual(serverTokens.tokens);
+    expect(revision(container)).toBe("4");
+    expect(save()).toBeEnabled();
+    expect(sessionStorage.getItem(KEY)).toBeNull();
+  });
+
+  it("草稿里的令牌不合 schema：整份草稿按损坏处理，显示服务端内容并给出提示", () => {
+    const broken = {
+      ...saved,
+      expectedRevision: props.revision,
+      definition: { ...definition, tokens: { light: { radius: "huge" } } },
+    };
+    seed(broken as unknown as ThemePackSaveDraft);
+    const { container } = mount({ initialDefinition: serverTokens, error: "invalid-definition" });
+    expect(name()).toHaveValue(props.name);
+    expect(color()).toHaveValue("#ffffff");
+    expect(payload(container).tokens).toEqual(serverTokens.tokens);
+    expect(screen.getByText(/未找到可恢复的完整草稿/)).toBeInTheDocument();
+  });
+
+  it("草稿把令牌全部恢复继承后，恢复出来的定义里没有 tokens，服务端旧令牌不会复活", () => {
+    const cleared: ThemePackSaveDraft = {
+      ...saved,
+      expectedRevision: props.revision,
+      definition: { ...definition },
+    };
+    seed(cleared);
+    const { container } = mount({ initialDefinition: serverTokens, error: "invalid-definition" });
+    expect(Object.hasOwn(payload(container), "tokens")).toBe(false);
+    tokenPanel().open = true;
+    expect(screen.queryByRole("textbox", { name: "主色（全站）" })).toBeNull();
+  });
+
+  it("令牌面板与颜色框里按回车不提交表单；名称框里按回车照常提交", async () => {
+    const action = vi.fn(async (_data: FormData) => {});
+    const shadow = { x: 0, y: 1, blur: 3, spread: 0, color: "#000000", alpha: 0.1 };
+    mount({
+      action,
+      initialDefinition: {
+        ...definition,
+        tokens: { light: { colors: { primary: "#112233" }, shadows: { s1: shadow } } },
+      },
+    });
+    tokenPanel().open = true;
+    for (const label of ["主色（全站）", "阴影 1 模糊", "浏览器主题色"]) {
+      await userEvent.type(screen.getByRole("textbox", { name: label }), "{Enter}");
+    }
+    expect(action).not.toHaveBeenCalled();
+    await userEvent.type(name(), "{Enter}");
+    await waitFor(() => expect(action).toHaveBeenCalledTimes(1));
   });
 });

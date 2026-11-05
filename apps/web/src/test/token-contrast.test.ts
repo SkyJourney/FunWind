@@ -2,8 +2,16 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { evaluateContrast } from "@/lib/theme/contrast-advisor";
-import { BASE_COLORS } from "@/lib/theme/token-base";
-import { COLOR_KEYS, type ColorKey } from "@/lib/theme/token-schema";
+import {
+  BASE_BAND,
+  BASE_COLORS,
+  BASE_FONT,
+  BASE_RADIUS,
+  BASE_SHADOWS,
+  SHADOW_SLOTS,
+} from "@/lib/theme/token-base";
+import { renderTokenVars } from "@/lib/theme/token-render";
+import { COLOR_KEYS, type ColorKey, type Shadow } from "@/lib/theme/token-schema";
 
 /**
  * 语义色对比度守卫（M11.3 目视验收的遗留清账）。
@@ -200,5 +208,94 @@ describe.each([
   const color = THEMES[themeName];
   it.each(COLOR_KEYS)("%s", (key) => {
     expect(BASE_COLORS[mode][key]).toBe(toHex(color(`--${key}`)));
+  });
+});
+
+/** 解析基础层阴影的最后一层：`x y blur [spread] rgb(r g b / a)` → 令牌 Shadow；认不出的写法直接报错，不静默放过 */
+function parseLastShadowLayer(css: string): Shadow {
+  const layer = css.split(",").at(-1)!.trim();
+  const m = layer.match(
+    /^(-?\d+)(?:px)?\s+(-?\d+)(?:px)?\s+(\d+)(?:px)?\s+(?:(-?\d+)(?:px)?\s+)?rgb\((\d+) (\d+) (\d+) \/ ([\d.]+)\)$/,
+  );
+  if (!m) throw new Error(`无法解析阴影：${css}`);
+  return {
+    x: Number(m[1]),
+    y: Number(m[2]),
+    blur: Number(m[3]),
+    spread: Number(m[4] ?? 0),
+    color: toHex([Number(m[5]), Number(m[6]), Number(m[7])]),
+    alpha: Number(m[8]),
+  };
+}
+
+/**
+ * 基础层非颜色事实（圆角、展示字体、阴影、板块卡）防漂移。
+ * 这些常量是编辑器「覆盖」按钮的起点：点下去之后写进包里的值，经令牌渲染器输出，
+ * 应当与继承时的 CSS 值一致，视觉上没有跳变。所以圆角、字体、板块卡比的是
+ * 「常量经渲染器输出的变量」对「令牌 CSS 声明的变量」；阴影的 CSS 写法与渲染器输出的格式不同
+ * （`0 1px` 对 `0px 1px`），改为解析 CSS 后逐字段比较。
+ */
+describe("基础层非颜色事实与令牌 CSS 一致", () => {
+  const darkLayer = declarations("themes/dark.css", '[data-mode="dark"]');
+  const bandLayer = declarations("themes/default.css", ":root");
+
+  it("圆角档：覆盖为基础档，输出的 --radius 与 semantic.css 相同", () => {
+    const rendered = renderTokenVars({ radius: BASE_RADIUS })["--radius"];
+    expect(rendered).toBeTypeOf("string");
+    expect(rendered).toBe(semantic["--radius"]);
+  });
+
+  it("展示字体档：覆盖为基础档，输出的 --fw-font-display 与 primitives.css 相同", () => {
+    const rendered = renderTokenVars({ displayFont: BASE_FONT })["--fw-font-display"];
+    expect(rendered).toBeTypeOf("string");
+    expect(rendered).toBe(primitives["--fw-font-display"]);
+  });
+
+  it("浅色阴影：semantic 的 --shadow-N 引用 primitives 的 --fw-shadow-N", () => {
+    for (const n of ["1", "2", "3"]) {
+      expect(semantic[`--shadow-${n}`]).toBe(`var(--fw-shadow-${n})`);
+    }
+  });
+
+  it("只有浅色 s1 是两层叠加，其余五项都是单层（起点取最后一层的前提）", () => {
+    const layers = (css: string) => css.split(",").length;
+    expect(layers(primitives["--fw-shadow-1"])).toBe(2);
+    expect(layers(primitives["--fw-shadow-2"])).toBe(1);
+    expect(layers(primitives["--fw-shadow-3"])).toBe(1);
+    for (const n of ["1", "2", "3"]) expect(layers(darkLayer[`--shadow-${n}`])).toBe(1);
+  });
+
+  it.each(["light", "dark"] as const)(
+    "阴影 %s 档：三档起点与 CSS（最后一层）逐字段相等",
+    (mode) => {
+      for (const slot of SHADOW_SLOTS) {
+        const n = slot.slice(1);
+        const css = mode === "light" ? primitives[`--fw-shadow-${n}`] : darkLayer[`--shadow-${n}`];
+        expect(css, `${mode} ${slot} 的 CSS`).toBeTypeOf("string");
+        expect(BASE_SHADOWS[mode][slot], `${mode} ${slot}`).toStrictEqual(
+          parseLastShadowLayer(css),
+        );
+      }
+    },
+  );
+
+  it("板块卡：覆盖为基础值，输出的五个变量与 default.css 逐项相同", () => {
+    const rendered = renderTokenVars({ band: BASE_BAND });
+    for (const name of [
+      "--band-width",
+      "--band-angle",
+      "--band-fade",
+      "--band-dim-opacity",
+      "--band-mask-display",
+    ]) {
+      expect(rendered[name], name).toBeTypeOf("string");
+      expect(rendered[name], name).toBe(bandLayer[name]);
+    }
+  });
+
+  it("板块卡遮罩色在基础层跟随卡片底色，所以起点不含 maskColor", () => {
+    expect(bandLayer["--band-mask-color"]).toBe("var(--card)");
+    expect(renderTokenVars({ band: BASE_BAND })).not.toHaveProperty("--band-mask-color");
+    expect(Object.hasOwn(BASE_BAND, "maskColor")).toBe(false);
   });
 });
