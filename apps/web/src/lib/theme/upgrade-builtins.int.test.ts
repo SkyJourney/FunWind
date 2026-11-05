@@ -7,7 +7,10 @@ import { getWebDb } from "@funwind/db";
 import { backfillMissingSections, resetToBuiltin, swapIfUnchanged } from "./upgrade-builtins";
 import { parseThemePackDefinition } from "./surface-schema";
 
-describe("upgrade-builtins 集成测试（真实 MySQL）", () => {
+// 集成测试需要真实 MySQL，CI 环境数据库配置不同，仅本地运行
+const isCI = process.env.CI === "true";
+
+describe.skipIf(isCI)("upgrade-builtins 集成测试（真实 MySQL）", () => {
   const db = getWebDb();
   const testId = "test-upgrade-pack";
 

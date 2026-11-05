@@ -1,9 +1,9 @@
 {
-  "updatedAt": "2026-10-31",
+  "updatedAt": "2026-11-05",
   "jscpdVersion": "pinned-in-package.json",
   "minTokens": 40,
-  "duplicatedLines": 2005,
-  "clones": 214,
-  "percentageForReference": 3.3,
-  "sources": 449
+  "duplicatedLines": 1400,
+  "clones": 159,
+  "percentageForReference": 1.89,
+  "sources": 565
 }
