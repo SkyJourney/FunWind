@@ -45,3 +45,4 @@ apps/web/AGENTS.md
 *.tsbuildinfo
 /storage-e2e/
 /storage-e2e-*/
+apps/web/.vitest/

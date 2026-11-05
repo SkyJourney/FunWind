@@ -1,6 +1,6 @@
 import "server-only";
 import { sql } from "drizzle-orm";
-import { getWebDb, themePackages } from "@funwind/db";
+import { getWebDb } from "@funwind/db";
 
 /**
  * 内置包升级原语（M11.6 Step 2）：backfillMissingSections / swapIfUnchanged。
@@ -29,26 +29,24 @@ export async function backfillMissingSections(
   const db = getWebDb();
   if (Object.keys(sections).length === 0) return 0;
 
-  // 构造 JSON_SET 表达式：对每个段，只在路径不存在时补值
-  const setExprs: ReturnType<typeof sql>[] = [];
+  // 构造 JSON_INSERT 表达式：对每个段，只在路径不存在时插入
+  const paths: string[] = [];
+  const values: string[] = [];
   for (const [key, value] of Object.entries(sections)) {
-    setExprs.push(
-      sql`'$.${sql.raw(key)}', IF(JSON_CONTAINS_PATH(definition, 'one', ${`$.${key}`}), JSON_EXTRACT(definition, ${`$.${key}`}), ${JSON.stringify(value)})`,
-    );
+    paths.push(`'$.${key}'`);
+    values.push(`CAST('${JSON.stringify(value).replace(/'/g, "''")}' AS JSON)`);
   }
 
   // 只在至少一个段缺失时才更新
-  const missingConds = Object.keys(sections)
-    .map((key) => sql`JSON_CONTAINS_PATH(definition, 'one', ${`$.${key}`}) = 0`)
-    .reduce((a, b) => sql`${a} OR ${b}`);
+  const missingChecks = Object.keys(sections)
+    .map((key) => `JSON_CONTAINS_PATH(definition, 'one', '$.${key}') = 0`)
+    .join(" OR ");
 
-  const [result] = await db
-    .update(themePackages)
-    .set({
-      definition: sql`JSON_SET(definition, ${sql.join(setExprs, sql.raw(", "))})`,
-      revision: sql`revision + 1`,
-    })
-    .where(sql`id = ${id} AND (${missingConds})`);
+  const [result] = await db.execute(
+    sql.raw(
+      `UPDATE theme_packages SET definition = JSON_INSERT(definition, ${paths.map((p, i) => `${p}, ${values[i]}`).join(", ")}), revision = revision + 1 WHERE id = '${id}' AND (${missingChecks})`,
+    ),
+  );
 
   return result?.affectedRows ?? 0;
 }
@@ -73,13 +71,11 @@ export async function swapIfUnchanged(
 ): Promise<number> {
   const db = getWebDb();
 
-  const [result] = await db
-    .update(themePackages)
-    .set({
-      definition: sql`JSON_SET(definition, ${jsonPath}, ${JSON.stringify(newValue)})`,
-      revision: sql`revision + 1`,
-    })
-    .where(sql`id = ${id} AND JSON_EXTRACT(definition, ${jsonPath}) = ${JSON.stringify(oldValue)}`);
+  const [result] = await db.execute(
+    sql.raw(
+      `UPDATE theme_packages SET definition = JSON_REPLACE(definition, '${jsonPath}', CAST('${JSON.stringify(newValue).replace(/'/g, "''")}' AS JSON)), revision = revision + 1 WHERE id = '${id}' AND JSON_EXTRACT(definition, '${jsonPath}') = CAST('${JSON.stringify(oldValue).replace(/'/g, "''")}' AS JSON)`,
+    ),
+  );
 
   return result?.affectedRows ?? 0;
 }
