@@ -31,10 +31,10 @@ describe("upgrade-builtins 集成测试（真实 MySQL）", () => {
 
       const rows = (
         await db.execute(sql`SELECT definition, revision FROM theme_packages WHERE id = ${testId}`)
-      )[0] as unknown as Array<{ definition: string; revision: number }>;
+      )[0] as unknown as Array<{ definition: unknown; revision: number }>;
       const row = rows[0];
       expect(row.revision).toBe(2);
-      const def = parseThemePackDefinition(JSON.parse(row.definition));
+      const def = parseThemePackDefinition(row.definition);
       expect(def?.ok).toBe(true);
       if (def?.ok) {
         expect(def.value.tokens).toEqual(tokens);
@@ -49,10 +49,10 @@ describe("upgrade-builtins 集成测试（真实 MySQL）", () => {
 
       const rows = (
         await db.execute(sql`SELECT definition, revision FROM theme_packages WHERE id = ${testId}`)
-      )[0] as unknown as Array<{ definition: string; revision: number }>;
+      )[0] as unknown as Array<{ definition: unknown; revision: number }>;
       const row = rows[0];
       expect(row.revision).toBe(2);
-      const def = parseThemePackDefinition(JSON.parse(row.definition));
+      const def = parseThemePackDefinition(row.definition);
       if (def?.ok) {
         expect(def.value.tokens?.light?.colors?.primary).toBe("#147ba9");
       }
@@ -65,10 +65,10 @@ describe("upgrade-builtins 集成测试（真实 MySQL）", () => {
 
       const rows = (
         await db.execute(sql`SELECT definition, revision FROM theme_packages WHERE id = ${testId}`)
-      )[0] as unknown as Array<{ definition: string; revision: number }>;
+      )[0] as unknown as Array<{ definition: unknown; revision: number }>;
       const row = rows[0];
       expect(row.revision).toBe(3);
-      const def = parseThemePackDefinition(JSON.parse(row.definition));
+      const def = parseThemePackDefinition(row.definition);
       if (def?.ok) {
         expect(def.value.pwa).toEqual(pwa);
       }
@@ -87,10 +87,10 @@ describe("upgrade-builtins 集成测试（真实 MySQL）", () => {
 
       const rows = (
         await db.execute(sql`SELECT definition, revision FROM theme_packages WHERE id = ${testId}`)
-      )[0] as unknown as Array<{ definition: string; revision: number }>;
+      )[0] as unknown as Array<{ definition: unknown; revision: number }>;
       const row = rows[0];
       expect(row.revision).toBe(4);
-      const def = parseThemePackDefinition(JSON.parse(row.definition));
+      const def = parseThemePackDefinition(row.definition);
       if (def?.ok) {
         expect(def.value.tokens?.light?.colors?.primary).toBe("#116a92");
       }
@@ -107,10 +107,10 @@ describe("upgrade-builtins 集成测试（真实 MySQL）", () => {
 
       const rows = (
         await db.execute(sql`SELECT definition, revision FROM theme_packages WHERE id = ${testId}`)
-      )[0] as unknown as Array<{ definition: string; revision: number }>;
+      )[0] as unknown as Array<{ definition: unknown; revision: number }>;
       const row = rows[0];
       expect(row.revision).toBe(4);
-      const def = parseThemePackDefinition(JSON.parse(row.definition));
+      const def = parseThemePackDefinition(row.definition);
       if (def?.ok) {
         expect(def.value.tokens?.light?.colors?.primary).toBe("#116a92");
       }
