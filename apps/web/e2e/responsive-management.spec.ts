@@ -774,6 +774,19 @@ for (const width of LAYOUT_WIDTHS) {
           });
           // 仅修改浏览器内的草稿，不点保存/上传/全站预览，不改变 default 包。
         });
+        await audit.step("admin-themes-default-color-field-invalid", async () => {
+          // 颜色输入没写完时的错误态：提示文字在窄容器里要换行，不能撑出横向滚动
+          const themeColor = page.getByRole("textbox", { name: "浏览器主题色", exact: true });
+          await themeColor.fill("#12");
+          await page.getByRole("textbox", { name: "填充色标 1 颜色", exact: true }).fill("#12");
+          await expect(themeColor).toHaveAttribute("aria-invalid", "true");
+          await expect(page.getByText(/当前仍使用 #0e7490/)).toBeVisible();
+          await audit.capture("admin-themes-default-color-field-invalid", {
+            roots: ADMIN_ROOT,
+            buttons: ADMIN_BUTTONS,
+            regions: [{ name: "color-fields", selector: 'section[aria-label="主题区域设置"]' }],
+          });
+        });
 
         // 运营排期：方案经界面创建并在结束时经界面删除（站点缓存只有走 Action 才会失效）。
         const campaignName = "排期布局回归".padEnd(60, "长");

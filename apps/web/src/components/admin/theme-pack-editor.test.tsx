@@ -215,6 +215,122 @@ describe("ThemePackEditor：渐变控件", () => {
   });
 });
 
+describe("ThemePackEditor：颜色输入（ColorField 接线）", () => {
+  /** 浅 / 深两档都有填充、遮罩、边框、文字色，且互不相同，便于确认切换后显示的是各自的值 */
+  const rich: ThemePackDefinition = {
+    surfaces: {
+      header: {
+        light: {
+          fill: { type: "solid", color: "#ffffff" },
+          overlay: { type: "solid", color: "#010101" },
+          border: { color: "#020202", width: 1, style: "solid" },
+          text: { primary: "#030303", muted: "#040404", link: "#050505" },
+        },
+        dark: {
+          fill: { type: "solid", color: "#111111" },
+          overlay: { type: "solid", color: "#212121" },
+          border: { color: "#313131", width: 1, style: "solid" },
+          text: { primary: "#414141", muted: "#515151", link: "#616161" },
+        },
+      },
+    },
+  };
+  const field = (name: string) => screen.getByRole("textbox", { name });
+
+  it("PWA 两个颜色的可访问名称就是可见文字", () => {
+    mount();
+    expect(field("浏览器主题色")).toHaveValue("#123456");
+    expect(field("PWA 背景色")).toHaveValue("#abcdef");
+  });
+
+  it("遮罩纯色：改的是遮罩颜色，不动填充", () => {
+    const { definition } = mount();
+    fireEvent.click(overlayControls().getByRole("radio", { name: "纯色" }));
+    fireEvent.change(field("遮罩颜色"), { target: { value: "#0a0b0c" } });
+    const light = definition().surfaces.header.light;
+    expect(light.overlay).toMatchObject({ type: "solid", color: "#0a0b0c" });
+    expect(light.fill).toEqual({ type: "solid", color: "#ffffff" });
+  });
+
+  it("边框颜色：改颜色时补全宽度与线型的默认值", () => {
+    const { definition } = mount();
+    expect(field("边框颜色")).toHaveValue("#e2e8f0");
+    fireEvent.change(field("边框颜色"), { target: { value: "#102030" } });
+    expect(definition().surfaces.header.light.border).toEqual({
+      color: "#102030",
+      width: 1,
+      style: "solid",
+    });
+  });
+
+  it.each([
+    ["primary", "正文"],
+    ["muted", "弱化文字"],
+    ["link", "链接"],
+  ] as const)("文字色 %s（%s）：只改这一项，其余补默认值", (key, label) => {
+    const { definition } = mount();
+    fireEvent.change(field(`${label}（文字色）`), { target: { value: "#0a0b0c" } });
+    expect(definition().surfaces.header.light.text).toEqual({
+      primary: "#334155",
+      muted: "#64748b",
+      link: "#147ba9",
+      [key]: "#0a0b0c",
+    });
+  });
+
+  it("没写完的颜色文本不进入草稿，预览也不会因为校验失败而塌掉", () => {
+    const { definition } = mount();
+    const fill = screen.getByTestId("theme-fill-solid-color");
+    fireEvent.change(fill, { target: { value: "#12" } });
+    expect(fill).toHaveAttribute("aria-invalid", "true");
+    expect(definition()).toEqual(initialDefinition);
+    expect(preview().style.getPropertyValue("--sf-header-bg")).toBe("#ffffff");
+  });
+
+  it.each([
+    ["填充颜色", "#ffffff", "#111111"],
+    ["遮罩颜色", "#010101", "#212121"],
+    ["边框颜色", "#020202", "#313131"],
+    ["正文（文字色）", "#030303", "#414141"],
+    ["弱化文字（文字色）", "#040404", "#515151"],
+    ["链接（文字色）", "#050505", "#616161"],
+  ])("%s：没写完的文本不会跟到另一个档，切换后显示各自的值", (name, light, dark) => {
+    mount({ initialDefinition: rich });
+    fireEvent.change(field(name), { target: { value: "#12" } });
+    expect(field(name)).toHaveAttribute("aria-invalid", "true");
+    fireEvent.click(screen.getByRole("button", { name: "深色档" }));
+    expect(field(name)).toHaveValue(dark);
+    expect(field(name)).not.toHaveAttribute("aria-invalid");
+    fireEvent.click(screen.getByRole("button", { name: "浅色档" }));
+    expect(field(name)).toHaveValue(light);
+    expect(field(name)).not.toHaveAttribute("aria-invalid");
+  });
+
+  it("改第 2 个色标的颜色，只动第 2 个", () => {
+    const { definition } = mount();
+    fireEvent.click(fillControls().getByRole("radio", { name: "线性渐变" }));
+    fireEvent.change(fillControls().getByLabelText("填充色标 2 颜色"), {
+      target: { value: "#0a0b0c" },
+    });
+    const fill = definition().surfaces.header.light.fill;
+    if (fill?.type !== "linear") throw new Error("应为线性渐变");
+    expect(fill.stops.map((stop) => stop.color)).toEqual(["#147ba9", "#0a0b0c"]);
+  });
+
+  it("删除色标后，没写完的颜色文本不会错位到别的色标上", () => {
+    mount();
+    fireEvent.click(fillControls().getByRole("radio", { name: "线性渐变" }));
+    fireEvent.click(fillControls().getByRole("button", { name: "添加色标" }));
+    const stop = (n: number) => fillControls().getByLabelText(`填充色标 ${n} 颜色`);
+    fireEvent.change(stop(2), { target: { value: "#12" } });
+    expect(stop(2)).toHaveAttribute("aria-invalid", "true");
+    fireEvent.click(fillControls().getByRole("button", { name: "删除填充色标 1" }));
+    expect(stop(1)).toHaveValue("#f6f3e7");
+    expect(stop(2)).toHaveValue("#ffffff");
+    expect(stop(2)).not.toHaveAttribute("aria-invalid");
+  });
+});
+
 describe("ThemePackEditor：图片、内容插槽与素材库", () => {
   it("图片填充控件保持素材、位置、尺寸、重复、混合及不透明度", () => {
     const { definition } = mount();

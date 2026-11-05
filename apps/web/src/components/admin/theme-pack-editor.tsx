@@ -23,6 +23,7 @@ import {
   type SurfaceDraft,
   type SurfaceMeta,
 } from "@/components/admin/theme/pack-draft";
+import { ColorField } from "@/components/admin/theme/color-field";
 import { ThemeSurfaceMock } from "@/components/admin/theme/surface-mock";
 
 export type { SurfaceMeta } from "@/components/admin/theme/pack-draft";
@@ -137,22 +138,20 @@ export function ThemePackEditor({
             <legend className="px-1 text-xs font-medium text-muted-foreground">
               浏览器与 PWA 颜色
             </legend>
-            <label className="flex items-center gap-2 text-xs">
-              浏览器主题色
-              <input
-                type="color"
+            <label className="flex items-start gap-2 text-xs">
+              <span className="shrink-0 pt-2">浏览器主题色</span>
+              <ColorField
+                label="浏览器主题色"
                 value={pwa.themeColor}
-                onChange={(event) => updatePwa("themeColor", event.target.value)}
-                className="h-8 w-14 rounded border"
+                onChange={(hex) => updatePwa("themeColor", hex)}
               />
             </label>
-            <label className="flex items-center gap-2 text-xs">
-              PWA 背景色
-              <input
-                type="color"
+            <label className="flex items-start gap-2 text-xs">
+              <span className="shrink-0 pt-2">PWA 背景色</span>
+              <ColorField
+                label="PWA 背景色"
                 value={pwa.backgroundColor}
-                onChange={(event) => updatePwa("backgroundColor", event.target.value)}
-                className="h-8 w-14 rounded border"
+                onChange={(hex) => updatePwa("backgroundColor", hex)}
               />
             </label>
           </fieldset>
@@ -249,18 +248,15 @@ export function ThemePackEditor({
                 </div>
 
                 {current.fill?.type === "solid" && (
-                  <label className="flex items-center gap-2 text-sm">
-                    颜色
-                    <input
-                      data-testid="theme-fill-solid-color"
-                      type="color"
+                  <label className="flex items-start gap-2 text-sm">
+                    <span className="shrink-0 pt-1.5">颜色</span>
+                    <ColorField
+                      key={`fill:${active}:${mode}`}
+                      testId="theme-fill-solid-color"
+                      label="填充颜色"
                       value={current.fill.color}
-                      onChange={(event) =>
-                        setCap("fill", { type: "solid", color: event.target.value })
-                      }
-                      className="h-8 w-16 rounded border"
+                      onChange={(hex) => setCap("fill", { type: "solid", color: hex })}
                     />
-                    <code className="text-xs text-muted-foreground">{current.fill.color}</code>
                   </label>
                 )}
 
@@ -441,18 +437,15 @@ export function ThemePackEditor({
 
                 {current.overlay?.type === "solid" && (
                   <div className="flex flex-wrap items-center gap-4">
-                    <label className="flex items-center gap-2 text-sm">
-                      遮罩颜色
-                      <input
-                        type="color"
+                    <label className="flex items-start gap-2 text-sm">
+                      <span className="shrink-0 pt-1.5">遮罩颜色</span>
+                      <ColorField
+                        key={`overlay:${active}:${mode}`}
+                        label="遮罩颜色"
                         value={current.overlay.color}
-                        onChange={(event) =>
-                          setCap("overlay", {
-                            ...current.overlay!,
-                            color: event.target.value,
-                          } as OverlaySpec)
+                        onChange={(hex) =>
+                          setCap("overlay", { ...current.overlay!, color: hex } as OverlaySpec)
                         }
-                        className="h-8 w-14 rounded border"
                       />
                     </label>
                     <label className="flex items-center gap-2 text-xs">
@@ -599,19 +592,19 @@ export function ThemePackEditor({
             {activeSurface?.caps.includes("border") && (
               <fieldset className="flex flex-wrap items-center gap-4 border-t pt-3">
                 <legend className="text-xs font-medium text-muted-foreground">边框</legend>
-                <label className="flex items-center gap-2 text-xs">
-                  颜色
-                  <input
-                    type="color"
+                <label className="flex items-start gap-2 text-xs">
+                  <span className="shrink-0 pt-2">颜色</span>
+                  <ColorField
+                    key={`border:${active}:${mode}`}
+                    label="边框颜色"
                     value={current.border?.color ?? "#e2e8f0"}
-                    onChange={(event) =>
+                    onChange={(hex) =>
                       setCap("border", {
-                        color: event.target.value,
+                        color: hex,
                         width: current.border?.width ?? 1,
                         style: current.border?.style ?? "solid",
                       })
                     }
-                    className="h-8 w-14 rounded border"
                   />
                 </label>
                 <label className="flex items-center gap-1 text-xs">
@@ -661,20 +654,20 @@ export function ThemePackEditor({
                     ["link", "链接"],
                   ] as const
                 ).map(([key, label]) => (
-                  <label key={key} className="flex items-center gap-2 text-xs">
-                    {label}
-                    <input
-                      type="color"
+                  <label key={key} className="flex items-start gap-2 text-xs">
+                    <span className="shrink-0 pt-2">{label}</span>
+                    <ColorField
+                      key={`text:${key}:${active}:${mode}`}
+                      label={`${label}（文字色）`}
                       value={current.text?.[key] ?? "#334155"}
-                      onChange={(event) =>
+                      onChange={(hex) =>
                         setCap("text", {
                           primary: current.text?.primary ?? "#334155",
                           muted: current.text?.muted ?? "#64748b",
                           link: current.text?.link ?? "#147ba9",
-                          [key]: event.target.value,
+                          [key]: hex,
                         })
                       }
-                      className="h-8 w-14 rounded border"
                     />
                   </label>
                 ))}

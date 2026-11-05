@@ -1,3 +1,4 @@
+import { ColorField } from "@/components/admin/theme/color-field";
 import type { GradientStop } from "@/lib/theme/surface-schema";
 
 export function GradientAngleEditor({
@@ -40,18 +41,17 @@ export function GradientStopsEditor({
           <span className="text-xs text-muted-foreground">
             {label}色标 {index + 1}
           </span>
-          <input
-            aria-label={`${label}色标 ${index + 1} 颜色`}
-            type="color"
+          <ColorField
+            key={`${index}/${stops.length}`}
+            label={`${label}色标 ${index + 1} 颜色`}
             value={stop.color}
-            onChange={(event) =>
+            onChange={(hex) =>
               onChange(
                 stops.map((item, itemIndex) =>
-                  itemIndex === index ? { ...item, color: event.target.value } : item,
+                  itemIndex === index ? { ...item, color: hex } : item,
                 ),
               )
             }
-            className="h-8 w-14 rounded border"
           />
           <label className="flex items-center gap-1 text-xs">
             透明度
