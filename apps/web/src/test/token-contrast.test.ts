@@ -156,7 +156,8 @@ const KNOWN_FAILURES: Record<string, string[]> = {
   "默认·浅色": ["primary-tint-bg"],
   "默认·暗色": [],
   // primary 在两种淡底上 4.08 / 3.75（M11.6 Step 6 换品牌色后应消失）；
-  // muted-foreground #8a8265 压页面底 / 卡片底 3.46 / 3.77，次要文字普遍不达标，目前没有处理计划
+  // muted-foreground #8a8265 压页面底 / 卡片底 3.46 / 3.77，次要文字普遍不达标；
+  // 站长 2026-11-05 决定并入 Step 6 与品牌色一起加深（docs/milestones/M11.6 的 D6）
   "情怀包 qy2010·浅色": ["muted-fg-bg", "muted-fg-card", "primary-tint-card", "primary-tint-bg"],
 };
 
