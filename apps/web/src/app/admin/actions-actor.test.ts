@@ -37,6 +37,7 @@ const mocks = vi.hoisted(() => ({
   setSetting: vi.fn(),
   toggleTheme: vi.fn(),
   deleteTheme: vi.fn(),
+  resetTheme: vi.fn(),
 }));
 vi.mock("@/modules", () => ({}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -93,6 +94,7 @@ vi.mock("@/lib/chrome/site-chrome", () => ({ invalidateSiteChrome: vi.fn() }));
 vi.mock("@/lib/mail", () => ({ getMailBrand: vi.fn(), sendMail: vi.fn(), testMail: vi.fn() }));
 vi.mock("@/lib/theme/apply-pack-logo", () => ({ tryApplyThemePackLogo: vi.fn() }));
 vi.mock("@/lib/brand/decor-pool", () => ({ getDecorPoolRaw: vi.fn() }));
+vi.mock("@/lib/theme/pack-reset", () => ({ resetThemePack: mocks.resetTheme }));
 vi.mock("@/lib/theme/packs", () => ({
   copyThemePack: vi.fn(),
   createThemePack: vi.fn(),
@@ -327,6 +329,13 @@ const adminCases = [
     permission: "site.admin",
     fields: { id: "unit-pack" },
     args: ["unit-pack", adminActor],
+  },
+  {
+    action: themes.resetThemePackAction,
+    service: mocks.resetTheme,
+    permission: "site.admin",
+    fields: { id: "unit-pack", revision: "4" },
+    args: [{ id: "unit-pack", expectedRevision: 4, actor: adminActor }],
   },
 ];
 

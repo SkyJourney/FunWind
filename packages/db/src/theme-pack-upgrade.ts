@@ -4,6 +4,9 @@ import { themePackages } from "./schema.js";
 import { affectedRowsOf } from "./sql-result.js";
 import { BUILTIN_THEME_PACK_SEEDS } from "./theme-pack-seeds.js";
 
+/** 原语只需要 UPDATE：连接本身和事务句柄都满足（事务句柄没有 `$client`，不能要求完整的 `Db`） */
+export type UpgradeExecutor = Pick<Db, "update">;
+
 /**
  * 内置主题包升级原语（M11.6 Step 2，docs/milestones/M11.6-theme-semantic-tokens.md §3.4）。
  *
@@ -45,7 +48,7 @@ function jsonPathOf(segments: readonly string[]): string {
  * 且只插入缺失的那些。幂等：全部段都已存在时不写库，revision 不变。
  */
 export async function backfillMissingSections(
-  db: Db,
+  db: UpgradeExecutor,
   id: string,
   sections: Readonly<Record<string, unknown>>,
 ): Promise<number> {
@@ -78,7 +81,7 @@ export async function backfillMissingSections(
  * 路径不存在或值已被站长改过时不写库，返回 0。
  */
 export async function swapIfUnchanged(
-  db: Db,
+  db: UpgradeExecutor,
   id: string,
   path: readonly string[],
   oldValue: unknown,
@@ -105,7 +108,7 @@ export async function swapIfUnchanged(
  * 重置为内置定义：把整份 definition 恢复为种子里的版本。只作用于 `is_builtin = 1` 的种子包，
  * 不是内置种子的 id 返回 0。名称、说明、启停状态与素材清单不动。
  */
-export async function resetToBuiltin(db: Db, id: string): Promise<number> {
+export async function resetToBuiltin(db: UpgradeExecutor, id: string): Promise<number> {
   const seed = BUILTIN_THEME_PACK_SEEDS.find((candidate) => candidate.id === id);
   if (!seed) return 0;
   const result = await db

@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
 import sharp from "sharp";
+import { hydrated } from "./support/hydration";
 import { LayoutAudit, LAYOUT_AUDIT_ONLY } from "./support/layout-audit";
 import { failOnPageErrors } from "./support/page-errors";
 import {
@@ -735,6 +736,42 @@ for (const width of LAYOUT_WIDTHS) {
             });
           });
         }
+
+        // 主题列表的内置行（Step 3f）：操作区新增了最长的按钮「重置为内置定义」，窄屏要换行，不能撑出横向滚动
+        const builtinCard = page.locator(
+          '[data-slot="card"]:has(input[name="id"][value="qy2010"]):has(input[name="revision"])',
+        );
+        const resetTrigger = builtinCard.getByRole("button", {
+          name: "重置为内置定义",
+          exact: true,
+        });
+        await audit.step("admin-themes-list-builtin-actions", async () => {
+          await page.goto("/admin/themes");
+          await expect(resetTrigger).toBeVisible();
+          await audit.capture("admin-themes-list-builtin-actions", {
+            roots: ADMIN_ROOT,
+            buttons: ADMIN_BUTTONS,
+            required: ['[data-slot="card"] form:has(input[name="revision"]) button'],
+            regions: [
+              { name: "builtin-cards", selector: '[data-slot="card"]:has(input[name="revision"])' },
+            ],
+          });
+        });
+        await audit.step("admin-themes-list-reset-confirm", async () => {
+          // 只看确认框的布局，不真的重置：最后点取消
+          await hydrated(resetTrigger);
+          await resetTrigger.click();
+          const dialog = page.getByRole("dialog", { name: "重置为内置定义？" });
+          await expect(dialog).toBeVisible();
+          await audit.capture("admin-themes-list-reset-confirm", {
+            roots: '[role="dialog"]',
+            buttons: '[role="dialog"] button',
+            required: ['[role="dialog"]'],
+            regions: [{ name: "dialog", selector: '[role="dialog"]' }],
+          });
+          await dialog.getByRole("button", { name: "取消", exact: true }).click();
+          await expect(dialog).toHaveCount(0);
+        });
 
         await audit.step("admin-themes-default-workspace", async () => {
           await page.goto("/admin/themes/default");

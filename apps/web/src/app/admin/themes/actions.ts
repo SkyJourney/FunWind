@@ -18,6 +18,7 @@ import {
   updateThemePack,
 } from "@/lib/theme/packs";
 import { encodeIssues } from "@/lib/theme/issues";
+import { resetThemePack } from "@/lib/theme/pack-reset";
 import { parseThemePackDefinition } from "@/lib/theme/surface-schema";
 
 /**
@@ -159,6 +160,31 @@ export const deleteThemePackAction = defineAction({
     invalidateSiteChrome();
     revalidatePath("/admin/themes");
     redirect("/admin/themes?saved=deleted");
+  },
+});
+
+/**
+ * 重置内置包为种子定义（M11.6 Step 3f）：只在内置包的列表行上出现。
+ * revision 是列表加载时的版本，服务层在行锁内核对，别人改过就报冲突、不覆盖。
+ * 目录缓存由服务层失效；全站默认包的 id 不变，所以不需要刷新站点外壳缓存。
+ */
+export const resetThemePackAction = defineAction({
+  name: "admin.theme.pack.reset",
+  auth: { admin: "site.admin" },
+  input: z.object({
+    id: z.string().max(32),
+    revision: z.coerce.number().int().min(1),
+  }),
+  async run(ctx, input) {
+    const result = await resetThemePack({
+      id: input.id,
+      expectedRevision: input.revision,
+      actor: ctx.actor,
+    });
+    if (!result.ok) redirect(`/admin/themes?err=${result.code}`);
+    revalidatePath("/admin/themes");
+    revalidatePath(`/admin/themes/${encodeURIComponent(input.id)}`);
+    redirect("/admin/themes?saved=reset");
   },
 });
 

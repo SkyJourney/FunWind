@@ -269,6 +269,31 @@ describe.skipIf(skip)("内置主题包升级原语集成（临时库）", () => 
       expect(await stampOf(id)).toBe(OLD_STAMP);
     });
 
+    it("传入事务句柄：提交后生效，回滚后定义与 revision 都不变", async () => {
+      const seed = BUILTIN_THEME_PACK_SEEDS[0]!;
+      const tampered = { surfaces: {}, tampered: true };
+      await db
+        .update(themePackages)
+        .set({ definition: tampered })
+        .where(eq(themePackages.id, seed.id));
+      const before = await read(seed.id);
+
+      await expect(
+        db.transaction(async (tx) => {
+          expect(await resetToBuiltin(tx, seed.id)).toBe(1);
+          throw new Error("rollback");
+        }),
+      ).rejects.toThrow("rollback");
+      expect(await read(seed.id)).toEqual(before);
+
+      await db.transaction(async (tx) => {
+        expect(await resetToBuiltin(tx, seed.id)).toBe(1);
+      });
+      const after = await read(seed.id);
+      expect(after.definition).toEqual(seed.definition);
+      expect(after.revision).toBe(before.revision + 1);
+    });
+
     it("种子 id 但行已不是内置包（is_builtin = 0）时不动", async () => {
       const seed = BUILTIN_THEME_PACK_SEEDS[0]!;
       await db

@@ -16,6 +16,7 @@ import {
   copyThemePackAction,
   createThemePackAction,
   deleteThemePackAction,
+  resetThemePackAction,
   setDefaultThemePackAction,
   toggleThemePackAction,
 } from "./actions";
@@ -28,6 +29,7 @@ const FLASH: Record<string, string> = {
   copied: "主题包已复制。",
   deleted: "主题包已删除。",
   toggled: "主题包状态已更新。",
+  reset: "已重置为内置定义（名称、说明、启停状态与 LOGO 保持不变）。",
   default: "已设为全站默认主题。",
   default_logo: "已设为全站默认主题，并把 LOGO 切换为该主题自带图（可在「LOGO 管理」独立改回）。",
   default_no_logo: "已设为全站默认主题（此主题无自带 LOGO，LOGO 保持不变）。",
@@ -40,6 +42,7 @@ const ERR_TEXT: Record<string, string> = {
   "reserved-id": "该 id 是系统保留字（default / dark / system），请换一个。",
   "duplicate-id": "同名包已存在。",
   "not-found": "包不存在。",
+  "not-builtin": "只有内置主题包可以重置为内置定义。",
   conflict: "包已被他人修改（版本冲突）——请刷新页面后重试，避免覆盖对方的改动。",
   protected: "default 包不可停用；内置包（含 default）不可删除、不可复制。",
   "invalid-definition": "包配置校验未通过，请检查分区定义（颜色须为 #RRGGBB、字段不可未知）。",
@@ -242,6 +245,21 @@ export default async function ThemesAdminPage(props: {
                         {pack.id === "default" ? "不可停用" : pack.enabled ? "停用" : "启用"}
                       </SubmitButton>
                     </form>
+                    {pack.isBuiltin && (
+                      <form action={resetThemePackAction}>
+                        <input type="hidden" name="id" value={pack.id} />
+                        {/* 列表加载时的版本：服务端在行锁内核对，别人改过就报冲突、不覆盖 */}
+                        <input type="hidden" name="revision" value={pack.revision} />
+                        <ConfirmSubmit
+                          title="重置为内置定义？"
+                          description="将用内置定义覆盖当前的区域外观、配色令牌和 PWA 颜色，名称、说明、启停状态与 LOGO 保持不变。此操作不可撤销；需要留存当前版本，请先导出 ZIP。"
+                          className="rounded-md border px-2.5 py-1 text-xs text-destructive hover:bg-destructive/10"
+                          pendingText="重置中…"
+                        >
+                          重置为内置定义
+                        </ConfirmSubmit>
+                      </form>
+                    )}
                     {!pack.isBuiltin && (
                       <form action={copyThemePackAction}>
                         <input type="hidden" name="sourceId" value={pack.id} />

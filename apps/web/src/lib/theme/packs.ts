@@ -66,7 +66,7 @@ export interface ThemePackAsset {
   bytes?: number;
 }
 
-function toSummary(row: ThemePackRow): ThemePackSummary {
+export function toSummary(row: ThemePackRow): ThemePackSummary {
   const definition = row.definition as { surfaces?: Record<string, unknown> } | null;
   const assets = Array.isArray(row.assets) ? row.assets : [];
   return {
@@ -82,7 +82,7 @@ function toSummary(row: ThemePackRow): ThemePackSummary {
   };
 }
 
-async function lockThemePack(tx: DbTx, id: string): Promise<ThemePackRow | null> {
+export async function lockThemePack(tx: DbTx, id: string): Promise<ThemePackRow | null> {
   const [row] = await tx
     .select()
     .from(themePackages)
@@ -278,7 +278,7 @@ export async function getDecorUsage(): Promise<Map<string, DecorUsage[]>> {
   return usage;
 }
 
-function assetsForDefinition(
+export function assetsForDefinition(
   rawAssets: unknown,
   definition: ThemePackDefinition,
 ): ThemePackAsset[] {
