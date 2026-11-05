@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { evaluateContrast } from "@/lib/theme/contrast-advisor";
+import { COLOR_KEYS, type ColorKey } from "@/lib/theme/token-schema";
 
 /**
  * 语义色对比度守卫（M11.3 目视验收的遗留清账）。
@@ -137,4 +139,49 @@ describe("primary（品牌色，不改令牌）", () => {
 
   // 已知缺口（非本次范围，登记在 M11.3 遗留事项）：情怀包 primary 文字压在淡底上不足 4.5:1，
   // 这里不写成断言，避免用放宽阈值掩盖；等站长决定是否调整情怀包品牌色再补。
+});
+
+/**
+ * 对比度顾问（lib/theme/contrast-advisor.ts，M11.6）与真实主题 CSS 的交叉核对。
+ * 顾问和本文件的 contrast() / over() 是两份独立实现：每一对的比值必须一致，
+ * 说明顾问的配对表、淡底合成与取色没有写错。
+ * 「未达标清单」是对现状的固定：谁改了令牌让清单变化，这里会变红，要求有意识地更新；
+ * 清单里的项就是顾问在后台会给出的警告（只警告不阻止保存），不是被放过的缺陷。
+ */
+const toHex = ([r, g, b]: Rgb) =>
+  `#${[r, g, b].map((c) => c.toString(16).padStart(2, "0")).join("")}`;
+
+const KNOWN_FAILURES: Record<string, string[]> = {
+  // 4.487，差 0.013；M11.3.1 已对 AuthShell 提示条做局部加深，令牌本身不动
+  "默认·浅色": ["primary-tint-bg"],
+  "默认·暗色": [],
+  // primary 在两种淡底上 4.08 / 3.75（M11.6 Step 6 换品牌色后应消失）；
+  // muted-foreground #8a8265 压页面底 / 卡片底 3.46 / 3.77，次要文字普遍不达标，目前没有处理计划
+  "情怀包 qy2010·浅色": ["muted-fg-bg", "muted-fg-card", "primary-tint-card", "primary-tint-bg"],
+};
+
+describe.each(Object.entries(THEMES))("%s：对比度顾问与独立实现一致", (name, color) => {
+  const palette = Object.fromEntries(
+    COLOR_KEYS.map((key) => [key, toHex(color(`--${key}`))]),
+  ) as Record<ColorKey, string>;
+  const checks = evaluateContrast(palette);
+
+  it("每一对的比值都等于本文件独立算出的值", () => {
+    expect(checks).toHaveLength(18);
+    for (const check of checks) {
+      const fg = color(`--${check.fg}`);
+      const bg = color(`--${check.bg}`);
+      const expected =
+        check.tintAlpha === undefined
+          ? contrast(fg, bg)
+          : contrast(fg, over(fg, bg, check.tintAlpha));
+      expect(check.ratio, check.id).toBeCloseTo(expected, 10);
+    }
+  });
+
+  it("未达标的配对恰为已知清单", () => {
+    expect(checks.filter((check) => !check.pass).map((check) => check.id)).toEqual(
+      KNOWN_FAILURES[name],
+    );
+  });
 });
