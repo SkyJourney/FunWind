@@ -15,10 +15,13 @@ import { invalidateThemeCatalog } from "@/lib/theme/catalog";
 import * as packs from "@/lib/theme/packs";
 import {
   buildThemePackArchive,
+  parseThemePackArchive,
   type ThemePackArchiveAssetInput,
 } from "@/lib/theme/theme-pack-archive";
 import type { ThemePackDefinition } from "@/lib/theme/surface-schema";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
+import { FULL_TOKENS } from "@/test/theme-token-fixture";
+import { GET as exportPack } from "../[id]/export/route";
 import { POST } from "./route";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -28,6 +31,8 @@ vi.mock("@/lib/authz/require-admin", () => ({
 
 const actor = { userId: 1, via: "admin" as const, ip: null };
 const packId = "import-theme";
+/** 往返用例里先建、再导出的源包 */
+const SOURCE_ID = "export-source";
 const oldDecor = `decor-${"e".repeat(32)}.png`;
 const oldLogo = `logo-${"f".repeat(32)}.png`;
 const decorA = `decor-${"a".repeat(32)}.png`;
@@ -46,6 +51,7 @@ const image = (asset: string) => ({
 });
 const definition: ThemePackDefinition = {
   pwa,
+  tokens: FULL_TOKENS,
   surfaces: {
     "forum-band": { light: { fill: image(decorA) }, dark: { fill: image(decorB) } },
     "hero-image": {
@@ -81,13 +87,15 @@ function archive(): Uint8Array {
   });
 }
 
-async function importPack(): Promise<URLSearchParams> {
-  const response = await POST(request(archive()));
+async function importBytes(bytes: Uint8Array): Promise<URLSearchParams> {
+  const response = await POST(request(bytes));
   expect(response.status).toBe(303);
   const location = new URL(response.headers.get("location")!, "http://127.0.0.1:3100");
   expect(location.pathname).toBe("/admin/themes");
   return location.searchParams;
 }
+
+const importPack = () => importBytes(archive());
 
 function cleanupSpies() {
   return {
@@ -133,6 +141,7 @@ describe.skipIf(skipDb)("主题包导入（临时库 + 临时存储）", () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     await getWebDb().delete(themePackages).where(eq(themePackages.id, packId));
+    await getWebDb().delete(themePackages).where(eq(themePackages.id, SOURCE_ID));
     await getWebDb()
       .delete(siteSettings)
       .where(inArray(siteSettings.key, ["site.decor", "site.logo"]));
@@ -179,6 +188,8 @@ describe.skipIf(skipDb)("主题包导入（临时库 + 临时存储）", () => {
       new Set([lightDecor, darkDecor]),
     );
     expect(stored.pwa).toEqual(pwa);
+    // 素材被重映射的同时，完整令牌（浅深两档）原样入库
+    expect(stored.tokens).toEqual(FULL_TOKENS);
     expect(stored.surfaces["forum-band"].light.fill).toEqual(image(lightDecor));
     expect(stored.surfaces["forum-band"].dark?.fill).toEqual(image(darkDecor));
     expect(stored.surfaces["hero-image"].light.contentSlot).toEqual({
@@ -194,6 +205,42 @@ describe.skipIf(skipDb)("主题包导入（临时库 + 临时存储）", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/admin/themes");
     expect(revalidatePath).toHaveBeenCalledWith("/admin/decor");
     expect(revalidatePath).toHaveBeenCalledWith("/admin/logo");
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it("导出再导入的往返：完整令牌、PWA 与区域定义经导出路由和导入路由后逐项相同", async () => {
+    // 不带素材：素材的导出导入由上一个用例（导入）与 e2e（theme-manager.spec 的导出 ZIP 再导入）覆盖
+    const source: ThemePackDefinition = {
+      pwa,
+      tokens: FULL_TOKENS,
+      surfaces: { header: { light: { fill: { type: "solid", color: "#112233" } } } },
+    };
+    const created = await packs.createThemePack({
+      id: SOURCE_ID,
+      name: "往返源包",
+      description: "导出再导入",
+      definition: source,
+      actor,
+    });
+    expect(created.ok).toBe(true);
+
+    const response = await exportPack(
+      new Request(`http://127.0.0.1:3100/admin/themes/${SOURCE_ID}/export`),
+      { params: Promise.resolve({ id: SOURCE_ID }) },
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/zip");
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    // 导出这一半单独核对：归档里的定义已经带着完整令牌
+    expect(parseThemePackArchive(bytes).definition.tokens).toEqual(FULL_TOKENS);
+
+    expect(Object.fromEntries(await importBytes(bytes))).toEqual({
+      saved: "imported",
+      id: packId,
+    });
+    const imported = await packs.getThemePack(packId);
+    expect(imported?.definition).toEqual(source);
+    expect(imported).toMatchObject({ name: "往返源包", description: "导出再导入" });
     expect(console.error).not.toHaveBeenCalled();
   });
 
