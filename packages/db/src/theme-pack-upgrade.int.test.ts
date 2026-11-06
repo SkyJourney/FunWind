@@ -11,7 +11,12 @@ import { createDb, createPool } from "./client.js";
 import { newDbConfig } from "./env.js";
 import { themePackages } from "./schema.js";
 import { BUILTIN_THEME_PACK_SEEDS } from "./theme-pack-seeds.js";
-import { backfillMissingSections, resetToBuiltin, swapIfUnchanged } from "./theme-pack-upgrade.js";
+import {
+  backfillMissingSections,
+  resetToBuiltin,
+  swapIfUnchanged,
+  swapManyIfUnchanged,
+} from "./theme-pack-upgrade.js";
 
 const skip = process.env.SKIP_DB_TESTS === "1";
 const base = newDbConfig();
@@ -241,6 +246,114 @@ describe.skipIf(skip)("内置主题包升级原语集成（临时库）", () => 
       const evil = "'; DROP TABLE theme_packages; --";
       expect(await swapIfUnchanged(db, id, [...COLORS, "primary"], evil, "#2")).toBe(0);
       expect((await read(id)).revision).toBe(1);
+    });
+  });
+
+  describe("swapManyIfUnchanged", () => {
+    const swaps = [
+      { path: ["a"], from: "old1", to: "new1" },
+      { path: ["b"], from: "old2", to: "new2" },
+      { path: ["c", "x"], from: "old3", to: "new3" },
+    ];
+
+    it("多条路径都是旧值：全部替换，revision 只 +1（逐条调用会 +3）", async () => {
+      const id = await insertPack({ a: "old1", b: "old2", c: { x: "old3" }, keep: 1 });
+      expect(await swapManyIfUnchanged(db, id, swaps)).toBe(1);
+      const row = await read(id);
+      expect(row.definition).toEqual({ a: "new1", b: "new2", c: { x: "new3" }, keep: 1 });
+      expect(row.revision).toBe(2);
+      expect(await stampOf(id)).not.toBe(OLD_STAMP);
+    });
+
+    it("其中一条被站长改过：只换另外两条，被改的保持原样", async () => {
+      const id = await insertPack({ a: "old1", b: "CUSTOM", c: { x: "old3" } });
+      expect(await swapManyIfUnchanged(db, id, swaps)).toBe(1);
+      const row = await read(id);
+      expect(row.definition).toEqual({ a: "new1", b: "CUSTOM", c: { x: "new3" } });
+      expect(row.revision).toBe(2);
+    });
+
+    it("路径缺失的不创建，存在的照常替换", async () => {
+      const id = await insertPack({ b: "old2" });
+      expect(await swapManyIfUnchanged(db, id, swaps)).toBe(1);
+      expect((await read(id)).definition).toEqual({ b: "new2" });
+    });
+
+    it("全部被站长改过：不写库，revision 与更新时间都不变", async () => {
+      const id = await insertPack({ a: "CUSTOM", b: "CUSTOM" });
+      expect(await swapManyIfUnchanged(db, id, swaps)).toBe(0);
+      expect(await read(id)).toEqual({ definition: { a: "CUSTOM", b: "CUSTOM" }, revision: 1 });
+      expect(await stampOf(id)).toBe(OLD_STAMP);
+    });
+
+    it("已经是新值（跑第二遍）：幂等，不写库", async () => {
+      const id = await insertPack({ a: "old1", b: "old2", c: { x: "old3" } });
+      expect(await swapManyIfUnchanged(db, id, swaps)).toBe(1);
+      expect(await swapManyIfUnchanged(db, id, swaps)).toBe(0);
+      expect((await read(id)).revision).toBe(2);
+    });
+
+    it("同一个值被站长改回「新值」后也不动（新值不等于旧值）", async () => {
+      const id = await insertPack({ a: "new1", b: "new2", c: { x: "new3" } });
+      expect(await swapManyIfUnchanged(db, id, swaps)).toBe(0);
+      expect((await read(id)).revision).toBe(1);
+    });
+
+    it("空列表直接返回 0，不碰库", async () => {
+      const id = await insertPack({ a: "old1" });
+      expect(await swapManyIfUnchanged(db, id, [])).toBe(0);
+      expect((await read(id)).revision).toBe(1);
+    });
+
+    it("数字、布尔与带连字符的键名也能比较并替换", async () => {
+      const id = await insertPack({ band: { width: 8.5, mask: false }, "card-foreground": "#1" });
+      expect(
+        await swapManyIfUnchanged(db, id, [
+          { path: ["band", "width"], from: 8.5, to: 7 },
+          { path: ["band", "mask"], from: false, to: true },
+          { path: ["card-foreground"], from: "#1", to: "#2" },
+        ]),
+      ).toBe(1);
+      expect((await read(id)).definition).toEqual({
+        band: { width: 7, mask: true },
+        "card-foreground": "#2",
+      });
+    });
+
+    it("非法路径段直接报错，且不写库（后面的合法项也不会被执行）", async () => {
+      const id = await insertPack({ a: "old1" });
+      await expect(
+        swapManyIfUnchanged(db, id, [
+          { path: ["a"], from: "old1", to: "new1" },
+          { path: ["x.y"], from: "1", to: "2" },
+        ]),
+      ).rejects.toThrow(TypeError);
+      expect(await read(id)).toEqual({ definition: { a: "old1" }, revision: 1 });
+    });
+
+    it("旧值里夹带 SQL 只是一个不匹配的值：返回 0，表完好", async () => {
+      const id = await insertPack({ a: "old1" });
+      const evil = "'; DROP TABLE theme_packages; --";
+      expect(await swapManyIfUnchanged(db, id, [{ path: ["a"], from: evil, to: "x" }])).toBe(0);
+      expect(await read(id)).toEqual({ definition: { a: "old1" }, revision: 1 });
+    });
+
+    it("只作用于指定 id 的行，别的包不受影响", async () => {
+      const target = await insertPack({ a: "old1" });
+      const other = await insertPack({ a: "old1" });
+      expect(await swapManyIfUnchanged(db, target, [swaps[0]!])).toBe(1);
+      expect(await read(other)).toEqual({ definition: { a: "old1" }, revision: 1 });
+    });
+
+    it("传入事务句柄：回滚后定义与 revision 都不变", async () => {
+      const id = await insertPack({ a: "old1", b: "old2" });
+      await expect(
+        db.transaction(async (tx) => {
+          expect(await swapManyIfUnchanged(tx, id, swaps)).toBe(1);
+          throw new Error("rollback");
+        }),
+      ).rejects.toThrow("rollback");
+      expect(await read(id)).toEqual({ definition: { a: "old1", b: "old2" }, revision: 1 });
     });
   });
 

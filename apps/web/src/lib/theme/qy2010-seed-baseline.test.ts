@@ -18,7 +18,10 @@
  * 同在 `:root`，所以算出来等于种子的 `--card`（基础层这句另有一个用例钉住）。
  *
  * 只覆盖变量层，不覆盖页眉、页脚等消费端的计算样式（那些来自 surfaces，由本机 `test:visual` 对账）。
- * Step 6 会有意改主色与次要文字色，到时这个测试与 fixture 一起更新。
+ *
+ * Step 6 有意加深了品牌色与次要文字色（D3、D6）。冻结基线是迁移前的真实记录，不改；
+ * 这里把「有意的变更」显式列成 STEP6_CHANGES：种子必须等于「冻结基线 + 这三项」，
+ * 一项都不能多（多改一个变量就会变红），也不能少（没改到位同样变红）。
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -46,6 +49,26 @@ function seedLightTokens() {
   const parsed = tokensSchema.parse(seed.definition.tokens);
   if (!parsed.light) throw new Error("qy2010 种子没有 tokens.light");
   return parsed.light;
+}
+
+/**
+ * Step 6 的有意变更（变量 → [冻结值, 新值]）：主色与焦点环同步加深，次要文字色加深。
+ * 冻结值必须仍是 fixture 里的值，防止有人把这张表当成「想改什么就改什么」的口子。
+ */
+const STEP6_CHANGES: Record<string, readonly [string, string]> = {
+  "--primary": ["#147ba9", "#116a92"],
+  "--ring": ["#147ba9", "#116a92"],
+  "--muted-foreground": ["#8a8265", "#706952"],
+};
+
+/** 冻结基线套上 Step 6 的有意变更：冻结值对不上就直接报错 */
+function expectedAfterStep6(frozenVars: Record<string, string>): Record<string, string> {
+  const out = { ...frozenVars };
+  for (const [name, [from, to]] of Object.entries(STEP6_CHANGES)) {
+    if (out[name] !== from) throw new Error(`${name} 的冻结值是 ${out[name]}，不是登记的 ${from}`);
+    out[name] = to;
+  }
+  return out;
 }
 
 const rgbText = (hex: string) => {
@@ -105,13 +128,34 @@ function effectiveVars(): Record<string, string> {
 
 describe("qy2010 种子令牌 ⇄ Step 0 冻结基线", () => {
   it.each(["desktop", "mobile"] as const)(
-    "%s：34 个令牌变量的计算值与冻结基线逐项相等",
+    "%s：34 个令牌变量的计算值 = 冻结基线 + Step 6 的三项有意变更，其余逐项相等",
     (viewport) => {
-      const expected = frozen(viewport);
-      expect(Object.keys(expected), "fixture 不能是空的或残缺的，否则对账是空转").toHaveLength(34);
-      expect(effectiveVars()).toEqual(expected);
+      const baseline = frozen(viewport);
+      expect(Object.keys(baseline), "fixture 不能是空的或残缺的，否则对账是空转").toHaveLength(34);
+      expect(effectiveVars()).toEqual(expectedAfterStep6(baseline));
     },
   );
+
+  it.each(["desktop", "mobile"] as const)(
+    "%s：fixture 里这三项仍是迁移前冻结的旧值（Step 6 不改冻结基线本身）",
+    (viewport) => {
+      const baseline = frozen(viewport);
+      for (const [name, [from]] of Object.entries(STEP6_CHANGES)) {
+        expect(baseline[name], name).toBe(from);
+      }
+    },
+  );
+
+  it("有意变更表只动这三项，且每一项新旧值都不同（防止登记了却没变）", () => {
+    expect(Object.keys(STEP6_CHANGES).sort()).toEqual([
+      "--muted-foreground",
+      "--primary",
+      "--ring",
+    ]);
+    for (const [name, [from, to]] of Object.entries(STEP6_CHANGES)) {
+      expect(from, name).not.toBe(to);
+    }
+  });
 
   it("基础层仍把板块卡遮罩色定义为 var(--card)：种子不写 maskColor 才能继承到本包的卡片色", () => {
     expect(read(path.join(TOKENS_DIR, "themes/default.css"))).toMatch(

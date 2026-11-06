@@ -17,7 +17,8 @@ import {
   ROLE_DEFINITIONS,
 } from "./authz-vocab.js";
 import { BUILTIN_THEME_PACK_SEEDS } from "./theme-pack-seeds.js";
-import { backfillMissingSections } from "./theme-pack-upgrade.js";
+import { THEME_PACK_VALUE_UPGRADES } from "./theme-pack-migrations.js";
+import { backfillMissingSections, swapManyIfUnchanged } from "./theme-pack-upgrade.js";
 import { createDb, createPool, type Db } from "./client.js";
 import { newDbConfig } from "./env.js";
 import { incoming } from "./sql.js";
@@ -76,7 +77,7 @@ export async function bootstrapDb(
 
     const summary = await seedSystemData(db);
     log(
-      `✔ 系统种子（幂等）：角色 ${summary.roles} / 权限点 ${summary.permissions} / 新增基线授权 ${summary.grantsInserted} / 新增默认设置 ${summary.settingsInserted} / 内置主题包 ${summary.themePacksInserted} / 补缺的内置主题包 ${summary.themePacksBackfilled}`,
+      `✔ 系统种子（幂等）：角色 ${summary.roles} / 权限点 ${summary.permissions} / 新增基线授权 ${summary.grantsInserted} / 新增默认设置 ${summary.settingsInserted} / 内置主题包 ${summary.themePacksInserted} / 补缺的内置主题包 ${summary.themePacksBackfilled} / 升级的内置主题包 ${summary.themePacksUpgraded}`,
     );
   } finally {
     await pool.end();
@@ -91,6 +92,8 @@ export interface SystemSeedSummary {
   themePacksInserted: number;
   /** 补上了缺失顶层段的内置主题包个数（M11.6 Step 4） */
   themePacksBackfilled: number;
+  /** 按升级表替换了旧值的内置主题包升级次数（M11.6 Step 6；同一个包有多组升级时按组计） */
+  themePacksUpgraded: number;
 }
 
 /**
@@ -199,16 +202,29 @@ export async function seedSystemData(db: Db): Promise<SystemSeedSummary> {
   // （同 id 的自定义行不是种子的，与 resetToBuiltin 的守卫同口径）。
   // 已知边角（设计 §3.4「缺段才补」）：站长把某个段整个清空也算缺失，下次会被补回
   // （例如令牌编辑器里把浅深两档都改回继承，会删掉 tokens 键）；不为它另加条件。
-  let themePacksBackfilled = 0;
-  for (const seed of BUILTIN_THEME_PACK_SEEDS) {
+  const isBuiltinRow = async (id: string) => {
     const [row] = await db
       .select({ isBuiltin: themePackages.isBuiltin })
       .from(themePackages)
-      .where(eq(themePackages.id, seed.id))
+      .where(eq(themePackages.id, id))
       .limit(1);
-    if (!row?.isBuiltin) continue;
+    return row?.isBuiltin === true;
+  };
+  let themePacksBackfilled = 0;
+  for (const seed of BUILTIN_THEME_PACK_SEEDS) {
+    if (!(await isBuiltinRow(seed.id))) continue;
     if ((await backfillMissingSections(db, seed.id, seed.definition)) > 0)
       themePacksBackfilled += 1;
+  }
+
+  // 内置主题包值升级（M11.6 Step 6）：种子里的值有意改了（品牌色、次要文字色加深），
+  // 存量行按升级表把旧值换成新值；路径上的值已被站长改过的跳过，缺失的路径不创建。
+  // 必须在补缺之后：补缺会补上 pwa、tokens 等整段，升级才有路径可换（Step 4 之前的存量行没有这两段）。
+  // 补缺补进来的段直接取自当前种子，已是新值，升级对它们是空操作。
+  let themePacksUpgraded = 0;
+  for (const upgrade of THEME_PACK_VALUE_UPGRADES) {
+    if (!(await isBuiltinRow(upgrade.packId))) continue;
+    if ((await swapManyIfUnchanged(db, upgrade.packId, upgrade.swaps)) > 0) themePacksUpgraded += 1;
   }
 
   return {
@@ -218,5 +234,6 @@ export async function seedSystemData(db: Db): Promise<SystemSeedSummary> {
     settingsInserted,
     themePacksInserted,
     themePacksBackfilled,
+    themePacksUpgraded,
   };
 }

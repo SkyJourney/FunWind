@@ -289,6 +289,142 @@ describe.skipIf(skip)("bootstrap / seed 集成（临时库）", () => {
     });
   });
 
+  describe("内置主题包值升级（M11.6 Step 6）", () => {
+    const seed = BUILTIN_THEME_PACK_SEEDS.find((candidate) => candidate.id === "qy2010")!;
+    type TestDb = ReturnType<typeof createDb>;
+    const readPack = async (db: TestDb) =>
+      (await db.select().from(themePackages).where(eq(themePackages.id, "qy2010")))[0]!;
+    const BRAND_OLD = "#147ba9";
+    const MUTED_OLD = "#8a8265";
+    /** 把种子里的新值全部还原成旧值，得到 Step 6 之前真实存量库里 qy2010 行的样子 */
+    const legacyDefinition = () =>
+      JSON.parse(
+        JSON.stringify(seed.definition)
+          .replaceAll("#116a92", BRAND_OLD)
+          .replaceAll("#706952", MUTED_OLD),
+      ) as typeof seed.definition;
+    const setDefinition = (db: TestDb, definition: unknown, revision = 2) =>
+      db
+        .update(themePackages)
+        .set({
+          definition: sql`CAST(${JSON.stringify(definition)} AS JSON)`,
+          revision,
+          isBuiltin: true,
+        })
+        .where(eq(themePackages.id, "qy2010"));
+
+    afterEach(async () => {
+      await withTestDb((db) =>
+        db
+          .update(themePackages)
+          .set({ definition: seed.definition, revision: 1, isBuiltin: true })
+          .where(eq(themePackages.id, "qy2010")),
+      );
+    });
+
+    it("旧库（Step 4 之后、Step 6 之前的 qy2010）：8 处旧值全部换成新值，revision 只 +1，其余原样；再跑一次不写库", async () => {
+      await withTestDb(async (db) => {
+        const legacy = legacyDefinition();
+        expect(JSON.stringify(legacy)).toContain(BRAND_OLD);
+        await setDefinition(db, legacy, 2);
+
+        const summary = await seedSystemData(db);
+        expect(summary.themePacksUpgraded).toBe(1);
+        expect(summary.themePacksBackfilled).toBe(0);
+        const after = await readPack(db);
+        expect(after.definition).toEqual(seed.definition);
+        expect(after.revision).toBe(3);
+
+        expect((await seedSystemData(db)).themePacksUpgraded).toBe(0);
+        expect((await readPack(db)).revision).toBe(3);
+      });
+    });
+
+    it("站长改过其中几项：改过的保留，没改的照常升级", async () => {
+      await withTestDb(async (db) => {
+        const legacy = legacyDefinition() as Record<string, any>;
+        legacy.tokens.light.colors.primary = "#112233"; // 站长换了自己的主色
+        legacy.surfaces.footer.light.text.muted = "#445566"; // 站长改了页脚次要文字
+        await setDefinition(db, legacy, 4);
+
+        expect((await seedSystemData(db)).themePacksUpgraded).toBe(1);
+        const after = (await readPack(db)).definition as Record<string, any>;
+        expect(after.tokens.light.colors.primary).toBe("#112233");
+        expect(after.surfaces.footer.light.text.muted).toBe("#445566");
+        expect(after.tokens.light.colors.ring).toBe("#116a92");
+        expect(after.tokens.light.colors["muted-foreground"]).toBe("#706952");
+        expect(after.pwa.themeColor).toBe("#116a92");
+        expect(after.surfaces.footer.light.text.link).toBe("#116a92");
+        expect(after.surfaces["banner-announce"].light.text.link).toBe("#116a92");
+        expect(after.surfaces["banner-announce"].light.text.muted).toBe("#706952");
+        expect((await readPack(db)).revision).toBe(5);
+      });
+    });
+
+    it("8 处全被站长改过：不写库，revision 不变", async () => {
+      await withTestDb(async (db) => {
+        const custom = JSON.parse(
+          JSON.stringify(legacyDefinition())
+            .replaceAll(BRAND_OLD, "#0a0b0c")
+            .replaceAll(MUTED_OLD, "#0d0e0f"),
+        );
+        await setDefinition(db, custom, 7);
+        expect((await seedSystemData(db)).themePacksUpgraded).toBe(0);
+        const after = await readPack(db);
+        expect(after.definition).toEqual(custom);
+        expect(after.revision).toBe(7);
+      });
+    });
+
+    it("Step 4 之前的更旧存量行（缺 tokens 与 pwa）：补缺先补上当前种子的整段，升级随后是空操作，revision 只 +1", async () => {
+      await withTestDb(async (db) => {
+        const stripped = legacyDefinition() as Record<string, unknown>;
+        delete stripped.tokens;
+        delete stripped.pwa;
+        await setDefinition(db, stripped, 1);
+
+        const summary = await seedSystemData(db);
+        expect(summary.themePacksBackfilled).toBe(1);
+        expect(summary.themePacksUpgraded).toBe(1); // surfaces 里的 4 处旧值仍要升级
+        const after = (await readPack(db)).definition as Record<string, any>;
+        expect(after.tokens).toEqual(seed.definition.tokens);
+        expect(after.pwa).toEqual(seed.definition.pwa);
+        expect(after.surfaces.footer.light.text.link).toBe("#116a92");
+        expect((await readPack(db)).revision).toBe(3); // 补缺 +1，升级 +1
+      });
+    });
+
+    it("同 id 但已不是内置包的行不升级", async () => {
+      await withTestDb(async (db) => {
+        const legacy = legacyDefinition();
+        await setDefinition(db, legacy, 2);
+        await db
+          .update(themePackages)
+          .set({ isBuiltin: false })
+          .where(eq(themePackages.id, "qy2010"));
+        expect((await seedSystemData(db)).themePacksUpgraded).toBe(0);
+        const after = await readPack(db);
+        expect(after.definition).toEqual(legacy);
+        expect(after.revision).toBe(2);
+      });
+    });
+
+    it("全新建库（行就是当前种子）：升级是空操作", async () => {
+      await withTestDb(async (db) => {
+        await setDefinition(db, seed.definition, 1);
+        expect((await seedSystemData(db)).themePacksUpgraded).toBe(0);
+        expect((await readPack(db)).revision).toBe(1);
+      });
+    });
+
+    it("bootstrapDb 的汇总日志带上升级个数", async () => {
+      await withTestDb((db) => setDefinition(db, legacyDefinition(), 2));
+      const lines: string[] = [];
+      await bootstrapDb(config, (message) => lines.push(message));
+      expect(lines.find((line) => line.startsWith("✔ 系统种子"))).toContain("升级的内置主题包 1");
+    });
+  });
+
   it("管理员调整过的授权不会被重跑 bootstrap 恢复（基线仅首次写入）", async () => {
     await withTestDb(async (db) => {
       await db

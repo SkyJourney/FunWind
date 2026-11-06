@@ -705,11 +705,11 @@ describe("ThemeTokenEditor：预览与对比度检查（3d）", () => {
   const before = (a: Node, b: Node) =>
     Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 
-  it("浅色档：预览与对比度检查都在，预览标明浅色档，默认主题有一项缺口", () => {
+  it("浅色档：预览与对比度检查都在，预览标明浅色档，默认主题有三项缺口", () => {
     render(<Harness />);
     openPanel();
     expect(previewBox()).toHaveAttribute("data-preview-mode", "light");
-    expect(within(panel()).getByText(/^1 项未达标，共 18 项/)).toBeInTheDocument();
+    expect(within(panel()).getByText(/^3 项未达标，共 23 项/)).toBeInTheDocument();
   });
 
   it("深色未启用：两块都不显示；启用后出现，并按深色档计算", async () => {
@@ -721,7 +721,7 @@ describe("ThemeTokenEditor：预览与对比度检查（3d）", () => {
     await click("启用深色令牌");
     expect(previewBox()).toHaveAttribute("data-preview-mode", "dark");
     expect(previewBox().style.getPropertyValue("--primary")).toBe(BASE_COLORS.dark.primary);
-    expect(within(panel()).getByText("18 项全部达标（≥ 4.5:1）")).toBeInTheDocument();
+    expect(within(panel()).getByText("23 项全部达标（≥ 4.5:1）")).toBeInTheDocument();
   });
 
   it("切换浅 / 深档，预览跟着换档", async () => {
@@ -744,14 +744,14 @@ describe("ThemeTokenEditor：预览与对比度检查（3d）", () => {
     expect(primary()).toBe(BASE_COLORS.light.primary);
   });
 
-  it("对比度检查随草稿重算：正文覆盖成近白变 3 项未达标，改回去恢复 1 项", async () => {
+  it("对比度检查随草稿重算：正文覆盖成近白变 5 项未达标，改回去恢复 3 项", async () => {
     render(<Harness />);
     openPanel();
     await click("正文：覆盖");
     fireEvent.change(field("正文（全站）"), { target: { value: "#f8fafc" } });
-    expect(within(panel()).getByText(/^3 项未达标，共 18 项/)).toBeInTheDocument();
+    expect(within(panel()).getByText(/^5 项未达标，共 23 项/)).toBeInTheDocument();
     fireEvent.change(field("正文（全站）"), { target: { value: "#0f172a" } });
-    expect(within(panel()).getByText(/^1 项未达标，共 18 项/)).toBeInTheDocument();
+    expect(within(panel()).getByText(/^3 项未达标，共 23 项/)).toBeInTheDocument();
   });
 
   it("点「定位」：继承的颜色行聚焦「覆盖」按钮，已覆盖的聚焦文本框；滚动的就是那一行", async () => {

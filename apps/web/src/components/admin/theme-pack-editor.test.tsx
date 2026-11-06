@@ -688,8 +688,8 @@ describe("ThemePackEditor：令牌预览与对比度检查（3d）", () => {
       },
     });
     openTokens();
-    expect(within(panel()).getByText(/^3 项未达标，共 18 项/)).toBeInTheDocument();
+    expect(within(panel()).getByText(/^5 项未达标，共 23 项/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "深色档" }));
-    expect(within(panel()).getByText("18 项全部达标（≥ 4.5:1）")).toBeInTheDocument();
+    expect(within(panel()).getByText("23 项全部达标（≥ 4.5:1）")).toBeInTheDocument();
   });
 });

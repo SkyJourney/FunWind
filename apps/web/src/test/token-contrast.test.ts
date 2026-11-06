@@ -153,8 +153,29 @@ describe("primary（品牌色，不改令牌）", () => {
     }
   });
 
-  // 已知缺口（非本次范围，登记在 M11.3 遗留事项）：情怀包 primary 文字压在淡底上不足 4.5:1，
-  // 这里不写成断言，避免用放宽阈值掩盖；等站长决定是否调整情怀包品牌色再补。
+  // 情怀包 primary 文字压在淡底上不足 4.5:1 的缺口已在 M11.6 Step 6 随品牌色加深（#147ba9 → #116a92）关闭，
+  // 下面两个用例把它写成断言，不再靠「已知缺口」清单兜着。
+  it("情怀包：primary 文字压在页面底、卡片底及两种 /10 淡底上都 ≥ 4.5:1（M11.6 Step 6 关闭的缺口）", () => {
+    const color = THEMES["情怀包 qy2010·浅色"];
+    const primary = color("--primary");
+    for (const base of ["--background", "--card"] as const) {
+      expect(contrast(primary, color(base)), `primary 压 ${base}`).toBeGreaterThanOrEqual(4.5);
+      expect(
+        contrast(primary, over(primary, color(base), 0.1)),
+        `primary 淡底 ${base}`,
+      ).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it("情怀包：muted-foreground 压在页面底、卡片底、muted、secondary、accent 上都 ≥ 4.5:1", () => {
+    const color = THEMES["情怀包 qy2010·浅色"];
+    const muted = color("--muted-foreground");
+    for (const base of ["--background", "--card", "--muted", "--secondary", "--accent"] as const) {
+      expect(contrast(muted, color(base)), `muted-foreground 压 ${base}`).toBeGreaterThanOrEqual(
+        4.5,
+      );
+    }
+  });
 });
 
 /**
@@ -173,19 +194,8 @@ const KNOWN_FAILURES: Record<string, string[]> = {
   // 默认主题的 muted-foreground 压在弱化底和次色上略低于 4.5，不属于 qy2010 的范围，登记为已知缺口
   "默认·浅色": ["muted-fg-muted", "muted-fg-secondary", "primary-tint-bg"],
   "默认·暗色": [],
-  // primary 在两种淡底上 4.08 / 3.75（M11.6 Step 6 换品牌色后应消失）；
-  // muted-foreground #8a8265 压页面底 / 卡片底 3.46 / 3.77，次要文字普遍不达标；
-  // 站长 2026-11-05 决定并入 Step 6 与品牌色一起加深（docs/milestones/M11.6 的 D6）
-  "情怀包 qy2010·浅色": [
-    "muted-fg-bg",
-    "muted-fg-card",
-    "muted-fg-muted",
-    "muted-fg-secondary",
-    "muted-fg-accent",
-    "primary-fg-bg",
-    "primary-tint-card",
-    "primary-tint-bg",
-  ],
+  // M11.6 Step 6 把品牌色 #147ba9 → #116a92、次要文字色 #8a8265 → #706952 后，23 对全部达标，清单清空
+  "情怀包 qy2010·浅色": [],
 };
 
 describe.each(Object.entries(THEMES))("%s：对比度顾问与独立实现一致", (name, color) => {

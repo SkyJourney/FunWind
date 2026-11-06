@@ -120,7 +120,7 @@ const qy2010Pack: BuiltinThemePackSeed = {
   name: "复刻·青翼2010",
   description: "复刻 2010 旧站气质：米黄纸底、暖白方角卡、天蓝链接、若叶绿点缀、宋体站名。仅浅色。",
   definition: {
-    pwa: { themeColor: "#147ba9", backgroundColor: "#f6f3e7" },
+    pwa: { themeColor: "#116a92", backgroundColor: "#f6f3e7" },
     surfaces: {
       header: {
         light: {
@@ -147,7 +147,7 @@ const qy2010Pack: BuiltinThemePackSeed = {
       "banner-announce": {
         light: {
           fill: { type: "solid", color: "#f3edc8" },
-          text: { primary: "#6d4a0f", muted: "#8a8265", link: "#147ba9" },
+          text: { primary: "#6d4a0f", muted: "#706952", link: "#116a92" },
         },
       },
       "forum-band": {
@@ -160,7 +160,7 @@ const qy2010Pack: BuiltinThemePackSeed = {
         light: {
           fill: { type: "solid", color: "#f8f5e8" },
           border: { color: "#ddd5b4", width: 1, style: "solid" },
-          text: { primary: "#33332f", muted: "#8a8265", link: "#147ba9" },
+          text: { primary: "#33332f", muted: "#706952", link: "#116a92" },
         },
       },
       auth: {
@@ -181,12 +181,12 @@ const qy2010Pack: BuiltinThemePackSeed = {
           "card-foreground": "#33332f",
           popover: "#fffdf4",
           "popover-foreground": "#33332f",
-          primary: "#147ba9",
+          primary: "#116a92",
           "primary-foreground": "#ffffff",
           secondary: "#f3edc8",
           "secondary-foreground": "#6d4a0f",
           muted: "#efe9d6",
-          "muted-foreground": "#8a8265",
+          "muted-foreground": "#706952",
           accent: "#e7f1e4",
           "accent-foreground": "#33613f",
           destructive: "#a3425b",
@@ -196,7 +196,7 @@ const qy2010Pack: BuiltinThemePackSeed = {
           info: "#3b82f6",
           border: "#e0d9c0",
           input: "#e0d9c0",
-          ring: "#147ba9",
+          ring: "#116a92",
         },
         radius: "sm",
         shadows: {
@@ -214,9 +214,9 @@ const qy2010Pack: BuiltinThemePackSeed = {
 
 export const BUILTIN_THEME_PACK_SEEDS: readonly BuiltinThemePackSeed[] = [defaultPack, qy2010Pack];
 
-/** 主题色（PWA manifest / 地址栏）：qy2010 情怀青蓝、default 品牌青 */
+/** 主题色（PWA manifest / 地址栏）：qy2010 情怀青蓝（M11.6 Step 6 加深到 #116a92）、default 品牌青 */
 export const BUILTIN_THEME_COLORS: Record<string, { themeColor: string; backgroundColor: string }> =
   {
     default: { themeColor: "#0e7490", backgroundColor: "#f8fafc" },
-    qy2010: { themeColor: "#147ba9", backgroundColor: "#f6f3e7" },
+    qy2010: { themeColor: "#116a92", backgroundColor: "#f6f3e7" },
   };

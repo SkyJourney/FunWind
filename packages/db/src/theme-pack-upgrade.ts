@@ -104,6 +104,48 @@ export async function swapIfUnchanged(
   return affectedRowsOf(result);
 }
 
+/** 一条有条件的替换：`path` 上的值仍等于 `from` 才换成 `to` */
+export interface PathSwap {
+  path: readonly string[];
+  from: unknown;
+  to: unknown;
+}
+
+/**
+ * 批量有条件替换：一条 UPDATE 处理多条路径，每条路径各自判断「仍等于旧值才替换」，
+ * 任意一条命中才写库，`revision` 只 +1（逐条调用 swapIfUnchanged 会让 revision 每条 +1，
+ * 一次升级改 8 条路径就从 2 跳到 10，破坏「版本号 = 保存次数」的语义）。
+ * 语义与 swapIfUnchanged 一致：路径不存在不创建（JSON_REPLACE 对缺失路径无动作），站长改过的值不动。
+ * 全部不命中（缺失、已是新值、被改过）时不写库，返回 0；幂等。
+ */
+export async function swapManyIfUnchanged(
+  db: UpgradeExecutor,
+  id: string,
+  swaps: readonly PathSwap[],
+): Promise<number> {
+  if (swaps.length === 0) return 0;
+  const parts = swaps.map((swap) => {
+    const jsonPath = jsonPathOf(swap.path);
+    const current = sql`JSON_EXTRACT(${themePackages.definition}, ${jsonPath})`;
+    const matches = sql`${current} = CAST(${jsonOf(swap.from)} AS JSON)`;
+    return { jsonPath, matches, current, to: jsonOf(swap.to) };
+  });
+  // JSON_REPLACE(doc, path1, v1, path2, v2, ...)：每个新值是 IF(命中, 新值, 原值)
+  const replaceArgs = parts.flatMap((part) => [
+    sql`${part.jsonPath}`,
+    sql`IF(${part.matches}, CAST(${part.to} AS JSON), ${part.current})`,
+  ]);
+  const result = await db
+    .update(themePackages)
+    .set({
+      definition: sql`JSON_REPLACE(${themePackages.definition}, ${sql.join(replaceArgs, sql`, `)})`,
+      revision: sql`${themePackages.revision} + 1`,
+      updatedAt: sql`NOW()`,
+    })
+    .where(and(eq(themePackages.id, id), or(...parts.map((part) => part.matches))));
+  return affectedRowsOf(result);
+}
+
 /**
  * 重置为内置定义：把整份 definition 恢复为种子里的版本。只作用于 `is_builtin = 1` 的种子包，
  * 不是内置种子的 id 返回 0。名称、说明、启停状态与素材清单不动。
