@@ -3,7 +3,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { CLI_ACTOR, type ConfigActor } from "@/lib/audit";
-import { THEME_PACKS, type ThemePack } from "@/lib/theme-packs";
 import { createBrandPoolFs, type BrandAddErrorCode } from "./brand-pool-fs";
 import { getLogoPoolRaw, logoPool, setActiveLogo } from "./logo-pool";
 
@@ -17,12 +16,22 @@ export const addLogo = logoFs.add;
 /** 读取池内 LOGO 字节（/brand/logo）；不传 file 时取当前项，file 必须在池内；无可输出返回 null。 */
 export const readLogoBytes = logoFs.readBytes;
 
-/** 只读取代码内登记的内置 LOGO 文件，路径保持构建期可追踪。 */
+/**
+ * 只读取代码内登记的内置 LOGO 文件，路径保持构建期可追踪（所以这里写字面路径，不从登记表拼）。
+ * 登记表是 lib/theme-packs.ts 的 BUNDLED_PACK_LOGOS，两边要同步。
+ */
 async function readBundledPackLogo(file: string): Promise<Uint8Array> {
   if (file === "qy2010.png") {
     return readFile(path.join(process.cwd(), "public", "logo", "qy2010.png"));
   }
   throw new Error("未知的内置 LOGO 素材");
+}
+
+/** 联动所需的最小包信息：id、入池时的显示名、自带 LOGO 文件名（null = 不带） */
+export interface PackLogoSource {
+  readonly id: string;
+  readonly label: string;
+  readonly logo: string | null;
 }
 
 export type ApplyPackLogoResult =
@@ -34,17 +43,18 @@ export type ApplyPackLogoResult =
  * 包无自带 LOGO → 不触碰池；池内已有该包标签的项 → 只设为当前（幂等，不重复导入）；
  * 不在池（从未导入或已被站长移除）→ 从 public/logo/ 读素材入池（带 pack 标签）并设为当前。
  * 素材缺失/非法只返回原因不抛错——主题切换本身已成功，LOGO 联动是附带动作。
- * packs / readAsset 可注入，供集成测试用临时注册表与素材读取器。
+ * packs 由调用方提供（生产环境：数据库里这个包的行 + 内置登记表；不在其中 = unknown-pack），
+ * readAsset 可注入，供集成测试用临时素材读取器。
  */
 export async function applyPackLogo(
   packId: string,
   actor: ConfigActor = CLI_ACTOR,
   deps: {
-    packs?: readonly ThemePack[];
+    packs: readonly PackLogoSource[];
     readAsset?: (file: string) => Promise<Uint8Array>;
-  } = {},
+  },
 ): Promise<ApplyPackLogoResult> {
-  const pack = (deps.packs ?? THEME_PACKS).find((p) => p.id === packId);
+  const pack = deps.packs.find((p) => p.id === packId);
   if (!pack) return { applied: false, reason: "unknown-pack" };
   if (!pack.logo) return { applied: false, reason: "no-logo" };
 

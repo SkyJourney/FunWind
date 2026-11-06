@@ -5,7 +5,7 @@ import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { readDecorBytes } from "@/lib/brand/decor-pool-fs";
 import { readLogoBytes } from "@/lib/brand/logo-pool-fs";
-import { THEME_PACKS } from "@/lib/theme-packs";
+import { bundledLogoOf } from "@/lib/theme-packs";
 import { getThemePack, parseThemePackAssets } from "@/lib/theme/packs";
 import {
   buildThemePackArchive,
@@ -41,7 +41,7 @@ export async function GET(
     }
     archiveAssets.push({ kind: asset.kind, poolFile: asset.poolFile, bytes });
   }
-  const staticLogo = THEME_PACKS.find((candidate) => candidate.id === pack.id)?.logo;
+  const staticLogo = bundledLogoOf(pack.id);
   if (staticLogo && !assets.some((asset) => asset.kind === "logo")) {
     let bytes: Buffer;
     try {

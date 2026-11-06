@@ -13,7 +13,7 @@ import { eq } from "drizzle-orm";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { addLogo, applyPackLogo, readLogoBytes } from "./logo-pool-fs";
 import { getLogoPoolRaw, removeLogo, setActiveLogo } from "./logo-pool";
-import type { ThemePack } from "@/lib/theme-packs";
+import type { PackLogoSource } from "./logo-pool-fs";
 
 let tdb: TempDb | undefined;
 let logoDir: string | undefined;
@@ -137,7 +137,7 @@ describe.skipIf(skipDb)("LOGO 池（M10.5）", () => {
  * 上一组用例结束时池已清空，这里从空池起步。
  */
 describe.skipIf(skipDb)("applyPackLogo · 主题↔LOGO 联动", () => {
-  const packs: readonly ThemePack[] = [
+  const packs: readonly PackLogoSource[] = [
     { id: "nologo", label: "无图包", logo: null },
     { id: "withlogo", label: "带图包", logo: "pack-withlogo.png" },
     { id: "missing", label: "缺素材包", logo: "nope.png" },

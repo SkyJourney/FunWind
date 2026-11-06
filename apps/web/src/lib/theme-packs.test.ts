@@ -1,7 +1,15 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { BUILTIN_THEME_PACK_SEEDS } from "@funwind/db";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PACK, isPackValue, packLabel, THEME_PACKS } from "./theme-packs";
+import {
+  BUNDLED_PACK_LOGOS,
+  bundledLogoOf,
+  DEFAULT_PACK,
+  isPackValue,
+  packLabel,
+  THEME_PACKS,
+} from "./theme-packs";
 
 describe("THEME_PACKS", () => {
   it("default 包始终在册（CSS themes/default.css 与注册表一一对应）", () => {
@@ -13,15 +21,48 @@ describe("THEME_PACKS", () => {
     expect(ids).toContain("qy2010");
     expect(new Set(ids).size).toBe(ids.length);
   });
+});
 
-  it("自带 LOGO 字段为 null 或 public/logo 下真实存在的文件名（不带路径；防注册表悬空）", () => {
-    for (const p of THEME_PACKS) {
-      if (p.logo === null) continue;
-      expect(p.logo).toMatch(/^[a-z0-9][a-z0-9-]*\.png$/);
+describe("BUNDLED_PACK_LOGOS（内置包随代码发布的 LOGO 登记）", () => {
+  const seedIds = BUILTIN_THEME_PACK_SEEDS.map((seed) => seed.id);
+
+  it("文件名是 public/logo 下真实存在的 PNG（不带路径；防登记表悬空）", () => {
+    expect(BUNDLED_PACK_LOGOS.length).toBeGreaterThan(0); // 防止空表让下面的循环空转
+    for (const entry of BUNDLED_PACK_LOGOS) {
+      expect(entry.file).toMatch(/^[a-z0-9][a-z0-9-]*\.png$/);
       // vitest cwd = apps/web（与 next 运行时的 process.cwd() 同口径，lib/brand/logo-pool-fs 据此定位素材）
-      expect(existsSync(join(process.cwd(), "public", "logo", p.logo))).toBe(true);
+      expect(existsSync(join(process.cwd(), "public", "logo", entry.file))).toBe(true);
     }
-    expect(THEME_PACKS.find((p) => p.id === "qy2010")?.logo).toBe("qy2010.png");
+  });
+
+  it("id 唯一，且都是内置种子包（自定义包的 LOGO 走自己的 assets，不进这张表）", () => {
+    const ids = BUNDLED_PACK_LOGOS.map((entry) => entry.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const id of ids) expect(seedIds).toContain(id);
+  });
+});
+
+describe("bundledLogoOf", () => {
+  it("登记过的内置包返回文件名", () => {
+    expect(bundledLogoOf("qy2010")).toBe("qy2010.png");
+  });
+
+  it("没登记的内置包、未知 id、空串返回 null", () => {
+    expect(bundledLogoOf("default")).toBeNull();
+    expect(bundledLogoOf("blue")).toBeNull();
+    expect(bundledLogoOf("")).toBeNull();
+  });
+
+  it("只认完整的 id：复制出来的包（qy2010-copy-xxxx）、大小写不同、带空格的都不算登记项", () => {
+    for (const id of ["qy2010-copy-ab12cd", "qy201", "QY2010", " qy2010", "qy2010 "]) {
+      expect(bundledLogoOf(id), id).toBeNull();
+    }
+  });
+
+  it("原型链上的键名不会被当成登记项", () => {
+    for (const key of ["__proto__", "constructor", "toString", "hasOwnProperty"]) {
+      expect(bundledLogoOf(key)).toBeNull();
+    }
   });
 });
 

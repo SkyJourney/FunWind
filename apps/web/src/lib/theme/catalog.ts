@@ -1,7 +1,7 @@
 import "server-only";
 
 import { BUILTIN_THEME_COLORS, getWebDb, themePackages } from "@funwind/db";
-import { DEFAULT_PACK, THEME_PACKS } from "@/lib/theme-packs";
+import { bundledLogoOf, DEFAULT_PACK, THEME_PACKS } from "@/lib/theme-packs";
 import { parseThemePackDefinition, type ThemePackDefinition } from "./surface-schema";
 
 /**
@@ -21,7 +21,7 @@ export interface CatalogPack {
   /** 来源：static=内置 CSS 包（themes/<id>.css 随代码发布）；db=/admin/themes 维护的数据包 */
   source: "static" | "db";
   enabled: boolean;
-  /** 数据包自带 LOGO 池文件引用（静态包沿用 THEME_PACKS.logo） */
+  /** 自带 LOGO：数据库里包的 LOGO 资产（池文件名）优先，没有时内置包用登记表里随代码发布的文件名 */
   logo: string | null;
   definition: ThemePackDefinition | null;
   themeColor: string;
@@ -54,7 +54,7 @@ function staticPacks(): CatalogPack[] {
       label: pack.label,
       source: "static",
       enabled: true,
-      logo: pack.logo,
+      logo: bundledLogoOf(pack.id),
       definition: null,
       themeColor: colors.themeColor,
       backgroundColor: colors.backgroundColor,
@@ -87,7 +87,7 @@ async function readDbPacksVia(readDb: ThemeCatalogReadDb): Promise<CatalogPack[]
         label: row.name,
         source: staticPack ? "static" : "db",
         enabled: row.enabled,
-        logo: logoAsset ? (logoAsset.poolFile as string) : (staticPack?.logo ?? null),
+        logo: logoAsset ? (logoAsset.poolFile as string) : bundledLogoOf(row.id),
         definition,
         ...colors,
       };

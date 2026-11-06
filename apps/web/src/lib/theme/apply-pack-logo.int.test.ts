@@ -1,4 +1,7 @@
 // @vitest-environment node
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { getWebDb, siteSettings, themePackages } from "@funwind/db";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,10 +9,12 @@ import * as logoPool from "@/lib/brand/logo-pool";
 import * as logoFs from "@/lib/brand/logo-pool-fs";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { invalidateThemeCatalog } from "@/lib/theme/catalog";
+import { BUNDLED_PACK_LOGOS } from "@/lib/theme-packs";
 import * as packs from "./packs";
 import { applyThemePackLogo, tryApplyThemePackLogo } from "./apply-pack-logo";
 
 let tdb: TempDb;
+let storage: string;
 const actor = { userId: 1, via: "admin" as const, ip: null };
 const themeActor = { ...actor, via: "theme" as const };
 const logoA = `logo-${"a".repeat(32)}.png`;
@@ -35,6 +40,9 @@ async function seedLogos(pack?: string) {
 describe.skipIf(skipDb)("数据主题包 LOGO 联动（临时库）", () => {
   beforeAll(async () => {
     tdb = await setupTempDb({ demo: false });
+    // 内置包联动会把随代码发布的 LOGO 真实写进存储目录：指向临时目录，用后清理
+    storage = await mkdtemp(join(tmpdir(), "fw-pack-logo-bundled-"));
+    vi.stubEnv("STORAGE_DIR", storage);
   });
 
   beforeEach(() => {
@@ -49,7 +57,12 @@ describe.skipIf(skipDb)("数据主题包 LOGO 联动（临时库）", () => {
   });
 
   afterAll(async () => {
-    await tdb?.teardown();
+    try {
+      await tdb?.teardown();
+    } finally {
+      vi.unstubAllEnvs();
+      if (storage) await rm(storage, { recursive: true, force: true });
+    }
   });
 
   it("已有自定义包无 LOGO 返回 no-logo，包装为正常 unchanged，不触碰池或告警", async () => {
@@ -80,6 +93,41 @@ describe.skipIf(skipDb)("数据主题包 LOGO 联动（临时库）", () => {
     });
     expect(console.error).not.toHaveBeenCalled();
   });
+
+  // 逐个登记项走真实读取器：登记表与 logo-pool-fs 里的 readBundledPackLogo 不同步（登记了却没有读取分支、
+  // 种子里没有这个包、文件名对不上）都会在这里变红；入池显示名取包当前的名称，不是登记表里的固定字样
+  it.each([...BUNDLED_PACK_LOGOS])(
+    "登记表里的 $id：库里没有自己的 LOGO 资产时，用随代码发布的素材入池，显示名取包当前名称",
+    async ({ id, file }) => {
+      const renamed = "站长改过的名字";
+      const [original] = await getWebDb()
+        .select({ name: themePackages.name })
+        .from(themePackages)
+        .where(eq(themePackages.id, id));
+      try {
+        await getWebDb()
+          .update(themePackages)
+          .set({ name: renamed })
+          .where(eq(themePackages.id, id));
+        expect(await tryApplyThemePackLogo(id, themeActor)).toMatchObject({
+          status: "applied",
+          imported: true,
+        });
+        const pool = await logoPool.getLogoPoolRaw();
+        expect(pool.items).toHaveLength(1);
+        expect(pool.items[0]).toMatchObject({ name: renamed, pack: id });
+        expect(pool.active).toBe(pool.items[0]!.file);
+        const bundled = await readFile(join(process.cwd(), "public", "logo", file));
+        expect(Buffer.from((await logoFs.readLogoBytes())!)).toEqual(bundled);
+        expect(console.error).not.toHaveBeenCalled();
+      } finally {
+        await getWebDb()
+          .update(themePackages)
+          .set({ name: original!.name })
+          .where(eq(themePackages.id, id));
+      }
+    },
+  );
 
   it("不存在的主题仍返回 unknown-pack，包装明确失败并记录原因", async () => {
     expect(await applyThemePackLogo("not-a-theme", themeActor)).toEqual({

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { eq, inArray } from "drizzle-orm";
@@ -242,6 +242,19 @@ describe.skipIf(skipDb)("主题包导入（临时库 + 临时存储）", () => {
     expect(imported?.definition).toEqual(source);
     expect(imported).toMatchObject({ name: "往返源包", description: "导出再导入" });
     expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it("导出内置 qy2010：库里没有 LOGO 资产时，归档带上随代码发布的自带 LOGO（字节与 public/logo 里的一致）", async () => {
+    const response = await exportPack(
+      new Request("http://127.0.0.1:3100/admin/themes/qy2010/export"),
+      { params: Promise.resolve({ id: "qy2010" }) },
+    );
+    expect(response.status).toBe(200);
+    const archive = parseThemePackArchive(new Uint8Array(await response.arrayBuffer()));
+    const logos = archive.assets.filter((asset) => asset.kind === "logo");
+    expect(logos).toHaveLength(1);
+    const bundled = await readFile(join(process.cwd(), "public", "logo", "qy2010.png"));
+    expect(Buffer.from(logos[0]!.bytes)).toEqual(bundled);
   });
 
   it("create 返回 enabled-limit 仍清理所有新素材，保留原错误且补偿成功不加 warn", async () => {

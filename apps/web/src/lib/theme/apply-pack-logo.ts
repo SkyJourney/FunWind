@@ -1,6 +1,7 @@
 import { getLogoPoolRaw, setActiveLogo } from "@/lib/brand/logo-pool";
 import { applyPackLogo, type ApplyPackLogoResult } from "@/lib/brand/logo-pool-fs";
 import type { ConfigActor } from "@/lib/audit";
+import { bundledLogoOf } from "@/lib/theme-packs";
 import { getThemePack, parseThemePackAssets } from "./packs";
 
 type LogoFailureReason = Exclude<
@@ -31,7 +32,11 @@ async function applyLogo(
   let result: ApplyPackLogoResult;
   if (!logo) {
     context.stage = "apply-bundled-logo";
-    result = await applyPackLogo(packId, actor);
+    // 包信息取自数据库行（入池显示名用包当前的名称），自带 LOGO 文件取自内置登记表；
+    // 数据库里没有这一行 = 未知包
+    result = await applyPackLogo(packId, actor, {
+      packs: pack ? [{ id: pack.id, label: pack.name, logo: bundledLogoOf(pack.id) }] : [],
+    });
   } else {
     context.stage = "read-logo-pool";
     context.asset = logo.poolFile;

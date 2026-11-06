@@ -37,7 +37,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { THEME_PACKS } from "@/lib/theme-packs";
+import { bundledLogoOf, THEME_PACKS } from "@/lib/theme-packs";
 
 export const metadata: Metadata = { title: "设计令牌" };
 
@@ -338,7 +338,7 @@ export default function TokensPage() {
                   <code className="text-xs">data-pack=&quot;{pack.id}&quot;</code>
                   <span className="text-sm">{pack.label}</span>
                   <span className="ml-auto text-xs text-muted-foreground">
-                    {pack.logo ? `自带 LOGO：${pack.logo}` : "无自带 LOGO"}
+                    {`自带 LOGO：${bundledLogoOf(pack.id) ?? "无"}`}
                   </span>
                 </div>
               ))}

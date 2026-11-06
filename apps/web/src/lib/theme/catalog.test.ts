@@ -102,6 +102,36 @@ describe("主题包目录（catalog，纯函数层）", () => {
     expect(packs.find((p) => p.id === "noassets")?.logo).toBeNull();
   });
 
+  it("内置包的自带 LOGO：库里没有自己的 LOGO 资产时用登记表的文件名；有资产时以资产为准；不带 LOGO 的包为 null", async () => {
+    // 库里没有任何行：静态部分
+    const bare = await refreshThemeCatalog({ readDb: rows([]) });
+    expect(bare.find((p) => p.id === "qy2010")?.logo).toBe("qy2010.png");
+    expect(bare.find((p) => p.id === "default")?.logo).toBeNull();
+
+    // 库里有行但没有 LOGO 资产（种子行就是这样）：仍是登记表的文件名
+    const seeded = await refreshThemeCatalog({
+      readDb: rows([
+        { id: "default", name: "现代浅色", enabled: true, assets: [] },
+        { id: "qy2010", name: "复刻·青翼2010", enabled: true, assets: [] },
+      ]),
+    });
+    expect(seeded.find((p) => p.id === "qy2010")?.logo).toBe("qy2010.png");
+    expect(seeded.find((p) => p.id === "default")?.logo).toBeNull();
+
+    // 站长给内置包绑了池里的 LOGO：以资产为准
+    const bound = await refreshThemeCatalog({
+      readDb: rows([
+        {
+          id: "qy2010",
+          name: "复刻·青翼2010",
+          enabled: true,
+          assets: [{ kind: "logo", poolFile: "logo-bound.png" }],
+        },
+      ]),
+    });
+    expect(bound.find((p) => p.id === "qy2010")?.logo).toBe("logo-bound.png");
+  });
+
   it("TTL 缓存：TTL 内直接返回缓存目录（不重读库）；失效后重读", async () => {
     let calls = 0;
     const readDb: ThemeCatalogReadDb = async () => {
