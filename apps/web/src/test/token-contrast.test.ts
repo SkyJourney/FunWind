@@ -79,13 +79,12 @@ const semantic = declarations("semantic.css", ":root");
 // qy2010 CSS 已删除（M11.6 Step 5c），从种子渲染令牌声明
 const qy2010Seed = BUILTIN_THEME_PACK_SEEDS.find((s) => s.id === "qy2010");
 if (!qy2010Seed?.definition) throw new Error("qy2010 种子缺失 definition");
-const qy2010Tokens = qy2010Seed.definition.tokens as {
-  light?: Record<string, unknown>;
-  dark?: Record<string, unknown>;
-};
-const qy2010Vars = qy2010Tokens.light
-  ? renderTokenVars(qy2010Tokens.light as Parameters<typeof renderTokenVars>[0])
-  : {};
+const qy2010Light = (
+  qy2010Seed.definition.tokens as { light?: Record<string, unknown> } | undefined
+)?.light;
+// 缺 tokens.light 必须明确失败：回退成空对象会让 qy2010 与默认浅色完全相同，下面的断言空转通过
+if (!qy2010Light) throw new Error("qy2010 种子缺失 tokens.light，无法计算对比度");
+const qy2010Vars = renderTokenVars(qy2010Light as Parameters<typeof renderTokenVars>[0]);
 const THEMES = {
   "默认·浅色": themeColors(primitives, semantic),
   "默认·暗色": themeColors(

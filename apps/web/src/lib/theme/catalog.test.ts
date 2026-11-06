@@ -1,3 +1,4 @@
+import { BUILTIN_THEME_COLORS } from "@funwind/db";
 import { describe, expect, it } from "vitest";
 import {
   getThemeCatalog,
@@ -135,6 +136,99 @@ describe("主题包目录（catalog，纯函数层）", () => {
       ]),
     });
     expect(bound.find((p) => p.id === "qy2010")?.logo).toBe("logo-bound.png");
+  });
+
+  it("目录顺序：default 在最前，其后内置包在自定义包之前，同类按 id 排序；与库返回顺序无关", async () => {
+    const list = [
+      { id: "zeta", name: "Z", enabled: true },
+      { id: "qy2010", name: "复刻·青翼2010", enabled: true, isBuiltin: true },
+      { id: "alpha", name: "A", enabled: true },
+      { id: "aaa-builtin", name: "内置甲", enabled: true, isBuiltin: true },
+      { id: "default", name: "现代浅色", enabled: true, isBuiltin: true },
+    ];
+    const expected = ["default", "aaa-builtin", "qy2010", "alpha", "zeta"];
+    const forward = await refreshThemeCatalog({ readDb: rows(list) });
+    expect(forward.map((p) => p.id)).toEqual(expected);
+    const backward = await refreshThemeCatalog({ readDb: rows([...list].reverse()) });
+    expect(backward.map((p) => p.id)).toEqual(expected);
+  });
+
+  it("目录排序不改动读取器返回的数组（同一个数组可被重复读取）", async () => {
+    const list = [
+      { id: "zeta", name: "Z", enabled: true },
+      { id: "alpha", name: "A", enabled: true },
+    ];
+    await refreshThemeCatalog({ readDb: rows(list) });
+    expect(list.map((r) => r.id)).toEqual(["zeta", "alpha"]);
+  });
+
+  it("系统 default 即使库里被标为停用也保留在目录里", async () => {
+    const packs = await refreshThemeCatalog({
+      readDb: rows([{ id: "default", name: "现代浅色", enabled: false, isBuiltin: true }]),
+    });
+    expect(packs.map((p) => p.id)).toEqual(["default"]);
+  });
+
+  describe("PWA 色值：定义里没有 pwa 时的回退", () => {
+    it("先看这个包自己的内置色，没有再用 default 的", async () => {
+      // 内置色表里 qy2010 与 default 必须不同，否则下面的断言分不出回退到了谁
+      expect(BUILTIN_THEME_COLORS.qy2010).not.toEqual(BUILTIN_THEME_COLORS.default);
+      const packs = await refreshThemeCatalog({
+        readDb: rows([
+          { id: "qy2010", name: "复刻·青翼2010", enabled: true, isBuiltin: true },
+          { id: "custom-a", name: "自定义", enabled: true },
+        ]),
+      });
+      expect(packs.find((p) => p.id === "qy2010")).toMatchObject(BUILTIN_THEME_COLORS.qy2010);
+      expect(packs.find((p) => p.id === "custom-a")).toMatchObject(BUILTIN_THEME_COLORS.default);
+    });
+
+    it("定义损坏（解析失败）的内置包同样用自己的内置色", async () => {
+      const packs = await refreshThemeCatalog({
+        readDb: rows([
+          {
+            id: "qy2010",
+            name: "复刻·青翼2010",
+            enabled: true,
+            isBuiltin: true,
+            definition: { surfaces: "不是对象" },
+          },
+        ]),
+      });
+      const qy = packs.find((p) => p.id === "qy2010");
+      expect(qy?.definition).toBeNull();
+      expect(qy).toMatchObject(BUILTIN_THEME_COLORS.qy2010);
+    });
+
+    it("定义里有 pwa 时以定义为准，不看内置色表", async () => {
+      const packs = await refreshThemeCatalog({
+        readDb: rows([
+          {
+            id: "qy2010",
+            name: "复刻·青翼2010",
+            enabled: true,
+            isBuiltin: true,
+            definition: {
+              surfaces: {},
+              pwa: { themeColor: "#010203", backgroundColor: "#040506" },
+            },
+          },
+        ]),
+      });
+      expect(packs.find((p) => p.id === "qy2010")).toMatchObject({
+        themeColor: "#010203",
+        backgroundColor: "#040506",
+      });
+    });
+
+    it("包 id 与 Object 原型上的属性同名（constructor 合法）时不能取到原型属性", async () => {
+      const packs = await refreshThemeCatalog({
+        readDb: rows([{ id: "constructor", name: "撞名包", enabled: true }]),
+      });
+      const pack = packs.find((p) => p.id === "constructor");
+      expect(pack).toMatchObject(BUILTIN_THEME_COLORS.default);
+      expect(typeof pack?.themeColor).toBe("string");
+    });
   });
 
   it("TTL 缓存：TTL 内直接返回缓存目录（不重读库）；失效后重读", async () => {

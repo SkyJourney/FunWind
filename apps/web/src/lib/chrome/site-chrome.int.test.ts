@@ -138,6 +138,29 @@ describe.skipIf(skipDb)("站点框架配置（site-chrome）", () => {
     invalidateSiteChrome();
   });
 
+  it("site.theme 写坏（非对象、pack 不是合法字符串）时回退 default，且不拖垮同一次读取里的其他配置", async () => {
+    const put = (key: string, value: unknown) =>
+      db()
+        .insert(siteSettings)
+        .values({ key, value: value as object, updatedAt: sql`NOW()` })
+        .onDuplicateKeyUpdate({ set: { value: value as object } });
+    try {
+      // 导航一并写入：若解析主题时抛错被 getSiteChrome 吞掉，整份配置会退成空配置，nav 就会丢
+      await put("site.nav", [{ label: "站内", href: "/f/951" }]);
+      for (const bad of ["junk", 42, [], { pack: 42 }, { pack: "" }, { pack: "Bad Id!" }]) {
+        await put("site.theme", bad);
+        invalidateSiteChrome();
+        const chrome = await getSiteChrome();
+        expect(chrome.themePack, JSON.stringify(bad)).toBe("default");
+        expect(chrome.nav, JSON.stringify(bad)).toEqual([{ label: "站内", href: "/f/951" }]);
+      }
+    } finally {
+      await db().delete(siteSettings).where(eq(siteSettings.key, "site.theme"));
+      await db().delete(siteSettings).where(eq(siteSettings.key, "site.nav"));
+      invalidateSiteChrome();
+    }
+  });
+
   it("site.theme 可解析启用的 DB 自定义包，停用后按目录校验回退 default", async () => {
     const id = "chrome-db-theme";
     await db()

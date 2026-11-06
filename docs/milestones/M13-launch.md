@@ -55,7 +55,10 @@
    单实例或可接受窗口即记录确认，不可接受则改造失效通道。
 6. **G-18 集合规模上限**：启用主题包 ≤5 已在服务层强制（容量事务 + default 行锁，批次 2 落地）；
    上线核对 = 确认部署数据无超额（历史库不会超额，导入器不写 theme_packages），无需额外动作。
-7. 其余上线核对项见 `M6-carryover.md` M13-1…M13-7（反向代理请求体上限 / TRUSTED_PROXY_HOPS / 旧会话 /
+7. **先 `db:bootstrap` 再部署（M11.6 Step 5）**：`qy2010.css` 已删除，qy2010 的外观完全来自 `theme_packages` 里内置行的 `tokens`；
+   已有数据库须先跑 `db:bootstrap`（幂等，`backfillMissingSections` 只补缺失的顶层段，不覆盖站长改过的内容），否则 qy2010 只剩 surfaces 与默认语义色。
+   同一原因：没有 qy2010 内置行的库里，qy2010 不在主题目录中，用户偏好与站点默认里的 `qy2010` 会回退 default。
+8. 其余上线核对项见 `M6-carryover.md` M13-1…M13-7（反向代理请求体上限 / TRUSTED_PROXY_HOPS / 旧会话 /
    孤儿文件 / 对象存储 / HTTP 基准）与本文「验收门禁」。
 
 ## 遗留事项

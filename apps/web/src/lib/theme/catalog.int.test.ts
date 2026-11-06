@@ -37,6 +37,17 @@ beforeAll(async () => {
         createdAt: sql`NOW()`,
         updatedAt: sql`NOW()`,
       },
+      {
+        // id 按字母序排在 qy2010 之前：只有目录读取时带上 isBuiltin，内置包才会排在它前面
+        id: "aaa-pk",
+        name: "排序探针",
+        definition: { surfaces: {} },
+        assets: [],
+        enabled: true,
+        isBuiltin: false,
+        createdAt: sql`NOW()`,
+        updatedAt: sql`NOW()`,
+      },
     ]);
 });
 
@@ -47,19 +58,33 @@ afterEach(async () => {
 afterAll(async () => {
   await getWebDb().delete(themePackages).where(eq(themePackages.id, "xmas"));
   await getWebDb().delete(themePackages).where(eq(themePackages.id, "legacy-pk"));
+  await getWebDb().delete(themePackages).where(eq(themePackages.id, "aaa-pk"));
   await tdb?.teardown();
 });
 
 describe.skipIf(skipDb)("主题包目录（catalog）", () => {
-  it("目录 = 静态注册表 ∪ DB 启用包；停用包不进目录", async () => {
+  it("目录 = default 静态回退 ∪ DB 启用包（含种子 qy2010）；停用包不进目录", async () => {
     const packs = await refreshThemeCatalog();
     const ids = packs.map((p) => p.id);
-    expect(ids).toContain("default"); // 静态
-    expect(ids).toContain("qy2010"); // 静态
+    expect(ids).toContain("default"); // 代码内置的回退包
+    expect(ids).toContain("qy2010"); // 种子行（bootstrap 写入），不再有静态兜底
     expect(ids).toContain("xmas"); // DB 启用
     expect(ids).not.toContain("legacy-pk"); // DB 停用
+    expect(packs.find((p) => p.id === "default")?.source).toBe("static");
+    expect(packs.find((p) => p.id === "qy2010")).toMatchObject({
+      source: "db",
+      label: "复刻·青翼2010",
+    });
     const xmas = packs.find((p) => p.id === "xmas");
     expect(xmas).toMatchObject({ source: "db", label: "圣诞青翼" });
+  });
+
+  it("真实库的目录顺序：default、内置包、自定义包（按 id）；内置包排在 id 更靠前的自定义包之前", async () => {
+    const packs = await refreshThemeCatalog();
+    const order = packs
+      .map((p) => p.id)
+      .filter((id) => ["default", "qy2010", "aaa-pk", "xmas"].includes(id));
+    expect(order).toEqual(["default", "qy2010", "aaa-pk", "xmas"]);
   });
 
   it("isKnownPackId：静态/启用 DB 包有效；停用与未知 id 无效", async () => {
