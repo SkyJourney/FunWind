@@ -5,7 +5,6 @@ import { getWebDb, pointLedger } from "@funwind/db";
 import type { DbTx } from "@/lib/audit";
 import type { EventPayloads } from "@/modules/kernel/types";
 import { emit } from "@/modules/kernel/bus";
-import { getActivePointsBoost } from "@/lib/campaigns/service";
 import { lockAccount } from "./account";
 import { applyPointsInTx, resolveChannelOrThrow, type ApplyPointsResult } from "./apply";
 import { UnregisteredChannelError } from "./errors";
@@ -56,7 +55,6 @@ async function earnedToday(tx: DbTx, userId: number, channel: string): Promise<n
 
 /**
  * 发放一笔发帖/回帖奖励：自己的短事务（READ COMMITTED + 死锁重试），提交后派发 `points.changed`。
- * M11.4：加成期内会应用排期倍率，日上限同比放大。
  * 调用方（模块消费者）在事件派发链上运行——它自己不再嵌套在外层事务里。
  */
 export async function awardEarn(req: EarnRequest): Promise<EarnResult> {
@@ -69,21 +67,9 @@ export async function awardEarn(req: EarnRequest): Promise<EarnResult> {
   if (!channel) return { awarded: false, reason: "channel_unavailable" };
 
   const config = await getPointRewardConfig();
-  const boost = await getActivePointsBoost();
-  let amount = req.channel === "earn.post" ? config.post : config.reply;
-  let cap = req.channel === "earn.post" ? config.postDailyCap : config.replyDailyCap;
-
-  // 应用排期加成
-  amount = Math.floor(amount * boost.ratio);
-  if (cap > 0) cap = Math.floor(cap * boost.ratio);
-
+  const amount = req.channel === "earn.post" ? config.post : config.reply;
+  const cap = req.channel === "earn.post" ? config.postDailyCap : config.replyDailyCap;
   if (amount <= 0) return { awarded: false, reason: "zero_reward" };
-
-  // 台账 note：注明加成方案名
-  let notePrefix = req.channel === "earn.post" ? "发帖奖励" : "回帖奖励";
-  if (boost.name) {
-    notePrefix += `（活动加成：${boost.name}）`;
-  }
 
   const result = await withDeadlockRetry(() =>
     getWebDb().transaction(async (tx): Promise<ApplyPointsResult | { capReached: true }> => {
@@ -101,7 +87,7 @@ export async function awardEarn(req: EarnRequest): Promise<EarnResult> {
           delta: amount,
           idempotencyKey: req.idempotencyKey,
           ref: { type: req.channel === "earn.post" ? "thread" : "post", id: req.refId },
-          note: notePrefix,
+          note: req.channel === "earn.post" ? "发帖奖励" : "回帖奖励",
         },
         channel,
       );

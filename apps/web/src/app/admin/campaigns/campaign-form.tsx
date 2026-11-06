@@ -2,7 +2,6 @@ import Link from "next/link";
 import { ActionGroup } from "@/components/ui/action-group";
 import { SubmitButton } from "@/components/ui/submit-button";
 import type { CampaignDraft } from "@/lib/campaigns/draft";
-import { findCampaignEffect } from "@/lib/campaigns/effects";
 import { createCampaignAction, updateCampaignAction } from "./actions";
 
 export interface ChoiceGroup {
@@ -14,8 +13,7 @@ const FIELD = "w-full min-w-0 rounded-lg border bg-background px-3 py-2 text-sm"
 
 /**
  * 新建 / 编辑表单（服务端组件，无脚本可用）。
- * M11.4 改造：根据 effect 的字段类型动态渲染输入组件。
- * M11.2 兼容：select effect 仍用下拉菜单（choice 格式）；新 effect 用对应的输入类型。
+ * 效果与目标合并成一个分组下拉（`<effect>::<target>`），不需要二级联动。
  * 版本冲突时保留用户填写的草稿与旧 revision，并禁用保存：必须先放弃草稿、载入最新版本，
  * 绝不把旧草稿的版本悄悄换成服务端最新版（G-19）。
  */
@@ -29,11 +27,6 @@ export function CampaignForm({
   conflict: boolean;
 }) {
   const editing = values.id !== undefined;
-  // 从 choice 中解析出 effect（格式：`effect::target`）
-  const choiceParts = values.choice.split("::");
-  const selectedEffect = choiceParts[0] || "";
-  const effect = selectedEffect ? findCampaignEffect(selectedEffect) : null;
-
   return (
     <form
       // 软导航会复用同一个 DOM：<select> 的 defaultValue 只在挂载时生效，
@@ -74,12 +67,6 @@ export function CampaignForm({
           </select>
         </label>
       </div>
-
-      {/* M11.4 none effect（register.open）：无参数提示 */}
-      {effect?.field.type === "none" && (
-        <p className="text-sm text-muted-foreground">该效果无需额外配置，生效即临时开放注册。</p>
-      )}
-
       <div className="grid min-w-0 gap-3 sm:grid-cols-3">
         <label className="grid min-w-0 gap-1 text-sm">
           开始时间{editing ? "" : "（留空 = 现在）"}

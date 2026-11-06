@@ -4,7 +4,6 @@ import { cache } from "react";
 import { eq, inArray, sql } from "drizzle-orm";
 import { getWebDb, siteSettings } from "@funwind/db";
 import { CLI_ACTOR, writeAudit, type ConfigActor } from "@/lib/audit";
-import { hasActiveRegisterOpenCampaign } from "@/lib/campaigns/service";
 import { resolveRegisterPolicy, type RegisterPolicy } from "./register-policy";
 
 /** 站点配置（site_settings；M12 安装向导接管写入） */
@@ -12,9 +11,9 @@ import { resolveRegisterPolicy, type RegisterPolicy } from "./register-policy";
 export type RegisterMode = "invite" | "open";
 
 /**
- * 注册策略（M11.3 + M11.4）：读新键 `register.policy`，不存在时按旧 `register.mode` 兼容映射（规则见 register-policy.ts）。
- * M11.4 排期覆盖：如果有有效的 `register.open` 排期，临时把 `open` 置真（只能放开不能收紧）。
- * 排期到期自动回到站点设置的原值。读不到或写坏都回落默认（邀请制）并告警，不让一份坏配置把注册意外放开或整体不可用。
+ * 注册策略（M11.3）：读新键 `register.policy`，不存在时按旧 `register.mode` 兼容映射（规则见 register-policy.ts）。
+ * 读不到或写坏都回落默认（邀请制）并告警，不让一份坏配置把注册意外放开或整体不可用。
+ * 取代原 `email.verification`（open_only/always）：验证要求现在只是策略里的一个布尔，且只作用于开放注册。
  */
 export const getRegisterPolicy = cache(async (): Promise<RegisterPolicy> => {
   const rows = await getWebDb()
@@ -27,13 +26,6 @@ export const getRegisterPolicy = cache(async (): Promise<RegisterPolicy> => {
     byKey.get("register.mode"),
   );
   if (error) console.warn(`[auth] site_settings.register.policy 无效，已回落到邀请制：${error}`);
-
-  // M11.4：排期覆盖：如果有有效的开放注册排期，临时把 open 置真
-  const hasOpenCampaign = await hasActiveRegisterOpenCampaign();
-  if (hasOpenCampaign && !policy.open) {
-    return { ...policy, open: true };
-  }
-
   return policy;
 });
 
