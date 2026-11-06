@@ -3,7 +3,7 @@ import "server-only";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { announcements, getWebDb, siteSettings } from "@funwind/db";
 import { SITE_NAME, SITE_TAGLINE, SITE_URL } from "@/lib/site";
-import { DEFAULT_PACK, isPackValue, type PackId } from "@/lib/theme-packs";
+import { DEFAULT_PACK } from "@/lib/theme-packs";
 import { isKnownPackId } from "@/lib/theme/catalog";
 import { getActiveCampaignConfigs } from "@/lib/campaigns/service";
 import { registerAvailability, resolveRegisterPolicy } from "@/lib/auth/register-policy";
@@ -211,12 +211,6 @@ function composeBrand(raw: unknown, prefix: "logo" | "hero", scheduled?: unknown
 function brandUrl(prefix: "logo" | "hero", brand: BrandCompose): string {
   const base = `/brand/${prefix}`;
   return brand.scheduled && brand.file ? `${base}?file=${encodeURIComponent(brand.file)}` : base;
-}
-
-/** 静态注册表校验版（兼容旧调用与纯单测）；运行时读取走动态目录 */
-export function parseThemePack(raw: unknown): PackId {
-  const candidate = themePackCandidate(raw);
-  return candidate && isPackValue(candidate) ? candidate : DEFAULT_PACK;
 }
 
 function parseNav(raw: unknown): NavItem[] {

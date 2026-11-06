@@ -2,7 +2,7 @@
   "apps/web/src/app/admin/emojis/page.tsx": 449,
   "apps/web/src/app/admin/settings/page.tsx": 529,
   "apps/web/src/app/admin/users/[uid]/page.tsx": 503,
-  "apps/web/src/app/design/page.tsx": 550,
+  "apps/web/src/app/design/page.tsx": 539,
   "apps/web/src/app/t/[tid]/page.tsx": 503,
   "apps/web/src/components/admin/theme-pack-editor.tsx": 810,
   "apps/web/src/lib/auth/account-deletion.ts": 817,

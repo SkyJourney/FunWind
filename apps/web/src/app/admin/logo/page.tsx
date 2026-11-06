@@ -1,7 +1,7 @@
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { getLogoPoolRaw } from "@/lib/brand/logo-pool";
 import { LOGO_MAX_BYTES } from "@/lib/brand/logo-pool-fs";
-import { isPackValue, packLabel } from "@/lib/theme-packs";
+import { listThemePacks } from "@/lib/theme/packs";
 import { BrandPoolAdmin, type BrandPoolSearchParams } from "@/components/admin/brand-pool-admin";
 import { removeLogoAction, setActiveLogoAction, uploadLogoAction } from "./actions";
 
@@ -26,6 +26,9 @@ export default async function LogoAdminPage(props: {
   // 取数顺序与 Hero 页刻意相反（brand-pool 页面骨架防克隆；guard 要求 requireAdmin 内联不可抽）
   const pool = await getLogoPoolRaw();
   const sp = await props.searchParams;
+  // 构建包名映射（用于徽标显示；包含停用包）
+  const packs = await listThemePacks();
+  const packNames = new Map(packs.map((p) => [p.id, p.name]));
   return (
     <BrandPoolAdmin
       title="LOGO 管理"
@@ -53,7 +56,7 @@ export default async function LogoAdminPage(props: {
         item.pack ? (
           <p className="mt-0.5 text-xs">
             <span className="rounded bg-accent px-1 text-accent-foreground">
-              {isPackValue(item.pack) ? packLabel(item.pack) : item.pack} 自带
+              {packNames.get(item.pack) ?? item.pack} 自带
             </span>
           </p>
         ) : null

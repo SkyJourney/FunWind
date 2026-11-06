@@ -6,6 +6,7 @@ import { checkinAction } from "@/app/actions/checkin";
 import { isDevEnv } from "@/lib/dev-only";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import { Slot } from "@/modules/kernel/slot";
+import { ThemePackRegistry } from "./theme-pack-registry";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,7 +38,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { bundledLogoOf, THEME_PACKS } from "@/lib/theme-packs";
 
 export const metadata: Metadata = { title: "设计令牌" };
 
@@ -327,21 +327,10 @@ export default function TokensPage() {
         <div className="space-y-5">
           <div>
             <p className="mb-2 text-sm font-medium">
-              主题包注册表（lib/theme-packs.ts；CSS 在 styles/tokens/themes/&lt;id&gt;.css）
+              主题包目录（default 静态回退 + DB 启用包；读取自 lib/theme/catalog）
             </p>
-            <div className="rounded-xl border bg-card">
-              {THEME_PACKS.map((pack) => (
-                <div
-                  key={pack.id}
-                  className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b px-4 py-2.5 last:border-b-0"
-                >
-                  <code className="text-xs">data-pack=&quot;{pack.id}&quot;</code>
-                  <span className="text-sm">{pack.label}</span>
-                  <span className="ml-auto text-xs text-muted-foreground">
-                    {`自带 LOGO：${bundledLogoOf(pack.id) ?? "无"}`}
-                  </span>
-                </div>
-              ))}
+            <div className="rounded-xl border bg-card p-4">
+              <ThemePackRegistry />
             </div>
           </div>
           <div>

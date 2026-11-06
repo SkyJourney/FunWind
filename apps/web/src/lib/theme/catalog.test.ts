@@ -11,15 +11,23 @@ import {
 /** 可注入的目录读取 fake：覆盖 DB 启用/停用、LOGO 资产引用、读库失败三条分支 */
 const rows =
   (
-    list: { id: string; name: string; enabled: boolean; assets?: unknown; definition?: unknown }[],
+    list: {
+      id: string;
+      name: string;
+      enabled: boolean;
+      isBuiltin?: boolean;
+      assets?: unknown;
+      definition?: unknown;
+    }[],
   ): ThemeCatalogReadDb =>
   async () =>
     list;
 
 describe("主题包目录（catalog，纯函数层）", () => {
-  it("目录 = 静态注册表 ∪ DB 启用包；停用包不进目录；同名静态包不被 DB 覆盖", async () => {
+  it("目录 = default 静态回退 ∪ DB 启用包；停用包不进目录；同名 DB 包覆盖静态包字段", async () => {
     const packs = await refreshThemeCatalog({
       readDb: rows([
+        { id: "qy2010", name: "复刻·青翼2010", enabled: true, isBuiltin: true },
         { id: "xmas", name: "圣诞青翼", enabled: true },
         { id: "legacy", name: "旧包", enabled: false },
         { id: "default", name: "同名 default", enabled: true },
@@ -32,6 +40,7 @@ describe("主题包目录（catalog，纯函数层）", () => {
     expect(ids).not.toContain("legacy");
     expect(ids.filter((id) => id === "default")).toHaveLength(1);
     expect(packs.find((p) => p.id === "default")?.source).toBe("static");
+    expect(packs.find((p) => p.id === "qy2010")?.source).toBe("db");
     expect(packs.find((p) => p.id === "xmas")?.source).toBe("db");
   });
 
@@ -103,16 +112,11 @@ describe("主题包目录（catalog，纯函数层）", () => {
   });
 
   it("内置包的自带 LOGO：库里没有自己的 LOGO 资产时用登记表的文件名；有资产时以资产为准；不带 LOGO 的包为 null", async () => {
-    // 库里没有任何行：静态部分
-    const bare = await refreshThemeCatalog({ readDb: rows([]) });
-    expect(bare.find((p) => p.id === "qy2010")?.logo).toBe("qy2010.png");
-    expect(bare.find((p) => p.id === "default")?.logo).toBeNull();
-
-    // 库里有行但没有 LOGO 资产（种子行就是这样）：仍是登记表的文件名
+    // qy2010 现为 DB 包（Step 5b），需提供行才会出现在目录
     const seeded = await refreshThemeCatalog({
       readDb: rows([
-        { id: "default", name: "现代浅色", enabled: true, assets: [] },
-        { id: "qy2010", name: "复刻·青翼2010", enabled: true, assets: [] },
+        { id: "default", name: "现代浅色", enabled: true, assets: [], isBuiltin: true },
+        { id: "qy2010", name: "复刻·青翼2010", enabled: true, assets: [], isBuiltin: true },
       ]),
     });
     expect(seeded.find((p) => p.id === "qy2010")?.logo).toBe("qy2010.png");
@@ -125,6 +129,7 @@ describe("主题包目录（catalog，纯函数层）", () => {
           id: "qy2010",
           name: "复刻·青翼2010",
           enabled: true,
+          isBuiltin: true,
           assets: [{ kind: "logo", poolFile: "logo-bound.png" }],
         },
       ]),
@@ -150,12 +155,12 @@ describe("主题包目录（catalog，纯函数层）", () => {
     expect(calls).toBe(2);
   });
 
-  it("读库失败：冷启动回静态注册表并记日志；已有缓存时沿用上次目录", async () => {
+  it("读库失败：冷启动回静态回退包（default）并记日志；已有缓存时沿用上次目录", async () => {
     const failing: ThemeCatalogReadDb = async () => {
       throw new Error("db down");
     };
     const cold = await refreshThemeCatalog({ readDb: failing });
-    expect(cold.map((p) => p.id)).toEqual(["default", "qy2010"]);
+    expect(cold.map((p) => p.id)).toEqual(["default"]);
 
     // 已有缓存后读库失败 → 沿用上次目录（不空目录）
     await refreshThemeCatalog({

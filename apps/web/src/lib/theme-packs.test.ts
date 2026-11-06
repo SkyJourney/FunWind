@@ -2,23 +2,16 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { BUILTIN_THEME_PACK_SEEDS } from "@funwind/db";
 import { describe, expect, it } from "vitest";
-import {
-  BUNDLED_PACK_LOGOS,
-  bundledLogoOf,
-  DEFAULT_PACK,
-  isPackValue,
-  packLabel,
-  THEME_PACKS,
-} from "./theme-packs";
+import { BUNDLED_PACK_LOGOS, bundledLogoOf, DEFAULT_PACK, THEME_PACKS } from "./theme-packs";
 
-describe("THEME_PACKS", () => {
-  it("default 包始终在册（CSS themes/default.css 与注册表一一对应）", () => {
-    expect(THEME_PACKS.map((p) => p.id)).toContain("default");
+describe("THEME_PACKS（静态注册表，M11.6 Step 5b）", () => {
+  it("只保留 default 系统回退包（qy2010 等已移至 DB 种子）", () => {
+    expect(THEME_PACKS).toHaveLength(1);
+    expect(THEME_PACKS[0].id).toBe("default");
   });
 
-  it("qy2010 在册（themes/qy2010.css）且 id 全局唯一", () => {
+  it("每个包的 id 唯一", () => {
     const ids = THEME_PACKS.map((p) => p.id);
-    expect(ids).toContain("qy2010");
     expect(new Set(ids).size).toBe(ids.length);
   });
 });
@@ -66,34 +59,9 @@ describe("bundledLogoOf", () => {
   });
 });
 
-describe("isPackValue", () => {
-  it("识别合法包 id", () => {
-    expect(isPackValue("default")).toBe(true);
-    expect(isPackValue("qy2010")).toBe(true);
-  });
-
-  it("拒绝非法值", () => {
-    expect(isPackValue("blue")).toBe(false);
-    expect(isPackValue(null)).toBe(false);
-    expect(isPackValue(undefined)).toBe(false);
-    expect(isPackValue("")).toBe(false);
-  });
-});
-
-describe("packLabel", () => {
-  it("返回注册表中的中文标签", () => {
-    expect(packLabel("default")).toBe("现代浅色");
-    expect(packLabel("qy2010")).toBe("复刻·青翼2010");
-  });
-
-  it("未知 id 原样返回（不抛错）", () => {
-    expect(packLabel("blue" as never)).toBe("blue");
-  });
-});
-
 describe("DEFAULT_PACK", () => {
-  it("兜底为 default 且在册", () => {
+  it("兜底为 default 且在静态注册表中", () => {
     expect(DEFAULT_PACK).toBe("default");
-    expect(isPackValue(DEFAULT_PACK)).toBe(true);
+    expect(THEME_PACKS.some((p) => p.id === DEFAULT_PACK)).toBe(true);
   });
 });

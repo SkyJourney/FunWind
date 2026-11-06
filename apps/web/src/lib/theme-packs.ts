@@ -1,12 +1,12 @@
 /**
- * 主题包注册表（M11，docs/THEME-SYSTEM.md）：与 styles/tokens/themes/<id>.css 一一对应，
- * 新增主题包时两边同步。html[data-pack] 由服务端直出（用户偏好 → 站点默认 → default），
- * CSS 选择器见各主题文件；qy2010 等「仅浅色」包用 :not([data-mode="dark"]) 限定，暗色自动回退默认暗色。
+ * 主题包静态注册表（M11.6 Step 5b 后只保留系统回退包）：
+ *
+ * 只有 `default` 包在此注册（CSS 在 styles/tokens/themes/default.css，作为冷启动 / 数据库不可达时的最终兜底）。
+ * 其余内置包（如 `qy2010`）与自定义包均在 `theme_packages` 表中，由种子 / 管理员维护，运行时经 lib/theme/catalog 读取。
+ * html[data-pack] 由服务端直出（用户偏好 → 站点默认 → default），主题样式经 SSR 注入 <style data-fw-theme-pack>。
  */
 export const THEME_PACKS = [
   { id: "default", label: "现代浅色" },
-  // CSS 在 themes/qy2010.css（Step 4 旧站采样色板 + 插槽示范）
-  { id: "qy2010", label: "复刻·青翼2010" },
 ] as const satisfies readonly ThemePack[];
 
 export interface ThemePack {
@@ -29,7 +29,8 @@ export interface BundledPackLogo {
  * apply-pack-logo.int.test 会在两边不同步时变红。
  */
 export const BUNDLED_PACK_LOGOS = [
-  // qy2010 的自带 LOGO = 站长定稿的「清爽侦探」青色半翼（与 LOGO 池当前项同一文件，public/logo/qy2010.png）
+  // qy2010 的自带 LOGO = 站长定稿的「清爽侦探」青色半翼（与 LOGO 池当前项同一文件，public/logo/qy2010.png）；
+  // qy2010 现已移至数据库种子（packages/db/src/theme-pack-seeds.ts），但 LOGO 文件仍留此处供目录回退
   { id: "qy2010", file: "qy2010.png" },
 ] as const satisfies readonly BundledPackLogo[];
 
@@ -38,15 +39,5 @@ export function bundledLogoOf(id: string): string | null {
   return BUNDLED_PACK_LOGOS.find((entry) => entry.id === id)?.file ?? null;
 }
 
-export type PackId = (typeof THEME_PACKS)[number]["id"];
-
 /** 站点默认主题包（站长未配置时的兜底） */
-export const DEFAULT_PACK: PackId = "default";
-
-export function isPackValue(v: string | null | undefined): v is PackId {
-  return THEME_PACKS.some((p) => p.id === v);
-}
-
-export function packLabel(id: PackId): string {
-  return THEME_PACKS.find((p) => p.id === id)?.label ?? id;
-}
+export const DEFAULT_PACK = "default" as const;

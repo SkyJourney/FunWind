@@ -5,12 +5,12 @@ import { bundledLogoOf, DEFAULT_PACK, THEME_PACKS } from "@/lib/theme-packs";
 import { parseThemePackDefinition, type ThemePackDefinition } from "./surface-schema";
 
 /**
- * 主题包目录（M11.1 Step 3，docs/milestones/M11.1-theme-engine.md Step 3）：
- * 静态注册表（内置 CSS 包，随代码发布）∪ DB 数据包（/admin/themes 维护，enabled 才有效）。
+ * 主题包目录（M11.1 Step 3 → M11.6 Step 5b，docs/milestones/M11.6-theme-semantic-tokens.md）：
+ * 代码内置的 default 回退包 ∪ 数据库启用包（内置种子 qy2010 + 管理员自建，/admin/themes 维护）。
  * 目录走 globalThis TTL 缓存（与 site-chrome 同款 30s 盒），管理保存后 invalidateThemeCatalog()。
  *
- * 校验口径（isKnownPackId）：静态包 ∪ DB 中 enabled 的包。停用/删除的包按未知处理——
- * 偏好读取侧（theme-pref）与站点默认（site-chrome.parseThemePack）据此安全回退 default。
+ * 校验口径（isKnownPackId）：default ∪ DB 中 enabled 的包。停用/删除的包按未知处理——
+ * 偏好读取侧（theme-pref）与站点默认（site-chrome.resolveSiteThemePack）据此安全回退 default。
  */
 
 const TTL_MS = 30_000;
@@ -18,10 +18,10 @@ const TTL_MS = 30_000;
 export interface CatalogPack {
   id: string;
   label: string;
-  /** 来源：static=内置 CSS 包（themes/<id>.css 随代码发布）；db=/admin/themes 维护的数据包 */
+  /** 来源：static = 代码内置 default 回退包（themes/default.css）；db = 数据库种子 + 自定义包（经 SSR 注入样式） */
   source: "static" | "db";
   enabled: boolean;
-  /** 自带 LOGO：数据库里包的 LOGO 资产（池文件名）优先，没有时内置包用登记表里随代码发布的文件名 */
+  /** 自带 LOGO：数据库里包的 LOGO 资产（池文件名）优先，没有时查内置包登记表（qy2010 等） */
   logo: string | null;
   definition: ThemePackDefinition | null;
   themeColor: string;
@@ -40,15 +40,21 @@ export type ThemeCatalogRow = {
   id: string;
   name: string;
   enabled: boolean;
+  isBuiltin?: boolean;
   assets?: unknown;
   definition?: unknown;
 };
 
 export type ThemeCatalogReadDb = () => Promise<ThemeCatalogRow[]>;
 
+/** 内置主题色的安全查找：用 Object.hasOwn 避免原型链污染（id = "constructor" 等边缘情况） */
+function builtinColorsOf(id: string) {
+  return Object.hasOwn(BUILTIN_THEME_COLORS, id) ? BUILTIN_THEME_COLORS[id] : null;
+}
+
 function staticPacks(): CatalogPack[] {
   return THEME_PACKS.map((pack) => {
-    const colors = BUILTIN_THEME_COLORS[pack.id] ?? BUILTIN_THEME_COLORS[DEFAULT_PACK];
+    const colors = builtinColorsOf(pack.id) ?? BUILTIN_THEME_COLORS[DEFAULT_PACK];
     return {
       id: pack.id,
       label: pack.label,
@@ -65,33 +71,39 @@ function staticPacks(): CatalogPack[] {
 async function readDbPacksVia(readDb: ThemeCatalogReadDb): Promise<CatalogPack[]> {
   const rows = await readDb();
   const staticById = new Map(staticPacks().map((pack) => [pack.id, pack]));
-  return rows
+  // 内置包优先、再按 id 排序（保持目录顺序稳定，与 listThemePacks 一致）
+  const sorted = [...rows]
     .filter((row) => /^[a-z0-9][a-z0-9_-]{1,31}$/.test(row.id))
-    .map((row) => {
-      const staticPack = staticById.get(row.id);
-      const parsed = row.definition === undefined ? null : parseThemePackDefinition(row.definition);
-      const definition = parsed?.ok ? parsed.value : null;
-      const assets = Array.isArray(row.assets)
-        ? (row.assets as { poolFile?: unknown; kind?: unknown }[])
-        : [];
-      const logoAsset = assets.find(
-        (asset) => asset.kind === "logo" && typeof asset.poolFile === "string",
-      );
-      const colors = definition?.pwa ?? {
-        themeColor: staticPack?.themeColor ?? BUILTIN_THEME_COLORS[DEFAULT_PACK].themeColor,
-        backgroundColor:
-          staticPack?.backgroundColor ?? BUILTIN_THEME_COLORS[DEFAULT_PACK].backgroundColor,
-      };
-      return {
-        id: row.id,
-        label: row.name,
-        source: staticPack ? "static" : "db",
-        enabled: row.enabled,
-        logo: logoAsset ? (logoAsset.poolFile as string) : bundledLogoOf(row.id),
-        definition,
-        ...colors,
-      };
-    });
+    .sort(
+      (a, b) =>
+        Number(b.isBuiltin ?? false) - Number(a.isBuiltin ?? false) || a.id.localeCompare(b.id),
+    );
+  return sorted.map((row) => {
+    const staticPack = staticById.get(row.id);
+    const parsed = row.definition === undefined ? null : parseThemePackDefinition(row.definition);
+    const definition = parsed?.ok ? parsed.value : null;
+    const assets = Array.isArray(row.assets)
+      ? (row.assets as { poolFile?: unknown; kind?: unknown }[])
+      : [];
+    const logoAsset = assets.find(
+      (asset) => asset.kind === "logo" && typeof asset.poolFile === "string",
+    );
+    // PWA 颜色回退：先查该包自己的内置色（qy2010 等），无则用 default 兜底
+    const builtinColors = builtinColorsOf(row.id) ?? BUILTIN_THEME_COLORS[DEFAULT_PACK];
+    const colors = definition?.pwa ?? {
+      themeColor: builtinColors.themeColor,
+      backgroundColor: builtinColors.backgroundColor,
+    };
+    return {
+      id: row.id,
+      label: row.name,
+      source: staticPack ? "static" : "db",
+      enabled: row.enabled,
+      logo: logoAsset ? (logoAsset.poolFile as string) : bundledLogoOf(row.id),
+      definition,
+      ...colors,
+    };
+  });
 }
 
 export interface ThemeCatalogDeps {
@@ -153,6 +165,7 @@ async function defaultReadDb(): Promise<ThemeCatalogRow[]> {
       id: themePackages.id,
       name: themePackages.name,
       enabled: themePackages.enabled,
+      isBuiltin: themePackages.isBuiltin,
       assets: themePackages.assets,
       definition: themePackages.definition,
     })
