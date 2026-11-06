@@ -17,6 +17,7 @@ import {
   ROLE_DEFINITIONS,
 } from "./authz-vocab.js";
 import { BUILTIN_THEME_PACK_SEEDS } from "./theme-pack-seeds.js";
+import { backfillMissingSections } from "./theme-pack-upgrade.js";
 import { createDb, createPool, type Db } from "./client.js";
 import { newDbConfig } from "./env.js";
 import { incoming } from "./sql.js";
@@ -75,7 +76,7 @@ export async function bootstrapDb(
 
     const summary = await seedSystemData(db);
     log(
-      `✔ 系统种子（幂等）：角色 ${summary.roles} / 权限点 ${summary.permissions} / 新增基线授权 ${summary.grantsInserted} / 新增默认设置 ${summary.settingsInserted} / 内置主题包 ${summary.themePacksInserted}`,
+      `✔ 系统种子（幂等）：角色 ${summary.roles} / 权限点 ${summary.permissions} / 新增基线授权 ${summary.grantsInserted} / 新增默认设置 ${summary.settingsInserted} / 内置主题包 ${summary.themePacksInserted} / 补缺的内置主题包 ${summary.themePacksBackfilled}`,
     );
   } finally {
     await pool.end();
@@ -88,6 +89,8 @@ export interface SystemSeedSummary {
   grantsInserted: number;
   settingsInserted: number;
   themePacksInserted: number;
+  /** 补上了缺失顶层段的内置主题包个数（M11.6 Step 4） */
+  themePacksBackfilled: number;
 }
 
 /**
@@ -96,6 +99,7 @@ export interface SystemSeedSummary {
  * - 基线授权：仅当某内置角色**尚无任何授权行**时写入默认值，避免重跑 bootstrap 覆盖管理员的授权调整
  *   （词汇表新增权限点对存量库的补授由增量迁移负责——见 drizzle/0005 的 EXISTS 守卫插入）
  * - 站点设置：仅写入缺失项，不覆盖已有值
+ * - 内置主题包：行不存在才插入；已存在的内置行只补缺失的顶层段（backfillMissingSections），不覆盖已有段
  */
 export async function seedSystemData(db: Db): Promise<SystemSeedSummary> {
   await db
@@ -190,11 +194,29 @@ export async function seedSystemData(db: Db): Promise<SystemSeedSummary> {
     if (inserted[0]?.affectedRows) themePacksInserted += Number(inserted[0].affectedRows);
   }
 
+  // 内置主题包补缺（M11.6 Step 4）：存量行拿不到种子后来新增的顶层段（如 tokens），这里按段补上。
+  // 只补缺失的段、永不覆盖已有的段，所以站长改过的内容不动；只处理仍是内置包的行
+  // （同 id 的自定义行不是种子的，与 resetToBuiltin 的守卫同口径）。
+  // 已知边角（设计 §3.4「缺段才补」）：站长把某个段整个清空也算缺失，下次会被补回
+  // （例如令牌编辑器里把浅深两档都改回继承，会删掉 tokens 键）；不为它另加条件。
+  let themePacksBackfilled = 0;
+  for (const seed of BUILTIN_THEME_PACK_SEEDS) {
+    const [row] = await db
+      .select({ isBuiltin: themePackages.isBuiltin })
+      .from(themePackages)
+      .where(eq(themePackages.id, seed.id))
+      .limit(1);
+    if (!row?.isBuiltin) continue;
+    if ((await backfillMissingSections(db, seed.id, seed.definition)) > 0)
+      themePacksBackfilled += 1;
+  }
+
   return {
     roles: ROLE_DEFINITIONS.length,
     permissions: PERMISSION_DEFINITIONS.length,
     grantsInserted,
     settingsInserted,
     themePacksInserted,
+    themePacksBackfilled,
   };
 }

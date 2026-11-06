@@ -6,7 +6,7 @@
 import { eq, sql } from "drizzle-orm";
 import mysql, { type RowDataPacket } from "mysql2/promise";
 import { randomBytes } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   BUILTIN_ROLE_KEYS,
   DEFAULT_LIMITS,
@@ -202,6 +202,90 @@ describe.skipIf(skip)("bootstrap / seed 集成（临时库）", () => {
       const [after] = await db.select().from(themePackages).where(eq(themePackages.id, "default"));
       expect(after?.name).toBe("站长改过的默认包");
       expect(after?.revision).toBe(9);
+    });
+  });
+
+  describe("内置主题包补缺（M11.6 Step 4）", () => {
+    const seed = BUILTIN_THEME_PACK_SEEDS.find((candidate) => candidate.id === "qy2010")!;
+    type TestDb = ReturnType<typeof createDb>;
+    const readPack = async (db: TestDb) =>
+      (await db.select().from(themePackages).where(eq(themePackages.id, "qy2010")))[0]!;
+    const sectionsOf = (row: { definition: unknown }) => row.definition as Record<string, unknown>;
+    /** 模拟升级前的存量行：定义里没有后来新增的 tokens，也没有 pwa（21c4736 之前的行就是这样），版本回到 1 */
+    const stripSections = (db: TestDb) =>
+      db
+        .update(themePackages)
+        .set({
+          definition: sql`JSON_REMOVE(${themePackages.definition}, '$.tokens', '$.pwa')`,
+          revision: 1,
+        })
+        .where(eq(themePackages.id, "qy2010"));
+
+    afterEach(async () => {
+      await withTestDb((db) =>
+        db
+          .update(themePackages)
+          .set({ definition: seed.definition, revision: 1, isBuiltin: true })
+          .where(eq(themePackages.id, "qy2010")),
+      );
+    });
+
+    it("缺 tokens 与 pwa 的存量行一次补齐、revision 只 +1、其余段不动；再跑一次不写库", async () => {
+      await withTestDb(async (db) => {
+        await stripSections(db);
+        const before = await readPack(db);
+        expect(sectionsOf(before).tokens).toBeUndefined();
+        expect(sectionsOf(before).pwa).toBeUndefined();
+
+        expect((await seedSystemData(db)).themePacksBackfilled).toBe(1);
+        const after = await readPack(db);
+        expect(after.definition).toEqual(seed.definition);
+        expect(after.revision).toBe(before.revision + 1);
+
+        expect((await seedSystemData(db)).themePacksBackfilled).toBe(0);
+        expect((await readPack(db)).revision).toBe(after.revision);
+      });
+    });
+
+    it("站长改过的令牌不被补缺覆盖：不写库，revision 不变", async () => {
+      await withTestDb(async (db) => {
+        const custom = { light: { colors: { primary: "#112233" } } };
+        await db
+          .update(themePackages)
+          .set({
+            definition: sql`JSON_SET(${themePackages.definition}, '$.tokens', CAST(${JSON.stringify(custom)} AS JSON))`,
+            revision: 5,
+          })
+          .where(eq(themePackages.id, "qy2010"));
+
+        expect((await seedSystemData(db)).themePacksBackfilled).toBe(0);
+        const after = await readPack(db);
+        expect(sectionsOf(after).tokens).toEqual(custom);
+        expect(after.revision).toBe(5);
+      });
+    });
+
+    it("同 id 但已不是内置包的行不补缺", async () => {
+      await withTestDb(async (db) => {
+        await stripSections(db);
+        await db
+          .update(themePackages)
+          .set({ isBuiltin: false })
+          .where(eq(themePackages.id, "qy2010"));
+
+        expect((await seedSystemData(db)).themePacksBackfilled).toBe(0);
+        const after = await readPack(db);
+        expect(sectionsOf(after).tokens).toBeUndefined();
+        expect(sectionsOf(after).pwa).toBeUndefined();
+        expect(after.revision).toBe(1);
+      });
+    });
+
+    it("bootstrapDb 的汇总日志带上补缺个数", async () => {
+      await withTestDb((db) => stripSections(db));
+      const lines: string[] = [];
+      await bootstrapDb(config, (message) => lines.push(message));
+      expect(lines.find((line) => line.startsWith("✔ 系统种子"))).toContain("补缺的内置主题包 1");
     });
   });
 

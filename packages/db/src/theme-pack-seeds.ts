@@ -167,6 +167,48 @@ const qy2010Pack: BuiltinThemePackSeed = {
         light: { fill: { type: "solid", color: "#f6f3e7" } },
       },
     },
+    // 语义令牌层（M11.6 Step 4）：值取自 styles/tokens/themes/qy2010.css，仅浅色档。
+    // CSS 里的 var() 引用在这里解析成具体色值：card-foreground / popover-foreground 来自 --foreground，
+    // success 来自 --fw-green-800，info 来自 --fw-blue-500；与 Step 0 冻结的计算值一致。
+    // 纸纹（--page-bg 里的重复条纹）按站长决定 D1 丢弃，不进数据；--theme-name 没有消费方，也不进数据。
+    // 板块卡不写 maskColor：基础层 --band-mask-color 是 var(--card)，本包的 --card 同在 :root，算出来仍是 #fffdf4。
+    tokens: {
+      light: {
+        colors: {
+          background: "#f6f3e7",
+          foreground: "#33332f",
+          card: "#fffdf4",
+          "card-foreground": "#33332f",
+          popover: "#fffdf4",
+          "popover-foreground": "#33332f",
+          primary: "#147ba9",
+          "primary-foreground": "#ffffff",
+          secondary: "#f3edc8",
+          "secondary-foreground": "#6d4a0f",
+          muted: "#efe9d6",
+          "muted-foreground": "#8a8265",
+          accent: "#e7f1e4",
+          "accent-foreground": "#33613f",
+          destructive: "#a3425b",
+          "destructive-foreground": "#ffffff",
+          success: "#166534",
+          warning: "#8a5200",
+          info: "#3b82f6",
+          border: "#e0d9c0",
+          input: "#e0d9c0",
+          ring: "#147ba9",
+        },
+        radius: "sm",
+        shadows: {
+          s1: { x: 0, y: 1, blur: 2, spread: 0, color: "#786428", alpha: 0.1 },
+          s2: { x: 0, y: 4, blur: 12, spread: 0, color: "#786428", alpha: 0.14 },
+          s3: { x: 0, y: 12, blur: 32, spread: 0, color: "#786428", alpha: 0.2 },
+        },
+        displayFont: "songti",
+        brandGradient: { angle: 120, from: "#9bcba5", to: "#efe9b5" },
+        band: { width: 8.5, angle: 90, fade: 0, dim: 1, mask: false },
+      },
+    },
   },
 };
 
