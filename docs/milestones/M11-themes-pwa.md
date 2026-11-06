@@ -71,7 +71,7 @@
 
 | 语义令牌 / 插槽 | qy2010 落地值 | 旧站来源 |
 |---|---|---|
-| `--primary` / `--ring` | `#147ba9` | whitesimple 天蓝链接 `#2197d5`（加深至白字 4.6:1） |
+| `--primary` / `--ring` | `#116a92`（M11.6 Step 6 加深） | whitesimple 天蓝链接 `#2197d5` 加深至白字 4.6:1；Step 6 进一步加深至 5.97:1 |
 | `--background` / `--page-bg` | `#f6f3e7` + 极淡横纹纸感 | kiminitodoke 米黄系 + wood「固定纹理底」气质（CSS 渐变，不用 bg.jpg 位图） |
 | `--card` | `#fffdf4` 暖白 | whitesimple / wood 白色内容卡 `#fff` |
 | `--secondary` / `--secondary-foreground` | `#f3edc8` / `#6d4a0f` | kiminitodoke 淡黄表格 `#EFE9B5` + 棕字 `#783E00` |

@@ -10,7 +10,7 @@
 
 ```
 ┌ 主题包 Theme Pack（表现层）———————————— 长什么样
-│   内置：styles/tokens/themes/<id>.css 静态兜底
+│   内置：default 为 styles/tokens/themes/default.css 静态兜底，qy2010 已改为数据驱动（M11.6 Step 5c）
 │   外源：theme_packages.definition（版本化 Surface JSON）+ assets（装饰/LOGO ZIP 资源）
 │   目录 = 静态注册表 ∪ DB 启用包；用户偏好或站点默认二选一生效
 ├ 站点素材位 Site Slots（DB 层）—————————— 挂什么
@@ -82,8 +82,8 @@ M11.1 的 Surface 运行时通过固定变量组消费填充、遮罩、描边�
 
 **补充关系，非硬绑定**：
 
-1. 内置静态包可声明 `lib/theme-packs.ts` 的 `logo`（素材放 `apps/web/public/logo/`）；DB 包在 `theme_packages.assets` 引用 LOGO 池文件，均可不带。
-2. 站长把某主题包**设为全站默认**时，若 DB 包引用池内 LOGO 则设为当前项；内置静态包仍自动从 public 目录幂等导入并设为当前项。无自带 LOGO 的包不触碰 LOGO 池。
+1. 内置包可声明 `lib/theme-packs.ts` 的 `logo`（素材放 `apps/web/public/logo/`）；DB 包在 `theme_packages.assets` 引用 LOGO 池文件，均可不带。
+2. 站长把某主题包**设为全站默认**时，若 DB 包引用池内 LOGO 则设为当前项；内置包（qy2010 已改为数据驱动、default 仍为静态）仍自动从 public 目录幂等导入并设为当前项。无自带 LOGO 的包不触碰 LOGO 池。
 3. 之后站长仍可随时从 LOGO 池独立切换任意一枚；管理页对带 `pack` 标签的池项显示
    「〈主题名〉自带」徽标；被移除后再次设默认主题会重新导入。
 4. 联动**只在站长设站点默认主题时触发**；用户个人主题包偏好不改变站点 LOGO
@@ -123,7 +123,7 @@ M11.1 的 Surface 运行时通过固定变量组消费填充、遮罩、描边�
 | 主题↔LOGO | 补充关系：设默认时一次性切换、池内可再独立切 | 站长定稿 2026-10-31 |
 | 个人偏好改包 | 不改站点 LOGO | LOGO 属站点身份 |
 | Hero 素材管线 | 复刻 LOGO 池：PNG-only 直存 `STORAGE_DIR/site/`，不进 files 表 | 模式已验证、链路最短；上限 ≤1920×1080 / ≤2MB |
-| 池类配置泛化 | brand-pool 核心（DB 事务+审计 / fs 验真落盘 / 公开输出 / 动作骨架）logo/hero 共用薄壳 | 已落地（lib/brand/brand-pool*）；静态守护（use-server-exports/admin-entry-guard）要求动作文件保留字面 defineAction+auth，故动作不做转发导出 |
+| 池类配置泛化 | brand-pool 核心（DB 事务+审计 / fs 验真落盘 / 公开输出 / 动作骨架）logo/hero 共用薄壳 | 已落地（lib/brand/brand-pool*）；use-server-exports 守护要求动作文件保留字面 defineAction+auth，故动作不做转发导出 |
 | PWA 离线缓存 | 只缓存通用 offline.html 与不可变公共静态资源；不缓存 HTML/RSC/API/files/brand；manifest 图标动态读取 LOGO 池当前项、空池回退静态图；themeColor/backgroundColor 读取站点默认包的显式 PWA 元数据 | 页面动态且包含用户态数据；避免登出/换号后读到旧账号缓存；用户个人主题不改变站点级 PWA 色值 |
 | 装扮自动调度 | M11.2（配置引擎 + 时间窗），M11.1 先完成主题包引擎与 Surface 接线 | 站长定稿 2026-10-31 |
 | 视觉回归基线 | 仅本机 macOS 跑（`pnpm test:visual`），容差 3% 吸收字形 AA 抖动；换基线须人工核对 | CI 字体渲染差异不可跨平台对比 |

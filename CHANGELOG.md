@@ -5,6 +5,20 @@
 
 ## [Unreleased]
 
+### Added（M11.6 Step 6 · qy2010 品牌色与次要文字色加深）
+
+- **对比度顾问新增 5 对配对**（18 → 23）：`muted-fg-muted`、`muted-fg-secondary`、`muted-fg-accent`（次要文字压弱化底/次色/强调底），`primary-fg-bg`、`primary-fg-card`（主色纯文字压页面底/卡片底）。新增配对插在 `muted-fg-card` 之后、淡底之前，原有配对的相对顺序不变。后台主题编辑器的对比度面板同步更新。
+- **存量库升级机制**（`packages/db`）：新原语 `swapManyIfUnchanged`，一条 UPDATE 处理多条路径，每条用 `IF(当前值 = 旧值, 新值, 当前值)`，任一条命中才写库，`revision` 只 +1；升级表 `theme-pack-migrations.ts` 登记 8 条路径的旧值 → 新值，约定只增不改；`bootstrap` 在补缺之后按升级表升级内置包，摘要新增 `themePacksUpgraded`。站长改过某条路径仍会拿到其余路径的升级，这是设计行为。
+- **布局矩阵**新增 qy2010 令牌编辑器场景（六档宽度），验证 23 对配对全部达标。
+
+### Changed（M11.6 Step 6）
+
+- **qy2010 品牌色加深至 `#116a92`**（原 `#147ba9`）：`primary`、`ring`、`pwa.themeColor`、公告条与页脚的链接色，共 5 处定义加色表 1 处。所有对比度配对 ≥ 4.5:1，最低 4.514（`muted-fg-muted`）。
+- **qy2010 次要文字色加深至 `#706952`**（原 `#8a8265`）：`muted-foreground`、公告条与页脚的 `muted`，共 3 处。此色是同色相下六个已知表面全部 ≥ 4.5 的最浅缩放（81%），偏离 D6 原候选 `#756e56`（85%，只保证页面底和卡片底达标）。
+- **默认浅色主题多 2 项已知对比度缺口**：`muted-fg-muted`、`muted-fg-secondary`（均 4.344）。6a 补配对后新暴露，本步没动 default 包。后台对比度面板对默认主题显示"3 项未达标"（原 1 项）。
+- **视觉基线更新**：两份计算样式 fixture（桌面/手机）各改 4 项（`--primary`、`--ring`、`--muted-foreground`、主按钮 `background-color`）。与 Step 4 提交的原始 fixture 逐键比较，每份只有 5 处不同（Step 5 的纸纹加这 4 项）。14 张整页截图基线未更新（旧品牌色像素占比桌面 0.000%、手机最大 1.273%，都低于 3% 容差）。
+- **主题编辑器工作区截图基线更新至 1440×1554**（原 1504）。两层原因：11-02 入库后 Step 3a/3c 改动了编辑器；以及该用例的底色与素材库内容取决于前一个用例留下的状态，所以基线必须按完整顺序重抓，单独运行这条用例会失败（未消除的耦合）。
+
 ### Added（M11.5 · 进程内定时任务调度器）
 
 - **进程内调度器**（`lib/scheduler`）：croner 10.0.1（零依赖）+ Next `instrumentation.ts` + MySQL 命名锁（`GET_LOCK`）。站点是 SSR 常驻 Node 进程，不再依赖系统 cron 记得配置。**默认关闭，只有 `SCHEDULER=on` 才启动**（`ON`、`1`、`true`、留空都不启动）：开发库连真实 SMTP，E2E 的生产构建也是 `next start`，按 `NODE_ENV` 自动开启会让定时任务踩到正在测试的数据。

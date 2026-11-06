@@ -879,13 +879,13 @@ for (const width of LAYOUT_WIDTHS) {
           });
         });
         await audit.step("admin-themes-default-token-contrast", async () => {
-          // 对比度检查：正文覆盖成近白，出现本包造成的未达标行；展开全部 18 行，37 个按钮在窄容器里都要单行、不互相覆盖
+          // 对比度检查：正文覆盖成近白，出现本包造成的未达标行；展开全部 23 行，47 个按钮在窄容器里都要单行、不互相覆盖
           const panel = page.getByTestId("contrast-panel");
           await page.getByRole("button", { name: "正文：覆盖", exact: true }).click();
           await page.getByRole("textbox", { name: "正文（全站）", exact: true }).fill("#f8fafc");
-          await expect(panel.getByText(/^3 项未达标，共 18 项/)).toBeVisible();
+          await expect(panel.getByText(/^5 项未达标，共 23 项/)).toBeVisible();
           await panel.getByRole("button", { name: "显示全部", exact: true }).click();
-          await expect(panel.getByTestId("contrast-row")).toHaveCount(18);
+          await expect(panel.getByTestId("contrast-row")).toHaveCount(23);
           await audit.capture("admin-themes-default-token-contrast", {
             roots: ADMIN_ROOT,
             buttons: ADMIN_BUTTONS,
@@ -931,6 +931,26 @@ for (const width of LAYOUT_WIDTHS) {
             regions: tokenRegion,
           });
           // 仅修改浏览器内的草稿，不点保存，不改变 default 包。
+        });
+
+        await audit.step("admin-themes-qy2010-token-contrast", async () => {
+          // qy2010 浅色档 23 对配对全部达标（Step 6b 换色后）
+          await page.goto("/admin/themes/qy2010");
+          await expect(page.getByRole("heading", { name: /编辑主题包/ })).toBeVisible();
+          const qy2010Panel = page.getByTestId("theme-token-editor");
+          // 摘要先于展开可见；对比度面板在折叠的 <details> 里，要先展开才可见
+          await expect(qy2010Panel.getByText("已覆盖 29 项")).toBeVisible();
+          await qy2010Panel.locator("summary").click();
+          const contrast = page.getByTestId("contrast-panel");
+          await expect(contrast.getByText(/^23 项全部达标/)).toBeVisible();
+          await contrast.getByRole("button", { name: "显示全部", exact: true }).click();
+          await expect(contrast.getByTestId("contrast-row")).toHaveCount(23);
+          await audit.capture("admin-themes-qy2010-token-contrast", {
+            roots: ADMIN_ROOT,
+            buttons: ADMIN_BUTTONS,
+            required: ['[data-testid="contrast-panel"]'],
+            regions: [{ name: "contrast-qy2010", selector: '[data-testid="contrast-panel"]' }],
+          });
         });
 
         await audit.step("admin-themes-default-invalid-issues", async () => {

@@ -10,6 +10,7 @@ const config = [
       ".next-e2e-prod/**",
       ".next-e2e-step7-*/**",
       ".next-e2e-visual/**",
+      ".next-lighthouse/**",
       ".next-review-*/**",
       "coverage/**",
       "node_modules/**",

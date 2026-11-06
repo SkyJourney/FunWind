@@ -214,9 +214,10 @@ theme.zip
 3. [ ] 图片 `asset` 全部匹配 `decor-<32hex>.png` 且文件已在池中（或 ZIP 内已登记）。
 4. [ ] `pwa.themeColor/backgroundColor` 是严格 hex，且与包的整体色调一致（浅色包给浅 background）。
 5. [ ] 浅色主题不写 `dark`（继承 default 暗色）；深浅双主题分别给出两档，且暗色档文字对比度足够。
-6. [ ] 无任何未知字段（strict 拒绝）、无 CSS/URL 字符串、无 `var()`/函数。
-7. [ ] 保存或导入通过；「全站预览」下首页/板块/帖子/登录页目视核对；明暗各一遍。
-8. [ ] 设为默认后 `manifest.webmanifest` 的两色 = 包 `pwa` 值。
+6. [ ] 后台主题编辑器的「全站语义令牌」面板显示对比度达标情况：23 对配对（M11.6 Step 6a）建议全部 ≥ 4.5:1，未达标项会显示在对比度面板并标注实际值。对比度只警告不阻止保存，允许站长做刻意的低对比风格。
+7. [ ] 无任何未知字段（strict 拒绝）、无 CSS/URL 字符串、无 `var()`/函数。
+8. [ ] 保存或导入通过；「全站预览」下首页/板块/帖子/登录页目视核对；明暗各一遍。
+9. [ ] 设为默认后 `manifest.webmanifest` 的两色 = 包 `pwa` 值。
 
 **参考实现**：完整字段示例见集成测试夹具
 [packs.int.test.ts](../apps/web/src/lib/theme/packs.int.test.ts) 与视觉矩阵定义
