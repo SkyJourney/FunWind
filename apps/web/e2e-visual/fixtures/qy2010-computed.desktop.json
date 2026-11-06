@@ -42,7 +42,7 @@
   "elements": {
     "页面包装": {
       "background-color": "#f6f3e7",
-      "background-image": "repeating-linear-gradient(0deg, rgba(148, 130, 60, 0.024) 0px, rgba(148, 130, 60, 0.024) 1px, rgba(0, 0, 0, 0) 1px, rgba(0, 0, 0, 0) 3px), none"
+      "background-image": "none"
     },
     "页眉": {
       "background-color": "#00000000",
