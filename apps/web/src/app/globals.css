@@ -9,7 +9,7 @@
 @import "../styles/tokens/semantic.css";
 @import "../styles/tokens/themes/default.css";
 @import "../styles/tokens/themes/dark.css";
-@import "../styles/tokens/themes/qy2010.css";
+/* qy2010 CSS 已删除（M11.6 Step 5c），现由 SSR 注入 <style data-fw-theme-pack> */
 
 /* 语义令牌 → Tailwind 工具类映射（组件只允许语义层命名，如 bg-background / text-muted-foreground） */
 @theme inline {
