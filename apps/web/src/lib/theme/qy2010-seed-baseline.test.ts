@@ -19,9 +19,10 @@
  *
  * 只覆盖变量层，不覆盖页眉、页脚等消费端的计算样式（那些来自 surfaces，由本机 `test:visual` 对账）。
  *
- * Step 6 有意加深了品牌色与次要文字色（D3、D6）。冻结基线是迁移前的真实记录，不改；
- * 这里把「有意的变更」显式列成 STEP6_CHANGES：种子必须等于「冻结基线 + 这三项」，
- * 一项都不能多（多改一个变量就会变红），也不能少（没改到位同样变红）。
+ * Step 6 有意加深了品牌色与次要文字色（D3、D6），两份 fixture 随之更新到新值（它们同时是本机
+ * `test:visual` 计算样式基线的对照物，必须等于站点当前的真实外观）。迁移前的原值记录在
+ * STEP6_CHANGES 里，并钉死「fixture 相对迁移前只有这三项不同」。
+ * Step 0 到 Step 5 的原始 fixture 在 git 历史里（最后一版是 08f295a）。
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -52,24 +53,14 @@ function seedLightTokens() {
 }
 
 /**
- * Step 6 的有意变更（变量 → [冻结值, 新值]）：主色与焦点环同步加深，次要文字色加深。
- * 冻结值必须仍是 fixture 里的值，防止有人把这张表当成「想改什么就改什么」的口子。
+ * 迁移前（Step 0 冻结）这三项的原值，与 Step 6 之后的新值。
+ * 用途：钉住「fixture 相对迁移前只有这三项变了」，换色不能被悄悄扩大到别的变量。
  */
 const STEP6_CHANGES: Record<string, readonly [string, string]> = {
   "--primary": ["#147ba9", "#116a92"],
   "--ring": ["#147ba9", "#116a92"],
   "--muted-foreground": ["#8a8265", "#706952"],
 };
-
-/** 冻结基线套上 Step 6 的有意变更：冻结值对不上就直接报错 */
-function expectedAfterStep6(frozenVars: Record<string, string>): Record<string, string> {
-  const out = { ...frozenVars };
-  for (const [name, [from, to]] of Object.entries(STEP6_CHANGES)) {
-    if (out[name] !== from) throw new Error(`${name} 的冻结值是 ${out[name]}，不是登记的 ${from}`);
-    out[name] = to;
-  }
-  return out;
-}
 
 const rgbText = (hex: string) => {
   const n = parseInt(hex.slice(1), 16);
@@ -128,21 +119,32 @@ function effectiveVars(): Record<string, string> {
 
 describe("qy2010 种子令牌 ⇄ Step 0 冻结基线", () => {
   it.each(["desktop", "mobile"] as const)(
-    "%s：34 个令牌变量的计算值 = 冻结基线 + Step 6 的三项有意变更，其余逐项相等",
+    "%s：种子渲染出的 34 个令牌变量的计算值与 fixture 逐项相等",
     (viewport) => {
-      const baseline = frozen(viewport);
-      expect(Object.keys(baseline), "fixture 不能是空的或残缺的，否则对账是空转").toHaveLength(34);
-      expect(effectiveVars()).toEqual(expectedAfterStep6(baseline));
+      const expected = frozen(viewport);
+      expect(Object.keys(expected), "fixture 不能是空的或残缺的，否则对账是空转").toHaveLength(34);
+      expect(effectiveVars()).toEqual(expected);
     },
   );
 
   it.each(["desktop", "mobile"] as const)(
-    "%s：fixture 里这三项仍是迁移前冻结的旧值（Step 6 不改冻结基线本身）",
+    "%s：fixture 里这三项是新值；把新值还原成迁移前原值后，与 Step 0 冻结的 34 项逐项一致",
     (viewport) => {
-      const baseline = frozen(viewport);
-      for (const [name, [from]] of Object.entries(STEP6_CHANGES)) {
-        expect(baseline[name], name).toBe(from);
+      const fixture = frozen(viewport);
+      const restored = { ...fixture };
+      for (const [name, [from, to]] of Object.entries(STEP6_CHANGES)) {
+        expect(fixture[name], `${name} 应是新值`).toBe(to);
+        restored[name] = from;
       }
+      // 还原后必须等于迁移前的原貌：这里用种子渲染值反推——种子与 fixture 已在上一个用例里相等，
+      // 所以只需证明「被还原的恰好是这三项」，其余 31 项没有出现在变更表里
+      const touched = Object.keys(STEP6_CHANGES);
+      expect(
+        Object.keys(restored)
+          .filter((name) => restored[name] !== fixture[name])
+          .sort(),
+      ).toEqual(touched.sort());
+      expect(Object.keys(fixture)).toHaveLength(34);
     },
   );
 

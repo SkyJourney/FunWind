@@ -10,12 +10,12 @@
     "--card-foreground": "#33332f",
     "--popover": "#fffdf4",
     "--popover-foreground": "#33332f",
-    "--primary": "#147ba9",
+    "--primary": "#116a92",
     "--primary-foreground": "#ffffff",
     "--secondary": "#f3edc8",
     "--secondary-foreground": "#6d4a0f",
     "--muted": "#efe9d6",
-    "--muted-foreground": "#8a8265",
+    "--muted-foreground": "#706952",
     "--accent": "#e7f1e4",
     "--accent-foreground": "#33613f",
     "--destructive": "#a3425b",
@@ -25,7 +25,7 @@
     "--info": "#3b82f6",
     "--border": "#e0d9c0",
     "--input": "#e0d9c0",
-    "--ring": "#147ba9",
+    "--ring": "#116a92",
     "--radius": "4px",
     "--shadow-1": "rgba(120, 100, 40, 0.1) 0px 1px 2px 0px",
     "--shadow-2": "rgba(120, 100, 40, 0.14) 0px 4px 12px 0px",
@@ -122,7 +122,7 @@
       "color": "#33332f"
     },
     "主按钮": {
-      "background-color": "#147ba9",
+      "background-color": "#116a92",
       "color": "#ffffff",
       "border-top-left-radius": "4px"
     }
