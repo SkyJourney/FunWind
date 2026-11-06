@@ -47,7 +47,7 @@ export interface ContrastCheck {
 }
 
 /**
- * 检查令牌色组合的对比度（18 个固定组合，设计 §3.3）。
+ * 检查令牌色组合的对比度（23 个固定组合：设计 §3.3 的 18 个，加 M11.6 Step 6 补入的 5 个）。
  *
  * @param colors 已解析的 22 个语义色（调用方须合并 base + 包覆盖，缺失键用 base 补齐）
  * @returns 全部检查结果（通过与不通过都返回）；ratio 未四舍五入（显示时自己格式化）
@@ -90,6 +90,28 @@ export function evaluateContrast(colors: Record<ColorKey, string>): ContrastChec
     },
     { id: "muted-fg-bg", label: "次要文字 / 页面底", fg: "muted-foreground", bg: "background" },
     { id: "muted-fg-card", label: "次要文字 / 卡片底", fg: "muted-foreground", bg: "card" },
+    // 次要文字压在 muted / secondary / accent 表面上（徽标、提示条）：M11.6 Step 6 补入
+    {
+      id: "muted-fg-muted",
+      label: "次要文字 / 弱化底",
+      fg: "muted-foreground",
+      bg: "muted",
+    },
+    {
+      id: "muted-fg-secondary",
+      label: "次要文字 / 次色",
+      fg: "muted-foreground",
+      bg: "secondary",
+    },
+    {
+      id: "muted-fg-accent",
+      label: "次要文字 / 强调底",
+      fg: "muted-foreground",
+      bg: "accent",
+    },
+    // 主色纯文字（链接、图标文字）压在页面底 / 卡片底上：M11.6 Step 6 补入
+    { id: "primary-fg-bg", label: "主色文字 / 页面底", fg: "primary", bg: "background" },
+    { id: "primary-fg-card", label: "主色文字 / 卡片底", fg: "primary", bg: "card" },
     // 淡底（primary/destructive/success/warning 的 10% 淡底 × 两种基底 = 8 项）
     {
       id: "primary-tint-card",

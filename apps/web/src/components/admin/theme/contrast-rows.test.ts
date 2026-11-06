@@ -14,8 +14,8 @@ const notInherited = (rows: ReturnType<typeof contrastRows>) =>
     .sort();
 
 describe("contrastRows：没有覆盖时就是默认主题", () => {
-  it("18 行，id 与顺序同顾问", () => {
-    expect(IDS).toHaveLength(18);
+  it("23 行，id 与顺序同顾问", () => {
+    expect(IDS).toHaveLength(23);
     for (const mode of ["light", "dark"] as const) {
       expect(contrastRows(mode, undefined).map((row) => row.id)).toEqual(IDS);
     }
@@ -28,8 +28,12 @@ describe("contrastRows：没有覆盖时就是默认主题", () => {
     );
   });
 
-  it("默认浅色只有一项未达标（primary-tint-bg），默认深色全部达标", () => {
-    expect(failing(contrastRows("light", undefined))).toEqual(["primary-tint-bg"]);
+  it("默认浅色有三项未达标（弱化底与次色上的次要文字、主色淡底），默认深色全部达标", () => {
+    expect(failing(contrastRows("light", undefined))).toEqual([
+      "muted-fg-muted",
+      "muted-fg-secondary",
+      "primary-tint-bg",
+    ]);
     expect(failing(contrastRows("dark", undefined))).toEqual([]);
   });
 
@@ -62,13 +66,14 @@ describe("contrastRows：覆盖影响的行", () => {
     expect(notInherited(rows)).toEqual(["fg-bg", "fg-card"]);
   });
 
-  it("覆盖卡片底：七行（以卡片底为背景的）不再是继承的", () => {
+  it("覆盖卡片底：八行（以卡片底为背景的）不再是继承的", () => {
     const rows = contrastRows("light", { colors: { card: "#fffdf4" } });
     expect(notInherited(rows)).toEqual(
       [
         "fg-card",
         "card-fg-card",
         "muted-fg-card",
+        "primary-fg-card",
         "primary-tint-card",
         "destructive-tint-card",
         "success-tint-card",
@@ -77,15 +82,21 @@ describe("contrastRows：覆盖影响的行", () => {
     );
   });
 
-  it("覆盖主色为黑：主色行不再是继承的，主按钮对比 21:1，默认主题自己那项缺口也消失了", () => {
+  it("覆盖主色为黑：主色行不再是继承的，主按钮对比 21:1，主色相关的缺口消失，其余两项次要文字缺口仍在", () => {
     const rows = contrastRows("light", { colors: { primary: "#000000" } });
     expect(notInherited(rows)).toEqual(
-      ["primary-fg-primary", "primary-tint-card", "primary-tint-bg"].sort(),
+      [
+        "primary-fg-primary",
+        "primary-fg-bg",
+        "primary-fg-card",
+        "primary-tint-card",
+        "primary-tint-bg",
+      ].sort(),
     );
     const button = rows.find((row) => row.id === "primary-fg-primary")!;
     expect(button.ratio).toBeCloseTo(21, 10);
     expect(button.pass).toBe(true);
-    expect(failing(rows)).toEqual([]);
+    expect(failing(rows)).toEqual(["muted-fg-muted", "muted-fg-secondary"]);
   });
 
   it("覆盖正文为页面底的颜色：对比度 1:1，未达标，且不是继承的", () => {
@@ -93,7 +104,13 @@ describe("contrastRows：覆盖影响的行", () => {
     const row = rows.find((r) => r.id === "fg-bg")!;
     expect(row.ratio).toBeCloseTo(1, 10);
     expect([row.pass, row.inherited]).toEqual([false, false]);
-    expect(failing(rows)).toEqual(["fg-bg", "fg-card", "primary-tint-bg"]);
+    expect(failing(rows)).toEqual([
+      "fg-bg",
+      "fg-card",
+      "muted-fg-muted",
+      "muted-fg-secondary",
+      "primary-tint-bg",
+    ]);
   });
 
   it("覆盖成与基础层相同的值，仍算本包动过的键", () => {

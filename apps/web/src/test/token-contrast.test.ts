@@ -168,13 +168,24 @@ const toHex = ([r, g, b]: Rgb) =>
   `#${[r, g, b].map((c) => c.toString(16).padStart(2, "0")).join("")}`;
 
 const KNOWN_FAILURES: Record<string, string[]> = {
-  // 4.487，差 0.013；M11.3.1 已对 AuthShell 提示条做局部加深，令牌本身不动
-  "默认·浅色": ["primary-tint-bg"],
+  // primary-tint-bg 4.487，差 0.013；M11.3.1 已对 AuthShell 提示条做局部加深，令牌本身不动。
+  // muted-fg-muted / muted-fg-secondary 4.344：M11.6 Step 6 把这两对补进顾问后才暴露，
+  // 默认主题的 muted-foreground 压在弱化底和次色上略低于 4.5，不属于 qy2010 的范围，登记为已知缺口
+  "默认·浅色": ["muted-fg-muted", "muted-fg-secondary", "primary-tint-bg"],
   "默认·暗色": [],
   // primary 在两种淡底上 4.08 / 3.75（M11.6 Step 6 换品牌色后应消失）；
   // muted-foreground #8a8265 压页面底 / 卡片底 3.46 / 3.77，次要文字普遍不达标；
   // 站长 2026-11-05 决定并入 Step 6 与品牌色一起加深（docs/milestones/M11.6 的 D6）
-  "情怀包 qy2010·浅色": ["muted-fg-bg", "muted-fg-card", "primary-tint-card", "primary-tint-bg"],
+  "情怀包 qy2010·浅色": [
+    "muted-fg-bg",
+    "muted-fg-card",
+    "muted-fg-muted",
+    "muted-fg-secondary",
+    "muted-fg-accent",
+    "primary-fg-bg",
+    "primary-tint-card",
+    "primary-tint-bg",
+  ],
 };
 
 describe.each(Object.entries(THEMES))("%s：对比度顾问与独立实现一致", (name, color) => {
@@ -184,7 +195,7 @@ describe.each(Object.entries(THEMES))("%s：对比度顾问与独立实现一致
   const checks = evaluateContrast(palette);
 
   it("每一对的比值都等于本文件独立算出的值", () => {
-    expect(checks).toHaveLength(18);
+    expect(checks).toHaveLength(23);
     for (const check of checks) {
       const fg = color(`--${check.fg}`);
       const bg = color(`--${check.bg}`);

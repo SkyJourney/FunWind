@@ -66,17 +66,25 @@ describe("effectiveColors", () => {
 });
 
 describe("基础层喂给对比度顾问", () => {
-  it("默认浅色只有 primary-tint-bg 一项不达标（4.487），默认暗色全部达标", () => {
+  it("默认浅色有三项不达标（弱化底与次色上的次要文字 4.344、主色淡底 4.487），默认暗色全部达标", () => {
     expect(contrastWarnings(effectiveColors("light")).map((check) => check.id)).toEqual([
+      "muted-fg-muted",
+      "muted-fg-secondary",
       "primary-tint-bg",
     ]);
     expect(contrastWarnings(effectiveColors("dark"))).toEqual([]);
   });
 
-  it("覆盖随之改变结果：把 foreground 压成浅灰，正文两对变红，原有的那一项仍在", () => {
+  it("覆盖随之改变结果：把 foreground 压成浅灰，正文两对变红，原有的三项仍在", () => {
     const ids = contrastWarnings(effectiveColors("light", { foreground: "#aaaaaa" })).map(
       (check) => check.id,
     );
-    expect(ids).toEqual(["fg-bg", "fg-card", "primary-tint-bg"]);
+    expect(ids).toEqual([
+      "fg-bg",
+      "fg-card",
+      "muted-fg-muted",
+      "muted-fg-secondary",
+      "primary-tint-bg",
+    ]);
   });
 });

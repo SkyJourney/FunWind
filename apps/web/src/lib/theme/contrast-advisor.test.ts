@@ -64,7 +64,7 @@ describe("compositeOver", () => {
   });
 });
 
-/** 18 个配对在设计稿 §3.3 里的固定顺序 */
+/** 23 个配对的固定顺序：设计稿 §3.3 的 18 个，加 M11.6 Step 6 补入的 5 个（插在 muted-fg-card 之后） */
 const PAIR_IDS = [
   "fg-bg",
   "fg-card",
@@ -76,6 +76,11 @@ const PAIR_IDS = [
   "destructive-fg-destructive",
   "muted-fg-bg",
   "muted-fg-card",
+  "muted-fg-muted",
+  "muted-fg-secondary",
+  "muted-fg-accent",
+  "primary-fg-bg",
+  "primary-fg-card",
   "primary-tint-card",
   "primary-tint-bg",
   "destructive-tint-card",
@@ -86,7 +91,7 @@ const PAIR_IDS = [
   "warning-tint-bg",
 ];
 
-/** 好调色板：文字黑、表面白、实心色黑配白字，18 对全部远超 4.5:1 */
+/** 好调色板：文字黑、表面白、实心色黑配白字，23 对全部远超 4.5:1 */
 const GOOD: Record<ColorKey, string> = {
   background: "#ffffff",
   foreground: "#000000",
@@ -113,9 +118,9 @@ const GOOD: Record<ColorKey, string> = {
 };
 
 describe("evaluateContrast", () => {
-  it("返回 18 对，id 与顺序固定", () => {
+  it("返回 23 对，id 与顺序固定", () => {
     expect(evaluateContrast(GOOD).map((check) => check.id)).toEqual(PAIR_IDS);
-    expect(new Set(PAIR_IDS).size).toBe(18);
+    expect(new Set(PAIR_IDS).size).toBe(23);
   });
 
   it("阈值是 4.5", () => {
@@ -131,22 +136,22 @@ describe("evaluateContrast", () => {
     expect(checks.find((check) => check.id === "primary-tint-card")?.ratio).toBeCloseTo(16.826, 3);
   });
 
-  it("淡底统一按 10% 合成（对应 Tailwind 的 bg-x/10）：后 8 对的 tintAlpha 恒为 0.1，前 10 对没有", () => {
+  it("淡底统一按 10% 合成（对应 Tailwind 的 bg-x/10）：后 8 对的 tintAlpha 恒为 0.1，前 15 对没有", () => {
     const checks = evaluateContrast(GOOD);
     expect(checks.filter((check) => check.tintAlpha === 0.1).map((check) => check.id)).toEqual(
-      PAIR_IDS.slice(10),
+      PAIR_IDS.slice(15),
     );
-    expect(checks.filter((check) => check.tintAlpha === undefined)).toHaveLength(10);
+    expect(checks.filter((check) => check.tintAlpha === undefined)).toHaveLength(15);
   });
 
-  it("全部同色：18 对都是 1:1，全部不通过", () => {
+  it("全部同色：23 对都是 1:1，全部不通过", () => {
     const flat = Object.fromEntries(COLOR_KEYS.map((key) => [key, "#808080"])) as Record<
       ColorKey,
       string
     >;
     const checks = evaluateContrast(flat);
     expect(checks.every((check) => !check.pass && check.ratio === 1)).toBe(true);
-    expect(contrastWarnings(flat)).toHaveLength(18);
+    expect(contrastWarnings(flat)).toHaveLength(23);
   });
 
   it("刚好卡在临界：#767676 文字压白底通过，#777777 不通过", () => {
@@ -159,7 +164,7 @@ describe("evaluateContrast", () => {
   /**
    * 逐键扰动：把某一个键改成 bad，恰好应当变红哪几对。
    * 文字类键改成 #aaaaaa（浅灰字压白底 2.32:1），表面类键改成 #555555（黑字压深灰 2.82:1）。
-   * 没有出现在任何配对里的键（muted / info / border / input / ring）改动后一对都不该变红。
+   * 没有出现在任何配对里的键（info / border / input / ring）改动后一对都不该变红。
    */
   const TEXT_BAD = "#aaaaaa";
   const SURFACE_BAD = "#555555";
@@ -172,6 +177,7 @@ describe("evaluateContrast", () => {
       [
         "fg-bg",
         "muted-fg-bg",
+        "primary-fg-bg",
         "primary-tint-bg",
         "destructive-tint-bg",
         "success-tint-bg",
@@ -186,6 +192,7 @@ describe("evaluateContrast", () => {
         "fg-card",
         "card-fg-card",
         "muted-fg-card",
+        "primary-fg-card",
         "primary-tint-card",
         "destructive-tint-card",
         "success-tint-card",
@@ -195,11 +202,21 @@ describe("evaluateContrast", () => {
     ["card-foreground", TEXT_BAD, ["card-fg-card"]],
     ["popover", SURFACE_BAD, ["popover-fg-popover"]],
     ["popover-foreground", TEXT_BAD, ["popover-fg-popover"]],
-    ["primary", TEXT_BAD, ["primary-fg-primary", "primary-tint-card", "primary-tint-bg"]],
+    [
+      "primary",
+      TEXT_BAD,
+      [
+        "primary-fg-primary",
+        "primary-fg-bg",
+        "primary-fg-card",
+        "primary-tint-card",
+        "primary-tint-bg",
+      ],
+    ],
     ["primary-foreground", DARK_BAD, ["primary-fg-primary"]],
-    ["secondary", SURFACE_BAD, ["secondary-fg-secondary"]],
+    ["secondary", SURFACE_BAD, ["secondary-fg-secondary", "muted-fg-secondary"]],
     ["secondary-foreground", TEXT_BAD, ["secondary-fg-secondary"]],
-    ["accent", SURFACE_BAD, ["accent-fg-accent"]],
+    ["accent", SURFACE_BAD, ["accent-fg-accent", "muted-fg-accent"]],
     ["accent-foreground", TEXT_BAD, ["accent-fg-accent"]],
     [
       "destructive",
@@ -209,8 +226,12 @@ describe("evaluateContrast", () => {
     ["destructive-foreground", DARK_BAD, ["destructive-fg-destructive"]],
     ["success", TEXT_BAD, ["success-tint-card", "success-tint-bg"]],
     ["warning", TEXT_BAD, ["warning-tint-card", "warning-tint-bg"]],
-    ["muted-foreground", TEXT_BAD, ["muted-fg-bg", "muted-fg-card"]],
-    ["muted", SURFACE_BAD, []],
+    [
+      "muted-foreground",
+      TEXT_BAD,
+      ["muted-fg-bg", "muted-fg-card", "muted-fg-muted", "muted-fg-secondary", "muted-fg-accent"],
+    ],
+    ["muted", SURFACE_BAD, ["muted-fg-muted"]],
     ["info", TEXT_BAD, []],
     ["border", TEXT_BAD, []],
     ["input", TEXT_BAD, []],
