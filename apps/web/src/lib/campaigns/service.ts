@@ -92,3 +92,46 @@ export async function getActiveCampaignConfigs(): Promise<Map<string, unknown>> 
   }
   return result;
 }
+
+/**
+ * M11.4：查询是否有有效的 `register.open` 排期生效。
+ * 用于注册策略读取链：排期开窗时临时把「开放注册」置真，到期回到站点设置的原值。
+ * 注意：该函数本身不做时间判定（时间判定已在 SQL 里），只检查是否注册且配置有效。
+ */
+export async function hasActiveRegisterOpenCampaign(): Promise<boolean> {
+  try {
+    const configs = await getActiveCampaignConfigs();
+    return configs.has("register.open");
+  } catch (error) {
+    console.warn("[campaigns] 检查开放注册排期失败，按无排期处理:", error);
+    return false;
+  }
+}
+
+/**
+ * M11.4：查询当前有效的积分加成倍率与方案名。
+ * 返回 { ratio: 2-10, name: 方案名 } 或 { ratio: 1, name: null }（无加成）。
+ * 用于 lib/points/earn.ts 与 lib/checkin/service.ts 的奖励计算。
+ * 台账 note 用方案名标注「（活动加成：方案名）」便于追溯。
+ */
+export async function getActivePointsBoost(): Promise<{ ratio: number; name: string | null }> {
+  try {
+    const rows = await loadActiveCampaignRows();
+    const winners = pickWinners(rows);
+    const boostRow = winners.get("points.boost");
+    if (!boostRow) return { ratio: 1, name: null };
+
+    const boostConfig = boostRow.config;
+    if (typeof boostConfig === "object" && boostConfig !== null && "ratio" in boostConfig) {
+      const ratio = (boostConfig as { ratio?: unknown }).ratio;
+      if (typeof ratio === "number" && ratio >= 2 && ratio <= 10) {
+        return { ratio, name: boostRow.name };
+      }
+    }
+    console.warn(`[campaigns] 积分加成方案 ${boostRow.id} 配置无效，已跳过`);
+    return { ratio: 1, name: null };
+  } catch (error) {
+    console.warn("[campaigns] 查询积分加成失败，按无加成处理:", error);
+    return { ratio: 1, name: null };
+  }
+}

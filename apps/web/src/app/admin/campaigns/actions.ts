@@ -22,7 +22,11 @@ import { nowBeijingWallTime } from "@/lib/datetime";
 
 const formFields = {
   name: z.string().max(200).default(""),
+  /** M11.2 兼容格式：choice = `effect::target` */
   choice: z.string().max(120).default(""),
+  /** M11.4+ 新格式：effect 与 fieldValue 分离 */
+  effect: z.string().max(32).default(""),
+  fieldValue: z.unknown().optional(),
   startsAt: z.string().max(32).default(""),
   endsAt: z.string().max(32).default(""),
   priority: z.string().max(8).default("0"),
@@ -30,19 +34,43 @@ const formFields = {
 
 type FormInput = {
   name: string;
-  choice: string;
+  choice?: string;
+  effect?: string;
+  fieldValue?: unknown;
   startsAt: string;
   endsAt: string;
   priority: string;
 };
 
-/** 表单 → 服务层字段；开始时间留空 = 现在（仅新建），选项无法拆分时交给校验报 bad-effect */
+/** 表单 → 服务层字段；开始时间留空 = 现在（仅新建）
+ * 支持两种格式：
+ *  · M11.2 旧格式：choice = `effect::target`
+ *  · M11.4+ 新格式：effect + fieldValue 分离
+ */
 function toFields(input: FormInput, defaultStart: string): CampaignFields {
-  const picked = splitChoice(input.choice);
+  let effect = "";
+  let target: string | undefined;
+  let fieldValue: unknown;
+
+  // 尝试新格式：effect + fieldValue
+  if (input.effect) {
+    effect = input.effect;
+    fieldValue = input.fieldValue;
+  } else if (input.choice) {
+    // 降级到旧格式：choice = `effect::target`
+    const picked = splitChoice(input.choice);
+    if (picked) {
+      effect = picked.effect;
+      target = picked.target;
+    }
+  }
+
+  // 新格式用 fieldValue，旧格式用 target
   return {
     name: input.name,
-    effect: picked?.effect ?? "",
-    target: picked?.target ?? "",
+    effect,
+    ...(target !== undefined ? { target } : {}),
+    ...(fieldValue !== undefined ? { fieldValue } : {}),
     startsAt: toWallTime(input.startsAt) || defaultStart,
     endsAt: toWallTime(input.endsAt) || null,
     priority: /^\d{1,5}$/.test(input.priority.trim()) ? Number(input.priority) : -1,

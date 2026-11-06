@@ -5,6 +5,7 @@ import { campaigns, getWebDb, insertIdOf } from "@funwind/db";
 import { writeAudit, type ConfigActor, type DbTx } from "@/lib/audit";
 import { invalidateSiteChrome } from "@/lib/chrome/site-chrome";
 import { nowBeijingWallTime } from "@/lib/datetime";
+import { findCampaignEffect } from "./effects";
 import { validateCampaignFields, type CampaignFields, type CampaignInputError } from "./input";
 import { campaignRefExists } from "./refs";
 
@@ -44,13 +45,25 @@ async function lockCampaign(tx: DbTx, id: number) {
   return row ?? null;
 }
 
-/** 输入校验 + 引用存在性校验（读库，必须在事务外） */
+/** 输入校验 + 引用存在性校验（读库，必须在事务外）
+ * M11.2 三个 select effect（theme.pack / site.logo / site.hero）需要检查引用存在性；
+ * M11.4+ 新 effect（无参数或数值参数）无外键，跳过引用检查。
+ */
 async function prepare(fields: CampaignFields) {
   const checked = validateCampaignFields(fields);
   if (!checked.ok) return checked;
-  if (!(await campaignRefExists(checked.value.effect, fields.target.trim()))) {
-    return { ok: false as const, code: "missing-ref" as const };
+
+  // 根据 effect 的字段类型判断是否需要检查引用存在性
+  const effect = findCampaignEffect(checked.value.effect);
+  if (effect?.field.type === "select") {
+    // M11.2 select effect 需要检查目标引用是否存在
+    const target = fields.target?.trim() ?? "";
+    if (!(await campaignRefExists(checked.value.effect, target))) {
+      return { ok: false as const, code: "missing-ref" as const };
+    }
   }
+  // 其他 effect 类型（none、number）无外键，无需检查
+
   return checked;
 }
 

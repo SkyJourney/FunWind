@@ -8,6 +8,7 @@ import {
   sweepPending,
   type EnqueuedEvent,
 } from "@/lib/events/outbox";
+import { getActivePointsBoost } from "@/lib/campaigns/service";
 import { applyPointsInTx, resolveChannelOrThrow, type ApplyPointsResult } from "@/lib/points/apply";
 import { UnregisteredChannelError } from "@/lib/points/errors";
 import { IdempotencyConflictError } from "@/lib/points/errors";
@@ -100,6 +101,7 @@ class RollbackCheckin extends Error {}
 
 /**
  * 执行签到。today 缺省为北京时间的今天（测试/工具可注入）。
+ * M11.4：加成期内会应用排期倍率放大奖励。
  * 奖励与签到记录原子落库；`checkin.done` 事件在事务内入 outbox、提交后快路径派发。
  */
 export async function checkin(
@@ -114,7 +116,21 @@ export async function checkin(
   });
   if (!channel) return { ok: false, code: "channel_unavailable" };
   const config = await getPunchRewardConfig();
-  const reward = randomPunchReward(config);
+  let reward = randomPunchReward(config);
+
+  // M11.4：应用排期加成
+  const boost = await getActivePointsBoost();
+  reward = Math.floor(reward * boost.ratio);
+
+  // 签到奖励的 note：含连签天数与加成方案名
+  function makeNote(streak: number): string {
+    let note = `签到奖励（连签 ${streak} 天`;
+    if (boost.name) {
+      note += `，活动加成：${boost.name}`;
+    }
+    note += "）";
+    return note;
+  }
 
   let enqueued: EnqueuedEvent[] = [];
   try {
@@ -144,7 +160,7 @@ export async function checkin(
                     channel: "earn.checkin",
                     delta: reward,
                     idempotencyKey: `checkin:${userId}:${today}`,
-                    note: `签到奖励（连签 ${streak} 天）`,
+                    note: makeNote(streak),
                   },
                   channel,
                 )
