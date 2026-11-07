@@ -33,6 +33,7 @@
 | F9 | favicon 缺失（无 favicon.ico/app/icon.*）；manifest/PWA 图标已自动跟随 LOGO 池（≤5 分钟收敛）；`NEXT_PUBLIC_LOGO` 静态回退链有素材无文档 | `app/manifest.ts`；`app/brand/pwa-icon/[size]/route.ts`；`components/site/site-header.tsx:13-54` | favicon 顺带补齐（从定稿图生成入库）；`NEXT_PUBLIC_LOGO` 补文档 |
 | F10 | npm audit 现状未测（安全走查含「npm audit 高危清零」）；CI 无部署 job（部署 = 站长服务器单机 compose 手工） | `.github/workflows/ci.yml`；M13 边界「不做容器编排平台」 | 安全走查入 Step 5；交付物标准 =「本机 docker 可验证 + 服务器可照做」 |
 | F11 | 「清爽侦探半翼」定稿图 = `apps/web/public/logo/qy2010.png`（224×224，与 M10.5 二次元稿 `qy-二次元-03清爽侦探动画-224.png` 同字节；源稿 1254×1254 在 ~/Pictures/LOGOS/QYISUB）；LOGO 池机制/后台/联动已完备（`lib/brand/`、`/admin/logo`、`applyPackLogo`）；**install:cli 不写 site.logo** | `docs/LOGO-POOL.md`；`lib/theme-packs.ts:31-35`；`storage/site/logo-*` 实测同 MD5 | 默认站标走 D2：管线自动初始化 + `init-brand` 运维命令 + 检查单 |
+| F12 | 旧站真实 URL 形态（Step 2 探查，QY_HK 线上 access log 23.3 万条聚合 + 旧站文件只读复核 + 旧库配置查询）：主力形态 = `read.php?tid=N(&fid=N)(&page=N)`（41/17/11 次真实访问）、`index.php?m=bbs&c=thread&fid=N`（22）、`index.php?m=bbs&c=read&a=jump&tid=N&pid=N`（11）、`?uid=N`（8）、`?pid=N`（8）；**BLUEPRINT §4.5 的 `simple/?t=N` 与 `space/?uid=N` 两形态不存在**——simple 的真实形态是 phpwind 8 风格 `simple/?t{tid}.html`（file-level 复核），space 是 `index.php?m=space&uid=N`；站级高频：`m=bbs&c=forumlist`（旧站 homeUrl，248+92）、`m=u&c=login`（1190）、`m=space`（570）、`m=search&c=s&keyword=`（436）、裸 `index.php`（447）；旧站 perpage：thread=20、read=10（全站配置，38 个版块级覆盖全部为 0=用全局）；phpwind 9 楼层分页 = **首帖占第 1 页**且每页 replies+1 行（PwCommonRead start==0 渲染主楼），新站 = 首帖常驻每页、20 楼/页——**页码口径不同，不透传**；旧 attachment 真实访问 328 次、res/themes/images 1605/968/362 | `migration/src/transform/content.ts:262`（prefixIds 恒等）；旧站 `src/service/forum/srv/threadDisplay/PwCommonRead.php`；旧库 `nw_common_config` bbs.read.perpage=10 | 301 映射表按实录形态定稿（`docker/production/nginx/redirect-map.conf`）；深页链接跳第 1 页（诚实降级），精确到楼走 `/p/{pid}`；BLUEPRINT 勘误 |
 
 ## 2. 与视觉类里程碑的本质差异（为什么 M13 大量工作是「配置与脚本」）
 
@@ -132,6 +133,11 @@ BLUEPRINT「上线实录」占位 + M13 文档 ✅（演练执行项留站长）
   三列 _bin（username_key/email_key/gate_key）与 rehearsal username 的 _as_cs 为刻意保留的区分性特例。
   既有库由 bootstrap 幂等对齐（唯一索引先摘、_bin 恢复后按终态重建——假名数据不受影响）；
   全部 CREATE DATABASE 语句、本地 dev compose、CI MySQL 服务、迁移 rehearsal 已同步。
+- **D9 旧 URL 处置（Step 2 按实录定稿）** ✅ 301 精确映射：tid/fid/uid 静态直跳（id 恒等）、pid 走
+  `/p/{pid}`（服务端按可见性算页码+锚点）、`?type=` 直传（分类前缀恒等）、forumlist→`/boards`、
+  login/register/findPwd→新路由、keyword→`/search?q=`、旧头像路径→`/u/{uid}`；页码**不透传**
+  （旧 10 楼/页首帖占位 vs 新 20 楼/页首帖常驻，口径不同）；其余旧 `.php` 入口与退役资源目录
+  （attachment 非头像/emotion/res/themes/images）→ **410 Gone**；simple 按真实形态 `?t{tid}.html` 映射。
 
 ### 6.2 待确认
 
@@ -181,6 +187,18 @@ BLUEPRINT「上线实录」占位 + M13 文档 ✅（演练执行项留站长）
       实测：docker build 通过（上下文 103KB）；健康容器 health 200 + HEALTHCHECK healthy + 首页/boards 200；
       错误口令容器 health 503 `{db:false}`（细节不泄露）。verify:all 退出码 0（架构守卫基线已登记 health 入口）。
 - [ ] Step 2 生产 compose + nginx 301：
+- [x] Step 2 双编排 + 宝塔 vhost + 301 映射（2026-11-07）：探查实录进 §1 F12（线上 log 聚合定形态、
+      BLUEPRINT §4.5 两处勘误、分页口径核实）；交付 `docker/mysql/compose.yaml`（MySQL 8.4 独立编排，
+      funwind-internal 共享网络、仅 loopback 3306、256M buffer pool 适配 2GB 服务器）、
+      `docker/production/compose.yaml`（单 SSR 容器 + storage 卷 + env_file，无 nginx/Redis 容器）、
+      `.env.example`、`nginx/funwind.conf`（反代 3311 + client_max_body_size 64m + 301/410 if 链 +
+      absolute_redirect off + TLSv1.1 移除）、`nginx/redirect-map.conf`（map 表，与生产同一份文件）、
+      `nginx/nginx.conf`（本机验证容器主配置）。用例集 36 条全绿（`e2e-prod/legacy-redirect.spec.ts` +
+      `playwright.legacy-redirect.config.ts`，自起临时 nginx 容器）。端到端冒烟：真实 app 容器（dev 库
+      帖子 17/楼 pid 40898/用户 169）+ 同构 nginx 反代——旧链接全部 301/410 落到真实页面（跳楼两跳精确
+      落 `#p40898` 锚点）、70MB 上传 413（64m 上限生效）、应用安全头经反代完整透传。verify:all 退出码 0。
+      实施教训：nginx `rewrite` 不匹配 query string（须 map $request_uri）；map 捕获组不可跨变量拼接
+      （/f/$1$3 会连体——type 条目须单列）；`?pid=` 形态 URI 带前导斜杠（`^/\?pid=`）。
 - [ ] Step 3 备份与恢复：
 - [ ] Step 4 社区重启包：
 - [ ] Step 5 全量回归与安全走查：

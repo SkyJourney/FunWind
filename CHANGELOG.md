@@ -5,6 +5,24 @@
 
 ## [Unreleased]
 
+### Added（M13 · 部署与社区重启，Step 2）
+
+- **301/410 映射表 `docker/production/nginx/redirect-map.conf`**：旧 phpwind URL → 新站，形态按 QY_HK
+  线上 access log 聚合（23.3 万条）+ 旧站文件只读复核定稿，非猜测——tid/fid/uid 静态直跳（id 恒等），
+  pid 走 `/p/{pid}`（服务端按观众可见性算页码 + `#p{pid}` 锚点），`?type=` 直传（主题分类恒等），
+  forumlist→`/boards`、login/register/findPwd→新路由、旧搜索 keyword→`/search?q=`、旧头像路径→
+  `/u/{uid}`；页码不透传（旧 read.perpage=10 首帖占位 vs 新站 20 楼/页首帖常驻，口径不同）；
+  其余旧 `.php` 入口与退役资源目录 → 410 Gone。BLUEPRINT §4.5 两处形态勘误
+  （`simple/?t=N` 实为 `simple/?t{tid}.html`；`space/?uid=N` 实为 `index.php?m=space&uid=N`）。
+  用例集 36 条全绿（`e2e-prod/legacy-redirect.spec.ts`，自起临时 nginx 容器加载同一份映射文件）。
+- **生产编排**：`docker/mysql/compose.yaml`（MySQL 8.4 独立编排：funwind-internal 共享网络、仅
+  loopback 3306、256M buffer pool 适配 2GB 服务器、家族默认 utf8mb4_unicode_ci）；
+  `docker/production/compose.yaml`（单 SSR 容器 + storage 卷 + env_file，无 nginx/Redis 容器）+
+  `.env.example`；`nginx/funwind.conf`（宝塔 vhost 目标形态：反代 3311、client_max_body_size 64m、
+  TLSv1.1 移除、absolute_redirect off）+ `nginx/nginx.conf`（本机验证容器）。
+  端到端实测：真实 app 容器经同构 nginx 反代，旧链接全部落到真实页面（跳楼链接两跳精确落锚点）、
+  70MB 上传 413、应用安全头透传。
+
 ### Added（M13 · 部署与社区重启，Step 1）
 
 - **健康端点 `/api/health`**：DB 连通（`SELECT 1`，3 秒超时兜底）与 `STORAGE_DIR` 可写（复用安装自检探针）

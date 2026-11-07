@@ -1,0 +1,50 @@
+# FunWind 生产 · MySQL 8.4 LTS 独立编排（D7：基础设施与 app 解耦，未来其他服务可直接复用）
+# ============================================================
+# 部署位置（站长服务器）：/opt/funwind/mysql/compose.yaml + 同目录 .env
+#   .env 内容（不入库，chmod 600）：MYSQL_ROOT_PASSWORD=<强口令>
+# 启动：cd /opt/funwind/mysql && docker compose --env-file .env up -d
+# 端口：仅绑 127.0.0.1:3306（D7：退役旧 MariaDB 后接管标准端口；不对外网暴露）
+# 数据卷：funwind-mysql-data（named volume；备份走 scripts/backup/backup-db.sh，Step 3）
+# 家族默认：utf8mb4_unicode_ci（D8 排序规则家族切换；_bin/_as_cs 特例由各列显式定义保证）
+# 内存预算：服务器仅 2GB（1.8Gi 可用），innodb_buffer_pool 256M 起步（旧 MariaDB 同规模实测 134MB RSS）
+
+name: funwind-mysql
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: funwind-mysql
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --innodb_buffer_pool_size=256M
+      - --max_connections=80
+    ports:
+      - "127.0.0.1:3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:?请在同目录 .env 设置 MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=qingyisub
+      - TZ=Asia/Shanghai
+    volumes:
+      - funwind-mysql-data:/var/lib/mysql
+    networks:
+      - funwind-internal # 与 app 编排共享：app 经容器名 funwind-mysql:3306 直连，端口不必对外发布
+    healthcheck:
+      test: ["CMD-SHELL", 'mysqladmin ping -h 127.0.0.1 -p"$$MYSQL_ROOT_PASSWORD" --silent']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  funwind-mysql-data:
+
+networks:
+  funwind-internal:
+    name: funwind-internal # 固定网络名，供 app 编排以 external 引用
