@@ -182,7 +182,7 @@ schema 演进：P0 期的 `migration/schema/schema.sql` 为基线底稿；**M1 �
 
 ## 4.5 URL 结构（M3 冻结，301 依赖）
 
-| 新 URL | 含义 | 旧站 301 源（M12 实施） |
+| 新 URL | 含义 | 旧站 301 源（M13 实施） |
 |--------|------|------------------------|
 | `/f/{fid}` | 版块（`?page=N`、`?type={type_id}`） | `thread.php?fid=N`、`simple/?f=N` |
 | `/t/{tid}` | 帖子（`?page=N`、锚点 `#p{pid}`） | `read.php?tid=N`、`simple/?t=N` |
