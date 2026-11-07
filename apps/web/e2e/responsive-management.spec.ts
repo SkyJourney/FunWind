@@ -1018,6 +1018,71 @@ for (const width of LAYOUT_WIDTHS) {
           await page.getByRole("dialog").getByRole("button", { name: "确认" }).click();
           await expect(campaignRow).toHaveCount(0);
         });
+
+        // M11.4 行为类方案：长名称行（窗口设在 2099 年不影响前台；行为类必须填结束时间）
+        const behaviorName = "E2E布局-开放注册".padEnd(60, "行");
+        const behaviorRow = page.getByTestId("campaign-row").filter({ hasText: behaviorName });
+        await audit.step("admin-campaigns-behavior-long-name", async () => {
+          await page.goto("/admin/campaigns");
+          await page.getByLabel("方案名称").fill(behaviorName);
+          await page.getByLabel("生效内容").selectOption("register.open::on");
+          await page.getByLabel(/^开始时间/).fill("2099-01-01T00:00");
+          await page.getByLabel(/^结束时间/).fill("2099-06-01T00:00");
+          await page.getByRole("button", { name: "创建方案" }).click();
+          await expect(page.getByText("排期方案已创建。")).toBeVisible();
+          await expect(behaviorRow).toBeVisible();
+          await audit.capture("admin-campaigns-behavior-long-name", {
+            roots: ADMIN_ROOT,
+            buttons: ADMIN_BUTTONS,
+            required: ['[data-testid="campaign-row"]'],
+            regions: [{ name: "row", selector: '[data-testid="campaign-row"]' }],
+          });
+        });
+        // 重叠错误回显（Q5）：同类行为方案时间重叠被拒，草稿保留
+        await audit.step("admin-campaigns-behavior-overlap-error", async () => {
+          await page.getByLabel("方案名称").fill("E2E布局-行为类重叠");
+          await page.getByLabel("生效内容").selectOption("register.open::on");
+          await page.getByLabel(/^开始时间/).fill("2099-02-01T00:00");
+          await page.getByLabel(/^结束时间/).fill("2099-07-01T00:00");
+          await page.getByRole("button", { name: "创建方案" }).click();
+          await expect(page.getByRole("alert").filter({ hasText: "不能时间重叠" })).toBeVisible();
+          await expect(page.getByLabel("方案名称")).toHaveValue("E2E布局-行为类重叠");
+          await audit.capture("admin-campaigns-behavior-overlap-error", {
+            roots: ADMIN_ROOT,
+            buttons: ADMIN_BUTTONS,
+            regions: [{ name: "form", selector: `${ADMIN_ROOT} form` }],
+          });
+        });
+        // 设置页的窗口提示：短窗（约 9 分钟）内截图后立即删除——
+        // responsive-register.spec 在本文件之后跑，不能带着生效中的开放注册窗口
+        const soonEnd = new Date(Date.now() + (8 * 60 + 9) * 60_000).toISOString().slice(0, 16);
+        const noticeName = "E2E布局-设置页提示";
+        const noticeRow = page.getByTestId("campaign-row").filter({ hasText: noticeName });
+        await audit.step("admin-settings-register-window-notice", async () => {
+          await page.goto("/admin/campaigns");
+          await page.getByLabel("方案名称").fill(noticeName);
+          await page.getByLabel("生效内容").selectOption("register.open::on");
+          await page.getByLabel(/^开始时间/).fill("");
+          await page.getByLabel(/^结束时间/).fill(soonEnd);
+          await page.getByRole("button", { name: "创建方案" }).click();
+          await expect(page.getByText("排期方案已创建。")).toBeVisible();
+          await page.goto("/admin/settings");
+          await expect(page.getByTestId("register-window-notice")).toBeVisible();
+          await audit.capture("admin-settings-register-window-notice", {
+            roots: ADMIN_ROOT,
+            regions: [{ name: "notice", selector: '[data-testid="register-window-notice"]' }],
+          });
+          await page.goto("/admin/campaigns");
+          await noticeRow.getByRole("button", { name: "删除" }).click();
+          await page.getByRole("dialog").getByRole("button", { name: "确认" }).click();
+          await expect(noticeRow).toHaveCount(0);
+        });
+        await audit.step("admin-campaigns-behavior-cleanup", async () => {
+          await page.goto("/admin/campaigns");
+          await behaviorRow.getByRole("button", { name: "删除" }).click();
+          await page.getByRole("dialog").getByRole("button", { name: "确认" }).click();
+          await expect(behaviorRow).toHaveCount(0);
+        });
       } finally {
         try {
           await fixture.cleanup();

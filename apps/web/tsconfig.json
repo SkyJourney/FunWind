@@ -40,7 +40,9 @@
     ".next-e2e-step7-dev/types/**/*.ts",
     ".next-e2e-step7-dev/dev/types/**/*.ts",
     ".next-e2e-visual/types/**/*.ts",
-    ".next-e2e-visual/dev/types/**/*.ts"
+    ".next-e2e-visual/dev/types/**/*.ts",
+    ".next-review-layout/types/**/*.ts",
+    ".next-review-layout/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

@@ -137,8 +137,11 @@ export default async function CampaignsAdminPage(props: { searchParams: Promise<
       <header>
         <h2 className="text-lg font-bold tracking-tight">运营排期</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          在指定时间窗内临时替换站点的主题包、LOGO 或首页横幅，到期自动回到常态，无需手动切换。
-          同类方案时间重叠时，优先级数字大者生效；用户自己选择的主题包仍然优先于排期。 前台最多有 30
+          在指定时间窗内临时替换站点的主题包、LOGO 或首页横幅（视觉类），或临时开放注册、提高发帖 /
+          回帖 /
+          签到奖励（行为类——真实注册的账号与积分不会随方案结束回滚），到期自动回到常态，无需手动切换。
+          视觉类时间重叠时优先级数字大者生效，用户自己选择的主题包仍然优先于排期；行为类不能时间重叠，
+          且必须填写结束时间。注册与积分在每次请求时即时生效；前台主题与顶栏「注册」入口最多有 30
           秒的缓存延迟。
         </p>
       </header>
@@ -173,6 +176,7 @@ export default async function CampaignsAdminPage(props: { searchParams: Promise<
               title={effect.label}
               items={[...rows].sort((a, b) => b.priority - a.priority || b.id - a.id)}
               labelOf={summaryOf}
+              behavior={effect.kind === "behavior"}
             />
           );
         })
