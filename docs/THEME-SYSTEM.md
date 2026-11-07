@@ -91,23 +91,40 @@ M11.1 的 Surface 运行时通过固定变量组消费填充、遮罩、描边�
 5. 审计沿用 `admin.logo.upload` / `admin.logo.activate`，`after` 里记 `via: "theme"` 区分来源。
 6. 主题保存与 LOGO 联动是两个独立结果：两处默认主题入口均先经 `setSiteDefaultThemePack` 提交主题，再尽力联动 LOGO。无 LOGO 属正常不联动；缺素材、激活未生效或异常均记录上下文，并显示“主题已保存，但 LOGO 未切换”警告，不回滚已保存的主题。
 
-## 6. 运营排期引擎（M11.2，已实现）
+## 6. 运营排期引擎（M11.2 已实现；M11.4 扩展行为类 effect）
 
 原设想的 `site.decor.plan` 单键 JSON 已改为通用排期：表 `campaigns`，一个方案 = 一个 effect + 配置 + 时间窗
-`[starts_at, ends_at)`（`ends_at` 为空 = 长期）。本期 effect：`theme.pack` / `site.logo` / `site.hero`。
-后台入口 `/admin/campaigns`（site.admin）。
+`[starts_at, ends_at)`（`ends_at` 为空 = 长期，**仅视觉类**——行为类必须填结束时间，见下）。
+已注册 effect：视觉类 `theme.pack` / `site.logo` / `site.hero`，行为类 `register.open`（开放注册窗口）/
+`points.boost`（积分加成 ×2/×3）。后台入口 `/admin/campaigns`（site.admin）。
 
 - **请求侧惰性判定，无 cron**：到期不需要写回，读侧不再命中即回到常态。边界沿用 `getSiteChrome` 的 30 秒缓存，
   最多延迟 30 秒；后台保存会即时失效本进程缓存。
 - **只覆盖站点默认，不覆盖用户偏好**：回退链为 用户自选 → 排期 → `site.theme` → `default`。
 - **冲突**：按 effect 分区，分区内 `priority` 大者生效，相等取后创建；不同 effect 互不压制。
+  **行为类不受 priority 选优**：保存时直接拒绝同类时间重叠（Q5）——只与「启用中且未结束」的同类行比较
+  （停用方案重新启用时再查；已结束的窗口不再参与），检查在写事务内加锁读完成，
+  事务保持 REPEATABLE READ + `withDeadlockRetry`（两路并发保存恰好一个成功）。
+- **效果类别（M11.4）**：`kind: "visual" | "behavior"`。视觉类只替换读取到的站点默认值，无副作用；
+  行为类在时间窗内改变业务决策点，有**不可回滚**的副作用（窗口期注册的账号、加成期发出的积分）。
+  因此行为类保存校验更严：不能时间重叠、必须填写结束时间（D6，留空会长期开放注册 / 长期翻倍发放）。
+- **「选项值 ⇄ 配置」互转由 effect 自管（M11.4 Step 0）**：后台表单沿用单个分组下拉 `<effect>::<选项值>`
+  （无脚本可用），提交值恒为字符串且不做类型转换，所以 effect 自己声明 `toConfig` / `toValue`；
+  视觉类的下拉选项由页面按库里的包与素材池生成，行为类自带 `fixedOptions`。
 - **失效回退**：排期引用的包被停用、素材被移出池时，逐项回退常态，不影响其他字段。
 - **与门控的方向相反**：门控遇到未知条件封闭（安全边界，宁可锁死）；排期遇到未知 effect 或坏配置只忽略该行
   （可选的运营增强，不能因一条坏数据让站点读不到主题）。这是有意的，不是漏了防护。
+  行为类的读取失败方向也取保守：注册窗口读取失败 = 按无窗口（回到站点设置原值）。
+- **`register.open` 的叠加规则**（M11.4 D3）：窗口生效且站点未开放注册 → `open=true` 且**强制要求验证邮箱**；
+  站点本身已开放注册时原样返回（只放开不收紧）。注册页 / 注册 Action / 登录页读生效值
+  （`getRegisterPolicy`），后台设置页读站点原值（`getSiteRegisterPolicy`）——窗口期保存设置不会把「开」写进库；
+  顶栏「注册」入口在 site-chrome 套用同一条规则（30 秒缓存）。
 - **LOGO / Hero 输出地址**：`/brand/logo`、`/brand/hero` 不带 `?file=` 只读池当前项，所以读取链输出
   `chrome.logoUrl` / `chrome.heroUrl`，排期命中时带 `?file=`；调用方不得自己拼路径。
-- **扩展方式**：新增 effect = 在 `lib/campaigns/effects.ts` 注册 + 在读取链接上消费 + 补键清单测试；
-  只加注册表而没有消费者会被判定为「名义可插拔」（见 GATES.md 对已删除的 gateConditions 的记录）。
+- **扩展方式**：新增 effect = 在 `lib/campaigns/effects.ts` 注册（声明 kind / schema / describe /
+  toConfig / toValue，行为类另带 fixedOptions）+ 在读取链接上消费（视觉类 site-chrome；行为类各自的决策点）
+  + 补键清单测试；行为类还要在 `refs.ts` 声明引用检查（自足参数返回 true）——重叠检查按 `kind=behavior`
+  自动生效。只加注册表而没有消费者会被判定为「名义可插拔」（见 GATES.md 对已删除的 gateConditions 的记录）。
 - **不覆盖到点副作用**：活动结束发奖这类需要 pending 行 + 批处理 + 幂等键，不属于读取覆盖。
 
 节日主题包（如圣诞青翼）自带节日 LOGO 时，仍走 §5 的「设为全站默认」联动；排期只切换读取，不改池当前项。
