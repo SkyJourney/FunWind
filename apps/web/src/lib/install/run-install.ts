@@ -1,10 +1,12 @@
 import "server-only";
 
 import { count, eq, sql } from "drizzle-orm";
+import type { RowDataPacket } from "mysql2/promise";
 import {
   bootstrapDb,
   createDatabaseIfNotExists,
   getWebDb,
+  getWebPool,
   newDbConfig,
   pingDatabase,
   userRoles,
@@ -43,6 +45,7 @@ export type InstallStep = (typeof INSTALL_STEPS)[number];
 
 export type InstallErrorCode =
   | "already-installed"
+  | "install-busy"
   | "db-unreachable"
   | "db-create-denied"
   | "db-mismatch"
@@ -86,7 +89,17 @@ async function usersCount(): Promise<number> {
  *    换管理员的重装在此被拒，替换管理员请走后台（assignUserRole 等），不属于安装管线。
  */
 async function installTargetGuard(config: InstallConfig): Promise<InstallStepResult | null> {
-  const total = await usersCount();
+  let total: number;
+  try {
+    total = await usersCount();
+  } catch (e) {
+    // 零表（Server Action 可乱序调用，绕过向导顺序直达 step2/3）→ 结构化错误而非 500（审查 P2-⑪）
+    console.error("[install] 读取用户数失败（库表可能尚未创建）:", e);
+    return fail(
+      "bootstrap-failed",
+      "数据库尚未初始化：请先完成向导第 1 步（连接并建表），再进行本步骤。",
+    );
+  }
   if (total === 0) return null;
   if (total > 1) {
     return fail("users-exist", "数据库已有多个用户，拒绝执行安装写入（防重装保护）。");
@@ -123,8 +136,48 @@ async function grantAdminAndAudit(userId: number, config: InstallConfig): Promis
 }
 
 /**
+ * 安装互斥锁（审查 P1-2）：installTargetGuard 是 check-then-act，两个安装者并发并以
+ * 不同用户名创建管理员时会双双放行 → 双 admin 落库，且 users=2 永久卡死重装。
+ * MySQL 命名锁（GET_LOCK，服务器级——调度器同款模式）把整条管线串行化：拿不到锁 = 已有
+ * 安装在进行，直接 busy。锁名带库名（GET_LOCK 不分库）。连接持锁期间不能还池，
+ * 所以锁的作用域是**一次 runInstallStep 调用**——分步向导的每一步各自拿锁；
+ * 步骤之间靠幂等重入收敛，两个安装者交错分步时后到者会被 users 空表守卫/guard 语义拒绝。
+ */
+async function withInstallLock<T>(fn: () => Promise<T>): Promise<T | InstallStepResult> {
+  const conn = await getWebPool().getConnection();
+  let locked = false;
+  try {
+    const [dbRows] = await conn.query<RowDataPacket[]>("SELECT DATABASE() AS db");
+    const name = `funwind_install:${String(dbRows[0]?.db ?? "")}`;
+    const [rows] = await conn.query<RowDataPacket[]>("SELECT GET_LOCK(?, 0) AS got", [name]);
+    locked = Number(rows[0]?.got) === 1;
+  } catch (error) {
+    conn.destroy();
+    throw error;
+  }
+  if (!locked) {
+    conn.release();
+    return fail("install-busy", "另一个安装正在进行中：请稍后重试或刷新页面。");
+  }
+  try {
+    return await fn();
+  } finally {
+    try {
+      const [dbRows] = await conn.query<RowDataPacket[]>("SELECT DATABASE() AS db");
+      await conn.query("SELECT RELEASE_LOCK(?)", [
+        `funwind_install:${String(dbRows[0]?.db ?? "")}`,
+      ]);
+    } catch {
+      // 释放失败（连接已断）：GET_LOCK 随连接关闭自动释放，无需补救
+    }
+    conn.release();
+  }
+}
+
+/**
  * 执行一步安装。step 粒度与向导的分步表单一一对应；`runInstall`（CLI / 完整安装）按
- * INSTALL_STEPS 顺序依次调用。所有步骤都必须先通过「未安装」检查（D2：lock 后全路由拒绝）。
+ * INSTALL_STEPS 顺序依次调用。所有步骤都必须先通过「未安装」检查（D2：lock 后全路由拒绝），
+ * 并在安装互斥锁内执行（审查 P1-2）。
  */
 export async function runInstallStep(
   step: InstallStep,
@@ -136,7 +189,14 @@ export async function runInstallStep(
       "站点已完成安装（存在 install.lock）。如需重装，请先用 install:cli --unlock 解锁。",
     );
   }
+  const result = await withInstallLock(() => runInstallStepLocked(step, config));
+  return result as InstallStepResult;
+}
 
+async function runInstallStepLocked(
+  step: InstallStep,
+  config: InstallConfig,
+): Promise<InstallStepResult> {
   switch (step) {
     case "connection": {
       try {
@@ -157,9 +217,17 @@ export async function runInstallStep(
         return ok;
       } catch (e) {
         console.error("[install] 建库失败:", e);
+        // 分流（审查 P2-⑥）：连接类错误与权限类错误的提示不同，别让「刚连接成功」与「无权限」互相矛盾
+        const code = (e as { code?: string } | null)?.code;
+        if (code === "ER_DBACCESS_DENIED_ERROR" || code === "ER_ACCESS_DENIED_ERROR") {
+          return fail(
+            "db-create-denied",
+            "创建数据库失败（账号缺少 CREATE 权限）：请手动创建数据库后重试——本步骤对已存在的库自动跳过。",
+          );
+        }
         return fail(
-          "db-create-denied",
-          "创建数据库失败（多为账号缺少 CREATE 权限）：请手动创建数据库后重试——本步骤对已存在的库自动跳过。",
+          "db-unreachable",
+          "建库时无法连接数据库：请核对连接信息后重试（详见服务端日志）。",
         );
       }
     }
@@ -170,6 +238,10 @@ export async function runInstallStep(
         return ok;
       } catch (e) {
         console.error("[install] 建表/系统种子失败:", e);
+        const code = (e as { code?: string } | null)?.code;
+        if (code === "ECONNREFUSED" || code === "ER_ACCESS_DENIED_ERROR") {
+          return fail("db-unreachable", "建表时无法连接数据库：请核对连接信息后重试。");
+        }
         return fail(
           "bootstrap-failed",
           "建表或系统种子失败：请查看服务端日志后重试（管线幂等，可安全重跑）。",
@@ -214,42 +286,54 @@ export async function runInstallStep(
         return ok;
       }
       const passwordHash = await hashPassword(config.admin.password);
-      let id: number;
       try {
-        id = await registerUser({
+        const id = await registerUser({
           username: config.admin.username,
           email: config.admin.email,
           passwordHash,
           invite: null,
         });
+        await grantAdminAndAudit(id, config);
       } catch (e) {
         if (e instanceof Error && e.name === "RegisterError") {
           return fail("users-exist", `管理员账号创建失败：${e.message}`);
         }
-        throw e;
+        // 其余异常（DB 故障 / 自愈并发唯一键冲突）包成结构化结果，不绕开 InstallStepResult 契约（审查 P2-⑤）
+        console.error("[install] 管理员创建失败:", e);
+        return fail(
+          "bootstrap-failed",
+          "管理员创建失败：请查看服务端日志后重试（管线幂等，可安全重跑）。",
+        );
       }
-      await grantAdminAndAudit(id, config);
       return ok;
     }
 
     case "lock": {
       // 先审计后写文件：崩溃窗口里重跑会重复一条 install.locked 审计（可接受），
-      // 反过来先写文件则审计可能永久丢失。
-      await writeAudit(getWebDb(), {
-        actorId: INSTALL_ACTOR.userId,
-        action: "install.locked",
-        targetType: "install",
-        targetId: "install.lock",
-        after: { site: config.site.name, via: INSTALL_ACTOR.via },
-        ip: INSTALL_ACTOR.ip,
-      });
-      await writeInstallLock({ installedAt: new Date().toISOString() });
-      return ok;
+      // 反过来先写文件则审计可能永久丢失。异常包成结构化结果（审查 P2-⑤）。
+      try {
+        await writeAudit(getWebDb(), {
+          actorId: INSTALL_ACTOR.userId,
+          action: "install.locked",
+          targetType: "install",
+          targetId: "install.lock",
+          after: { site: config.site.name, via: INSTALL_ACTOR.via },
+          ip: INSTALL_ACTOR.ip,
+        });
+        await writeInstallLock({ installedAt: new Date().toISOString() });
+        return ok;
+      } catch (e) {
+        console.error("[install] 写入安装锁失败:", e);
+        return fail(
+          "bootstrap-failed",
+          "写入安装锁失败（多为 STORAGE_DIR 不可写）：请检查磁盘权限后重试。",
+        );
+      }
     }
   }
 }
 
-/** 完整安装：按顺序执行全部步骤，任一步失败即返回该步结果（重跑收敛） */
+/** 完整安装：按顺序执行全部步骤，任一步失败即返回该步结果（重跑收敛）；整体在互斥锁内 */
 export async function runInstall(config: InstallConfig): Promise<InstallStepResult> {
   for (const step of INSTALL_STEPS) {
     const result = await runInstallStep(step, config);

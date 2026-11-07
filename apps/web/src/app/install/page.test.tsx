@@ -124,7 +124,9 @@ describe("安装向导页", () => {
     unmount();
   });
 
-  it("step=2/3 的失败回显保留各自草稿（站点名 / 管理员用户名）", async () => {
+  it("step=2 的失败回显保留草稿（站点名），进度已到第 2 步时 clamp 放行", async () => {
+    // 进度 dbReady=true → maxStep=2，step=2 合法放行（审查 F-2 的 clamp 语义）
+    state.progress = { dbReady: true, siteConfigured: false, adminCreated: false };
     const draft = encodeURIComponent(
       JSON.stringify({
         site: { name: "我的站", tagline: "", url: "http://x" },
@@ -144,5 +146,14 @@ describe("安装向导页", () => {
       "我的站",
     );
     expect(screen.getByText("名称必填")).toBeTruthy();
+  });
+
+  it("跳步 clamp：进度未到时 ?step=2/4 被压回推导步（F-2）", async () => {
+    // 进度全 false → maxStep=1：step=2/4 都渲染第 1 步
+    render(await page({ step: "2" }));
+    expect(screen.getByRole("button", { name: "测试连接并建表" })).toBeTruthy();
+    const { unmount } = render(await page({ step: "4" }));
+    expect(screen.queryByText("安装完成")).toBeNull();
+    unmount();
   });
 });

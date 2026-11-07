@@ -1,6 +1,6 @@
 "use server";
 
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
 import { defineAction } from "@/lib/actions/define-action";
 import { requireNotInstalled } from "@/lib/install/guard";
@@ -67,7 +67,10 @@ export const installDatabaseAction = defineAction({
       password: input.password,
       name: input.name,
     };
-    const draft: InstallDraft = { db };
+    // 口令不进失败草稿（审查 P1-1/F-6）：留空提交 = 沿用 .env（validateDbSlice 的空口令语义）
+    const draft: InstallDraft = {
+      db: { host: db.host, port: db.port, user: db.user, name: db.name },
+    };
     const check = validateDbSlice({ ...db, port: Number(db.port) });
     if (!check.ok) failTo("invalid-config", 1, draft, check.issues);
     const config: InstallConfig = installConfigFromEnv({ db: check.value });
@@ -104,11 +107,13 @@ export const installSiteAction = defineAction({
     const draft: InstallDraft = { site, themePack: input.themePack, registration };
     const check = validateSiteSlice(site);
     if (!check.ok) failTo("invalid-config", 2, draft, check.issues);
+    if (!(INSTALL_THEME_PACKS as readonly string[]).includes(input.themePack)) {
+      // 篡改请求不静默回退（审查 P2-10）：与 defineAction 的 404 哲学一致
+      notFound();
+    }
     const config: InstallConfig = installConfigFromEnv({
       site: check.value,
-      themePack: (INSTALL_THEME_PACKS as readonly string[]).includes(input.themePack)
-        ? (input.themePack as InstallConfig["themePack"])
-        : "default",
+      themePack: input.themePack as InstallConfig["themePack"],
       registration,
     });
     const result = await runInstallStep("site-settings", config);
@@ -130,7 +135,8 @@ export const installAdminAction = defineAction({
   async run(_ctx, input) {
     await requireNotInstalled();
     const admin = { username: input.username, email: input.email, password: input.password };
-    const draft: InstallDraft = { admin };
+    // 口令不进失败草稿（审查 P1-1/F-6：草稿会进 URL query 与 HTML value）——重填成本低，G-19 不覆盖口令
+    const draft: InstallDraft = { admin: { username: admin.username, email: admin.email } };
     const check = validateAdminSlice(admin);
     if (!check.ok) failTo("invalid-config", 3, draft, check.issues);
     const config: InstallConfig = installConfigFromEnv({ admin: check.value });

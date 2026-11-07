@@ -22,9 +22,11 @@
 ## 3. 步骤
 
 ```bash
-# 0) 演练（强烈建议）：先在临时库把全流程走一遍，不带任何真实数据风险
-NEW_DB_NAME=qysub_next_rehearsal pnpm --filter @funwind/db exec tsx scripts/e2e-reset.ts
-NEW_DB_NAME=qysub_next_rehearsal pnpm migrate          # 导入
+# 0) 演练（强烈建议）：先在临时库把全流程走一遍，不带任何真实数据风险。
+#    临时库需手工创建（演练库名自定；不要用 e2e-reset——它的护栏只允许 qysub_next_e2e）
+docker exec qysub-next-mysql sh -c \
+  'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS qysub_next_rehearsal CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci"'
+NEW_DB_NAME=qysub_next_rehearsal pnpm migrate          # 导入（含建表）
 NEW_DB_NAME=qysub_next_rehearsal pnpm verify:migration # 对账（见下）
 
 # 1) 正式导入（一次性全量；检测到线上数据会拒绝重跑，强制需 MIGRATION_FORCE=1）
@@ -34,6 +36,7 @@ pnpm migrate
 pnpm verify:migration
 
 # 3) 报告入库（docs/reports/）：行数、抽样与对账结果留档
+#    演练库用完可删：DROP DATABASE qysub_next_rehearsal
 ```
 
 导入完成后：

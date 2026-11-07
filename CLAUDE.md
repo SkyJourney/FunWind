@@ -70,7 +70,7 @@ pnpm layout:summary            # 汇总布局审计 JSON，有问题退出码 1�
 3c. **积分变动只能经 `applyPoints`**，渠道须先注册（`docs/POINTS.md`）。
 3d. **附件表只能经 `lib/gates/attachments.ts` 读写**（M6.4 起，保存时的内联登记 `registerSourceFiles` 与编辑视图也在此；上传记录表 `file_uploads` 只能经 `lib/uploads/store.ts` 写入，守卫 `uploads-guard.test.ts`）：`attachments.gate_id` 非空的附件与门控隐藏正文同权，锁定项不得下发文件名 / 存储键 / 大小；`/files` 与帖子页共用同一出口（`docs/ATTACHMENT-GATES.md`，守卫测试 `attachments-guard.test.ts`）。
 4. **时区**：库内 DATETIME 一律北京墙面时间；连接层 `+08:00` + `dateStrings`，**且每条新连接必须 `SET time_zone='+08:00'`**（mysql2 的 `timezone` 选项不改服务器会话时区，`NOW()` 会是容器的 UTC；`createPool` 已处理，任何绕过它的裸连接须自行设置；`db:verify` 与 `client.int.test.ts` 守护）；解析只走 `lib/datetime.ts`，禁止裸 `new Date(字符串)`。
-5. **DB 连接**：web 运行时只用 `getWebDb()` 单例；`withDb` 仅限一次性脚本。
+5. **DB 连接**：web 运行时只用 `getWebDb()` 单例；`withDb` 仅限一次性脚本。例外（M12）：安装前置步骤的裸一次性连接（`pingDatabase` / `createDatabaseIfNotExists` / `bootstrapDb` 自建池）——库尚不存在时 getWebDb 连不上，用完即 `end()`，不涉事务与时间语义。
 6. **渲染**：用户内容必须经 `lib/markdown.ts` + `lib/sanitize.ts` 管线，禁止 `dangerouslySetInnerHTML` 直出原文。管线启用的是**精简 GFM（只有表格与删除线，`singleTilde:false`，见 `lib/gfm-lite.ts`）**：不要换成完整 `remark-gfm`——它的自动链接会把紧跟 URL 的中文吞进链接，单波浪线删除线会误伤 1328 篇「语气词~」。
 7. **权限**：一律走 `lib/authz` 的 `checkPermission`；越权对外表现为 **404**（不暴露存在性）；不允许硬编码身份判断。
 8. **URL 已冻结**：`/f/{fid}`、`/t/{tid}`、`?page=`、`#p{pid}`（M13 的 301 依赖）。文件统一走 `/files/<storage_key>`（已取代 `/attachment/**`，S4-4 落地）；表情为 `/emoji/{id}.{ext}`（旧 50 枚是 public 静态 `{id}.gif`，新表情内容寻址由 `/emoji/[file]` 路由提供，id 冻结、已发布正文引用不能碎）。

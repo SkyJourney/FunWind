@@ -10,16 +10,17 @@ function assertLoopback(host: string): void {
   }
 }
 
-export function assertE2eResetTarget(database: string, host: string): void {
-  if (database !== E2E_DATABASE_NAME) {
-    throw new Error(`E2E 重置只允许目标数据库 ${E2E_DATABASE_NAME}`);
+function assertResetTarget(database: string, host: string, allowed: string, scope: string): void {
+  if (database !== allowed) {
+    throw new Error(`${scope}重置只允许目标数据库 ${allowed}`);
   }
   assertLoopback(host);
 }
 
+export function assertE2eResetTarget(database: string, host: string): void {
+  assertResetTarget(database, host, E2E_DATABASE_NAME, "E2E ");
+}
+
 export function assertInstallCliResetTarget(database: string, host: string): void {
-  if (database !== INSTALL_CLI_DATABASE_NAME) {
-    throw new Error(`安装 CLI E2E 重置只允许目标数据库 ${INSTALL_CLI_DATABASE_NAME}`);
-  }
-  assertLoopback(host);
+  assertResetTarget(database, host, INSTALL_CLI_DATABASE_NAME, "安装 CLI E2E ");
 }

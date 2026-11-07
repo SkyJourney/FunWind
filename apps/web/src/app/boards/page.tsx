@@ -27,6 +27,8 @@ export default async function BoardsPage() {
       checkPermission(viewer, "site.admin"),
       getSiteChrome(),
     ]);
+    // 三档主行动（审查 F-10）：管理员直达后台；游客按注册策略给注册入口；
+    // 已登录非管理员不给 CTA——「注册账号/登录」对已登录用户是错误引导
     const action = canManage.allowed ? (
       <Link
         href="/admin/forums"
@@ -34,15 +36,17 @@ export default async function BoardsPage() {
       >
         进后台创建第一个版块 →
       </Link>
-    ) : chrome.registrationOpen ? (
-      <Link href="/register" className="text-sm text-primary hover:underline">
-        注册账号，等版块开放后发第一帖 →
-      </Link>
-    ) : (
-      <Link href="/login" className="text-sm text-primary hover:underline">
-        登录 →
-      </Link>
-    );
+    ) : viewer.userId === null ? (
+      chrome.registrationOpen ? (
+        <Link href="/register" className="text-sm text-primary hover:underline">
+          注册账号，等版块开放后发第一帖 →
+        </Link>
+      ) : (
+        <Link href="/login" className="text-sm text-primary hover:underline">
+          登录 →
+        </Link>
+      )
+    ) : null;
     return (
       <main className="mx-auto max-w-5xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
         <header>

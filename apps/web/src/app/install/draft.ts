@@ -38,11 +38,11 @@ function sanitizeDraft(d: Record<string, unknown>): InstallDraft {
   const out: InstallDraft = {};
   if (typeof d.db === "object" && d.db !== null) {
     const db = d.db as Record<string, unknown>;
+    // 口令不进草稿（审查 P1-1/F-6：草稿经 URL 传输，口令留空 = .env 语义）
     out.db = {
       host: optString(db.host, 255),
       port: optString(db.port, 5),
       user: optString(db.user, 64),
-      password: optString(db.password, 128),
       name: optString(db.name, 64),
     };
   }
@@ -74,7 +74,6 @@ function sanitizeDraft(d: Record<string, unknown>): InstallDraft {
     out.admin = {
       username: optString(admin.username, 20),
       email: optString(admin.email, 128),
-      password: optString(admin.password, 128),
     };
   }
   return out;

@@ -26,11 +26,19 @@ describe("install 入口守卫（静态扫描，M12 D2）", () => {
     expect(src.slice(firstAwait, firstAwait + 30)).toContain("requireNotInstalled()");
   });
 
-  it("每个 Server Action 的 run 首行都调用 requireNotInstalled（数量精确对上）", () => {
+  it("每个 Server Action 的 run 块都以 requireNotInstalled 开头且恰好一次（按块断言，防此漏彼挂）", () => {
     const actions = actionsSrc();
-    const calls = [...actions.matchAll(/await requireNotInstalled\(\)/g)].length;
-    expect(exportedActions().length).toBeGreaterThan(0);
-    expect(calls).toBe(exportedActions().length);
+    // 按 "async run" 切块，块边界到下一个 Action 名或文件尾
+    const blocks = actions.split(/name: "install\.[a-z]+",/).slice(1);
+    expect(blocks.length).toBe(exportedActions().length);
+    for (const block of blocks) {
+      const body = block.split("async run")[1] ?? "";
+      expect(body).toBeTruthy();
+      const calls = [...body.matchAll(/await requireNotInstalled\(\)/g)].length;
+      expect(calls).toBe(1);
+      // 位于 run 体开头（首个语句就是守卫；body 以 "(_ctx…) {\n    await …" 开头）
+      expect(body.slice(0, 80).includes("await requireNotInstalled()")).toBe(true);
+    }
   });
 
   it("三个 Action 的名字符合 install.* 命名（database / site / admin）", () => {

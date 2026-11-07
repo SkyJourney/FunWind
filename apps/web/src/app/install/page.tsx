@@ -2,6 +2,7 @@ import Link from "next/link";
 import { AdminFlash } from "@/components/admin/admin-flash";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { requireNotInstalled } from "@/lib/install/guard";
+import type { InstallErrorCode } from "@/lib/install/run-install";
 import {
   installProgress,
   nodeVersionOk,
@@ -21,14 +22,17 @@ const LABEL = "grid min-w-0 gap-1 text-sm";
 
 const STEP_TITLES = ["环境与数据库", "站点设置", "管理员账号", "完成"] as const;
 
-/** 错误码 ↔ 文案成对（G-15）：键类型取自管线的失败码集合；漏配靠 install-entry/page 测试约束 */
-const ERR_TEXT: Record<string, string> = {
+/** 错误码 ↔ 文案成对（G-15）：键类型取自管线失败码 + 表单错误——管线新增失败码而这里漏配，类型检查即红 */
+const ERR_TEXT: Record<InstallErrorCode | "invalid-config", string> = {
   "db-unreachable": "无法连接数据库：请核对主机、端口、用户与口令后重试。",
   "db-create-denied": "创建数据库失败（多为账号缺少 CREATE 权限）：请手动创建数据库后重试。",
   "bootstrap-failed": "建表或系统种子失败：请查看服务端日志后重试（可安全重跑）。",
   "users-exist": "数据库已有用户，拒绝写入（防重装保护）：如需重装请先清空用户数据或用 CLI。",
-  "already-installed": "站点已完成安装：本向导已关闭（刷新将回到首页）。",
+  "already-installed": "站点已完成安装：本向导已关闭（刷新后本页将 404）。",
+  "install-busy": "另一个安装正在进行中：请稍后重试或刷新页面。",
   "invalid-config": "提交的配置有格式问题：请按下方字段提示修正后重试。",
+  // 管线当前不产出（连接信息与 env 的一致性由 validateDbSlice 前置拦截）；接线时删除此行
+  "db-mismatch": "数据库连接信息与运行中实例的环境变量不一致：请保持表单默认值重试。",
 };
 
 function stepBadge(n: number, current: number, done: boolean) {
@@ -56,10 +60,15 @@ export default async function InstallPage({
 
   const sp = await searchParams;
   const progress = await installProgress();
+  // 跳步 clamp（审查 F-2）：可回看已完成步骤，但不能越过进度推导步——
+  // 防止零表直接 step=3 提交落 500、step=4 渲染假完成页
+  const maxStep = stepOfProgress(progress);
   const current = (() => {
     const requested = Number(sp.step);
-    if (requested >= 1 && requested <= 4) return requested as 1 | 2 | 3 | 4;
-    return stepOfProgress(progress);
+    if (requested >= 1 && requested <= 4) {
+      return Math.min(requested, maxStep) as 1 | 2 | 3 | 4;
+    }
+    return maxStep;
   })();
   const draft: InstallDraft = decodeInstallDraft(sp.draft);
   let fieldIssues: Record<string, string> = {};
@@ -69,7 +78,13 @@ export default async function InstallPage({
   } catch {
     fieldIssues = {};
   }
-  const errText = sp.err ? ERR_TEXT[sp.err] : undefined;
+  // 未知错误码落兜底文案（query 不可信）；已知码走 G-15 类型表
+  const errText =
+    sp.err && sp.err in ERR_TEXT
+      ? ERR_TEXT[sp.err as keyof typeof ERR_TEXT]
+      : sp.err
+        ? undefined
+        : undefined;
   const envDb = installConfigFromEnv().db;
   const nodeOk = nodeVersionOk();
   const storageOk = await storageWritable();
@@ -78,7 +93,8 @@ export default async function InstallPage({
     host: draft.db?.host ?? envDb.host,
     port: draft.db?.port ?? String(envDb.port),
     user: draft.db?.user ?? envDb.user,
-    password: draft.db?.password ?? envDb.password,
+    // 口令一律不预填不回显（审查 P1-1：defaultValue 明文进 HTML 源码，页面对匿名开放）
+    password: "",
     name: draft.db?.name ?? envDb.name,
   };
   const issueOf = (key: string) => fieldIssues[key];
@@ -159,7 +175,9 @@ export default async function InstallPage({
                 <input
                   name="password"
                   type="password"
-                  defaultValue={dbDraft.password}
+                  defaultValue=""
+                  autoComplete="off"
+                  placeholder="留空 = 使用 .env 中的口令"
                   className={FIELD}
                 />
               </label>
@@ -319,7 +337,8 @@ export default async function InstallPage({
               type="password"
               required
               minLength={8}
-              defaultValue={draft.admin?.password ?? ""}
+              autoComplete="new-password"
+              defaultValue=""
               className={FIELD}
             />
             {issueOf("admin.password") && (

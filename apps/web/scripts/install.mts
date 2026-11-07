@@ -16,6 +16,7 @@
 import { createInterface } from "node:readline/promises";
 import { getWebPool } from "@funwind/db";
 import { isInstalled, removeInstallLock } from "../src/lib/install/lock";
+import { getStorageDir } from "../src/lib/storage";
 import { INSTALL_STEPS, runInstallStep } from "../src/lib/install/run-install";
 import {
   installConfigFromEnv,
@@ -61,12 +62,19 @@ async function confirmUnlock(): Promise<boolean> {
 
 async function main(): Promise<number> {
   const args = parseArgs(process.argv.slice(2));
+  // 锁路径显式化（审查 P2-8）：STORAGE_DIR 错位（systemd 与 shell 不一致）时，操作者一眼看出
+  console.log(`[install:cli] 安装锁路径：${getStorageDir()}/install.lock`);
 
   // 覆盖参数 → 默认配置（db 五项来自 .env），再过一遍与向导完全相同的校验
+  const registrationArg = str(args, "registration");
+  if (registrationArg !== undefined && !["open", "invite", "closed"].includes(registrationArg)) {
+    console.error(`✘ --registration 只接受 open / invite / closed，收到：${registrationArg}`);
+    return 1;
+  }
   const registration =
-    str(args, "registration") === "open"
+    registrationArg === "open"
       ? { mode: "open" as const, verifyEmail: args["verify-email"] === true }
-      : str(args, "registration") === "closed"
+      : registrationArg === "closed"
         ? { mode: "closed" as const }
         : { mode: "invite" as const };
   const raw = installConfigFromEnv({
