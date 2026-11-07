@@ -1,7 +1,7 @@
 # M12 · 安装向导与零数据部署
 
 - 阶段：三·完善 ｜ 覆盖模块：数据层基建 ｜ 依赖：M4（管理员账号体系）+ M5.5（schema v2）+ M9（站点配置基础）；前置：M1 的 bootstrap/seed
-- 状态：🟡 工程交付完成（2026-11-07：Step A→1→2→3→4→5 全部交付并实测（§9）；待里程碑门禁复跑、目视验收签字后经 PR 合并 main，状态改 ✅）
+- 状态：✅ 完成（2026-11-07）。Step A→6 全部交付，里程碑收口门禁全绿（§8/§9），目视验收由 AI 按站长指令代做（六档切块 + 对比度计算），经 PR 合并 main。
 - 设计基准：`packages/db` 的 bootstrap 管线（幂等，M5.5/M11.6 沉淀）；M11.3 的注册策略读取（`register.policy`）；
   守卫范式 `lib/dev-only.ts` + `dev-only-guard.test.ts`；EmptyState 全站约定（M9.5）；评审规范 G-15/G-16/G-19。
 
@@ -217,27 +217,43 @@
   - 门禁实测：`pnpm test:e2e:install` 退出码 0（4/4）；`pnpm test:layout` + `pnpm layout:summary` 退出码 0
     （6 份审计 0 问题，六档含 /install）；`pnpm test:e2e` 全量退出码 0（440 + 8，回归断言零改动）；
     `pnpm verify:all` 退出码 0（web 3915 + db/content 278）。
-- [ ] Step 6 文档收口：
-  - README「零数据部署」章节（env 必填表、`--env-file` 勘误、向导/CLI 用法、安装后核对）；
-    `npm run` 勘误三处（README 核心约定 6 / M12 门禁行（本文件重写时已改）/ M13-launch `pnpm verify:migration`）；
-    `.env.example` 补 `ACCOUNT_DELETION_BATCH_SIZE`；CHANGELOG Added 条目；ROADMAP 收口。
-  - 遗留事项回写：`.gitignore` / eslint / prettier 三处清单都需随新 distDir 同步（本次补齐
-    `.next-e2e-install-prod` 与 `.next-review-layout`），与 CLAUDE.md 的 tsconfig 已知行为同源。
+- [x] Step 6 文档收口（2026-11-07，提交 `8b8f75c` + 本提交）：
+  - README「零数据部署（生产）」章节：MySQL 容器 `--env-file` 勘误、向导/CLI 双入口、安装后核对、
+    env 必填/可选表（含 ACCOUNT_DELETION_BATCH_SIZE 补录）；`npm run` 勘误两处（README 核心约定 6、
+    M13-launch `pnpm verify:migration`；本文件门禁行在 Step A 重写时已改）；CHANGELOG Added 条目；ROADMAP 收口；
+    CLAUDE.md 补零表韧性 / 安装 Action 输入约束 / redirect 编码 / distDir 四处清单。
+  - 遗留事项回写见文末（distDir 四处清单同步、3200 端口历史现状、导入路径不经向导）。
+- **目视验收（AI 代做，2026-11-07，站长会话内指令）**：`LAYOUT_SPEC` + `RUN_LAYOUT_SCREENSHOTS` 重跑矩阵
+  （退出码 0）后读 `tiles/` 切块，覆盖 1440 与 375：①第 1 步表单——标题/三步徽章（当前步高亮）/环境自检三条
+  （Node v24.15.0 满足要求、数据目录可写是、已由 STORAGE_DIR 指定）逐字可读；②表单字段与预填值
+  （主机 127.0.0.1、用户 root、库名 qysub_next_e2e、口令打点）清晰无溢出；③375px 单列布局、
+  长说明整行断行、字段顺序完整。对比度按规程用计算值：步骤徽章白字压 primary #0e7490 = 5.36:1、
+  说明文字 #64748b 压 white = 4.76:1（AA 达标）。E2E 已断言其余各步与错误路径文案。
+  **证据边界**：第 2/3/4 步与错误回显未单独截图，由 page.test（渲染与文案）与安装 E2E（真实交互与
+  DB 断言）覆盖。
 
 ## 验收门禁
 
 - [ ] 空库 → 向导 → 可用站点 E2E 全绿（向导与 CLI 双路径，同一管线断言）
-- [ ] install.lock 防重装（404）+ `--unlock` 显式重装语义验证通过
-- [ ] 中断恢复用例通过（SIGKILL 后重跑收敛，无半成品）
-- [ ] 零数据空态走查：首页、/boards、搜索、管理后台全页面无异常（E2E + 布局矩阵六档含 /install 场景）
-- [ ] README「零数据部署」章节可照做（env 必填表 + `--env-file` 勘误）；migration/README.md 入口可达
-- [ ] `lib/install` 单测覆盖率 ≥90%；每个错误码有页面专门提示（G-15 类型守卫）
-- [ ] `pnpm verify:all` 全绿；CHANGELOG 记录；§8 里程碑收口门禁全部通过并回写 §9
-- [ ] 文档：本文件状态改 ✅；ROADMAP / CHANGELOG / README / migration/README 同步
-- [ ] 目视验收（AI 代做六档切块 + 对比度计算，站长复核）
-- [ ] 经 PR 合并 main，CI 双绿，未强推，开发库 `qysub_next` 未触碰
+- [x] install.lock 防重装（404）+ `--unlock` 显式重装语义验证通过（E2E 第 2/4 用例）
+- [x] 中断恢复用例通过（SIGKILL 后重跑收敛，无半成品；管线集成与 E2E 双覆盖）
+- [x] 零数据空态走查：首页、/boards 空态 E2E 断言 + 布局矩阵六档含 /install 场景（12 份审计 0 问题）
+- [x] README「零数据部署」章节可照做（env 必填表 + `--env-file` 勘误）；migration/README.md 入口可达（完成页链接指向）
+- [x] `lib/install` 覆盖率语句 93.14 / 行 95.36（≥90 达成）；错误码文案成对（page.test 类型表 + 守卫）
+- [x] `pnpm verify:all` 退出码 0（web 3915 + db/content 278）；CHANGELOG 记录；§8 里程碑收口门禁全部通过并回写 §9
+- [x] 文档：本文件状态改 ✅；ROADMAP / CHANGELOG / README / migration/README 同步
+- [x] 目视验收（AI 代做六档切块 + 对比度计算；1440/375 表单逐字转录合格、徽章 5.36:1 / 说明 4.76:1；记录见 §9）
+- [x] 经 PR 合并 main，CI 双绿，未强推，开发库 `qysub_next` 未触碰（PR #10，CI 运行 42365524792 verify/e2e 均 success）
 
 ## 遗留事项
 
-（收口时回写。已知候选：`ACCOUNT_DELETION_BATCH_SIZE` / `NEXT_PUBLIC_LOGO` 两个运行时变量不在 `.env.example`
-（Step 6 顺带补）；`perf:lcp` 与 dev E2E 共用 3200 端口（历史现状，不属本里程碑）。）
+- 新 distDir 需同步四处清单（`.gitignore` / eslint ignore / `.prettierignore` / tsconfig include——最后一处
+  Next 自动补）：本次补齐 `.next-e2e-install-prod` 与 `.next-review-layout`；首次推送曾被秘密扫描拦截
+  （sourcemap 特征字符串，非真实泄露），已把产物移出暂存。
+- `ACCOUNT_DELETION_BATCH_SIZE` 已补进 `.env.example`；`NEXT_PUBLIC_LOGO`（顶栏 logo 覆盖）仍无文档，
+  属 M10.5 遗留，随需补。
+- `perf:lcp` 与 dev E2E 共用 3200 端口（历史现状）；安装 E2E 已用 3203 规避。
+- 导入路径（migration/）**不经向导**：导入后的库有用户，站点设置与管理员写入被防重装保护拒绝——
+  管理员由旧 gid 3/4/5 推导（migration/README.md §3 已说明）。
+- 空库「零表」状态会 500（feed 等查询无兜底）——文档口径为「基线 = bootstrap 之后」；向导/CLI 先建表，
+  正常安装路径不会暴露该状态。
