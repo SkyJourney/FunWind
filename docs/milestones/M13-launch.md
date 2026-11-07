@@ -52,15 +52,21 @@ BLUEPRINT §4.5「M12 实施」笔误勘误（301 归 M13）；ROADMAP M13 改 �
   runner（非 root，HEALTHCHECK 打 /api/health）。**不做 standalone**（保持整仓 + env 外置形态，F2）。
 - 本机 docker build + 容器冒烟（容器起、health 200）。
 
-**Step 2 · 生产 compose + nginx 301**：
-- `docker/production/compose.yaml`：nginx（80/443、conf 卷、证书路径占位）+ app（env_file .env，依赖 mysql 健康）+
-  mysql（沿用 qysub-next 定义、卷改生产路径占位）。**不含 Redis**（D5——代码零消费者，多实例前置记入检查单）。
-- `docker/production/nginx/funwind.conf`：域名占位 + www 301、TLS 占位、`client_max_body_size 64m`（M13-3）、
-  **301 映射**（F1：read.php?tid→/t/N、thread.php?fid→/f/N、simple/?t、simple/?f、space/?uid→/u/N，分页参数透传）、
-  旧 `/attachment/**`、`/emotion/**` → **410**（F7）、http→https 跳转。
-- 301 用例集（本机 nginx 容器 + 占位 server_name + Host 头，≥20 条）：read/thread/simple/space/分页/锚点/410。
+**Step 2 · 双编排 + 宝塔 nginx 反代（D7 修订版）**：
+- `docker/mysql/compose.yaml`（基础设施独立编排，与 app 解耦）：MySQL 8.4 容器，绑 `127.0.0.1:3306`
+  （退役旧 MariaDB 后即得标准端口；独立卷 `funwind-mysql-data`，未来其他服务可直接复用此库）。
+- `docker/production/compose.yaml`（应用编排）：**单个 SSR 容器**（Next.js，连 127.0.0.1:3306，env_file .env）。
+  **不含 nginx 容器、不含 Redis**（D5/D7——宝塔系统级 nginx 已持 80/443 与现成证书）。
+- 宝塔 vhost conf（交付物）：改现有 `www.qingyisub.top` 站点为反向代理（proxy_pass → 127.0.0.1:3311）+
+  `client_max_body_size 64m`（M13-3）+ **301 映射块**（F1 全集）+ TLS 用既有证书路径。
+- 301 用例集（本机宝塔 nginx 或临时 nginx 容器 + Host 头，≥20 条）：read/thread/simple/space/分页/锚点/410。
 
-**Step 3 · 备份与恢复**：
+**Step 3 · 备份与恢复（含旧栈退役序列，RUNBOOK 详版）**：
+- **退役序列**（上线窗口内、站点未开放时执行）：① MariaDB 全量 dump 归档（--default-character-set=utf8mb4
+  转码输出）→ ② 停 MariaDB 服务 + php-fpm 5.6/8.3 + Flarum vhost（3306 腾出）→ ③ MySQL 8.4 独立编排起 3306 →
+  ④ 归档恢复为 `qingyisub_legacy` 源库（迁移源；备选：迁移直接在线读 MariaDB，演练时两条都验证取稳者）。
+  数据卷保留至站长签字，不删数据。
+- 迁移源口径（演练验证后定稿）：主路径 = 在线读 MariaDB（迁移本为 GBK 源设计）；备选 = 归档恢复库。
 - `scripts/backup/backup-db.sh`（mysqldump --single-transaction 全备 + 保留 N 天轮转 + binlog 说明）、
   `backup-storage.sh`（rsync 增量，排除 .cache/.tmp）、`docs/ops/BACKUP.md`（恢复到临时实例 → db:verify → 切换；
   旧库最终转储命令）。本机对 dev 库实测一轮备份 → 恢复 → db:verify 绿。
