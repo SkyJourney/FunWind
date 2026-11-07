@@ -135,7 +135,26 @@
 
 - [x] Step A 文档先行（2026-11-07）：§2 核实事实 F1–F13、§6 决策 D1–D4、§4 分解、§7/§8 门禁、验收门禁重写；
       ROADMAP 同步；`pnpm format:check`、`pnpm check:secrets` 通过（退出码均 0）。
-- [ ] Step 1 安装管线核心：
+- [x] Step 1 安装管线核心（2026-11-07）：
+  - packages/db：`bootstrap.ts` 新增 `pingDatabase`（连接测试）与 `createDatabaseIfNotExists`
+    （IF NOT EXISTS，绝不 DROP；库名由安装 schema 白名单校验后拼接），随 `export *` 自动公开。
+  - `lib/audit.ts`：`via` 联合类型加 `"install"` + `INSTALL_ACTOR` 常量。
+  - `apps/web/src/lib/install/`：`lock.ts`（isInstalled/writeInstallLock/removeInstallLock，异常 fail-closed 按
+    已安装）、`schema.ts`（zod strict + 语义校验 checkUsername/isValidEmail/密码 ≥8 + db 与运行实例 env 一致性，
+    问题按字段返回中文说明）、`run-install.ts`（六步幂等状态机：connection/create-db/bootstrap/
+    site-settings/admin/lock；双重防呆 lock + users 空表；崩溃窗口自愈——唯一目标用户缺角色行时补齐；
+    密码 argon2id 与注册同口径、首管理员免验证 D3、审计 install.admin/locked）、`guard.ts`
+    （requireNotInstalled → 404）。
+  - 测试：单测 lock（fail 方向含目录占位）+ schema（白名单/语义/env 默认/哨兵）+ guard（mock notFound）；
+    真实 MySQL 集成 9 项——从「只建库不 bootstrap」的空库走全流程、重复幂等、三模式策略键值经
+    `getRegisterPolicy` 读出生效、崩溃窗口自愈、防重装（users 非空双重拒绝 + 陌生用户不带角色）、
+    lock 后全步骤拒绝。
+  - 门禁实测：`pnpm verify:all` 退出码 0（web 3886 + db/content 278）；lib/install 覆盖率
+    语句 94.16 / 行 97.16 / 函数 100 / 分支 85.93（≥90 承诺达成）；重复棘轮低于基线。
+  - 过程更正：①集成用例首版把「站长」当用户名——它是保留字（防冒充），改 inst_admin；
+    ②bootstrap 步骤在全量并发压库时超过 5 秒默认单测超时（temp-db 系用例靠 beforeAll 30 秒钩子躲过），
+    重用例加显式 timeout；③覆盖率在「只跑子集」时会因其他目录 0% 报错，属运行方式假象，
+    以 verify:all 全量聚合为准。
 - [ ] Step 2 CLI：
 - [ ] Step 3 向导 UI：
 - [ ] Step 4 空态与指引：
