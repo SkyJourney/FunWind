@@ -3,6 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { getHeroPoolRaw } from "@/lib/brand/hero-pool";
 import { getLogoPoolRaw } from "@/lib/brand/logo-pool";
 import { requireAdmin } from "@/lib/authz/require-admin";
+import type { CampaignErrorCode } from "@/lib/campaigns/admin";
 import { decodeCampaignDraft, type CampaignDraft } from "@/lib/campaigns/draft";
 import { CAMPAIGN_EFFECTS } from "@/lib/campaigns/effects";
 import { joinChoice } from "@/lib/campaigns/input";
@@ -21,7 +22,8 @@ const FLASH: Record<string, string> = {
   deleted: "排期方案已删除。",
 };
 
-const ERR_TEXT: Record<string, string> = {
+/** 键类型取自写服务的失败码：服务新增失败码而这里没补文案，类型检查就会报错（G-15） */
+const ERR_TEXT: Record<CampaignErrorCode, string> = {
   "bad-name": "方案名称不能为空，且不超过 60 个字符。",
   "bad-effect": "请选择要生效的内容。",
   "bad-target": "所选内容的格式不合法。",
@@ -33,6 +35,11 @@ const ERR_TEXT: Record<string, string> = {
   "not-found": "方案不存在或已被删除。",
   conflict: "方案已被他人修改（版本冲突）。你填写的内容已保留，请先放弃草稿并载入最新版本。",
 };
+
+/** 回执码查表：只认表里自有的键，`toString` 这类原型属性名不会被当成文案 */
+function textOf(table: Readonly<Record<string, string>>, code: string | undefined) {
+  return code !== undefined && Object.hasOwn(table, code) ? table[code] : undefined;
+}
 
 /** DB "YYYY-MM-DD HH:MM:SS" → datetime-local 预填值 */
 const toLocalInput = (value: string | null) => (value ? value.replace(" ", "T").slice(0, 16) : "");
@@ -62,6 +69,8 @@ export default async function CampaignsAdminPage(props: { searchParams: Promise<
   // 入口鉴权约定：第一个 await 必须是 requireAdmin（admin-entry-guard 静态守护）
   await requireAdmin("site.admin");
   const sp = await props.searchParams;
+  const savedText = textOf(FLASH, sp.saved);
+  const errText = sp.err ? (textOf(ERR_TEXT, sp.err) ?? "操作失败，请重试。") : undefined;
   const [{ items }, catalog, logoPool, heroPool] = await Promise.all([
     listCampaigns(),
     getThemeCatalog(),
@@ -116,14 +125,14 @@ export default async function CampaignsAdminPage(props: { searchParams: Promise<
           秒的缓存延迟。
         </p>
       </header>
-      {sp.saved && FLASH[sp.saved] && (
+      {savedText && (
         <AdminFlash kind="success" dismissHref="/admin/campaigns">
-          {FLASH[sp.saved]}
+          {savedText}
         </AdminFlash>
       )}
-      {sp.err && (
+      {errText && (
         <AdminFlash kind="error" dismissHref="/admin/campaigns">
-          {ERR_TEXT[sp.err] ?? "操作失败，请重试。"}
+          {errText}
         </AdminFlash>
       )}
       <Card>
