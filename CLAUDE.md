@@ -96,6 +96,12 @@ pnpm layout:summary            # 汇总布局审计 JSON，有问题退出码 1�
   ④ 先拿账户锁再查幂等/已解锁。⑤ **积分与解锁事务一律 READ COMMITTED**（`POINTS_TX_OPTIONS`）：默认 REPEATABLE READ 下对「不存在的键」`FOR UPDATE` 会加间隙锁，不同新用户并发首次建账户互相死锁（实测 640 次并发 139 次失败）；任何包含 `lockAccount` / `applyPointsInTx` 的新事务都必须以它开启。积分表只能经 `lib/points` 写，隐藏正文只能经 `lib/gates/service.ts` 读，附件表只能经 `lib/gates/attachments.ts` 读写，均有守卫测试。
   ⑥ **发放类重放以 `awardEarn` 的锁内幂等预检为准**（M11.4）：预检命中（同用户同渠道）即按重放返回、**不比较金额**——发放金额会随后台配置与排期加成变化，让 `applyPointsInTx` 的「金额不同即抛冲突」拦重放会把 outbox 事件永久卡死。
 
+- **零表韧性**（M12）：全新部署在安装完成前连表都没有——读取链必须自查兜底：`bannerAnnouncement` 回无横幅、
+  `getRegisterPolicy` fail-closed 回邀请制（读不到 = 不放开注册）；新增页面级读取时同样要回答「表不存在会怎样」。
+  安装向导 Server Action 的输入 schema **不能 `.strict()` 也不能嵌套**：Next 注入 `$ACTION_ID_*` 会被判未知键 404，
+  且 `formDataToObject` 是扁平键——字段扁平收下，语义校验放 run 里（仿 `app/install/actions.ts`）。
+  Server Action `redirect` 走响应头，中文 query 必须 `encodeURIComponent`（同 auth.ts 先例）。
+  新 distDir 要同步四处清单：`.gitignore`、eslint ignore、`.prettierignore`、tsconfig include（Next 自动补）。
 - **运营排期**（M11.2 视觉类 + M11.4 行为类，`lib/campaigns`）：effect 注册表单一事实源——每个 effect 声明
   `kind`（visual/behavior）、schema、describe、`toConfig`/`toValue`（后台表单提交值恒为字符串，互转由 effect 自管），
   行为类自带下拉选项；后台表单是单个分组下拉 `<effect>::<选项值>`（无脚本可用）。行为类保存约束在写事务内：

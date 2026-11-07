@@ -1083,6 +1083,21 @@ for (const width of LAYOUT_WIDTHS) {
           await page.getByRole("dialog").getByRole("button", { name: "确认" }).click();
           await expect(behaviorRow).toHaveCount(0);
         });
+
+        // M12 安装向导：step=1 表单（仅布局矩阵跑本场景——主 E2E 的库已 seed、STORAGE_DIR 无 lock，
+        // 本用例的期望「向导可见」只有在矩阵专用库与专用 STORAGE_DIR 下才成立）
+        if (process.env.LAYOUT_SPEC !== undefined || process.env.RUN_LAYOUT_SCREENSHOTS === "1") {
+          await audit.step("admin-install-wizard", async () => {
+            await page.goto("/install?step=1");
+            await expect(page.getByRole("button", { name: "测试连接并建表" })).toBeVisible();
+            await audit.capture("admin-install-wizard", {
+              roots: "main",
+              buttons: 'main button, main a[href^="/login"]',
+              required: ["main form"],
+              regions: [{ name: "wizard", selector: "main" }],
+            });
+          });
+        }
       } finally {
         try {
           await fixture.cleanup();

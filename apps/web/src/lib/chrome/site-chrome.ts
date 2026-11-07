@@ -135,20 +135,28 @@ export async function bannerAnnouncement(loggedIn: boolean): Promise<{
   title: string;
   level: "info" | "important";
 } | null> {
-  const [row] = await getWebDb()
-    .select({ id: announcements.id, title: announcements.title, level: announcements.level })
-    .from(announcements)
-    .where(
-      and(
-        eq(announcements.showBanner, true),
-        sql`NOW() >= ${announcements.startsAt}`,
-        sql`(${announcements.endsAt} IS NULL OR NOW() < ${announcements.endsAt})`,
-        loggedIn ? undefined : eq(announcements.audience, "all"),
-      ),
-    )
-    .orderBy(desc(announcements.id))
-    .limit(1);
-  return row ?? null;
+  // M12 零表韧性：全新部署（安装向导第 1 步之前）连 announcements 表都不存在——
+  // 横幅是可选装饰，读不到就按「无横幅」处理，与 getSiteChrome 的故障策略同口径；
+  // 否则根布局在 /install 上自身 500，向导永远无法打开。
+  try {
+    const [row] = await getWebDb()
+      .select({ id: announcements.id, title: announcements.title, level: announcements.level })
+      .from(announcements)
+      .where(
+        and(
+          eq(announcements.showBanner, true),
+          sql`NOW() >= ${announcements.startsAt}`,
+          sql`(${announcements.endsAt} IS NULL OR NOW() < ${announcements.endsAt})`,
+          loggedIn ? undefined : eq(announcements.audience, "all"),
+        ),
+      )
+      .orderBy(desc(announcements.id))
+      .limit(1);
+    return row ?? null;
+  } catch (e) {
+    console.error("[chrome] 读取横幅公告失败，按无横幅处理:", e);
+    return null;
+  }
 }
 
 /** 品牌素材池当前项（site.logo / site.hero JSON 的 active；文件名校验与 lib/brand/brand-pool 同口径） */

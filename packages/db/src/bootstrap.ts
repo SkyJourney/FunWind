@@ -6,7 +6,7 @@
  */
 import { eq, sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/mysql2/migrator";
-import type { RowDataPacket } from "mysql2/promise";
+import { createConnection, type RowDataPacket } from "mysql2/promise";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -81,6 +81,44 @@ export async function bootstrapDb(
     );
   } finally {
     await pool.end();
+  }
+}
+
+/**
+ * 连接测试（M12 安装管线「环境自检 / 数据库连接」步骤）：不指定 database 建连接并执行 SELECT 1。
+ * 失败抛出原始错误，由安装管线翻译成「无法连接数据库」的提示。
+ */
+export async function pingDatabase(config = newDbConfig()): Promise<void> {
+  const { database: _unused, ...withoutDb } = config;
+  const conn = await createConnection(withoutDb);
+  try {
+    await conn.query("SELECT 1");
+  } finally {
+    await conn.end();
+  }
+}
+
+/**
+ * 建库（M12 安装管线专用）：IF NOT EXISTS，**绝不 DROP**——已存在的库原样返回。
+ * 与 e2e-reset（测试重置语义：库名写死 `qysub_next_e2e` + 仅 loopback + DROP）完全不同：
+ * 这里的目标库名由安装配置 schema 以 `^[A-Za-z0-9_]+$` 校验后传入，连接不指定 database。
+ * 账号缺 CREATE 权限时抛出原始错误，由安装管线翻译成「请手动建库后重试」
+ * （IF NOT EXISTS 语义下，手动建库后重跑本步骤自动通过）。
+ */
+export async function createDatabaseIfNotExists(
+  config = newDbConfig(),
+  database: string,
+  log = (m: string) => console.log(m),
+): Promise<void> {
+  const { database: _unused, ...withoutDb } = config;
+  const conn = await createConnection(withoutDb);
+  try {
+    await conn.query(
+      `CREATE DATABASE IF NOT EXISTS \`${database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci`,
+    );
+    log(`✔ 数据库就绪：${database}`);
+  } finally {
+    await conn.end();
   }
 }
 

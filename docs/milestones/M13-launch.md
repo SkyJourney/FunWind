@@ -28,7 +28,7 @@
 
 ## 测试规则
 
-- 演练清单（预发执行并留档）：备份→恢复→`npm run verify` 对账→启动→301 抽查 20 条→回滚→再切换。
+- 演练清单（预发执行并留档）：备份→恢复→`pnpm verify:migration` 对账→启动→301 抽查 20 条→回滚→再切换。
 - 301 映射：phpwind URL 格式全集用例（含分页/锚点/移动端 simple 路由）E2E。
 - 安全走查：生产 Cookie/CORS/headers（CSP 基线）、密钥不入库复查、依赖审计（npm audit 高危清零）。
 
