@@ -155,7 +155,20 @@
     ②bootstrap 步骤在全量并发压库时超过 5 秒默认单测超时（temp-db 系用例靠 beforeAll 30 秒钩子躲过），
     重用例加显式 timeout；③覆盖率在「只跑子集」时会因其他目录 0% 报错，属运行方式假象，
     以 verify:all 全量聚合为准。
-- [ ] Step 2 CLI：
+- [x] Step 2 CLI（2026-11-07）：
+  - `scripts/install.mts`（.mts：顶层 await，CJS 包内 tsx 必需——首版 .ts 直接报错，改名解决）+
+    apps/web 与根的 `install:cli` script（预加载 server-only-register）。env/参数驱动非交互
+    （--site-name/--site-tagline/--site-url/--theme/--registration[--verify-email]/--admin-*）；
+    失败按字段打印问题清单退出 1；`--unlock` TTY 交互确认（`--yes` 供自动化）；连接池显式 end + process.exit。
+  - **语义更正**：site-settings 与 admin 共用 `installTargetGuard`——users 空放行；唯一用户恰为目标
+    管理员 → 放行（--unlock 重装的收敛路径）；他人/多用户拒绝。更正前 --unlock 重装在「建用户后崩溃」
+    窗口永远无法收敛（settings 先于 admin 被 users 非空挡下），与「--unlock 后可重装」矛盾；
+    换管理员的重装被拒（替换管理员走后台），测试如实断言该语义。
+  - 测试（cli.int.test.ts，真实 spawn 子进程 ×5）：配置缺失按字段报错；SIGKILL 中断恢复
+    （等「开始 step=admin」杀进程 → 重跑收敛）；已安装直接运行提示 --unlock；同管理员重装收敛；
+    换管理员重装被拒且旧管理员不动；lock 读写对 CLI 显式 env 生效。
+  - 门禁实测：`pnpm verify:all` 退出码 0（web 3891 + db/content 278）；lib/install 覆盖率
+    语句 94.53 / 行 97.29。
 - [ ] Step 3 向导 UI：
 - [ ] Step 4 空态与指引：
 - [ ] Step 5 E2E 与 CI：
