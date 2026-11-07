@@ -1,6 +1,6 @@
 import "server-only";
 
-import { count, sql } from "drizzle-orm";
+import { count, eq, sql } from "drizzle-orm";
 import {
   bootstrapDb,
   createDatabaseIfNotExists,
@@ -76,6 +76,29 @@ function registrationToPolicy(registration: InstallConfig["registration"]) {
 async function usersCount(): Promise<number> {
   const [row] = await getWebDb().select({ n: count() }).from(users);
   return Number(row?.n ?? 0);
+}
+
+/**
+ * 设置与管理员步骤共用的防呆守卫（双重防呆的第二层，规划 §3）：
+ *  · users 为空 → 放行（全新安装）；
+ *  · 唯一用户恰为本配置的目标管理员 → 放行——--unlock 重装（同管理员重新配置）的收敛路径；
+ *  · 其余（他人 / 多用户）→ users-exist 拒绝。lock 意外丢失的活跃站点因此无法被改写；
+ *    换管理员的重装在此被拒，替换管理员请走后台（assignUserRole 等），不属于安装管线。
+ */
+async function installTargetGuard(config: InstallConfig): Promise<InstallStepResult | null> {
+  const total = await usersCount();
+  if (total === 0) return null;
+  if (total > 1) {
+    return fail("users-exist", "数据库已有多个用户，拒绝执行安装写入（防重装保护）。");
+  }
+  const [row] = await getWebDb().select({ id: users.id, username: users.username }).from(users);
+  if (row?.username !== config.admin.username) {
+    return fail(
+      "users-exist",
+      "数据库已存在其他用户，拒绝执行安装写入（防重装保护）；如需更换管理员请走后台的用户管理。",
+    );
+  }
+  return null;
 }
 
 /** 给用户补 admin 全局角色行 + 审计（崩溃窗口自愈与首次创建共用；唯一键兜底重复） */
@@ -155,9 +178,8 @@ export async function runInstallStep(
     }
 
     case "site-settings": {
-      if ((await usersCount()) !== 0) {
-        return fail("users-exist", "数据库已有用户，拒绝改写站点设置（防重装保护）。");
-      }
+      const guard = await installTargetGuard(config);
+      if (guard) return guard;
       await setSettings(
         [
           { key: "register.policy", value: registrationToPolicy(config.registration) },
@@ -173,26 +195,22 @@ export async function runInstallStep(
     }
 
     case "admin": {
-      const total = await usersCount();
-      if (total > 1) {
-        return fail("users-exist", "数据库已有多个用户，拒绝写入管理员（防重装保护）。");
-      }
-      if (total === 1) {
-        // 崩溃窗口自愈：唯一用户恰是本管线的目标管理员时补齐角色行；其他用户一律拒绝
-        const [row] = await getWebDb()
-          .select({ id: users.id, username: users.username })
-          .from(users);
-        if (row?.username !== config.admin.username) {
-          return fail("users-exist", "数据库已存在其他用户，拒绝写入管理员（防重装保护）。");
-        }
+      const guard = await installTargetGuard(config);
+      if (guard) return guard;
+      const [existing] = await getWebDb()
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.username, config.admin.username));
+      if (existing) {
+        // 崩溃窗口自愈：唯一用户正是目标管理员但角色行缺失（建用户后、写角色前崩溃）→ 补齐
         const [role] = await getWebDb()
           .select({ id: userRoles.id })
           .from(userRoles)
           .where(
-            sql`${userRoles.userId} = ${row.id} AND ${userRoles.roleKey} = 'admin' AND ${userRoles.scopeId} = 0`,
+            sql`${userRoles.userId} = ${existing.id} AND ${userRoles.roleKey} = 'admin' AND ${userRoles.scopeId} = 0`,
           );
         if (role) return ok; // 已完成（重入）
-        await grantAdminAndAudit(row.id, config);
+        await grantAdminAndAudit(existing.id, config);
         return ok;
       }
       const passwordHash = await hashPassword(config.admin.password);

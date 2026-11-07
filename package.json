@@ -20,6 +20,7 @@
     "format:check": "prettier --check .",
     "prepare": "husky",
     "db:bootstrap": "pnpm --filter @funwind/db bootstrap",
+    "install:cli": "pnpm --filter @funwind/web install:cli",
     "db:seed": "pnpm --filter @funwind/db seed",
     "db:e2e-fixtures": "pnpm --filter @funwind/db e2e-fixtures",
     "db:verify": "pnpm --filter @funwind/db verify",

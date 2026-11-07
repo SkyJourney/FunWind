@@ -202,12 +202,12 @@ describe.skipIf(process.env.SKIP_DB_TESTS === "1")("安装管线（真实 MySQL�
     expect(await adminRoleOf(user!.id)).toHaveLength(1);
   });
 
-  it("防重装保护：lock 移除后设置与管理员步骤仍因 users 非空被拒；重入自愈与多用户拒绝", async () => {
+  it("重装与防重装：同管理员重写放行（--unlock 重装语义）、他人被拒、多用户被拒、陌生人不带角色", async () => {
     // 上一用例已移除 lock 且未恢复：确认未安装状态
     expect(await isInstalled()).toBe(false);
-    const settings = await runInstallStep("site-settings", config);
-    expect(settings).toMatchObject({ ok: false, code: "users-exist" });
-    // 唯一用户但用户名不匹配（他人）→ admin 步骤拒绝；改回后重入自愈跳过
+    // 唯一用户恰是目标管理员 → settings 放行重写（--unlock 重装语义，D2）
+    expect((await runInstallStep("site-settings", config)).ok).toBe(true);
+    // 唯一用户但用户名不匹配（他人）→ settings 与 admin 都拒绝；改回后恢复放行
     const [adminRow] = await getWebDb()
       .select({ id: users.id, username: users.username })
       .from(users)
@@ -216,6 +216,10 @@ describe.skipIf(process.env.SKIP_DB_TESTS === "1")("安装管线（真实 MySQL�
       .update(users)
       .set({ username: "renamed_user", usernameKey: normalizeKey("renamed_user") })
       .where(eq(users.id, adminRow!.id));
+    expect(await runInstallStep("site-settings", config)).toMatchObject({
+      ok: false,
+      code: "users-exist",
+    });
     expect(await runInstallStep("admin", config)).toMatchObject({ ok: false, code: "users-exist" });
     await getWebDb()
       .update(users)
