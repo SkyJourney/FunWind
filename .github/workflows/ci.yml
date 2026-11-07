@@ -32,12 +32,13 @@ jobs:
     timeout-minutes: 25
     services:
       mysql:
-        image: mysql:8.4 # 默认字符集即 utf8mb4 / utf8mb4_0900_ai_ci，与本地 compose 一致
+        image: mysql:8.4 # 镜像默认排序规则为 0900_ai_ci（MySQL 8 专有），这里显式对齐到家族默认 utf8mb4_unicode_ci
         env:
           MYSQL_ROOT_PASSWORD: ci-only-mysql-pass
         ports:
           - 3306:3306
         options: >-
+          --collation-server=utf8mb4_unicode_ci
           --health-cmd "mysqladmin ping -h 127.0.0.1 -pci-only-mysql-pass --silent"
           --health-interval 5s
           --health-timeout 5s

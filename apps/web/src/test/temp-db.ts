@@ -54,7 +54,7 @@ export async function setupTempDb(opts: { demo?: boolean } = {}): Promise<TempDb
   };
   try {
     await admin.query(
-      `CREATE DATABASE \`${name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci`,
+      `CREATE DATABASE \`${name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
     );
     created = true;
 

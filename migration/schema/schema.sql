@@ -1,5 +1,9 @@
 -- =====================================================================
 -- qysub_next · 青翼字幕组新论坛库（MySQL 8.0, utf8mb4）
+-- 【历史设计稿】实际建表以 packages/db 的 Drizzle 版本化迁移为单一事实源
+--   （决策 #10，migration/src/schema-init.ts → bootstrapDb），本文件仅作设计考古。
+--   表级排序规则已随 M13 家族切换对齐为 utf8mb4_unicode_ci；
+--   username 列的 utf8mb4_0900_as_cs 为刻意保留的区分性特例（见 docs/BLUEPRINT.md 用户名编码考古）。
 -- 设计原则：
 --   1. 保留旧主键（uid/tid/pid/fid/aid/gid...），历史 URL 可精确 301
 --   2. 每表带 raw JSON 列归档旧行，信息零丢失、可回滚
@@ -15,7 +19,7 @@ CREATE TABLE IF NOT EXISTS `groups` (
   `image`     VARCHAR(64)  NOT NULL DEFAULT '',
   `raw`       JSON NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `users` (
   `id`            INT UNSIGNED NOT NULL COMMENT '旧 uid',
@@ -47,7 +51,7 @@ CREATE TABLE IF NOT EXISTS `users` (
   KEY `idx_users_group` (`group_id`),
   KEY `idx_users_spam` (`is_spam`),
   KEY `idx_users_created` (`created_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `forums` (
   `id`          SMALLINT UNSIGNED NOT NULL COMMENT '旧 fid',
@@ -68,7 +72,7 @@ CREATE TABLE IF NOT EXISTS `forums` (
   PRIMARY KEY (`id`),
   KEY `idx_forums_parent` (`parent_id`),
   KEY `idx_forums_order` (`vieworder`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `threads` (
   `id`            INT UNSIGNED NOT NULL COMMENT '旧 tid',
@@ -98,7 +102,7 @@ CREATE TABLE IF NOT EXISTS `threads` (
   KEY `idx_threads_author` (`author_id`),
   KEY `idx_threads_created` (`created_at`),
   KEY `idx_threads_digest` (`digest`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `posts` (
   `id`           INT UNSIGNED NOT NULL COMMENT '旧 pid（仅回帖；首帖正文在 threads 上）',
@@ -119,7 +123,7 @@ CREATE TABLE IF NOT EXISTS `posts` (
   KEY `idx_posts_thread` (`thread_id`, `floor`),
   KEY `idx_posts_author` (`author_id`),
   KEY `idx_posts_reply` (`reply_to_pid`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `attachments` (
   `id`          INT UNSIGNED NOT NULL COMMENT '旧 aid',
@@ -142,7 +146,7 @@ CREATE TABLE IF NOT EXISTS `attachments` (
   KEY `idx_att_thread` (`thread_id`),
   KEY `idx_att_post` (`post_id`),
   KEY `idx_att_uploader` (`uploader_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 表情：[s:N] → /emotion/{folder}/{icon}
 CREATE TABLE IF NOT EXISTS `emoticon_categories` (
@@ -153,7 +157,7 @@ CREATE TABLE IF NOT EXISTS `emoticon_categories` (
   `orderid` INT UNSIGNED NOT NULL DEFAULT 0,
   `is_open` BOOLEAN NOT NULL DEFAULT TRUE,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `emoticons` (
   `id`          INT UNSIGNED NOT NULL COMMENT '即旧 [s:N] 中的 N',
@@ -163,7 +167,7 @@ CREATE TABLE IF NOT EXISTS `emoticons` (
   `is_used`     BOOLEAN NOT NULL DEFAULT TRUE,
   PRIMARY KEY (`id`),
   KEY `idx_emo_cat` (`category_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `medals` (
   `id`              INT UNSIGNED NOT NULL COMMENT '旧 medal_id',
@@ -182,7 +186,7 @@ CREATE TABLE IF NOT EXISTS `medals` (
   `vieworder`       TINYINT NOT NULL DEFAULT 0,
   `raw`             JSON NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `user_medals` (
   `user_id`      INT UNSIGNED NOT NULL,
@@ -191,7 +195,7 @@ CREATE TABLE IF NOT EXISTS `user_medals` (
   `expired_time` DATETIME NULL,
   PRIMARY KEY (`user_id`, `medal_id`),
   KEY `idx_um_medal` (`medal_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `credit_logs` (
   `id`          INT UNSIGNED NOT NULL,
@@ -204,7 +208,7 @@ CREATE TABLE IF NOT EXISTS `credit_logs` (
   PRIMARY KEY (`id`),
   KEY `idx_cl_user` (`user_id`, `credit_type`),
   KEY `idx_cl_time` (`created_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `polls` (
   `id`           INT UNSIGNED NOT NULL COMMENT '旧 poll_id',
@@ -219,7 +223,7 @@ CREATE TABLE IF NOT EXISTS `polls` (
   `raw`          JSON NULL,
   PRIMARY KEY (`id`),
   KEY `idx_polls_thread` (`thread_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `poll_options` (
   `id`        INT UNSIGNED NOT NULL,
@@ -229,7 +233,7 @@ CREATE TABLE IF NOT EXISTS `poll_options` (
   `image`     VARCHAR(255) NOT NULL DEFAULT '',
   PRIMARY KEY (`id`),
   KEY `idx_po_poll` (`poll_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `poll_voters` (
   `poll_id`    INT UNSIGNED NOT NULL,
@@ -238,7 +242,7 @@ CREATE TABLE IF NOT EXISTS `poll_voters` (
   `created_at` DATETIME NULL,
   PRIMARY KEY (`poll_id`, `option_id`, `user_id`),
   KEY `idx_pv_user` (`user_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `private_messages` (
   `id`         INT UNSIGNED NOT NULL,
@@ -250,7 +254,7 @@ CREATE TABLE IF NOT EXISTS `private_messages` (
   PRIMARY KEY (`id`),
   KEY `idx_pm_from` (`from_uid`),
   KEY `idx_pm_to` (`to_uid`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `message_dialogs` (
   `id`            INT UNSIGNED NOT NULL,
@@ -262,7 +266,7 @@ CREATE TABLE IF NOT EXISTS `message_dialogs` (
   `modified_at`   DATETIME NULL,
   PRIMARY KEY (`id`),
   KEY `idx_md_to` (`to_uid`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `migration_state` (
   `entity`      VARCHAR(64) NOT NULL,
@@ -271,4 +275,4 @@ CREATE TABLE IF NOT EXISTS `migration_state` (
   `finished_at`  DATETIME NULL,
   `note`        VARCHAR(255) NOT NULL DEFAULT '',
   PRIMARY KEY (`entity`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

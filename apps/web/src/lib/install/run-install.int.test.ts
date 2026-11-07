@@ -46,7 +46,7 @@ const config: InstallConfig = installConfigFromEnv({
 
 beforeAll(async () => {
   await adminPool.query(
-    `CREATE DATABASE \`${dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci`,
+    `CREATE DATABASE \`${dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
   );
   // 运行时单例池与管线的 newDbConfig() 都读 env：必须在任何 getWebDb() 之前指到临时库
   process.env.NEW_DB_NAME = dbName;

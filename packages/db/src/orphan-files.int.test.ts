@@ -34,7 +34,7 @@ const admin = async () =>
 describe.skipIf(skip)("孤儿文件巡检（临时库）", () => {
   beforeAll(async () => {
     const c = await admin();
-    await c.query(`CREATE DATABASE \`${dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci`);
+    await c.query(`CREATE DATABASE \`${dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
     await c.end();
     await bootstrapDb(config, () => {});
   });

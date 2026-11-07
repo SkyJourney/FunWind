@@ -5,6 +5,18 @@
 
 ## [Unreleased]
 
+### Changed（M13 前置 · 排序规则家族切换）
+
+- **数据库家族默认 `utf8mb4_0900_ai_ci` → `utf8mb4_unicode_ci`**（D8）：0900 是 MySQL 8 专有排序规则，
+  绑定它等于绑死引擎版本；unicode_ci 整个 MySQL 系可移植且保留大小写/重音不敏感语义。全部 CREATE DATABASE
+  语句（bootstrap / e2e-reset / install-cli-reset / web 临时库与集成测试）、本地 dev compose 的
+  `--collation-server`、CI 的 MySQL 服务参数、迁移 rehearsal 的建库与 schema 设计稿已同步。
+  三个 `_bin` 特例（username_key/email_key/gate_key）与 rehearsal `username` 的 `_as_cs` 刻意保留
+  （さくら≠サクラ 的假名区分，见 BLUEPRINT 用户名编码考古）。
+- **bootstrap 新增幂等家族对齐**：残留 0900 的表原地 `CONVERT TO utf8mb4_unicode_ci`——唯一索引先摘除、
+  三列 `_bin` 由 PATCHES 恢复后再按终态排序规则重建（`users` 的假名两行实测不受影响；数据级真重复会报错
+  指明表与索引，修复后重跑收敛）。dev 库 qysub_next 已完成对齐（55 表全 unicode_ci、db:verify 21 项全过）。
+
 ### Added（M12 · 安装向导与零数据部署）
 
 - **Web 安装向导 `/install`**：四步（环境与数据库 → 站点设置 → 管理员 → 完成），预填 .env、字段级错误回显与

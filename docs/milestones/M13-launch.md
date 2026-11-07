@@ -3,7 +3,8 @@
 - 阶段：三·上线 ｜ 覆盖模块：P4 ｜ 依赖：M9 + M12（全部功能就绪）
 - 状态：🚧 实施中（2026-11-07 开工。探查完成：三专项并行核实，事实 F1–F11、决策 D1–D6 经规划审批——
   生产镜像与编排从零建（全仓唯一 Dockerfile 是 dev 模式），301 纯静态映射（id 恒等），备份/可观测最小自建，
-  默认站标 = 清爽侦探半翼（管线自动初始化 + 检查单双保险），默认主题 = default 现代浅色，召回全量分批限速）
+  默认站标 = 清爽侦探半翼（管线自动初始化 + 检查单双保险），默认主题 = default 现代浅色，召回全量分批限速。
+  开工后站长追加拍板：D7 部署拓扑（MySQL 独立编排 + 单 SSR 容器 + 宝塔反代）、D8 排序规则家族 unicode_ci）
 - 设计基准：M12 交付（安装管线 / install:cli / migration/README / README 零数据部署）；BLUEPRINT §4.5 URL 冻结表；
   M6-carryover M13-1…M13-7；EMAIL-SCENARIOS S8 召回管线；SCHEDULED-JOBS §2 部署注意事项。
 - 分支：`feat/m13-launch`；上线演练执行（Step 7）由站长在服务器主导，本里程碑交付全部脚本、配置与演练手册。
@@ -123,6 +124,14 @@ BLUEPRINT「上线实录」占位 + M13 文档 ✅（演练执行项留站长）
 - **D5 生产 compose 不含 Redis** ✅（规划显式偏离 M13 原文「含 Redis」）：代码零 Redis 消费者，
   多实例前置记入检查单——加无消费者的容器是死重。
 - **D6 部署形态** ✅ 站长自有服务器单机 compose 手工部署；CI 保持纯验证；真实演练/切换站长主导。
+- **D7 部署拓扑（站长 2026-11-07 敲定）** ✅ MySQL 8.4 **独立编排**（`docker/mysql/compose.yaml`，退役旧
+  MariaDB 后接管 127.0.0.1:3306，独立卷，未来其他服务可直接复用）+ 应用编排**仅单个 SSR 容器**（不含
+  nginx 容器、不含 Redis）+ 80/443 与 TLS 由宝塔系统级 nginx 承担（改现有 vhost 为反向代理）。
+- **D8 排序规则家族（站长 2026-11-07 拍板）** ✅ 家族默认 `utf8mb4_0900_ai_ci`（MySQL 8 专有）→
+  **`utf8mb4_unicode_ci`**（整个 MySQL 系可移植；与 general_ci 相比保留重音不敏感语义、国际排序更准）。
+  三列 _bin（username_key/email_key/gate_key）与 rehearsal username 的 _as_cs 为刻意保留的区分性特例。
+  既有库由 bootstrap 幂等对齐（唯一索引先摘、_bin 恢复后按终态重建——假名数据不受影响）；
+  全部 CREATE DATABASE 语句、本地 dev compose、CI MySQL 服务、迁移 rehearsal 已同步。
 
 ### 6.2 待确认
 
@@ -157,6 +166,11 @@ BLUEPRINT「上线实录」占位 + M13 文档 ✅（演练执行项留站长）
 
 - [x] Step A 文档先行（2026-11-07）：§1 事实 F1–F11、§6 决策 D1–D6、§3 分步、§5/§7/§8 门禁与检查单重写；
       BLUEPRINT §4.5「M12 实施」笔误勘误；ROADMAP M13 改 🚧；`pnpm format:check`、`pnpm check:secrets` 通过（退出码均 0）。
+- [x] 前置变更：排序规则家族切换 0900_ai_ci → unicode_ci（D8，2026-11-07）：14 处 CREATE DATABASE、
+      dev compose/CI 服务端级默认、migration rehearsal 同步；bootstrap 新增幂等家族对齐
+      （0900 表 CONVERT 为 unicode_ci；唯一索引先摘、PATCHES 恢复 _bin 后按终态重建——users 表
+      さくら/サクラ 实测不受影响）。dev 库 qysub_next 已实测对齐（55 表全 unicode_ci、三列 _bin 完好、
+      db:verify 21 项全过、二次 bootstrap 幂等）；db 包 119 用例（新增对齐用例）与 `pnpm verify:all` 全绿。
 - [ ] Step 1 健康端点 + 生产镜像：
 - [ ] Step 2 生产 compose + nginx 301：
 - [ ] Step 3 备份与恢复：

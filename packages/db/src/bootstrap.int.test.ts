@@ -56,7 +56,7 @@ const admin = async () =>
 describe.skipIf(skip)("bootstrap / seed 集成（临时库）", () => {
   beforeAll(async () => {
     const c = await admin();
-    await c.query(`CREATE DATABASE \`${dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci`);
+    await c.query(`CREATE DATABASE \`${dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
     await c.end();
     await bootstrapDb(config, (m) => logs.push(m));
   });
@@ -69,6 +69,18 @@ describe.skipIf(skip)("bootstrap / seed 集成（临时库）", () => {
 
   const withTestDb = async <T>(fn: (db: ReturnType<typeof createDb>) => Promise<T>): Promise<T> => {
     const pool = createPool(config);
+    try {
+      return await fn(createDb(pool));
+    } finally {
+      await pool.end();
+    }
+  };
+
+  const withPoolDb = async <T>(
+    cfg: { host: string; port: number; user: string; password: string; database: string },
+    fn: (db: ReturnType<typeof createDb>) => Promise<T>,
+  ): Promise<T> => {
+    const pool = createPool(cfg);
     try {
       return await fn(createDb(pool));
     } finally {
@@ -182,6 +194,61 @@ describe.skipIf(skip)("bootstrap / seed 集成（临时库）", () => {
       themePacks: (await db.select().from(themePackages)).length,
     }));
     expect(after).toEqual(before);
+  });
+
+  it("排序规则家族对齐（M13）：0900 旧库一次 bootstrap 全部 CONVERT，三列 _bin 由补丁恢复，重跑不再触发", async () => {
+    // 独立临时库，建库时就是 0900_ai_ci（家族切换前的真实形态）：迁移建的表无显式排序规则，继承库默认
+    const oldName = `funwind_it_align_${randomBytes(4).toString("hex")}`;
+    const oldConfig = { ...base, database: oldName };
+    const adminConn = await admin();
+    await adminConn.query(
+      `CREATE DATABASE \`${oldName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci`,
+    );
+    try {
+      const lines: string[] = [];
+      await bootstrapDb(oldConfig, (m) => lines.push(m));
+      expect(lines.find((l) => l.startsWith("✔ 排序规则家族对齐"))).toContain("0900 → unicode_ci");
+
+      const check = createPool(oldConfig);
+      try {
+        const [left] = await check.query<RowDataPacket[]>(
+          `SELECT COUNT(*) AS n FROM information_schema.TABLES
+           WHERE TABLE_SCHEMA = ? AND LOCATE('_0900_', TABLE_COLLATION) > 0`,
+          [oldName],
+        );
+        expect(Number(left[0]?.n)).toBe(0);
+        for (const p of PATCHES) {
+          const [rows] = await check.query<RowDataPacket[]>(
+            `SELECT COLLATION_NAME AS c FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+            [oldName, p.table, p.column],
+          );
+          expect(String(rows[0]?.c), `${p.table}.${p.column}`).toBe(p.collation);
+        }
+      } finally {
+        await check.end();
+      }
+
+      // 全库已无 0900：重跑 bootstrap 的对齐是空操作（不再打日志）
+      const again: string[] = [];
+      await bootstrapDb(oldConfig, (m) => again.push(m));
+      expect(again.find((l) => l.startsWith("✔ 排序规则家族对齐"))).toBeUndefined();
+
+      // 唯一索引重建后核心语义保持：假名两行（さくら/サクラ）在 _bin 键列下不碰撞
+      await withPoolDb(oldConfig, async (db) => {
+        const mk = (id: number, username: string) => ({
+          id,
+          username,
+          usernameKey: username.trim().toLowerCase(),
+          createdAt: "2026-01-01 00:00:00",
+        });
+        await db.insert(users).values([mk(900001, "さくら"), mk(900002, "サクラ")]);
+        await expect(db.insert(users).values(mk(900003, "さくら"))).rejects.toThrow(); // 同名仍冲突
+      });
+    } finally {
+      await adminConn.query(`DROP DATABASE IF EXISTS \`${oldName}\``);
+      await adminConn.end();
+    }
   });
 
   it("内置主题包种子：只补缺不覆盖（站长编辑/revision 在重跑后保持）", async () => {
