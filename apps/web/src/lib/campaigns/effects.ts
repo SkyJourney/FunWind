@@ -108,6 +108,35 @@ export const registerOpenEffect: CampaignEffect<Record<string, never>> = {
 };
 
 /**
+ * M11.4 行为类 effect：积分加成。
+ * 配置 `{ratio: 2 | 3}`（站长 D2：只给两档，加档只改这里）；作用渠道限 earn.post / earn.reply /
+ * earn.checkin。金额乘倍率、日上限同比放大（上限 0 仍不限）、幂等键不变、台账 note 注明
+ * 「活动加成 ×N：方案名」便于追溯（实现见 lib/points/boost.ts 与 earn/checkin 的消费点）。
+ * 与视觉类的本质差异：加成期内发出的积分不可回滚，保存校验更严（不能重叠、必须填结束时间）。
+ */
+export const pointsBoostEffect: CampaignEffect<{ ratio: number }> = {
+  key: "points.boost",
+  label: "积分加成",
+  kind: "behavior",
+  schema: z.object({ ratio: z.number().int().min(2).max(3, "倍率只支持 2 或 3") }).strict(),
+  describe: ({ ratio }) => `积分 ×${ratio} 加成`,
+  toConfig: (value) => {
+    // 只认字面量 "2" / "3"（Number() 会把 "02" / "2e0" 宽松解析成合法数字，拒绝之）
+    const ratio = value === "2" ? 2 : value === "3" ? 3 : null;
+    return ratio === null ? null : { ratio };
+  },
+  toValue: (config) => {
+    if (typeof config !== "object" || config === null) return null;
+    const ratio = (config as { ratio?: unknown }).ratio;
+    return ratio === 2 || ratio === 3 ? String(ratio) : null;
+  },
+  fixedOptions: [
+    ["2", "积分 ×2 加成"],
+    ["3", "积分 ×3 加成"],
+  ],
+};
+
+/**
  * 全部已注册 effect。
  * 新增一项 = 在这里 push + 在读取链接上消费（视觉类 site-chrome；行为类各自的决策点）+ 补 effects.test 的键清单断言；
  * 行为类还要接 refs（无外部引用则返回 true）与 admin 的重叠检查（kind=behavior 自动生效）。
@@ -117,6 +146,7 @@ export const CAMPAIGN_EFFECTS: readonly CampaignEffect<never>[] = [
   siteLogoEffect,
   siteHeroEffect,
   registerOpenEffect,
+  pointsBoostEffect,
 ] as unknown as readonly CampaignEffect<never>[];
 
 /** 按注册键取 effect；未知键返回 null（读侧：该行不生效；写侧：拒绝保存） */
@@ -146,14 +176,14 @@ export function validateCampaignConfig(
   return { ok: true, value: parsed.data };
 }
 
-/** 由表单提交的选项值组装配置；effect 未注册或值不合法返回 null */
-export function configFromTarget(effect: string, target: string): Record<string, string> | null {
+/**
+ * 由表单提交的选项值组装配置；effect 未注册或值不合法返回 null。
+ * 配置值可以是数字（points.boost 的 ratio）：合法性由各 effect 的 toConfig 自行把关，
+ * 写入侧再经 schema 严格校验——不再做「值必须是字符串」的单目标时代收窄。
+ */
+export function configFromTarget(effect: string, target: string): Record<string, unknown> | null {
   const registered = findCampaignEffect(effect);
-  if (!registered) return null;
-  const config = registered.toConfig(target);
-  return config && Object.values(config).every((v) => typeof v === "string")
-    ? (config as Record<string, string>)
-    : null;
+  return registered ? registered.toConfig(target) : null;
 }
 
 /** 从已存配置取出选项值（编辑回填、引用校验、列表摘要用）；形态不符返回 null */

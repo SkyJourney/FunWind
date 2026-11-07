@@ -1,11 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
+import { FIX } from "./support/fixtures";
+import { fillBody } from "./support/editor";
+import { relaxPostInterval } from "./support/limits";
 import { withE2eDb } from "./support/db";
 import { failOnPageErrors } from "./support/page-errors";
 import { USERS, loginAs } from "./support/session";
 import { snapshotMailIds, waitForNewMail } from "./support/mailpit";
 
 /**
- * M11.4：排期的行为类 effect——开放注册窗口（register.open）。
+ * M11.4：排期的行为类 effect——开放注册窗口（register.open）与积分加成（points.boost）。
  * 方案与注册策略一律经后台界面切换（站点框架缓存只有走 Action 才会失效）；
  * afterAll 兜底清理本文件创建的方案与策略键，防止污染其他 spec（积分 / 注册用例对窗口敏感）。
  */
@@ -36,6 +39,16 @@ async function createCampaign(
 
 const rowOf = (page: Page, name: string) =>
   page.getByTestId("campaign-row").filter({ hasText: name });
+
+/** 资料页的青翼币余额（与 points.spec 同一读法） */
+const balanceOf = async (page: Page, uid: number) => {
+  await page.goto(`/u/${uid}`);
+  const text = await page
+    .getByText(/青翼币 \d+/)
+    .first()
+    .innerText();
+  return Number(text.match(/青翼币 (\d+)/)![1]);
+};
 
 /** 经后台界面切换注册策略（写库不会失效站点框架缓存），提交后等成功回执 */
 async function savePolicy(
@@ -223,6 +236,86 @@ test("错误路径：与生效窗口重叠被拒、行为类留空结束时间�
   await expect(admin.getByLabel("方案名称")).toHaveValue(noEnd);
   await expect(rowOf(admin, noEnd)).toHaveCount(0);
 
+  await deleteCampaign(admin, base);
+  await adminCtx.close();
+});
+
+test("积分加成：×2 期间发帖入账翻倍且台账可追溯，删除方案后回到基础奖励", async ({ browser }) => {
+  const adminCtx = await browser.newContext();
+  await loginAs(adminCtx, USERS.admin);
+  const admin = await adminCtx.newPage();
+  const memberCtx = await browser.newContext();
+  await loginAs(memberCtx, USERS.member);
+  const member = await memberCtx.newPage();
+
+  const boost = `${PREFIX}积分加成`;
+  await createCampaign(admin, { name: boost, choice: "points.boost::2" });
+  await expect(admin.getByText("排期方案已创建。")).toBeVisible();
+  await expect(rowOf(admin, boost)).toContainText("生效中");
+
+  const restore = await relaxPostInterval();
+  try {
+    // 加成 ×2：发主题 +6（基础 +3），台账分录注明方案
+    const before = await balanceOf(member, USERS.member);
+    await member.goto(`/f/${FIX.compose.id}/new`);
+    await member.locator("#thread-title").fill(`E2E 加成发帖 ${Date.now()}`);
+    await fillBody(member, "加成期间的发帖正文");
+    await member.getByRole("button", { name: "发布主题" }).click();
+    await expect(member).toHaveURL(/\/t\/\d+$/);
+    await expect
+      .poll(async () => balanceOf(member, USERS.member), { timeout: 10_000 })
+      .toBe(before + 6);
+    await member.goto("/points");
+    await expect(member.getByText(/活动加成 ×2/).first()).toBeVisible();
+
+    // 删除方案 → 回到基础奖励 +3
+    await deleteCampaign(admin, boost);
+    await member.goto(`/f/${FIX.compose.id}/new`);
+    await member.locator("#thread-title").fill(`E2E 加成结束发帖 ${Date.now()}`);
+    await fillBody(member, "加成结束后的发帖正文");
+    await member.getByRole("button", { name: "发布主题" }).click();
+    await expect(member).toHaveURL(/\/t\/\d+$/);
+    await expect
+      .poll(async () => balanceOf(member, USERS.member), { timeout: 10_000 })
+      .toBe(before + 9);
+  } finally {
+    await restore();
+    await memberCtx.close();
+    await adminCtx.close();
+  }
+});
+
+test("错误路径：与生效加成方案重叠被拒；停用的重叠方案重新启用被拒（D4）", async ({ browser }) => {
+  const adminCtx = await browser.newContext();
+  await loginAs(adminCtx, USERS.admin);
+  const admin = await adminCtx.newPage();
+
+  // 基准：生效中的 ×2 加成
+  const base = `${PREFIX}加成长窗`;
+  await createCampaign(admin, { name: base, choice: "points.boost::2" });
+  await expect(admin.getByText("排期方案已创建。")).toBeVisible();
+
+  // 与生效方案重叠的第二个加成被拒（G-16 错误路径）
+  const overlap = `${PREFIX}加成重叠`;
+  await createCampaign(admin, {
+    name: overlap,
+    choice: "points.boost::3",
+    start: beijing(-1),
+    end: beijing(1),
+  });
+  await expect(admin.getByRole("alert").filter({ hasText: "不能时间重叠" })).toBeVisible();
+  await expect(rowOf(admin, overlap)).toHaveCount(0);
+
+  // 停用基准后允许创建重叠方案（D4：停用不参与）；重新启用基准 → 被拒
+  await rowOf(admin, base).getByRole("button", { name: "停用" }).click();
+  await expect(rowOf(admin, base)).toContainText("已停用");
+  await createCampaign(admin, { name: overlap, choice: "points.boost::3" });
+  await expect(admin.getByText("排期方案已创建。")).toBeVisible();
+  await rowOf(admin, base).getByRole("button", { name: "启用" }).click();
+  await expect(admin.getByRole("alert").filter({ hasText: "不能时间重叠" })).toBeVisible();
+  await expect(rowOf(admin, base)).toContainText("已停用");
+
+  await deleteCampaign(admin, overlap);
   await deleteCampaign(admin, base);
   await adminCtx.close();
 });

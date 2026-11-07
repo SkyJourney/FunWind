@@ -58,7 +58,8 @@ export interface CampaignFields {
 export interface ValidCampaign {
   name: string;
   effect: string;
-  config: Record<string, string>;
+  /** 已过 effect 注册表校验的配置；值可以是数字（points.boost 的 ratio） */
+  config: Record<string, unknown>;
   startsAt: string;
   endsAt: string | null;
   priority: number;

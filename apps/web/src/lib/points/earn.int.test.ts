@@ -326,6 +326,23 @@ describe.skipIf(skipDb)("发放重放不因金额变化报冲突（M11.4 Step 3 
     expect(await rowsFor(key)).toHaveLength(1);
   });
 
+  it("加成入账后关闭加成再重放 → 按重放返回，不报冲突、不重复入账", async () => {
+    await setReward({ post: 3 });
+    const key = "thread:510002";
+    const before = await balanceOf(DEMO.xiaoyi);
+    await addBoost();
+    const first = await awardEarn(req(key, DEMO.xiaoyi));
+    expect(first.awarded).toBe(true);
+    if (first.awarded) expect(first.result.applied).toBe(true);
+    expect(await balanceOf(DEMO.xiaoyi)).toBe(before + 6);
+    await db().delete(campaigns);
+    const replay = await awardEarn(req(key, DEMO.xiaoyi));
+    expect(replay.awarded).toBe(true);
+    if (replay.awarded) expect(replay.result.applied).toBe(false);
+    expect(await balanceOf(DEMO.xiaoyi)).toBe(before + 6);
+    expect(await rowsFor(key)).toHaveLength(1);
+  });
+
   it("后台改奖励额后重放（存量隐患）→ 同样按重放返回，不报冲突", async () => {
     await setReward({ post: 3 });
     const key = "thread:510003";
@@ -346,6 +363,113 @@ describe.skipIf(skipDb)("发放重放不因金额变化报冲突（M11.4 Step 3 
     await expect(
       awardEarn({ ...req(key, DEMO.team), channel: "earn.reply", refId: 610004 }),
     ).rejects.toThrow();
+  });
+});
+
+describe.skipIf(skipDb)("活动加成（M11.4 Step 3，points.boost）", () => {
+  afterEach(async () => {
+    await db().delete(campaigns);
+    await setReward();
+  });
+
+  async function addBoost(ratio = 2, name = "加成活动") {
+    await db()
+      .insert(campaigns)
+      .values({
+        name,
+        effect: "points.boost",
+        config: { ratio },
+        startsAt: sql`NOW() - INTERVAL 1 HOUR`,
+        endsAt: sql`NOW() + INTERVAL 1 HOUR`,
+        enabled: true,
+        revision: 1,
+        createdAt: sql`NOW()`,
+        updatedAt: sql`NOW()`,
+      });
+  }
+
+  it("×2 入账金额正确，台账 note 可追溯到方案与倍率，幂等键不变", async () => {
+    await setReward({ post: 3 });
+    await addBoost();
+    const r = await awardEarn({
+      userId: DEMO.xiaoyi,
+      channel: "earn.post",
+      idempotencyKey: "thread:511001",
+      refId: 511001,
+    });
+    expect(r.awarded).toBe(true);
+    // 断言分录本身而非累计余额：文件前序用例已给 xiaoyi 留下不确定的今日发放额
+    const [row] = await db()
+      .select()
+      .from(pointLedger)
+      .where(eq(pointLedger.idempotencyKey, "thread:511001"));
+    expect(row?.note).toBe("发帖奖励（活动加成 ×2：加成活动）");
+    expect(row?.delta).toBe(6);
+    // 幂等键语义不变：同键重放不重复发放
+    await awardEarn({
+      userId: DEMO.xiaoyi,
+      channel: "earn.post",
+      idempotencyKey: "thread:511001",
+      refId: 511001,
+    });
+    expect(
+      await db().select().from(pointLedger).where(eq(pointLedger.idempotencyKey, "thread:511001")),
+    ).toHaveLength(1);
+  });
+
+  it("日上限同比放大：上限 5、金额 3，加成 ×2 后第一笔入账（6 ≤ 10）、第二笔被挡（12 > 10）", async () => {
+    await setReward({ post: 3, postDailyCap: 5 });
+    await addBoost();
+    // banned（90003）在本文件的 earn.post 用例里从未被使用：今日已发放额确定为 0
+    const u = DEMO.banned;
+    let r = await awardEarn({
+      userId: u,
+      channel: "earn.post",
+      idempotencyKey: "thread:511002",
+      refId: 511002,
+    });
+    expect(r.awarded).toBe(true);
+    r = await awardEarn({
+      userId: u,
+      channel: "earn.post",
+      idempotencyKey: "thread:511003",
+      refId: 511003,
+    });
+    expect(r).toEqual({ awarded: false, reason: "daily_cap" });
+  });
+
+  it("上限 0 = 不限：加成后仍不限（连发两笔 ×2 各 +4）", async () => {
+    await setReward({ post: 2, postDailyCap: 0 });
+    await addBoost();
+    const before = await balanceOf(DEMO.xiaoyi);
+    for (const id of [511004, 511005]) {
+      const r = await awardEarn({
+        userId: DEMO.xiaoyi,
+        channel: "earn.post",
+        idempotencyKey: `thread:${id}`,
+        refId: id,
+      });
+      expect(r.awarded).toBe(true);
+    }
+    expect(await balanceOf(DEMO.xiaoyi)).toBe(before + 8);
+  });
+
+  it("加成下并发仍精确：金额 2→4、上限 5→10，3 路并发恰好 2 笔入账", async () => {
+    await setReward({ post: 2, postDailyCap: 5 });
+    await addBoost(2, "并发加成");
+    // admin（90004）的 earn.post 今日台账为 0（此前只被 adjust.admin 用过）：前提确定
+    const results = await Promise.all(
+      Array.from({ length: 3 }, (_, i) =>
+        awardEarn({
+          userId: DEMO.admin,
+          channel: "earn.post",
+          idempotencyKey: `thread:${512000 + i}`,
+          refId: 512000 + i,
+        }),
+      ),
+    );
+    expect(results.filter((r) => r.awarded)).toHaveLength(2); // 4、8 ≤ 10；12 > 10
+    expect(await ledgerCount(DEMO.admin, "earn.post")).toBe(2);
   });
 });
 

@@ -7,8 +7,10 @@ import type { EventPayloads } from "@/modules/kernel/types";
 import { emit } from "@/modules/kernel/bus";
 import { lockAccount } from "./account";
 import { applyPointsInTx, resolveChannelOrThrow, type ApplyPointsResult } from "./apply";
+import { boostedAmount, boostedCap, earnNote } from "./boost";
 import { UnregisteredChannelError } from "./errors";
 import { getPointRewardConfig } from "./reward-load";
+import { getActivePointsBoost } from "@/lib/campaigns/service";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "./retry";
 
 /**
@@ -67,9 +69,21 @@ export async function awardEarn(req: EarnRequest): Promise<EarnResult> {
   if (!channel) return { awarded: false, reason: "channel_unavailable" };
 
   const config = await getPointRewardConfig();
-  const amount = req.channel === "earn.post" ? config.post : config.reply;
-  const cap = req.channel === "earn.post" ? config.postDailyCap : config.replyDailyCap;
+  // 活动加成（M11.4 Step 3）：读取放在事务外（事务内不得借第二条连接）；
+  // 读取失败按无加成发放并记一条带用户 / 渠道 / 幂等键的告警（Q4——发放是主路径，不能因增强故障中断）
+  const boost = await getActivePointsBoost().catch((error) => {
+    console.warn(
+      `[points] 读取活动加成失败，按无加成发放（channel=${req.channel}, key=${req.idempotencyKey}, userId=${req.userId}）:`,
+      error,
+    );
+    return null;
+  });
+  const baseAmount = req.channel === "earn.post" ? config.post : config.reply;
+  const baseCap = req.channel === "earn.post" ? config.postDailyCap : config.replyDailyCap;
+  const amount = boostedAmount(baseAmount, boost?.ratio ?? 1);
+  const cap = boostedCap(baseCap, boost?.ratio ?? 1);
   if (amount <= 0) return { awarded: false, reason: "zero_reward" };
+  const note = earnNote(req.channel === "earn.post" ? "发帖奖励" : "回帖奖励", boost);
 
   const result = await withDeadlockRetry(() =>
     getWebDb().transaction(async (tx): Promise<ApplyPointsResult | { capReached: true }> => {
@@ -110,7 +124,7 @@ export async function awardEarn(req: EarnRequest): Promise<EarnResult> {
           delta: amount,
           idempotencyKey: req.idempotencyKey,
           ref: { type: req.channel === "earn.post" ? "thread" : "post", id: req.refId },
-          note: req.channel === "earn.post" ? "发帖奖励" : "回帖奖励",
+          note,
         },
         channel,
       );

@@ -17,5 +17,6 @@ export async function campaignRefExists(effect: string, target: string): Promise
   if (effect === "site.logo") return (await getLogoPoolRaw()).items.some((i) => i.file === target);
   if (effect === "site.hero") return (await getHeroPoolRaw()).items.some((i) => i.file === target);
   if (effect === "register.open") return target === "on";
+  if (effect === "points.boost") return target === "2" || target === "3";
   return false;
 }

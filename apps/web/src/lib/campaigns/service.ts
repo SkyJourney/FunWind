@@ -114,3 +114,24 @@ export async function getActiveRegisterWindow(): Promise<ActiveRegisterWindow | 
     return null;
   }
 }
+
+/** 当前生效的积分加成（M11.4 Step 3）：倍率与方案名（台账 note 追溯用） */
+export interface ActivePointsBoost {
+  /** 2 或 3（D2，注册表 schema 保证整数） */
+  ratio: number;
+  name: string;
+}
+
+/**
+ * 读取生效中的 `points.boost` 方案（M11.4 Step 3）。
+ * 配置不合法的行在 pickWinners 里已被跳过，所以这里只需要区分「有生效方案 / 没有」。
+ * **读取失败向上抛**，不在此处吞掉：加成是发放侧的增强而非决策依据，消费点（earn / checkin）
+ * 在事务外捕获后按「无加成」发放，并记一条带用户 / 渠道 / 幂等键的告警（Q4）——
+ * 只有消费点知道这些上下文。
+ */
+export async function getActivePointsBoost(): Promise<ActivePointsBoost | null> {
+  const winner = pickWinners(await loadActiveCampaignRows()).get("points.boost");
+  if (!winner) return null;
+  const ratio = (winner.config as { ratio?: unknown } | null)?.ratio;
+  return typeof ratio === "number" ? { ratio, name: winner.name } : null;
+}

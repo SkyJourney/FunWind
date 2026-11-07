@@ -18,8 +18,9 @@ describe("运营排期 effect 注册表", () => {
       "site.logo",
       "site.hero",
       "register.open",
+      "points.boost",
     ]);
-    expect(CAMPAIGN_EFFECTS).toHaveLength(4);
+    expect(CAMPAIGN_EFFECTS).toHaveLength(5);
   });
 
   it("每个 effect 都有非空 label 与可调用 describe", () => {
@@ -166,6 +167,45 @@ describe("运营排期 effect 注册表", () => {
       expect(targetOfConfig("register.open", {})).toBe("on");
       expect(targetOfConfig("register.open", { extra: 1 })).toBeNull();
       expect(targetOfConfig("register.open", null)).toBeNull();
+    });
+  });
+
+  describe("points.boost（M11.4 Step 3，行为类）", () => {
+    it("行为类：自带 ×2 / ×3 两档选项（D2），选项值解析为数字配置", () => {
+      const effect = findCampaignEffect("points.boost");
+      expect(effect).not.toBeNull();
+      expect(effect!.kind).toBe("behavior");
+      expect(effect!.fixedOptions).toEqual([
+        ["2", "积分 ×2 加成"],
+        ["3", "积分 ×3 加成"],
+      ]);
+      expect(configFromTarget("points.boost", "2")).toEqual({ ratio: 2 });
+      expect(configFromTarget("points.boost", "3")).toEqual({ ratio: 3 });
+      expect(validateCampaignConfig("points.boost", { ratio: 2 }).ok).toBe(true);
+      expect(validateCampaignConfig("points.boost", { ratio: 3 }).ok).toBe(true);
+    });
+
+    it("配置值可以是数字：不再做「值必须是字符串」的单目标时代收窄（F5）", () => {
+      const config = configFromTarget("points.boost", "2");
+      expect(config).not.toBeNull();
+      expect(validateCampaignConfig("points.boost", config)).toMatchObject({ ok: true });
+    });
+
+    it("2 与 3 之外的选项值一律拒绝（字符串 / 小数 / 越界 / 空串）", () => {
+      for (const bad of ["1", "4", "2.5", "abc", "", "02"]) {
+        expect(configFromTarget("points.boost", bad)).toBeNull();
+      }
+      expect(validateCampaignConfig("points.boost", { ratio: 4 }).ok).toBe(false);
+      expect(validateCampaignConfig("points.boost", { ratio: "2" }).ok).toBe(false);
+      expect(validateCampaignConfig("points.boost", { ratio: 2, extra: 1 }).ok).toBe(false);
+    });
+
+    it("有效配置还原为选项值；无效形态返回 null", () => {
+      expect(targetOfConfig("points.boost", { ratio: 2 })).toBe("2");
+      expect(targetOfConfig("points.boost", { ratio: 3 })).toBe("3");
+      expect(targetOfConfig("points.boost", { ratio: 4 })).toBeNull();
+      expect(targetOfConfig("points.boost", { ratio: "2" })).toBeNull();
+      expect(targetOfConfig("points.boost", null)).toBeNull();
     });
   });
 });
