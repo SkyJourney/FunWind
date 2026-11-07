@@ -8,6 +8,7 @@ import "@/modules";
 import { and, desc, eq, sql } from "drizzle-orm";
 import {
   auditLog,
+  campaigns,
   DEMO,
   eventLog,
   getWebDb,
@@ -15,7 +16,7 @@ import {
   pointLedger,
   siteSettings,
 } from "@funwind/db";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { emit } from "@/modules/kernel/bus";
 import { setModuleEnabled } from "@/modules/kernel/state";
 import { CLI_ACTOR } from "@/lib/audit";
@@ -275,6 +276,76 @@ describe.skipIf(skipDb)("发帖/回帖奖励（earn）", () => {
         expect(r.after, `用户 ${userId} 台账重放`).toBe(running);
       }
     }
+  });
+});
+
+describe.skipIf(skipDb)("发放重放不因金额变化报冲突（M11.4 Step 3 F3）", () => {
+  const req = (key: string, userId: number) => ({
+    userId,
+    channel: "earn.post" as const,
+    idempotencyKey: key,
+    refId: Number(key.split(":")[1]),
+  });
+
+  async function rowsFor(key: string) {
+    return db().select().from(pointLedger).where(eq(pointLedger.idempotencyKey, key));
+  }
+
+  async function addBoost() {
+    await db()
+      .insert(campaigns)
+      .values({
+        name: "重放加成",
+        effect: "points.boost",
+        config: { ratio: 2 },
+        startsAt: sql`NOW() - INTERVAL 1 HOUR`,
+        endsAt: sql`NOW() + INTERVAL 1 HOUR`,
+        enabled: true,
+        revision: 1,
+        createdAt: sql`NOW()`,
+        updatedAt: sql`NOW()`,
+      });
+  }
+
+  afterEach(async () => {
+    await db().delete(campaigns);
+    await setReward();
+  });
+
+  it("无加成入账后开启加成再重放 → 按重放返回，不报冲突、不重复入账", async () => {
+    await setReward({ post: 3 });
+    const key = "thread:510001";
+    const before = await balanceOf(DEMO.xiaoyi);
+    const first = await awardEarn(req(key, DEMO.xiaoyi));
+    expect(first.awarded).toBe(true);
+    await addBoost();
+    const replay = await awardEarn(req(key, DEMO.xiaoyi));
+    expect(replay.awarded).toBe(true);
+    if (replay.awarded) expect(replay.result.applied).toBe(false);
+    expect(await balanceOf(DEMO.xiaoyi)).toBe(before + 3);
+    expect(await rowsFor(key)).toHaveLength(1);
+  });
+
+  it("后台改奖励额后重放（存量隐患）→ 同样按重放返回，不报冲突", async () => {
+    await setReward({ post: 3 });
+    const key = "thread:510003";
+    const before = await balanceOf(DEMO.xiaoyi);
+    expect((await awardEarn(req(key, DEMO.xiaoyi))).awarded).toBe(true);
+    await setReward({ post: 5 });
+    const replay = await awardEarn(req(key, DEMO.xiaoyi));
+    expect(replay.awarded).toBe(true);
+    if (replay.awarded) expect(replay.result.applied).toBe(false);
+    expect(await balanceOf(DEMO.xiaoyi)).toBe(before + 3);
+    expect(await rowsFor(key)).toHaveLength(1);
+  });
+
+  it("不同用户 / 渠道共享幂等键仍属数据异常：照旧抛 IdempotencyConflictError", async () => {
+    await setReward({ post: 3 });
+    const key = "thread:510004";
+    expect((await awardEarn(req(key, DEMO.xiaoyi))).awarded).toBe(true);
+    await expect(
+      awardEarn({ ...req(key, DEMO.team), channel: "earn.reply", refId: 610004 }),
+    ).rejects.toThrow();
   });
 });
 
