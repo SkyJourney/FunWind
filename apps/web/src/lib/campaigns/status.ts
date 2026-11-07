@@ -28,8 +28,11 @@ export function campaignStatus(
   return "active";
 }
 
-/** 两个半开窗口是否有公共时段（首尾相接不算相交） */
-function intersects(a: CampaignWindow, b: CampaignWindow): boolean {
+/**
+ * 两个半开窗口是否有公共时段（首尾相接不算相交）。
+ * 读取链的压制提示（overriddenBy）与写服务的行为类重叠拒绝（M11.4 Q5，admin.ts）共用同一口径。
+ */
+export function intersects(a: CampaignWindow, b: CampaignWindow): boolean {
   const aEndsAfterBStarts = a.endsAt === null || a.endsAt > b.startsAt;
   const bEndsAfterAStarts = b.endsAt === null || b.endsAt > a.startsAt;
   return aEndsAfterBStarts && bEndsAfterAStarts;

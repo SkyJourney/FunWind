@@ -7,8 +7,10 @@ import type { EventPayloads } from "@/modules/kernel/types";
 import { emit } from "@/modules/kernel/bus";
 import { lockAccount } from "./account";
 import { applyPointsInTx, resolveChannelOrThrow, type ApplyPointsResult } from "./apply";
+import { boostedAmount, boostedCap, earnNote } from "./boost";
 import { UnregisteredChannelError } from "./errors";
 import { getPointRewardConfig } from "./reward-load";
+import { getActivePointsBoost } from "@/lib/campaigns/service";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "./retry";
 
 /**
@@ -67,14 +69,49 @@ export async function awardEarn(req: EarnRequest): Promise<EarnResult> {
   if (!channel) return { awarded: false, reason: "channel_unavailable" };
 
   const config = await getPointRewardConfig();
-  const amount = req.channel === "earn.post" ? config.post : config.reply;
-  const cap = req.channel === "earn.post" ? config.postDailyCap : config.replyDailyCap;
+  // 活动加成（M11.4 Step 3）：读取放在事务外（事务内不得借第二条连接）；
+  // 读取失败按无加成发放并记一条带用户 / 渠道 / 幂等键的告警（Q4——发放是主路径，不能因增强故障中断）
+  const boost = await getActivePointsBoost().catch((error) => {
+    console.warn(
+      `[points] 读取活动加成失败，按无加成发放（channel=${req.channel}, key=${req.idempotencyKey}, userId=${req.userId}）:`,
+      error,
+    );
+    return null;
+  });
+  const baseAmount = req.channel === "earn.post" ? config.post : config.reply;
+  const baseCap = req.channel === "earn.post" ? config.postDailyCap : config.replyDailyCap;
+  const amount = boostedAmount(baseAmount, boost?.ratio ?? 1);
+  const cap = boostedCap(baseCap, boost?.ratio ?? 1);
   if (amount <= 0) return { awarded: false, reason: "zero_reward" };
+  const note = earnNote(req.channel === "earn.post" ? "发帖奖励" : "回帖奖励", boost);
 
   const result = await withDeadlockRetry(() =>
     getWebDb().transaction(async (tx): Promise<ApplyPointsResult | { capReached: true }> => {
       // 先锁账户行（与台账写入同一事务；applyPointsInTx 内部的重复加锁是幂等的）
       await lockAccount(tx, req.userId);
+      // 锁内幂等预检（M11.4 Step 3，§2.2 F3）：发放金额会随排期加成 / 后台奖励配置变化，
+      // outbox 的 at-least-once 重放若跨过金额变化点，applyPointsInTx 的「键存在但金额不同」
+      // 判定会抛 IdempotencyConflictError，让这条事件在重派里永久滞留。已入账（同用户同渠道）
+      // 即按重放返回既有结果：不比金额、不再判上限；不同用户/渠道共享键属数据异常，
+      // 仍落到 applyPointsInTx 按冲突抛出。
+      const [existing] = await tx
+        .select({
+          id: pointLedger.id,
+          userId: pointLedger.userId,
+          channel: pointLedger.channel,
+          balanceAfter: pointLedger.balanceAfter,
+        })
+        .from(pointLedger)
+        .where(eq(pointLedger.idempotencyKey, req.idempotencyKey))
+        .for("update");
+      if (existing && existing.userId === req.userId && existing.channel === req.channel) {
+        return {
+          applied: false,
+          ledgerId: existing.id,
+          balanceAfter: existing.balanceAfter,
+          event: null,
+        };
+      }
       // 上限不可逾越：已发放额 + 本次金额 > 上限 → 跳过（锁内判定，并发下串行化后仍准确）
       if (cap > 0 && (await earnedToday(tx, req.userId, req.channel)) + amount > cap) {
         return { capReached: true };
@@ -87,7 +124,7 @@ export async function awardEarn(req: EarnRequest): Promise<EarnResult> {
           delta: amount,
           idempotencyKey: req.idempotencyKey,
           ref: { type: req.channel === "earn.post" ? "thread" : "post", id: req.refId },
-          note: req.channel === "earn.post" ? "发帖奖励" : "回帖奖励",
+          note,
         },
         channel,
       );

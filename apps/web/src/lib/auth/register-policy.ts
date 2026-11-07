@@ -103,3 +103,18 @@ export function chooseRegisterPath(policy: RegisterPolicy, hasInviteCode: boolea
 export function pathRequiresVerification(policy: RegisterPolicy, path: RegisterPath): boolean {
   return path.kind === "open" && policy.verifyEmail;
 }
+
+/**
+ * 开放注册窗口（M11.4 Step 2，站长 D3）：排期生效时把「开放注册」临时置开。
+ *  · 只放开不收紧：站点本身已开放注册时原样返回——验证要求跟随站点设置，不由排期收紧；
+ *  · 由排期带来的开放注册**强制要求验证邮箱**：站点多数场景下 verifyEmail=false（默认值与旧键映射都是），
+ *    而窗口期注册的账号不可回滚，默认取安全侧；旧的开放模式本来就强制验证，行为一致；
+ *  · 「邀请」开关不变：站点「邀请开、开放关」在窗口内变成双开，邀请码选填规则（M11.3 §3）直接适用；
+ *  · 窗口结束后回到站点设置原值——本函数只做读取侧叠加，任何调用方不得把结果写回 site_settings。
+ * 注册页 / 注册 Action / 登录页（经 getRegisterPolicy）与顶栏（经 site-chrome 同一条规则）共用本函数，
+ * 保证所有消费点读到同一个生效值。
+ */
+export function applyRegisterWindow(policy: RegisterPolicy, windowActive: boolean): RegisterPolicy {
+  if (!windowActive || policy.open) return policy;
+  return { ...policy, open: true, verifyEmail: true };
+}

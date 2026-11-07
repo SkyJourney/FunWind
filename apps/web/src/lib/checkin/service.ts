@@ -9,11 +9,13 @@ import {
   type EnqueuedEvent,
 } from "@/lib/events/outbox";
 import { applyPointsInTx, resolveChannelOrThrow, type ApplyPointsResult } from "@/lib/points/apply";
+import { boostedAmount, checkinNote } from "@/lib/points/boost";
 import { UnregisteredChannelError } from "@/lib/points/errors";
 import { IdempotencyConflictError } from "@/lib/points/errors";
 import { getPunchRewardConfig } from "@/lib/points/reward-load";
 import { randomPunchReward } from "@/lib/points/reward-config";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
+import { getActivePointsBoost } from "@/lib/campaigns/service";
 import type { DbTx } from "@/lib/audit";
 import { emit } from "@/modules/kernel/bus";
 
@@ -114,7 +116,13 @@ export async function checkin(
   });
   if (!channel) return { ok: false, code: "channel_unavailable" };
   const config = await getPunchRewardConfig();
-  const reward = randomPunchReward(config);
+  // 活动加成（M11.4 Step 3）：读取放在事务外；读取失败按无加成发放并告警（Q4，带用户上下文）
+  const boost = await getActivePointsBoost().catch((error) => {
+    console.warn(`[checkin] 读取活动加成失败，按无加成发放（userId=${userId}）:`, error);
+    return null;
+  });
+  // 放大最终结果（站长 Q6）：随机先出 min–max，再整单乘倍率；checkins.reward 记实际发放额
+  const reward = boostedAmount(randomPunchReward(config), boost?.ratio ?? 1);
 
   let enqueued: EnqueuedEvent[] = [];
   try {
@@ -144,7 +152,7 @@ export async function checkin(
                     channel: "earn.checkin",
                     delta: reward,
                     idempotencyKey: `checkin:${userId}:${today}`,
-                    note: `签到奖励（连签 ${streak} 天）`,
+                    note: checkinNote(streak, boost),
                   },
                   channel,
                 )

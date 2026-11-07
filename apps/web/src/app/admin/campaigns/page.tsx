@@ -3,8 +3,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { getHeroPoolRaw } from "@/lib/brand/hero-pool";
 import { getLogoPoolRaw } from "@/lib/brand/logo-pool";
 import { requireAdmin } from "@/lib/authz/require-admin";
+import type { CampaignErrorCode } from "@/lib/campaigns/admin";
 import { decodeCampaignDraft, type CampaignDraft } from "@/lib/campaigns/draft";
-import { CAMPAIGN_EFFECTS } from "@/lib/campaigns/effects";
+import { CAMPAIGN_EFFECTS, type CampaignEffect } from "@/lib/campaigns/effects";
 import { joinChoice } from "@/lib/campaigns/input";
 import { listCampaigns, type CampaignListItem } from "@/lib/campaigns/list";
 import { getThemeCatalog } from "@/lib/theme/catalog";
@@ -21,7 +22,8 @@ const FLASH: Record<string, string> = {
   deleted: "排期方案已删除。",
 };
 
-const ERR_TEXT: Record<string, string> = {
+/** 键类型取自写服务的失败码：服务新增失败码而这里没补文案，类型检查就会报错（G-15） */
+const ERR_TEXT: Record<CampaignErrorCode, string> = {
   "bad-name": "方案名称不能为空，且不超过 60 个字符。",
   "bad-effect": "请选择要生效的内容。",
   "bad-target": "所选内容的格式不合法。",
@@ -32,12 +34,32 @@ const ERR_TEXT: Record<string, string> = {
   "missing-ref": "所选主题包已停用或不存在，或素材已不在素材池中，请重新选择。",
   "not-found": "方案不存在或已被删除。",
   conflict: "方案已被他人修改（版本冲突）。你填写的内容已保留，请先放弃草稿并载入最新版本。",
+  overlap:
+    "该时间窗与另一个启用中的同类行为方案重叠：行为类方案不能时间重叠，可调整时间或先停用对方。",
+  "behavior-needs-end": "行为类方案必须填写结束时间（要长期生效请改用站点设置）。",
 };
+
+/** 回执码查表：只认表里自有的键，`toString` 这类原型属性名不会被当成文案 */
+function textOf(table: Readonly<Record<string, string>>, code: string | undefined) {
+  return code !== undefined && Object.hasOwn(table, code) ? table[code] : undefined;
+}
 
 /** DB "YYYY-MM-DD HH:MM:SS" → datetime-local 预填值 */
 const toLocalInput = (value: string | null) => (value ? value.replace(" ", "T").slice(0, 16) : "");
 
 const EMPTY: CampaignDraft = { name: "", choice: "", startsAt: "", endsAt: "", priority: "0" };
+
+/**
+ * 下拉选项（M11.4 Step 0）：视觉类按库里的主题包 / 素材池生成；自带 fixedOptions 的效果
+ * （M11.4 行为类）用注册表清单。新增效果时页面零改动。
+ */
+function optionsOf(
+  effect: CampaignEffect<never>,
+  libraryOptions: readonly { value: string; label: string }[],
+): { value: string; label: string }[] {
+  const source = effect.fixedOptions ?? libraryOptions.map((o) => [o.value, o.label] as const);
+  return source.map(([value, label]) => ({ value, label }));
+}
 
 function draftOf(item: CampaignListItem): CampaignDraft {
   return {
@@ -62,6 +84,8 @@ export default async function CampaignsAdminPage(props: { searchParams: Promise<
   // 入口鉴权约定：第一个 await 必须是 requireAdmin（admin-entry-guard 静态守护）
   await requireAdmin("site.admin");
   const sp = await props.searchParams;
+  const savedText = textOf(FLASH, sp.saved);
+  const errText = sp.err ? (textOf(ERR_TEXT, sp.err) ?? "操作失败，请重试。") : undefined;
   const [{ items }, catalog, logoPool, heroPool] = await Promise.all([
     listCampaigns(),
     getThemeCatalog(),
@@ -69,14 +93,16 @@ export default async function CampaignsAdminPage(props: { searchParams: Promise<
     getHeroPoolRaw(),
   ]);
 
-  const targets: Record<string, { value: string; label: string }[]> = {
+  const libraryOptions: Record<string, { value: string; label: string }[]> = {
     "theme.pack": catalog.map((pack) => ({ value: pack.id, label: `${pack.label}（${pack.id}）` })),
     "site.logo": logoPool.items.map((item) => ({ value: item.file, label: item.name })),
     "site.hero": heroPool.items.map((item) => ({ value: item.file, label: item.name })),
   };
   const labelByChoice = new Map(
-    Object.entries(targets).flatMap(([effect, options]) =>
-      options.map((option) => [joinChoice(effect, option.value), option.label] as const),
+    CAMPAIGN_EFFECTS.flatMap((effect) =>
+      optionsOf(effect, libraryOptions[effect.key] ?? []).map(
+        (option) => [joinChoice(effect.key, option.value), option.label] as const,
+      ),
     ),
   );
 
@@ -88,7 +114,7 @@ export default async function CampaignsAdminPage(props: { searchParams: Promise<
 
   // 当前取值若已不在可选项里（包被停用、素材被移出池），补一个“已失效”选项，避免编辑时静默丢掉原值
   const groups: ChoiceGroup[] = CAMPAIGN_EFFECTS.map((effect) => {
-    const options = [...(targets[effect.key] ?? [])].map((option) => ({
+    const options = optionsOf(effect, libraryOptions[effect.key] ?? []).map((option) => ({
       value: joinChoice(effect.key, option.value),
       label: option.label,
     }));
@@ -111,19 +137,22 @@ export default async function CampaignsAdminPage(props: { searchParams: Promise<
       <header>
         <h2 className="text-lg font-bold tracking-tight">运营排期</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          在指定时间窗内临时替换站点的主题包、LOGO 或首页横幅，到期自动回到常态，无需手动切换。
-          同类方案时间重叠时，优先级数字大者生效；用户自己选择的主题包仍然优先于排期。 前台最多有 30
+          在指定时间窗内临时替换站点的主题包、LOGO 或首页横幅（视觉类），或临时开放注册、提高发帖 /
+          回帖 /
+          签到奖励（行为类——真实注册的账号与积分不会随方案结束回滚），到期自动回到常态，无需手动切换。
+          视觉类时间重叠时优先级数字大者生效，用户自己选择的主题包仍然优先于排期；行为类不能时间重叠，
+          且必须填写结束时间。注册与积分在每次请求时即时生效；前台主题与顶栏「注册」入口最多有 30
           秒的缓存延迟。
         </p>
       </header>
-      {sp.saved && FLASH[sp.saved] && (
+      {savedText && (
         <AdminFlash kind="success" dismissHref="/admin/campaigns">
-          {FLASH[sp.saved]}
+          {savedText}
         </AdminFlash>
       )}
-      {sp.err && (
+      {errText && (
         <AdminFlash kind="error" dismissHref="/admin/campaigns">
-          {ERR_TEXT[sp.err] ?? "操作失败，请重试。"}
+          {errText}
         </AdminFlash>
       )}
       <Card>
@@ -147,6 +176,7 @@ export default async function CampaignsAdminPage(props: { searchParams: Promise<
               title={effect.label}
               items={[...rows].sort((a, b) => b.priority - a.priority || b.id - a.id)}
               labelOf={summaryOf}
+              behavior={effect.kind === "behavior"}
             />
           );
         })

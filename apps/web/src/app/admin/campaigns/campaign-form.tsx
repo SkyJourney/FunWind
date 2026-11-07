@@ -67,6 +67,14 @@ export function CampaignForm({
           </select>
         </label>
       </div>
+
+      {/* 行为类规则的固定说明（无脚本可用，不随下拉联动）：与写服务的校验同口径 */}
+      <p className="text-xs [overflow-wrap:anywhere] text-muted-foreground">
+        「开放注册窗口」「积分加成」是行为类方案：会产生无法撤回的后果（真实注册的账号与积分不随方案结束回滚），
+        同一时间窗内不能与另一个启用中的同类行为方案重叠，且必须填写结束时间。 视觉类方案（主题包 /
+        LOGO / 首页横幅）不受此限，结束时间留空 = 长期。
+      </p>
+
       <div className="grid min-w-0 gap-3 sm:grid-cols-3">
         <label className="grid min-w-0 gap-1 text-sm">
           开始时间{editing ? "" : "（留空 = 现在）"}

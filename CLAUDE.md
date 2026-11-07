@@ -94,6 +94,15 @@ pnpm layout:summary            # 汇总布局审计 JSON，有问题退出码 1�
 - **积分与门控的并发约定**（`lib/points`、`lib/gates`，教训来自真实复现的死锁/连接池饥饿）：① 事务内不得再借第二条连接（连接池仅 8 条）——渠道解析、权限检查等一律在开事务前完成；
   ② 加锁顺序固定「门控行 → 账户行（user_id 升序）」；③ 账户行用 `SELECT … FOR UPDATE` 加锁（不存在才 `INSERT IGNORE`），**禁止**用 `INSERT … ON DUPLICATE KEY UPDATE` 当加锁手段（共享锁升级死锁）；
   ④ 先拿账户锁再查幂等/已解锁。⑤ **积分与解锁事务一律 READ COMMITTED**（`POINTS_TX_OPTIONS`）：默认 REPEATABLE READ 下对「不存在的键」`FOR UPDATE` 会加间隙锁，不同新用户并发首次建账户互相死锁（实测 640 次并发 139 次失败）；任何包含 `lockAccount` / `applyPointsInTx` 的新事务都必须以它开启。积分表只能经 `lib/points` 写，隐藏正文只能经 `lib/gates/service.ts` 读，附件表只能经 `lib/gates/attachments.ts` 读写，均有守卫测试。
+  ⑥ **发放类重放以 `awardEarn` 的锁内幂等预检为准**（M11.4）：预检命中（同用户同渠道）即按重放返回、**不比较金额**——发放金额会随后台配置与排期加成变化，让 `applyPointsInTx` 的「金额不同即抛冲突」拦重放会把 outbox 事件永久卡死。
+
+- **运营排期**（M11.2 视觉类 + M11.4 行为类，`lib/campaigns`）：effect 注册表单一事实源——每个 effect 声明
+  `kind`（visual/behavior）、schema、describe、`toConfig`/`toValue`（后台表单提交值恒为字符串，互转由 effect 自管），
+  行为类自带下拉选项；后台表单是单个分组下拉 `<effect>::<选项值>`（无脚本可用）。行为类保存约束在写事务内：
+  同类时间窗重叠拒绝（加锁读 + REPEATABLE READ 间隙锁 + `withDeadlockRetry`，禁止改 READ COMMITTED——会失去间隙锁）
+  与结束时间必填。**后台设置页必须读「站点原值」**（`getSiteRegisterPolicy`）：注册窗口（`register.open`）叠加在
+  `getRegisterPolicy`（生效值，注册页/Action/登录页用）里，若给设置页读生效值，窗口期保存会把排期带来的「开」
+  永久写进库。
 
 - **编辑器**（M6.3，`components/editor`）：所见即所得（Tiptap 3）默认，可切 CodeMirror 源码；操作**完整源码**（含门控隐藏正文）。**未编辑的旧帖保留原文，绝不重新序列化**；往返不等价的帖强制源码模式（`lib/posting/roundtrip-check.ts`，判定为渲染等价）。预览走 `POST /api/preview`（Route Handler，门控只显示占位）。
 - **草稿**（`components/editor/draft.ts`）：`localStorage`，键 `funwind:draft:<userId>:<kind>:<id>`，每次变化即写。**提交即暂存**：submit 时主键移到 `…:sent`，失败跳回从暂存键恢复，成功后主键为空；登出（`LogoutForm`）清除全部草稿键。草稿只是个人便利，读写都包在 try/catch 里。暂存键只在失败或冲突跳回时读取，进入页面时过期即清理；编辑冲突时正文与附件的暂存版本以提示交给作者选择。

@@ -21,19 +21,34 @@ const minute = (value: string) => value.slice(0, 16);
 /**
  * 一个 effect 分区：分区内按优先级从高到低。内容区可收缩（min-w-0 + 任意断行），
  * 操作区独立换行，按钮自身单行不收缩（自适应交互契约）。
+ * 行为类分区（M11.4）带「行为类」徽标与后果提示——真实注册的账号与积分不会随方案结束回滚。
  */
 export function CampaignSection({
   title,
   items,
   labelOf,
+  behavior,
 }: {
   title: string;
   items: CampaignListItem[];
   labelOf: (item: CampaignListItem) => string;
+  behavior?: boolean;
 }) {
   return (
     <section className="space-y-2">
-      <h3 className="text-sm font-semibold">{title}</h3>
+      <h3 className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-semibold">
+        <span className="min-w-0">{title}</span>
+        {behavior && (
+          <>
+            <span className="shrink-0 rounded bg-warning/10 px-1.5 py-0.5 text-[11px] font-normal text-warning">
+              行为类
+            </span>
+            <span className="min-w-0 text-xs font-normal text-muted-foreground">
+              会产生无法撤回的后果：真实注册的账号与积分不随方案结束回滚
+            </span>
+          </>
+        )}
+      </h3>
       <ul className="grid gap-2">
         {items.map((item) => (
           <CampaignRow key={item.id} item={item} summary={labelOf(item)} />

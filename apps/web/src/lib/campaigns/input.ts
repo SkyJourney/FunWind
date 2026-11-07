@@ -41,7 +41,8 @@ export type CampaignInputError =
   | "bad-start"
   | "bad-end"
   | "bad-window"
-  | "bad-priority";
+  | "bad-priority"
+  | "behavior-needs-end";
 
 export interface CampaignFields {
   name: string;
@@ -57,7 +58,8 @@ export interface CampaignFields {
 export interface ValidCampaign {
   name: string;
   effect: string;
-  config: Record<string, string>;
+  /** 已过 effect 注册表校验的配置；值可以是数字（points.boost 的 ratio） */
+  config: Record<string, unknown>;
   startsAt: string;
   endsAt: string | null;
   priority: number;
@@ -83,6 +85,12 @@ export function validateCampaignFields(
     if (!isValidBeijingDateTime(endsAt)) return { ok: false, code: "bad-end" };
     // 同格式字符串的字典序即先后；结束必须晚于开始，否则窗口为空
     if (endsAt <= fields.startsAt) return { ok: false, code: "bad-window" };
+  }
+
+  // D6（M11.4）：行为类方案必须有结束时间——漏填的积分加成会长期翻倍发放、开放注册窗口会长期开放注册，
+  // 后果都不可回滚；要长期生效应改站点设置。视觉类不受此限（留空 = 长期，语义不变）。
+  if (findCampaignEffect(fields.effect)?.kind === "behavior" && endsAt === null) {
+    return { ok: false, code: "behavior-needs-end" };
   }
 
   const { priority } = fields;

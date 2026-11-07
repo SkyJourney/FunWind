@@ -86,3 +86,38 @@ describe("方案字段校验", () => {
     expect(code({ priority: 65535 })).toBe("ok");
   });
 });
+
+describe("行为类必须有结束时间（M11.4 D6）", () => {
+  const WINDOW: CampaignFields = {
+    name: "开放注册窗口",
+    effect: "register.open",
+    target: "on",
+    startsAt: "2026-11-08 00:00:00",
+    endsAt: "2026-11-09 00:00:00",
+    priority: 0,
+  };
+
+  it("结束时间留空（null / 空串）→ behavior-needs-end", () => {
+    expect(code({ effect: "register.open", target: "on", endsAt: null })).toBe(
+      "behavior-needs-end",
+    );
+    expect(code({ effect: "register.open", target: "on", endsAt: "" })).toBe("behavior-needs-end");
+  });
+
+  it("填写了结束时间 → 通过", () => {
+    const result = validateCampaignFields({ ...WINDOW });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.config).toEqual({});
+  });
+
+  it("视觉类不受此限：结束留空仍是长期（M11.2 语义不变）", () => {
+    expect(code({ effect: "theme.pack", target: "default", endsAt: null })).toBe("ok");
+    expect(code({ effect: "theme.pack", target: "default", endsAt: "" })).toBe("ok");
+  });
+
+  it("bad-window 优先于 D6：结束早于开始先报窗口错", () => {
+    expect(code({ effect: "register.open", target: "on", endsAt: "2026-11-07 00:00:00" })).toBe(
+      "bad-window",
+    );
+  });
+});

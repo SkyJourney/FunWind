@@ -4,18 +4,23 @@ import { cache } from "react";
 import { eq, inArray, sql } from "drizzle-orm";
 import { getWebDb, siteSettings } from "@funwind/db";
 import { CLI_ACTOR, writeAudit, type ConfigActor } from "@/lib/audit";
-import { resolveRegisterPolicy, type RegisterPolicy } from "./register-policy";
+import { getActiveRegisterWindow } from "@/lib/campaigns/service";
+import { applyRegisterWindow, resolveRegisterPolicy, type RegisterPolicy } from "./register-policy";
 
 /** 站点配置（site_settings；M12 安装向导接管写入） */
 
 export type RegisterMode = "invite" | "open";
 
 /**
- * 注册策略（M11.3）：读新键 `register.policy`，不存在时按旧 `register.mode` 兼容映射（规则见 register-policy.ts）。
+ * 注册策略——**站点设置原值**（M11.3；M11.4 Step 2 F1 拆分）：读新键 `register.policy`，
+ * 不存在时按旧 `register.mode` 兼容映射（规则见 register-policy.ts）。
  * 读不到或写坏都回落默认（邀请制）并告警，不让一份坏配置把注册意外放开或整体不可用。
  * 取代原 `email.verification`（open_only/always）：验证要求现在只是策略里的一个布尔，且只作用于开放注册。
+ *
+ * 只给后台设置页用：勾选框展示与保存写回的都必须是原值——若给设置页读「生效值」，
+ * 开放注册窗口生效期间保存设置会把排期带来的「开」永久写进库（M11.4 §2.2 F1）。
  */
-export const getRegisterPolicy = cache(async (): Promise<RegisterPolicy> => {
+const getSiteRegisterPolicy = cache(async (): Promise<RegisterPolicy> => {
   const rows = await getWebDb()
     .select({ key: siteSettings.key, value: siteSettings.value })
     .from(siteSettings)
@@ -27,6 +32,18 @@ export const getRegisterPolicy = cache(async (): Promise<RegisterPolicy> => {
   );
   if (error) console.warn(`[auth] site_settings.register.policy 无效，已回落到邀请制：${error}`);
   return policy;
+});
+export { getSiteRegisterPolicy };
+
+/**
+ * 注册策略——**生效值**（M11.3 + M11.4 Step 2）：站点原值之上叠加开放注册窗口（applyRegisterPolicyWindow）。
+ * 注册页 / 注册 Action / 登录页 / 登录门判定都用它；顶栏「注册」入口在 site-chrome 里用同一条叠加规则
+ * （30 秒进程缓存，窗口开始 / 结束时最多延迟 30 秒）。请求级缓存，窗口边界即时生效，无叠加延迟。
+ */
+export const getRegisterPolicy = cache(async (): Promise<RegisterPolicy> => {
+  const policy = await getSiteRegisterPolicy();
+  const window = await getActiveRegisterWindow();
+  return applyRegisterWindow(policy, window !== null);
 });
 
 /**

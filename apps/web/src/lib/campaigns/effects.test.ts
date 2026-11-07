@@ -4,6 +4,8 @@ import {
   CAMPAIGN_EFFECT_KEYS,
   configFromTarget,
   findCampaignEffect,
+  siteHeroEffect,
+  siteLogoEffect,
   targetOfConfig,
   themePackEffect,
   validateCampaignConfig,
@@ -11,8 +13,14 @@ import {
 
 describe("运营排期 effect 注册表", () => {
   it("注册键清单精确（新增 effect 必须同步消费者与测试）", () => {
-    expect([...CAMPAIGN_EFFECT_KEYS]).toEqual(["theme.pack", "site.logo", "site.hero"]);
-    expect(CAMPAIGN_EFFECTS).toHaveLength(3);
+    expect([...CAMPAIGN_EFFECT_KEYS]).toEqual([
+      "theme.pack",
+      "site.logo",
+      "site.hero",
+      "register.open",
+      "points.boost",
+    ]);
+    expect(CAMPAIGN_EFFECTS).toHaveLength(5);
   });
 
   it("每个 effect 都有非空 label 与可调用 describe", () => {
@@ -96,6 +104,108 @@ describe("运营排期 effect 注册表", () => {
       expect(targetOfConfig("theme.pack", { file: "x" })).toBeNull();
       expect(targetOfConfig("theme.pack", null)).toBeNull();
       expect(targetOfConfig("site.decor", { file: "x" })).toBeNull();
+    });
+  });
+
+  // —— M11.4 Step 0：注册表扩展（kind + effect 自管的选项值互转）——
+
+  describe("效果类别与互转声明（M11.4 Step 0）", () => {
+    it("每个 effect 都声明 kind 与可调用的选项值互转", () => {
+      for (const effect of CAMPAIGN_EFFECTS) {
+        expect(["visual", "behavior"]).toContain(effect.kind);
+        expect(typeof effect.toConfig).toBe("function");
+        expect(typeof effect.toValue).toBe("function");
+      }
+    });
+
+    it("M11.2 三个视觉 effect：kind=visual、不带自带选项（选项由页面按库生成）", () => {
+      for (const effect of [themePackEffect, siteLogoEffect, siteHeroEffect]) {
+        expect(effect.kind).toBe("visual");
+        expect(effect.fixedOptions).toBeUndefined();
+      }
+    });
+
+    it("互转往返：合法选项值 → 配置 → 通过严格校验 → 还原同一选项值", () => {
+      const cases = [
+        ["theme.pack", "xmas-2026"],
+        ["site.logo", "logo-aaaa1111.png"],
+        ["site.hero", "hero-bbbb2222.png"],
+      ] as const;
+      for (const [key, value] of cases) {
+        const config = configFromTarget(key, value);
+        expect(config).not.toBeNull();
+        expect(validateCampaignConfig(key, config).ok).toBe(true);
+        expect(targetOfConfig(key, config)).toBe(value);
+      }
+    });
+
+    it("非法选项值在组装配置时即被拒绝（后台提交值恒为字符串，不能靠类型系统兜底）", () => {
+      expect(configFromTarget("theme.pack", "BAD ID")).toBeNull();
+      expect(configFromTarget("theme.pack", "")).toBeNull();
+      expect(configFromTarget("site.logo", "hero-aaaa1111.png")).toBeNull();
+      expect(configFromTarget("site.hero", "logo-aaaa1111.png")).toBeNull();
+    });
+  });
+
+  describe("register.open（M11.4 Step 2，行为类）", () => {
+    it("行为类：自带唯一选项 on，配置恒为空对象", () => {
+      const effect = findCampaignEffect("register.open");
+      expect(effect).not.toBeNull();
+      expect(effect!.kind).toBe("behavior");
+      expect(effect!.fixedOptions).toEqual([["on", "开放注册（窗口内注册须验证邮箱）"]]);
+      expect(configFromTarget("register.open", "on")).toEqual({});
+      expect(validateCampaignConfig("register.open", {}).ok).toBe(true);
+    });
+
+    it("其他选项值与多余字段一律拒绝（strict）", () => {
+      expect(configFromTarget("register.open", "off")).toBeNull();
+      expect(configFromTarget("register.open", "")).toBeNull();
+      expect(validateCampaignConfig("register.open", { extra: 1 }).ok).toBe(false);
+    });
+
+    it("有效配置还原为选项值 on；无效形态返回 null", () => {
+      expect(targetOfConfig("register.open", {})).toBe("on");
+      expect(targetOfConfig("register.open", { extra: 1 })).toBeNull();
+      expect(targetOfConfig("register.open", null)).toBeNull();
+    });
+  });
+
+  describe("points.boost（M11.4 Step 3，行为类）", () => {
+    it("行为类：自带 ×2 / ×3 两档选项（D2），选项值解析为数字配置", () => {
+      const effect = findCampaignEffect("points.boost");
+      expect(effect).not.toBeNull();
+      expect(effect!.kind).toBe("behavior");
+      expect(effect!.fixedOptions).toEqual([
+        ["2", "积分 ×2 加成"],
+        ["3", "积分 ×3 加成"],
+      ]);
+      expect(configFromTarget("points.boost", "2")).toEqual({ ratio: 2 });
+      expect(configFromTarget("points.boost", "3")).toEqual({ ratio: 3 });
+      expect(validateCampaignConfig("points.boost", { ratio: 2 }).ok).toBe(true);
+      expect(validateCampaignConfig("points.boost", { ratio: 3 }).ok).toBe(true);
+    });
+
+    it("配置值可以是数字：不再做「值必须是字符串」的单目标时代收窄（F5）", () => {
+      const config = configFromTarget("points.boost", "2");
+      expect(config).not.toBeNull();
+      expect(validateCampaignConfig("points.boost", config)).toMatchObject({ ok: true });
+    });
+
+    it("2 与 3 之外的选项值一律拒绝（字符串 / 小数 / 越界 / 空串）", () => {
+      for (const bad of ["1", "4", "2.5", "abc", "", "02"]) {
+        expect(configFromTarget("points.boost", bad)).toBeNull();
+      }
+      expect(validateCampaignConfig("points.boost", { ratio: 4 }).ok).toBe(false);
+      expect(validateCampaignConfig("points.boost", { ratio: "2" }).ok).toBe(false);
+      expect(validateCampaignConfig("points.boost", { ratio: 2, extra: 1 }).ok).toBe(false);
+    });
+
+    it("有效配置还原为选项值；无效形态返回 null", () => {
+      expect(targetOfConfig("points.boost", { ratio: 2 })).toBe("2");
+      expect(targetOfConfig("points.boost", { ratio: 3 })).toBe("3");
+      expect(targetOfConfig("points.boost", { ratio: 4 })).toBeNull();
+      expect(targetOfConfig("points.boost", { ratio: "2" })).toBeNull();
+      expect(targetOfConfig("points.boost", null)).toBeNull();
     });
   });
 });
