@@ -43,19 +43,16 @@ function failTo(
   redirect(`/install?${params.toString()}`);
 }
 
-const step1Input = z
-  .object({
-    db: z
-      .object({
-        host: z.string(),
-        port: z.string(),
-        user: z.string(),
-        password: z.string(),
-        name: z.string(),
-      })
-      .strict(),
-  })
-  .strict();
+// 不加 .strict()：Next 会往 POST 里注入 $ACTION_ID_* 内部字段，strict 会把它们判成未知键 → 404；
+// 字段扁平收下（formDataToObject 不支持嵌套路径，与 campaigns 等表单同款；全字符串），
+// 语义校验在 run 里走切片 validator
+const step1Input = z.object({
+  host: z.string(),
+  port: z.string(),
+  user: z.string(),
+  password: z.string(),
+  name: z.string(),
+});
 
 export const installDatabaseAction = defineAction({
   name: "install.database",
@@ -63,9 +60,15 @@ export const installDatabaseAction = defineAction({
   input: step1Input,
   async run(_ctx, input) {
     await requireNotInstalled();
-    const draft: InstallDraft = { db: input.db };
-    const rawDb = { ...input.db, port: Number(input.db.port) };
-    const check = validateDbSlice(rawDb);
+    const db = {
+      host: input.host,
+      port: input.port,
+      user: input.user,
+      password: input.password,
+      name: input.name,
+    };
+    const draft: InstallDraft = { db };
+    const check = validateDbSlice({ ...db, port: Number(db.port) });
     if (!check.ok) failTo("invalid-config", 1, draft, check.issues);
     const config: InstallConfig = installConfigFromEnv({ db: check.value });
     for (const step of ["connection", "create-db", "bootstrap"] as const) {
@@ -76,14 +79,14 @@ export const installDatabaseAction = defineAction({
   },
 });
 
-const step2Input = z
-  .object({
-    site: z.object({ name: z.string(), tagline: z.string(), url: z.string() }).strict(),
-    themePack: z.string(),
-    registrationMode: z.enum(["open", "invite", "closed"]),
-    verifyEmail: z.enum(["on"]).optional(),
-  })
-  .strict();
+const step2Input = z.object({
+  name: z.string(),
+  tagline: z.string(),
+  url: z.string(),
+  themePack: z.string(),
+  registrationMode: z.enum(["open", "invite", "closed"]),
+  verifyEmail: z.enum(["on"]).optional(),
+});
 
 export const installSiteAction = defineAction({
   name: "install.site",
@@ -97,8 +100,9 @@ export const installSiteAction = defineAction({
         : input.registrationMode === "closed"
           ? { mode: "closed" as const }
           : { mode: "invite" as const };
-    const draft: InstallDraft = { site: input.site, themePack: input.themePack, registration };
-    const check = validateSiteSlice(input.site);
+    const site = { name: input.name, tagline: input.tagline, url: input.url };
+    const draft: InstallDraft = { site, themePack: input.themePack, registration };
+    const check = validateSiteSlice(site);
     if (!check.ok) failTo("invalid-config", 2, draft, check.issues);
     const config: InstallConfig = installConfigFromEnv({
       site: check.value,
@@ -113,11 +117,11 @@ export const installSiteAction = defineAction({
   },
 });
 
-const step3Input = z
-  .object({
-    admin: z.object({ username: z.string(), email: z.string(), password: z.string() }).strict(),
-  })
-  .strict();
+const step3Input = z.object({
+  username: z.string(),
+  email: z.string(),
+  password: z.string(),
+});
 
 export const installAdminAction = defineAction({
   name: "install.admin",
@@ -125,14 +129,19 @@ export const installAdminAction = defineAction({
   input: step3Input,
   async run(_ctx, input) {
     await requireNotInstalled();
-    const draft: InstallDraft = { admin: input.admin };
-    const check = validateAdminSlice(input.admin);
+    const admin = { username: input.username, email: input.email, password: input.password };
+    const draft: InstallDraft = { admin };
+    const check = validateAdminSlice(admin);
     if (!check.ok) failTo("invalid-config", 3, draft, check.issues);
     const config: InstallConfig = installConfigFromEnv({ admin: check.value });
-    const admin = await runInstallStep("admin", config);
-    if (!admin.ok) failTo(admin.code, 3, draft);
+    const created = await runInstallStep("admin", config);
+    if (!created.ok) failTo(created.code, 3, draft);
     const lock = await runInstallStep("lock", config);
     if (!lock.ok) failTo(lock.code, 3, draft);
-    redirect("/install?step=4");
+    // lock 落盘后 /install 全路由 404（D2）——完成提示跳到登录页，不能跳回本向导；
+    // Server Action 的 redirect 走响应头，中文必须 encodeURIComponent（同 auth.ts 注册路径）
+    redirect(
+      "/login?message=" + encodeURIComponent("安装完成——请用管理员账号登录，创建版块后开始发帖"),
+    );
   },
 });

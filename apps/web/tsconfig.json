@@ -42,7 +42,9 @@
     ".next-e2e-visual/types/**/*.ts",
     ".next-e2e-visual/dev/types/**/*.ts",
     ".next-review-layout/types/**/*.ts",
-    ".next-review-layout/dev/types/**/*.ts"
+    ".next-review-layout/dev/types/**/*.ts",
+    ".next-e2e-install-prod/types/**/*.ts",
+    ".next-e2e-install-prod/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

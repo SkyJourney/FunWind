@@ -191,7 +191,32 @@
     管理员由旧 gid 3/4/5 推导的说明、红线与回滚；完成页与 README 将链接此文档）。
   - 测试：`boards-empty.test.tsx` 4 项（管理员/注册开放/注册关闭/非空对照）。
   - 门禁实测：`pnpm verify:all` 退出码 0（web 3915 + db/content 278）。
-- [ ] Step 5 E2E 与 CI：
+- [x] Step 5 E2E 与 CI（2026-11-07）：
+  - 配置：`playwright.install.config.ts`（端口 3203、`.next-e2e-install-prod`、`STORAGE_DIR=storage-e2e-install`、
+    就绪探针指向 `/install?step=1`——零表库上首页 feed 会 500，向导页自带韧性）；`e2e-install/install-wizard.spec.ts`
+    4 用例（串行）；根编排 `pnpm test:e2e:install`；`scripts/prepare-install-storage.mjs`（只允许清两个专用目录）；
+    `packages/db` 新增 `assertInstallCliResetTarget` + `scripts/install-cli-reset.ts`（第二库 `qysub_next_install_cli`，
+    同款写死库名 + loopback 护栏）；ci.yml e2e 作业追加安装向导步骤；布局矩阵加 /install 场景
+    （**仅布局矩阵运行**——`LAYOUT_SPEC`/`RUN_LAYOUT_SCREENSHOTS` 开关限定，主 E2E 的 seed 库 + 无 lock 存储
+    不满足其期望）。
+  - E2E 用例：①错误路径（口令与 env 不一致 → invalid-config 字段级提示 + 草稿保留 + 不落库）②向导全流程
+    （空库 → 建库建表 → 站点设置 → 管理员 → 完成跳登录 → lock 404 → DB 断言 admin 角色/免验证/策略三布尔）→
+    零数据空态（首页无主题、/boards 访客「注册账号」引导）③管理员登录建首个版块发第一帖 → 目录脱离空态
+    ④CLI 路径（SIGKILL 中断恢复 → 收敛 → 防重装 → unlock 同管理员收敛 → 换管理员拒绝 → 恢复锁）。
+  - 实施中修掉的三个真问题（E2E 的价值所在）：
+    ① **`bannerAnnouncement` 零表无兜底** → webServer 就绪探针永远超时（根布局 500）；加固为 try/catch 回无横幅。
+    ② **`getRegisterPolicy` 零表无兜底** → Server Action 里 `getSubject` 直接抛错进错误边界；加固为
+    fail-closed 回邀请制并告警（读不到 = 不放开注册）。
+    ③ **动作输入 schema 两处坑**：嵌套结构不被 `formDataToObject` 支持（扁平键）→ 改扁平；
+    `.strict()` 把 Next 注入的 `$ACTION_ID_*` 判成未知键 → 404 → 去 strict（语义校验本就在 run 里）。
+    另：完成跳转从「回向导第 4 步」改为「跳登录页带完成提示」——lock 落盘后向导对自身也 404；
+    Server Action 的 redirect 走响应头，中文 message 必须 encodeURIComponent（同 auth.ts 先例）；
+    /install 页面补 `<main>` 根（布局审计找不到可见 main 而误报 missing-root，无障碍上也应如此）。
+  - 工具链收口：`.next-e2e-install-prod/` 与 `.next-review-layout/` 补进 eslint ignore 与 .prettierignore
+    （新 distDir 的两处既有清单都要同步，与 CLAUDE.md tsconfig 行为并列）。
+  - 门禁实测：`pnpm test:e2e:install` 退出码 0（4/4）；`pnpm test:layout` + `pnpm layout:summary` 退出码 0
+    （6 份审计 0 问题，六档含 /install）；`pnpm test:e2e` 全量退出码 0（440 + 8，回归断言零改动）；
+    `pnpm verify:all` 退出码 0（web 3915 + db/content 278）。
 - [ ] Step 6 文档收口：
 
 ## 验收门禁

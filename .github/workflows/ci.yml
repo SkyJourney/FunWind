@@ -117,6 +117,9 @@ jobs:
           exit 1
       - name: E2E（重置库 → bootstrap → 种子 → 生产全量 → 重置库 → dev-only 冒烟）
         run: pnpm test:e2e:run
+      # M12 安装向导：独立空库（不 bootstrap/seed）+ 独立存储与产物目录，CLI 双路径含 SIGKILL 中断恢复
+      - name: 安装向导 E2E（空库 → 四步向导 → CLI 双路径）
+        run: pnpm test:e2e:install
       - name: 失败时上传 Playwright 现场
         if: failure()
         uses: actions/upload-artifact@v7

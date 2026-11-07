@@ -9,6 +9,8 @@ const config = [
       ".next-e2e/**",
       ".next-e2e-prod/**",
       ".next-e2e-step7-*/**",
+      ".next-e2e-install-prod/**",
+      ".next-review-layout/**",
       ".next-e2e-visual/**",
       ".next-lighthouse/**",
       ".next-review-*/**",

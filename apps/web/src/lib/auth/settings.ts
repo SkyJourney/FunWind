@@ -5,7 +5,12 @@ import { eq, inArray, sql } from "drizzle-orm";
 import { getWebDb, siteSettings } from "@funwind/db";
 import { CLI_ACTOR, writeAudit, type ConfigActor } from "@/lib/audit";
 import { getActiveRegisterWindow } from "@/lib/campaigns/service";
-import { applyRegisterWindow, resolveRegisterPolicy, type RegisterPolicy } from "./register-policy";
+import {
+  applyRegisterWindow,
+  DEFAULT_REGISTER_POLICY,
+  resolveRegisterPolicy,
+  type RegisterPolicy,
+} from "./register-policy";
 
 /** 站点配置（site_settings；M12 安装向导接管写入） */
 
@@ -21,11 +26,19 @@ export type RegisterMode = "invite" | "open";
  * 开放注册窗口生效期间保存设置会把排期带来的「开」永久写进库（M11.4 §2.2 F1）。
  */
 const getSiteRegisterPolicy = cache(async (): Promise<RegisterPolicy> => {
-  const rows = await getWebDb()
-    .select({ key: siteSettings.key, value: siteSettings.value })
-    .from(siteSettings)
-    .where(inArray(siteSettings.key, ["register.policy", "register.mode"]));
-  const byKey = new Map(rows.map((r) => [r.key, r.value]));
+  let byKey: Map<string, unknown>;
+  try {
+    const rows = await getWebDb()
+      .select({ key: siteSettings.key, value: siteSettings.value })
+      .from(siteSettings)
+      .where(inArray(siteSettings.key, ["register.policy", "register.mode"]));
+    byKey = new Map(rows.map((r) => [r.key, r.value]));
+  } catch (e) {
+    // 零表韧性（M12）：全新部署在安装第 1 步之前连 site_settings 表都不存在——
+    // 按默认（邀请制）处理并告警。fail-closed 保守方向：读不到 = 不放开注册。
+    console.warn("[auth] 读取注册策略失败（库表可能尚未创建），已按邀请制处理:", e);
+    return { ...DEFAULT_REGISTER_POLICY };
+  }
   const { policy, error } = resolveRegisterPolicy(
     byKey.get("register.policy"),
     byKey.get("register.mode"),
