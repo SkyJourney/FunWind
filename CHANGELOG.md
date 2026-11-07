@@ -5,6 +5,30 @@
 
 ## [Unreleased]
 
+### Added（M12 · 安装向导与零数据部署）
+
+- **Web 安装向导 `/install`**：四步（环境与数据库 → 站点设置 → 管理员 → 完成），预填 .env、字段级错误回显与
+  草稿保留（G-15/G-19）；写入 `STORAGE_DIR/install.lock` 后全路由 404（D1/D2），重装须 CLI `--unlock`。
+- **安装 CLI `pnpm install:cli`**：与向导共用同一份六步幂等状态机（连接 → 建库（IF NOT EXISTS 绝不 DROP）→
+  bootstrap → 站点设置 → 管理员 → 写锁）；SIGKILL 中断后重跑收敛；`--unlock` 同管理员重装收敛、换管理员拒绝。
+- **首管理员**：安装管线直接创建（argon2id、免邮箱验证立即可登录 D3、同事务授 admin 角色并写审计）——
+  修掉零数据「邀请制 → 邀请码只能 admin 生成 → 无用户无 admin」死路。
+- **防重装双保险**：lock 之外，站点设置与管理员写入仅当 users 表为空或唯一用户即目标管理员（installTargetGuard）。
+- **零表韧性**：`bannerAnnouncement` / `getRegisterPolicy` 读不到表时按「无横幅 / 邀请制」保守回落——
+  全新部署在安装第 1 步之前页面与 Action 不再 500。
+- **零数据空态**：/boards 无版块时给 EmptyState 三要素（管理员直达后台建版块；访客按注册策略给注册或登录）；
+  新增 `migration/README.md`（面向站长的可选导入指南）。
+- **E2E 与 CI**：`pnpm test:e2e:install`（空库 → 向导 → 可用站点 → CLI 双路径 → SIGKILL 中断恢复，
+  独立库 `qysub_next_install_cli` 与独立存储/端口 3203/产物目录）；ci.yml e2e 作业追加该步骤；
+  布局矩阵加 /install 场景（六档）。`lib/install` 覆盖率行 97%+。
+- **README**：新增「零数据部署」章节（env 必填表、`--env-file` 勘误、CLI 用法、安装后核对）。
+
+### Fixed（M12）
+
+- README 与 M13 文档的 `npm run` 勘误（`pnpm db:bootstrap` / `pnpm verify:migration`）；
+  MySQL compose 命令补 `--env-file .env`（`${NEW_DB_PASSWORD:?}` 缺文件直接报错）；
+  `.env.example` 补 `ACCOUNT_DELETION_BATCH_SIZE` 说明。
+
 ### Added（M11.4 · 排期引擎的行为类 effect）
 
 - **开放注册窗口**（`register.open`）：时间窗内临时开放注册，窗口内注册的账号**强制要求验证邮箱**（D3）；

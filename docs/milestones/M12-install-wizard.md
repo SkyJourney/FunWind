@@ -1,7 +1,7 @@
 # M12 · 安装向导与零数据部署
 
 - 阶段：三·完善 ｜ 覆盖模块：数据层基建 ｜ 依赖：M4（管理员账号体系）+ M5.5（schema v2）+ M9（站点配置基础）；前置：M1 的 bootstrap/seed
-- 状态：🚧 实施中（2026-11-07 开工。设计基准与本文件 §2 核实事实、§6 决策 D1–D4（站长 2026-11-07 确认）经规划审批）
+- 状态：🟡 工程交付完成（2026-11-07：Step A→1→2→3→4→5 全部交付并实测（§9）；待里程碑门禁复跑、目视验收签字后经 PR 合并 main，状态改 ✅）
 - 设计基准：`packages/db` 的 bootstrap 管线（幂等，M5.5/M11.6 沉淀）；M11.3 的注册策略读取（`register.policy`）；
   守卫范式 `lib/dev-only.ts` + `dev-only-guard.test.ts`；EmptyState 全站约定（M9.5）；评审规范 G-15/G-16/G-19。
 
@@ -218,6 +218,11 @@
     （6 份审计 0 问题，六档含 /install）；`pnpm test:e2e` 全量退出码 0（440 + 8，回归断言零改动）；
     `pnpm verify:all` 退出码 0（web 3915 + db/content 278）。
 - [ ] Step 6 文档收口：
+  - README「零数据部署」章节（env 必填表、`--env-file` 勘误、向导/CLI 用法、安装后核对）；
+    `npm run` 勘误三处（README 核心约定 6 / M12 门禁行（本文件重写时已改）/ M13-launch `pnpm verify:migration`）；
+    `.env.example` 补 `ACCOUNT_DELETION_BATCH_SIZE`；CHANGELOG Added 条目；ROADMAP 收口。
+  - 遗留事项回写：`.gitignore` / eslint / prettier 三处清单都需随新 distDir 同步（本次补齐
+    `.next-e2e-install-prod` 与 `.next-review-layout`），与 CLAUDE.md 的 tsconfig 已知行为同源。
 
 ## 验收门禁
 
