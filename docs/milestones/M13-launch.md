@@ -171,7 +171,15 @@ BLUEPRINT「上线实录」占位 + M13 文档 ✅（演练执行项留站长）
       （0900 表 CONVERT 为 unicode_ci；唯一索引先摘、PATCHES 恢复 _bin 后按终态重建——users 表
       さくら/サクラ 实测不受影响）。dev 库 qysub_next 已实测对齐（55 表全 unicode_ci、三列 _bin 完好、
       db:verify 21 项全过、二次 bootstrap 幂等）；db 包 119 用例（新增对齐用例）与 `pnpm verify:all` 全绿。
-- [ ] Step 1 健康端点 + 生产镜像：
+- [x] Step 1 健康端点 + 生产镜像（2026-11-07）：`/api/health`（DB SELECT 1 3s 超时 + STORAGE_DIR 可写探针，
+      只出布尔位不泄露细节；不健康 503；单测 4 用例含超时挂起）+ 生产 Dockerfile（多阶段 builder→runner，
+      非根用户 funwind、HEALTHCHECK 打 /api/health、corepack prepare 离线可用、build 期 ARG APP_URL=
+      https://qingyisub.top 固化 HSTS——headers() 是 build 期求值，域名公开可 ARG 覆盖）。
+      **顺带修正 next.config 的 env 字段内联**（STORAGE_DIR/APP_URL 是 build 期固化，会吞掉部署期注入——
+      env 外置形态要求移除；server 侧均为运行时读进程 env，loadEnv/docker 注入两条路等价）。
+      `.dockerignore` 补 `**/.next-*/`（E2E distDir 产物约 5GB 曾入镜像，11.5GB→1.38GB）与数据目录/git。
+      实测：docker build 通过（上下文 103KB）；健康容器 health 200 + HEALTHCHECK healthy + 首页/boards 200；
+      错误口令容器 health 503 `{db:false}`（细节不泄露）。verify:all 退出码 0（架构守卫基线已登记 health 入口）。
 - [ ] Step 2 生产 compose + nginx 301：
 - [ ] Step 3 备份与恢复：
 - [ ] Step 4 社区重启包：

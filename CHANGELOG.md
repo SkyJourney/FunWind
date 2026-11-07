@@ -5,6 +5,25 @@
 
 ## [Unreleased]
 
+### Added（M13 · 部署与社区重启，Step 1）
+
+- **健康端点 `/api/health`**：DB 连通（`SELECT 1`，3 秒超时兜底）与 `STORAGE_DIR` 可写（复用安装自检探针）
+  两项探活；响应只含 `{status,db,storage}` 布尔位、不泄露错误细节；任一项不健康即 503（外部拨测与容器
+  HEALTHCHECK 均打此端点，D3 最小可观测）。单测覆盖健康/DB 故障/存储故障/挂起超时四路。
+- **生产镜像 `docker/production/Dockerfile`**：多阶段构建（builder：全仓依赖 + `next build`；runner：
+  非根用户 `funwind` + `HEALTHCHECK` + `corepack prepare` 离线可用），产物形态保持「整仓 + node_modules +
+  env 外置」（F2，不做 standalone）；容器端口固定 3311（D7：宝塔 nginx 反代此口）。
+  构建期 `ARG APP_URL=https://qingyisub.top` 固化 HSTS（`headers()` 为 build 期求值，域名公开可覆盖）；
+  builder 末尾裁剪 `.next/cache`。实测 1.38GB、上下文 103KB。
+
+### Fixed（M13 Step 1）
+
+- **`next.config.ts` 移除 `env` 字段对 `STORAGE_DIR` / `APP_URL` 的构建期内联**：内联值在 build 时固化，
+  生产镜像 build 时拿不到部署值，会吞掉部署期注入的配置（env 外置形态失效）。服务端读取点均为运行时读进程 env，
+  本机（顶层 loadEnv 读根 .env）与容器（env_file / -e 注入）两条路行为一致。
+- **`.dockerignore` 补 `**/.next-*/`**：原 `.next-*/` 只匹配仓库根，`apps/web` 下 10 个 E2E/布局矩阵 distDir
+  产物（约 5GB）会进入构建上下文；同时补 `**/coverage/`、数据目录（`storage*/`）与 `.git/`。
+
 ### Changed（M13 前置 · 排序规则家族切换）
 
 - **数据库家族默认 `utf8mb4_0900_ai_ci` → `utf8mb4_unicode_ci`**（D8）：0900 是 MySQL 8 专有排序规则，

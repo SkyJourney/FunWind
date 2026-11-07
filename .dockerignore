@@ -1,14 +1,24 @@
-# 构建上下文卫生（基线审查 P1-3）
+# 构建上下文卫生（基线审查 P1-3；M13 Step 1 补生产构建缺口）
 node_modules/
 **/node_modules/
 .next/
 **/.next/
+# E2E/布局矩阵的独立 distDir 产物（apps/web/.next-e2e* 等，合计数 GB）
+**/.next-*/
 dist/
 **/dist/
 coverage/
+**/coverage/
 playwright-report/
 test-results/
+gui-test-screenshots/
+.playwright-mcp/
 .zcode/
 .env
 *.log
 .DS_Store
+# 数据目录绝不进镜像（部署时外置挂载）
+storage/
+storage-*/
+# git 元数据（上下文体积）
+.git/
