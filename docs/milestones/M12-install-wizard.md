@@ -183,7 +183,14 @@
     schema.test 迁移到切片校验（validateInstallConfig 保留为切片组合，CLI 继续使用）。
   - 门禁实测：`pnpm verify:all` 退出码 0（web 3911 + db/content 278）；lib/install 覆盖率
     语句 93.14 / 行 95.36（首次跑出 78 后补 progress 单测与 int 断言拉回，lint 的未用导入清理）。
-- [ ] Step 4 空态与指引：
+- [x] Step 4 空态与指引（2026-11-07）：
+  - /boards 空库（forumCount=0）改走 `EmptyState` 三要素（替换 M9.5 清账记录里的手写灰字违例）：
+    管理员主行动「进后台创建第一个版块」；访客按注册策略给「注册账号」（开放/邀请均可注册）或退化为「登录」；
+    计数行保持「0 个板块 · 0 个主题」。非空路径渲染不变。
+  - 完成页链接落点：新建 `migration/README.md`（面向站长的导入指南：前置、演练/正式/对账步骤、
+    管理员由旧 gid 3/4/5 推导的说明、红线与回滚；完成页与 README 将链接此文档）。
+  - 测试：`boards-empty.test.tsx` 4 项（管理员/注册开放/注册关闭/非空对照）。
+  - 门禁实测：`pnpm verify:all` 退出码 0（web 3915 + db/content 278）。
 - [ ] Step 5 E2E 与 CI：
 - [ ] Step 6 文档收口：
 
