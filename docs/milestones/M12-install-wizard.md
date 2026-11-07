@@ -169,7 +169,20 @@
     换管理员重装被拒且旧管理员不动；lock 读写对 CLI 显式 env 生效。
   - 门禁实测：`pnpm verify:all` 退出码 0（web 3891 + db/content 278）；lib/install 覆盖率
     语句 94.53 / 行 97.29。
-- [ ] Step 3 向导 UI：
+- [x] Step 3 向导 UI（2026-11-07）：
+  - `app/install/page.tsx`（`?step=` 四步 + 进度推导自 DB 状态）、`actions.ts`（三个 Server Action，
+    `auth:"guest"` + run 首行入口守卫；input 全字符串，语义校验在 run 里走切片 validator 并 failTo 回显）、
+    `draft.ts`（G-19 失败草稿，decode 全程不可信：长度/类型/形状过滤）。
+  - `lib/install/progress.ts`：进度从 DB 状态推导（表可查=建库完成 / register.policy 存在=设置完成 /
+    users 非空=管理员完成），不另存状态机表——重启与换实例读到同一份事实；`nodeVersionOk`（≥24）、
+    `storageWritable`（写删探针）、`stepOfProgress`。
+  - `install-entry-guard.test.ts` 静态守卫：页面首个 await + 每个 Action 首行都必须调用入口守卫
+    （数量精确对上；注释按 CLAUDE.md 已知坑改写措辞避免文本误计）；**变异自证**：删除一个 Action 的
+    守卫调用 → 红，还原 → 绿。
+  - 测试：page.test（G-15 六码专门文案 + 兜底对照、四步渲染、草稿回显含字段级问题、进度推导）； 
+    schema.test 迁移到切片校验（validateInstallConfig 保留为切片组合，CLI 继续使用）。
+  - 门禁实测：`pnpm verify:all` 退出码 0（web 3911 + db/content 278）；lib/install 覆盖率
+    语句 93.14 / 行 95.36（首次跑出 78 后补 progress 单测与 int 断言拉回，lint 的未用导入清理）。
 - [ ] Step 4 空态与指引：
 - [ ] Step 5 E2E 与 CI：
 - [ ] Step 6 文档收口：

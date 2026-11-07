@@ -26,6 +26,7 @@ import { hashPassword } from "@/lib/auth/password";
 import { registerUser } from "@/lib/auth/register";
 import { getRegisterPolicy } from "@/lib/auth/settings";
 import { isInstalled, removeInstallLock, writeInstallLock } from "./lock";
+import { installProgress } from "./progress";
 import { INSTALL_STEPS, runInstall, runInstallStep } from "./run-install";
 import { installConfigFromEnv, type InstallConfig } from "./schema";
 
@@ -93,7 +94,18 @@ describe.skipIf(process.env.SKIP_DB_TESTS === "1")("安装管线（真实 MySQL�
       expect((await runInstallStep("connection", config)).ok).toBe(true);
       expect((await runInstallStep("create-db", config)).ok).toBe(true);
       expect((await runInstallStep("create-db", config)).ok).toBe(true); // IF NOT EXISTS 重入
+      // bootstrap 前：进度全 false（users 表不存在 → catch 分支）
+      expect(await installProgress()).toEqual({
+        dbReady: false,
+        siteConfigured: false,
+        adminCreated: false,
+      });
       expect((await runInstallStep("bootstrap", config)).ok).toBe(true);
+      expect(await installProgress()).toEqual({
+        dbReady: true,
+        siteConfigured: false,
+        adminCreated: false,
+      });
       const [row] = await getWebDb().select({ n: users.id }).from(users).limit(1);
       expect(row).toBeUndefined();
     },
@@ -141,6 +153,11 @@ describe.skipIf(process.env.SKIP_DB_TESTS === "1")("安装管线（真实 MySQL�
     expect(byKey.get("site.theme")).toEqual({ pack: "qy2010" });
     // 运行时读取（React cache 在 node 环境=每调用独立，读到的是刚写入的值）
     expect(await getRegisterPolicy()).toEqual({ open: true, invite: false, verifyEmail: true });
+    expect(await installProgress()).toEqual({
+      dbReady: true,
+      siteConfigured: true,
+      adminCreated: false,
+    });
     // 另两种模式的策略键值（users 仍为空，重复执行设置步骤合法）
     expect(
       (await runInstallStep("site-settings", { ...config, registration: { mode: "invite" } })).ok,
@@ -169,6 +186,11 @@ describe.skipIf(process.env.SKIP_DB_TESTS === "1")("安装管线（真实 MySQL�
       expect(user?.passwordHash).toMatch(/^\$argon2id\$/);
       expect(user?.loginVerificationRequired).toBe(false);
       expect(await adminRoleOf(user!.id)).toHaveLength(1);
+      expect(await installProgress()).toEqual({
+        dbReady: true,
+        siteConfigured: true,
+        adminCreated: true,
+      });
       expect(await isInstalled()).toBe(true);
       expect(existsSync(path.join(storageDir, "install.lock"))).toBe(true);
       const audits = await getWebDb()
