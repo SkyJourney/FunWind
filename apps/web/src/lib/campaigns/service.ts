@@ -92,3 +92,25 @@ export async function getActiveCampaignConfigs(): Promise<Map<string, unknown>> 
   }
   return result;
 }
+
+/** 当前生效的开放注册窗口（M11.4 Step 2）：方案名与结束时间，供后台设置页的窗口提示展示 */
+export interface ActiveRegisterWindow {
+  name: string;
+  /** 北京墙面时间 "YYYY-MM-DD HH:MM:SS"；null = 长期（D6 之后行为类不会再出现，仍作兜底） */
+  endsAt: string | null;
+}
+
+/**
+ * 读取生效中的 `register.open` 方案（M11.4 Step 2）：叠加进注册策略的依据。
+ * 读取失败按「无窗口」处理（保守方向：注册保持站点设置原值）并记录错误，
+ * 与本文件其他读取链的故障策略一致：可选能力故障不拖垮决策点。
+ */
+export async function getActiveRegisterWindow(): Promise<ActiveRegisterWindow | null> {
+  try {
+    const winner = pickWinners(await loadActiveCampaignRows()).get("register.open");
+    return winner ? { name: winner.name, endsAt: winner.endsAt } : null;
+  } catch (error) {
+    console.error("[campaigns] 读取开放注册窗口失败，按无窗口处理:", error);
+    return null;
+  }
+}

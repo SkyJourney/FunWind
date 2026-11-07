@@ -56,6 +56,9 @@ const ERROR_TEXT: Record<CampaignErrorCode, string> = {
   "missing-ref": "所选主题包已停用或不存在，或素材已不在素材池中，请重新选择。",
   "not-found": "方案不存在或已被删除。",
   conflict: "方案已被他人修改（版本冲突）。",
+  overlap:
+    "该时间窗与另一个启用中的同类行为方案重叠：行为类方案不能时间重叠，可调整时间或先停用对方。",
+  "behavior-needs-end": "行为类方案必须填写结束时间（要长期生效请改用站点设置）。",
 };
 
 const SAVED_TEXT: Record<string, string> = {

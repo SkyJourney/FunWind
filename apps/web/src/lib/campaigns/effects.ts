@@ -90,13 +90,33 @@ export const siteHeroEffect: CampaignEffect<{ file: string }> = {
 };
 
 /**
+ * M11.4 行为类 effect：开放注册窗口。
+ * 配置恒为空对象 `{}`（无参数）：窗口生效即「访客可凭邮箱注册」，且窗口内强制要求验证邮箱（D3，
+ * 叠加规则见 lib/auth/register-policy.ts 的 applyRegisterWindow）；窗口结束回到站点设置原值。
+ * 与视觉类的本质差异：窗口内创建的账号不可回滚，保存校验更严（行为类不能时间重叠、必须有结束时间，见 admin.ts / input.ts）。
+ */
+export const registerOpenEffect: CampaignEffect<Record<string, never>> = {
+  key: "register.open",
+  label: "开放注册窗口",
+  kind: "behavior",
+  schema: z.object({}).strict(),
+  describe: () => "临时开放注册（到期回到站点设置）",
+  toConfig: (value) => (value === "on" ? {} : null),
+  toValue: (config) =>
+    typeof config === "object" && config !== null && Object.keys(config).length === 0 ? "on" : null,
+  fixedOptions: [["on", "开放注册（窗口内注册须验证邮箱）"]],
+};
+
+/**
  * 全部已注册 effect。
- * 新增一项 = 在这里 push + 在读取链接上消费（视觉类 site-chrome；行为类各自的决策点）+ 补 effects.test 的键清单断言。
+ * 新增一项 = 在这里 push + 在读取链接上消费（视觉类 site-chrome；行为类各自的决策点）+ 补 effects.test 的键清单断言；
+ * 行为类还要接 refs（无外部引用则返回 true）与 admin 的重叠检查（kind=behavior 自动生效）。
  */
 export const CAMPAIGN_EFFECTS: readonly CampaignEffect<never>[] = [
   themePackEffect,
   siteLogoEffect,
   siteHeroEffect,
+  registerOpenEffect,
 ] as unknown as readonly CampaignEffect<never>[];
 
 /** 按注册键取 effect；未知键返回 null（读侧：该行不生效；写侧：拒绝保存） */

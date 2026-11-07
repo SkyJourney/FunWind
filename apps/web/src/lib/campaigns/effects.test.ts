@@ -13,8 +13,13 @@ import {
 
 describe("运营排期 effect 注册表", () => {
   it("注册键清单精确（新增 effect 必须同步消费者与测试）", () => {
-    expect([...CAMPAIGN_EFFECT_KEYS]).toEqual(["theme.pack", "site.logo", "site.hero"]);
-    expect(CAMPAIGN_EFFECTS).toHaveLength(3);
+    expect([...CAMPAIGN_EFFECT_KEYS]).toEqual([
+      "theme.pack",
+      "site.logo",
+      "site.hero",
+      "register.open",
+    ]);
+    expect(CAMPAIGN_EFFECTS).toHaveLength(4);
   });
 
   it("每个 effect 都有非空 label 与可调用 describe", () => {
@@ -138,6 +143,29 @@ describe("运营排期 effect 注册表", () => {
       expect(configFromTarget("theme.pack", "")).toBeNull();
       expect(configFromTarget("site.logo", "hero-aaaa1111.png")).toBeNull();
       expect(configFromTarget("site.hero", "logo-aaaa1111.png")).toBeNull();
+    });
+  });
+
+  describe("register.open（M11.4 Step 2，行为类）", () => {
+    it("行为类：自带唯一选项 on，配置恒为空对象", () => {
+      const effect = findCampaignEffect("register.open");
+      expect(effect).not.toBeNull();
+      expect(effect!.kind).toBe("behavior");
+      expect(effect!.fixedOptions).toEqual([["on", "开放注册（窗口内注册须验证邮箱）"]]);
+      expect(configFromTarget("register.open", "on")).toEqual({});
+      expect(validateCampaignConfig("register.open", {}).ok).toBe(true);
+    });
+
+    it("其他选项值与多余字段一律拒绝（strict）", () => {
+      expect(configFromTarget("register.open", "off")).toBeNull();
+      expect(configFromTarget("register.open", "")).toBeNull();
+      expect(validateCampaignConfig("register.open", { extra: 1 }).ok).toBe(false);
+    });
+
+    it("有效配置还原为选项值 on；无效形态返回 null", () => {
+      expect(targetOfConfig("register.open", {})).toBe("on");
+      expect(targetOfConfig("register.open", { extra: 1 })).toBeNull();
+      expect(targetOfConfig("register.open", null)).toBeNull();
     });
   });
 });

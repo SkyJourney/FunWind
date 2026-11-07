@@ -6,7 +6,11 @@ import { SITE_NAME, SITE_TAGLINE, SITE_URL } from "@/lib/site";
 import { DEFAULT_PACK } from "@/lib/theme-packs";
 import { isKnownPackId } from "@/lib/theme/catalog";
 import { getActiveCampaignConfigs } from "@/lib/campaigns/service";
-import { registerAvailability, resolveRegisterPolicy } from "@/lib/auth/register-policy";
+import {
+  applyRegisterWindow,
+  registerAvailability,
+  resolveRegisterPolicy,
+} from "@/lib/auth/register-policy";
 
 /**
  * 站点框架配置（M9，site_settings JSON，不建独立表）：导航/友链/页脚。
@@ -98,9 +102,15 @@ export async function getSiteChrome(): Promise<SiteChrome> {
       heroUrl: hero.file ? brandUrl("hero", hero) : null,
       identity: parseIdentity(byKey.get("site.identity")),
       themePack: await resolveSiteThemePack(byKey.get("site.theme"), campaign.get("theme.pack")),
+      // 顶栏「注册」入口与注册页 / 注册 Action 读同一生效值（M11.4 Step 2）：
+      // 套用同一条窗口叠加规则（campaign 已在上面读取，不多查库）；本函数有 30 秒 TTL，
+      // 窗口开始 / 结束时顶栏最多延迟 30 秒（M11.4 §2.2 F2 / 遗留事项）。
       registrationOpen:
         registerAvailability(
-          resolveRegisterPolicy(byKey.get("register.policy"), byKey.get("register.mode")).policy,
+          applyRegisterWindow(
+            resolveRegisterPolicy(byKey.get("register.policy"), byKey.get("register.mode")).policy,
+            campaign.has("register.open"),
+          ),
         ).kind !== "closed",
     };
     g.__fwSiteChrome = { value: chrome, at: Date.now() };

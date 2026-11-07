@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_REGISTER_POLICY,
+  applyRegisterWindow,
   chooseRegisterPath,
   pathRequiresVerification,
   policyFromLegacyMode,
@@ -103,5 +104,34 @@ describe("哪些账号带登录验证门", () => {
     expect(pathRequiresVerification(P(true, true, false), { kind: "open" })).toBe(false);
     expect(pathRequiresVerification(strict, { kind: "closed" })).toBe(false);
     expect(pathRequiresVerification(strict, { kind: "invite-required" })).toBe(false);
+  });
+});
+
+describe("开放注册窗口叠加（M11.4 Step 2，D3）", () => {
+  it("窗口未生效 → 原样返回", () => {
+    for (const p of [P(false, true), P(false, false), P(true, false), P(true, true)]) {
+      expect(applyRegisterWindow(p, false)).toEqual(p);
+    }
+  });
+
+  it("站点已开放 → 原样返回（只放开不收紧：验证要求跟随站点设置，不由排期收紧）", () => {
+    const openOnly = P(true, false, false);
+    expect(applyRegisterWindow(openOnly, true)).toBe(openOnly);
+    const both = P(true, true, false);
+    expect(applyRegisterWindow(both, true)).toBe(both);
+    const verified = P(true, false, true);
+    expect(applyRegisterWindow(verified, true)).toBe(verified);
+  });
+
+  it("由排期放开的注册强制要求验证邮箱（D3）；「邀请」开关保持不变（双开时邀请码选填）", () => {
+    expect(applyRegisterWindow(P(false, true), true)).toEqual(P(true, true, true));
+    expect(applyRegisterWindow(P(false, false), true)).toEqual(P(true, false, true));
+    expect(applyRegisterWindow(P(false, true, true), true)).toEqual(P(true, true, true));
+  });
+
+  it("不修改入参对象（读取链可放心复用同一份站点原值）", () => {
+    const p = P(false, true);
+    applyRegisterWindow(p, true);
+    expect(p).toEqual(P(false, true));
   });
 });

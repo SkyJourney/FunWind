@@ -214,3 +214,150 @@ describe.skipIf(skipDb)("后台列表", () => {
     expect((await getSiteChrome()).themePack).toBe("default");
   });
 });
+
+describe.skipIf(skipDb)("行为类时间窗重叠拒绝（M11.4 Q5 / D4）", () => {
+  /** 五个时刻：昨天 / 现在 / 明天 / 后天 / 大后天（北京墙面时间，用 SQL 取以免依赖进程时区） */
+  async function stamps(): Promise<{ s: string; m: string; e: string; f: string; g: string }> {
+    const [rows] = (await db().execute(
+      sql`SELECT DATE_FORMAT(NOW() - INTERVAL 1 DAY, '%Y-%m-%d %H:%i:%s') AS s,
+                 DATE_FORMAT(NOW(), '%Y-%m-%d %H:%i:%s') AS m,
+                 DATE_FORMAT(NOW() + INTERVAL 1 DAY, '%Y-%m-%d %H:%i:%s') AS e,
+                 DATE_FORMAT(NOW() + INTERVAL 2 DAY, '%Y-%m-%d %H:%i:%s') AS f,
+                 DATE_FORMAT(NOW() + INTERVAL 3 DAY, '%Y-%m-%d %H:%i:%s') AS g`,
+    )) as unknown as [{ s: string; m: string; e: string; f: string; g: string }[]];
+    return rows[0]!;
+  }
+
+  const window = async (over: Partial<CampaignFields> & { span?: [string, string] } = {}) => {
+    const fallback = await aroundNow();
+    const [startsAt, endsAt] = over.span ?? [fallback.start, fallback.end];
+    const { span: _span, ...rest } = over;
+    return {
+      name: "开放注册窗口",
+      effect: "register.open",
+      target: "on",
+      startsAt,
+      endsAt,
+      priority: 0,
+      ...rest,
+    };
+  };
+
+  it("创建与已启用的同类方案时间重叠 → overlap，不落库不审计", async () => {
+    const first = await createCampaign(await window(), ACTOR);
+    expect(first.ok).toBe(true);
+    const second = await createCampaign(await window({ name: "窗口B" }), ACTOR);
+    expect(second).toEqual({ ok: false, code: "overlap" });
+    expect(await db().select().from(campaigns)).toHaveLength(1);
+    expect(await auditOf("campaign.create")).toHaveLength(1);
+  });
+
+  it("首尾相接不算重叠；不同 effect 互不影响；视觉类重叠语义不变", async () => {
+    const { s, m, e } = await stamps();
+    const first = await createCampaign(await window({ span: [s, m] }), ACTOR);
+    const touching = await createCampaign(await window({ name: "相接", span: [m, e] }), ACTOR);
+    expect(first.ok).toBe(true);
+    expect(touching.ok).toBe(true);
+    const visualA = await createCampaign(await fields({ name: "视觉A" }), ACTOR);
+    const visualB = await createCampaign(await fields({ name: "视觉B", priority: 3 }), ACTOR);
+    expect(visualA.ok).toBe(true);
+    expect(visualB.ok).toBe(true);
+  });
+
+  it("停用的方案不参与比较（D4）；重新启用与启用中的同类重叠 → overlap", async () => {
+    const first = await createCampaign(await window({ name: "甲" }), ACTOR);
+    if (!first.ok) throw new Error("夹具失败");
+    // 停用甲后创建窗口相同的乙：甲已停用不参与比较 → 创建成功且为启用
+    await setCampaignEnabled(first.value.id, false, ACTOR);
+    const second = await createCampaign(await window({ name: "乙" }), ACTOR);
+    if (!second.ok) throw new Error("夹具失败");
+    // 重新启用甲：与启用中的乙重叠 → 拒（这就是 D4 的重新启用检查）
+    expect(await setCampaignEnabled(first.value.id, true, ACTOR)).toEqual({
+      ok: false,
+      code: "overlap",
+    });
+    // 停用乙后再启用甲 → 成功；此时再启用乙 → 与甲重叠 → 拒
+    await setCampaignEnabled(second.value.id, false, ACTOR);
+    expect((await setCampaignEnabled(first.value.id, true, ACTOR)).ok).toBe(true);
+    expect(await setCampaignEnabled(second.value.id, true, ACTOR)).toEqual({
+      ok: false,
+      code: "overlap",
+    });
+    // 只有真正改变状态的动作写审计：甲停用、乙停用、甲启用
+    expect(await auditOf("campaign.toggle")).toHaveLength(3);
+    expect(await auditOf("campaign.create")).toHaveLength(2);
+  });
+
+  it("编辑自身（保持原窗口）不算重叠；把窗口改成与生效中的他人重叠 → overlap", async () => {
+    const { s, e, f, g } = await stamps();
+    // A 生效中（昨天 → 明天）；B 在 A 之后未来的独立窗口（后天 → 大天后）
+    const a = await createCampaign(await window({ name: "A", span: [s, e] }), ACTOR);
+    const b = await createCampaign(await window({ name: "B", span: [f, g] }), ACTOR);
+    if (!a.ok || !b.ok) throw new Error("夹具失败");
+    const rename = await updateCampaign(
+      b.value.id,
+      1,
+      await window({ name: "B改名", span: [f, g] }),
+      ACTOR,
+    );
+    expect(rename.ok).toBe(true);
+    const moved = await updateCampaign(
+      b.value.id,
+      2,
+      await window({ name: "B挪窗", span: [s, e] }),
+      ACTOR,
+    );
+    expect(moved).toEqual({ ok: false, code: "overlap" });
+    const [row] = await db().select().from(campaigns).where(eq(campaigns.id, b.value.id));
+    expect(row).toMatchObject({ name: "B改名" });
+  });
+
+  it("已结束的方案不参与比较：与过去窗口重叠的新窗口放行（半开语义）", async () => {
+    await db()
+      .insert(campaigns)
+      .values({
+        name: "已结束",
+        effect: "register.open",
+        config: {},
+        startsAt: sql`NOW() - INTERVAL 2 DAY`,
+        endsAt: sql`NOW() - INTERVAL 1 DAY`,
+        enabled: true,
+        revision: 1,
+        createdAt: sql`NOW()`,
+        updatedAt: sql`NOW()`,
+      });
+    const current = await createCampaign(await window({ name: "当前" }), ACTOR);
+    expect(current.ok).toBe(true);
+    expect(await db().select().from(campaigns)).toHaveLength(2);
+  });
+
+  it("两路并发创建重叠方案 → 恰好一个成功（间隙锁 / 死锁重试收敛，F7）", async () => {
+    const [a, b] = await Promise.all([
+      createCampaign(await window({ name: "并发A" }), ACTOR),
+      createCampaign(await window({ name: "并发B" }), ACTOR),
+    ]);
+    const okOnes = [a, b].filter((r) => r.ok);
+    const codes = [a, b].filter((r) => !r.ok).map((r) => (r as { code: string }).code);
+    expect(okOnes).toHaveLength(1);
+    expect(codes).toEqual(["overlap"]);
+    expect(await db().select().from(campaigns)).toHaveLength(1);
+    expect(await auditOf("campaign.create")).toHaveLength(1);
+  });
+
+  it("两路并发启用停用中的重叠方案 → 恰好一个成功", async () => {
+    const a = await createCampaign(await window({ name: "停A" }), ACTOR);
+    if (!a.ok) throw new Error("夹具失败");
+    await setCampaignEnabled(a.value.id, false, ACTOR);
+    const b = await createCampaign(await window({ name: "停B" }), ACTOR);
+    if (!b.ok) throw new Error("夹具失败");
+    await setCampaignEnabled(b.value.id, false, ACTOR);
+    const results = await Promise.all([
+      setCampaignEnabled(a.value.id, true, ACTOR),
+      setCampaignEnabled(b.value.id, true, ACTOR),
+    ]);
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    expect(
+      results.filter((r) => !r.ok).every((r) => (r as { code: string }).code === "overlap"),
+    ).toBe(true);
+  });
+});

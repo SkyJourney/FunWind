@@ -1,8 +1,9 @@
 import { eq } from "drizzle-orm";
 import { getWebDb, users } from "@funwind/db";
 import { requireAdmin } from "@/lib/authz/require-admin";
-import { getRegisterPolicy } from "@/lib/auth/settings";
-import { registerAvailability } from "@/lib/auth/register-policy";
+import { getSiteRegisterPolicy } from "@/lib/auth/settings";
+import { applyRegisterWindow, registerAvailability } from "@/lib/auth/register-policy";
+import { getActiveRegisterWindow } from "@/lib/campaigns/service";
 import { getDigestHour, securityEmailEnabled } from "@/lib/notifications/email";
 import { getLimitsConfig } from "@/lib/limits/load";
 import { getSiteChrome, getSiteIdentity } from "@/lib/chrome/site-chrome";
@@ -16,10 +17,10 @@ import {
   saveEmailSecurityAction,
   saveIdentityAction,
   saveLimitsAction,
-  saveRegisterPolicyAction,
   saveThemePackAction,
   sendTestMailAction,
 } from "./actions";
+import { RegisterPolicyCard } from "./register-policy-card";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "站点配置" };
@@ -75,24 +76,38 @@ export default async function SiteSettingsPage({
 }) {
   // 入口鉴权约定：第一个 await 必须是 requireAdmin（admin-entry-guard 静态守护）
   const admin = await requireAdmin("site.admin");
-  const [identity, policy, limits, securityMail, digestHour, adminRow, sp, chrome, catalog] =
-    await Promise.all([
-      getSiteIdentity(),
-      getRegisterPolicy(),
-      getLimitsConfig(),
-      securityEmailEnabled(),
-      getDigestHour(),
-      getWebDb()
-        .select({ email: users.email })
-        .from(users)
-        .where(eq(users.id, admin.userId))
-        .limit(1),
-      searchParams,
-      getSiteChrome(),
-      getThemeCatalog(),
-    ]);
+  const [
+    identity,
+    policy,
+    limits,
+    securityMail,
+    digestHour,
+    adminRow,
+    sp,
+    chrome,
+    catalog,
+    registerWindow,
+  ] = await Promise.all([
+    getSiteIdentity(),
+    getSiteRegisterPolicy(),
+    getLimitsConfig(),
+    securityEmailEnabled(),
+    getDigestHour(),
+    getWebDb()
+      .select({ email: users.email })
+      .from(users)
+      .where(eq(users.id, admin.userId))
+      .limit(1),
+    searchParams,
+    getSiteChrome(),
+    getThemeCatalog(),
+    getActiveRegisterWindow(),
+  ]);
   const adminEmail = adminRow[0]?.email ?? null;
-  const registrationClosed = registerAvailability(policy).kind === "closed";
+  // 勾选框展示与保存写回的都是站点原值（policy）；「均已关闭」警示按生效值判断——
+  // 开放注册窗口生效时访客可注册，警示不应出现（M11.4 §2.2 F1）
+  const registrationClosed =
+    registerAvailability(applyRegisterWindow(policy, registerWindow !== null)).kind === "closed";
   const flash = sp.saved ? FLASH[sp.saved] : undefined;
   const mailError = sp.mail_error ? MAIL_ERROR[sp.mail_error] : undefined;
   // env 未配置 ≠ 配了本机默认：判真展示（M9.5 站长反馈「无法区分没配和配了本机」）
@@ -253,77 +268,12 @@ export default async function SiteSettingsPage({
         </CardContent>
       </Card>
 
-      {/* 注册 */}
-      <Card id="register">
-        <CardHeader>
-          <CardTitle>注册策略</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {registrationClosed && (
-            <p
-              role="alert"
-              data-testid="register-closed-warning"
-              // 浅色下 --warning（amber-600）在 warning/10 底上只有 2.86:1，不达 AA；这里仅对本条警示局部加深（混黑 30%，约 5.3:1），
-              // 深色沿用令牌（约 10:1）。--warning 是全站令牌（33 个文件 56 处使用），不在此处改动。
-              className="mb-3 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-[color-mix(in_srgb,var(--warning)_70%,black)] dark:text-warning"
-            >
-              {
-                "当前开放注册与邀请注册均已关闭：访客将看到「当前不开放注册」，无法创建新账号。已有账号的登录、找回密码与邮箱验证不受影响。"
-              }
-            </p>
-          )}
-          <form action={saveRegisterPolicyAction} className="space-y-2 text-sm">
-            <label className="flex items-start gap-2">
-              <input
-                type="checkbox"
-                name="open"
-                value="on"
-                defaultChecked={policy.open}
-                className="mt-1 size-4"
-              />
-              <span>
-                <span className="font-medium">开放注册</span>
-                <span className="text-muted-foreground">——任何人凭邮箱即可注册，无需邀请码</span>
-              </span>
-            </label>
-            <label className="flex items-start gap-2 pl-6">
-              <input
-                type="checkbox"
-                name="verifyEmail"
-                value="on"
-                defaultChecked={policy.verifyEmail}
-                className="mt-1 size-4"
-              />
-              <span>
-                <span className="font-medium">开放注册需验证邮箱</span>
-                <span className="text-muted-foreground">
-                  ——开放注册的新账号必须先点邮件里的链接验证，否则无法登录；只对之后注册的账号生效，不影响已有账号
-                </span>
-              </span>
-            </label>
-            <label className="flex items-start gap-2">
-              <input
-                type="checkbox"
-                name="invite"
-                value="on"
-                defaultChecked={policy.invite}
-                className="mt-1 size-4"
-              />
-              <span>
-                <span className="font-medium">邀请注册</span>
-                <span className="text-muted-foreground">
-                  ——持有效邀请码可注册（邀请码在「邀请码」页签发）。与开放注册同时开启时，邀请码选填；填了无效邀请码会直接报错，不会改走开放注册
-                </span>
-              </span>
-            </label>
-            <div>
-              <SubmitButton className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60">
-                保存注册策略
-              </SubmitButton>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+      {/* 注册策略（M11.4 Step 2 拆出独立组件）：勾选框展示站点原值，窗口期保存不会把「开」写死 */}
+      <RegisterPolicyCard
+        policy={policy}
+        registerWindow={registerWindow}
+        registrationClosed={registrationClosed}
+      />
 
       {/* 邮件（M10.6 收尾）：SMTP 凭据留在 env；后台做状态展示、测试发信与安全类邮件开关 */}
       <Card id="email">
