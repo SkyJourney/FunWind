@@ -47,6 +47,15 @@ describe("板块目录零数据空态（M12）", () => {
     expect(screen.getByText(/站长正在准备社区/)).toBeInTheDocument();
   });
 
+  it("零数据 + 已登录非管理员：不给 CTA（注册/登录都是错误引导，审查 F-10）", async () => {
+    mocks.subject.mockResolvedValue({ userId: 90005 });
+    render(await BoardsPage());
+    expect(screen.getByText("这里还没有板块")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /注册账号/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /进后台创建第一个版块/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /登录/ })).toBeNull();
+  });
+
   it("零数据 + 访客 + 注册关闭（双关）：主行动退化为登录", async () => {
     mocks.chrome.mockResolvedValue({ registrationOpen: false });
     render(await BoardsPage());

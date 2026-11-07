@@ -154,7 +154,8 @@ export async function bannerAnnouncement(loggedIn: boolean): Promise<{
       .limit(1);
     return row ?? null;
   } catch (e) {
-    console.error("[chrome] 读取横幅公告失败，按无横幅处理:", e);
+    // 装饰性横幅：故障期按无横幅处理。error 每请求刷屏（安装前每渲染必打），降为 warn（审查 F-8）
+    console.warn("[chrome] 读取横幅公告失败，按无横幅处理:", e);
     return null;
   }
 }

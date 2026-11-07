@@ -12,6 +12,8 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
+  // CLI 用例单条串行 7 个真实子进程（含 SIGKILL 中断恢复），预算远超默认 30 秒（审查 P1-3）
+  timeout: 300_000,
   reporter: [["list"]],
   use: { baseURL: "http://127.0.0.1:3203", serviceWorkers: "block" },
   projects: [

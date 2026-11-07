@@ -110,6 +110,11 @@ export async function createDatabaseIfNotExists(
   database: string,
   log = (m: string) => console.log(m),
 ): Promise<void> {
+  // 纵深防御：本函数以模板字符串拼接库名，调用方（web 安装 schema）有白名单校验，
+  // 这里再自断言一次——公开导出的函数不信任调用链
+  if (!/^[A-Za-z0-9_]{1,64}$/.test(database)) {
+    throw new Error(`库名只允许字母、数字与下划线（1–64 位）：${database}`);
+  }
   const { database: _unused, ...withoutDb } = config;
   const conn = await createConnection(withoutDb);
   try {

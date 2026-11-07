@@ -18,7 +18,9 @@ import {
   newDbConfig,
   normalizeKey,
   siteSettings,
+  userProfiles,
   userRoles,
+  userStats,
   users,
 } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -122,9 +124,10 @@ describe.skipIf(process.env.SKIP_DB_TESTS === "1")("安装管线（真实 MySQL�
           ok: false,
           code: "db-unreachable",
         });
+        // 连接类错误分流为 db-unreachable（审查 P2-⑥）；权限类（ER_DBACCESS_DENIED）才是 db-create-denied
         expect(await runInstallStep("create-db", config)).toMatchObject({
           ok: false,
-          code: "db-create-denied",
+          code: "db-unreachable",
         });
         expect(await runInstallStep("bootstrap", config)).toMatchObject({
           ok: false,
@@ -267,4 +270,34 @@ describe.skipIf(process.env.SKIP_DB_TESTS === "1")("安装管线（真实 MySQL�
     await writeInstallLock({ installedAt: new Date().toISOString() });
     expect(await isInstalled()).toBe(true);
   });
+
+  it(
+    "并发双跑（审查 P1-2）：互斥锁串行化——users 清零后不同管理员名并发也只产生一个 admin",
+    { timeout: 180_000 },
+    async () => {
+      // 自建「users=0 + 无锁」态：lock 已在（上一用例），按外键序清空用户
+      expect(await removeInstallLock()).toBe(true);
+      await getWebDb().delete(userRoles);
+      await getWebDb().delete(userProfiles);
+      await getWebDb().delete(userStats);
+      await getWebDb().delete(users);
+      expect((await getWebDb().select({ n: users.id }).from(users)).length).toBe(0);
+
+      const cfgB = {
+        ...config,
+        admin: { username: "other_admin", email: "other@example.com", password: "other-pass-123" },
+      };
+      const [a, b] = await Promise.all([runInstall(config), runInstall(cfgB)]);
+      // 恰好一个成功；败者两种合法形态：install-busy（互斥锁被持有）或
+      // users-exist（锁释放后才进 guard，看到对方用户）
+      const codes = [a, b].map((r) => (r.ok ? "ok" : r.code));
+      expect(codes.filter((c) => c === "ok")).toHaveLength(1);
+      expect(codes.filter((c) => c === "users-exist" || c === "install-busy")).toHaveLength(1);
+      // 核心不变量：任一时刻至多一个用户、至多一个 admin 角色
+      const allUsers = await getWebDb().select({ id: users.id }).from(users);
+      expect(allUsers).toHaveLength(1);
+      expect(await adminRoleOf(allUsers[0]!.id)).toHaveLength(1);
+      expect(await isInstalled()).toBe(true);
+    },
+  );
 });

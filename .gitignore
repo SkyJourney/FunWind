@@ -8,6 +8,7 @@ node_modules/
 .next-review-layout/
 .next-e2e-visual/
 .next-lighthouse/
+.next-size/
 .next-review-*/
 # Playwright MCP 浏览器自动化的临时产物（快照 / 控制台日志 / 截图）
 .playwright-mcp/

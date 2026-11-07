@@ -22,27 +22,34 @@ export const installRegistrationSchema = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("closed") }).strict(),
 ]);
 
-/** 分步表单的切片 schema（向导每一步只提交自己那份；CLI 仍用完整 installConfigSchema） */
-export const installDbSchema = z
-  .object({
-    host: z.string().min(1).max(255),
-    port: z.number().int().min(1).max(65535),
-    user: z.string().min(1).max(64),
-    password: z.string().max(128),
-    name: z.string().regex(INSTALL_DATABASE_NAME_RE, "数据库名只允许字母、数字与下划线（1–64 位）"),
-  })
-  .strict();
+/** 分步表单的切片 schema（向导每一步只提交自己那份；CLI 仍用完整 installConfigSchema）。
+ * 字段文案一律中文（G-15：结构校验失败的提示也会直出 UI，不能落 zod 默认英文）。 */
+export const installDbSchema = z.object({
+  host: z.string({ message: "主机必须为字符串" }).min(1, "主机不能为空").max(255, "主机过长"),
+  port: z
+    .number({ message: "端口必须是 1–65535 的整数" })
+    .int("端口必须是 1–65535 的整数")
+    .min(1, "端口必须是 1–65535 的整数")
+    .max(65535, "端口必须是 1–65535 的整数"),
+  user: z.string({ message: "用户必须为字符串" }).min(1, "用户不能为空").max(64, "用户过长"),
+  password: z.string({ message: "口令必须为字符串" }).max(128, "口令过长"),
+  name: z
+    .string({ message: "数据库名必须为字符串" })
+    .regex(INSTALL_DATABASE_NAME_RE, "数据库名只允许字母、数字与下划线（1–64 位）"),
+});
 
-export const installSiteSchema = z
-  .object({
-    name: z.string().trim().min(1).max(40),
-    tagline: z.string().trim().max(80),
-    url: z
-      .string()
-      .trim()
-      .regex(/^https?:\/\//, "站点 URL 必须以 http:// 或 https:// 开头"),
-  })
-  .strict();
+export const installSiteSchema = z.object({
+  name: z
+    .string({ message: "站点名称必须为字符串" })
+    .trim()
+    .min(1, "站点名称不能为空")
+    .max(40, "站点名称过长"),
+  tagline: z.string({ message: "一句话介绍必须为字符串" }).trim().max(80, "一句话介绍过长"),
+  url: z
+    .string({ message: "站点 URL 必须为字符串" })
+    .trim()
+    .regex(/^https?:\/\//, "站点 URL 必须以 http:// 或 https:// 开头"),
+});
 
 export const installAdminSchema = z
   .object({
@@ -99,14 +106,17 @@ export function validateDbSlice(
   | { ok: false; issues: InstallConfigIssues } {
   const parsed = installDbSchema.safeParse(db);
   if (!parsed.success) return { ok: false, issues: zodIssues(parsed.error) };
+  // 口令留空 = 沿用 .env 的值（审查 P1-1：口令不预填不回显，表单留空提交；CLI 传完整值不受影响）
+  const submitted =
+    parsed.data.password === "" ? { ...parsed.data, password: runtimeDb.password } : parsed.data;
   const mismatches: string[] = [];
-  if (parsed.data.host !== runtimeDb.host) mismatches.push(`主机（应为 ${runtimeDb.host}）`);
-  if (parsed.data.port !== runtimeDb.port) mismatches.push(`端口（应为 ${runtimeDb.port}）`);
-  if (parsed.data.user !== runtimeDb.user) mismatches.push(`用户（应为 ${runtimeDb.user}）`);
-  if (parsed.data.password !== runtimeDb.password) mismatches.push("口令");
-  if (parsed.data.name !== runtimeDb.database)
-    mismatches.push(`库名（应为 ${runtimeDb.database}）`);
+  if (submitted.host !== runtimeDb.host) mismatches.push("主机");
+  if (submitted.port !== runtimeDb.port) mismatches.push("端口");
+  if (submitted.user !== runtimeDb.user) mismatches.push("用户");
+  if (submitted.password !== runtimeDb.password) mismatches.push("口令");
+  if (submitted.name !== runtimeDb.database) mismatches.push("库名");
   if (mismatches.length > 0) {
+    // 不回显 env 的具体值：本页对公网匿名开放，值会泄露数据库拓扑（审查 P1-1）
     return {
       ok: false,
       issues: {
@@ -116,7 +126,7 @@ export function validateDbSlice(
       },
     };
   }
-  return { ok: true, value: parsed.data };
+  return { ok: true, value: submitted };
 }
 
 /** 管理员切片语义校验：用户名规则 / 邮箱格式 / 密码长度（与注册口径一致） */
@@ -161,6 +171,8 @@ export function installConfigFromEnv(
   overrides: Partial<Omit<InstallConfig, "db">> & { db?: Partial<InstallConfig["db"]> } = {},
 ): InstallConfig {
   const env = newDbConfig();
+  // 注意：外层不能再展开 overrides——那会用**部分** db/site/admin 对象整体覆盖上面合并好的完整值，
+  // 使签名承诺的 Partial 语义失效（审查 P2-②）
   return installConfigSchema.parse({
     db: {
       host: env.host,
@@ -176,9 +188,8 @@ export function installConfigFromEnv(
       url: "http://127.0.0.1:3100",
       ...overrides.site,
     },
-    themePack: "default",
-    registration: { mode: "invite" },
+    themePack: overrides.themePack ?? "default",
+    registration: overrides.registration ?? { mode: "invite" },
     admin: { username: "", email: "", password: "", ...overrides.admin },
-    ...overrides,
   });
 }

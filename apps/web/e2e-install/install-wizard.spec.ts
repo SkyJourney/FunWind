@@ -22,7 +22,12 @@ failOnPageErrors();
 
 // Playwright 按 CJS 转译 spec（import.meta 不可用）；CLI 以 apps/web 为 cwd 运行（CLAUDE.md 已知坑）
 const WEB_ROOT = process.cwd();
-const INSTALL_STORAGE = process.env.STORAGE_DIR ?? path.resolve(WEB_ROOT, "../storage-e2e-install");
+// 编排固定导出仓库根的 storage-e2e-install；裸跑（无 STORAGE_DIR）直接 fail-fast，兜底路径错一级只会让失败费解（审查 P2-3）
+const INSTALL_STORAGE = process.env.STORAGE_DIR
+  ? path.resolve(process.env.STORAGE_DIR)
+  : (() => {
+      throw new Error("安装 E2E 必须经 pnpm test:e2e:install 运行（由编排导出 STORAGE_DIR）");
+    })();
 const CLI_STORAGE = path.resolve(INSTALL_STORAGE, "..", "storage-e2e-install-cli");
 const CLI_DB = "qysub_next_install_cli";
 const ADMIN = [
@@ -66,8 +71,6 @@ function dropCliDb(): void {
   expect(r.status).toBe(0);
 }
 
-failOnPageErrors();
-
 test("错误路径：口令与环境不一致 → 专属提示与草稿保留（G-16），不落任何数据", async ({ page }) => {
   // 连接信息以 .env 为准（运行中的实例不能换库）：表单口令与 env 不一致 → invalid-config，
   // 字段级提示指出「口令」不一致；连接真实失败（db-unreachable）由管线集成测试覆盖
@@ -91,7 +94,7 @@ test("向导全流程：空库 → 建库建表 → 站点设置 → 管理员 �
   // 第 1 步：环境自检与数据库（预填 .env，直接提交）
   await expect(page.getByText("环境自检")).toBeVisible();
   await page.getByRole("button", { name: "测试连接并建表" }).click();
-  await expect(page).toHaveURL(/\/install\?step=2/);
+  await expect(page).toHaveURL(new RegExp(`/install\\?step=2($|&)`));
 
   // 第 2 步：站点设置（开放注册 + 要求验证邮箱）
   await page.getByLabel("站点名称").fill("安装向导站");
@@ -99,7 +102,7 @@ test("向导全流程：空库 → 建库建表 → 站点设置 → 管理员 �
   await page.getByRole("radio", { name: /开放注册/ }).check();
   await page.getByRole("checkbox", { name: /开放注册需验证邮箱/ }).check();
   await page.getByRole("button", { name: "保存站点设置" }).click();
-  await expect(page).toHaveURL(/\/install\?step=3/);
+  await expect(page).toHaveURL(new RegExp(`/install\\?step=3($|&)`));
 
   // 第 3 步：管理员（lock 落盘后向导自动关闭，跳登录页带完成提示）
   await page.getByLabel("用户名").fill("inst_admin");

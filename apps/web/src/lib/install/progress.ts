@@ -68,7 +68,8 @@ export async function storageWritable(
   const probe = path.join(getStorageDir(env), `.install-probe-${randomBytes(4).toString("hex")}`);
   try {
     await writeFile(probe, "probe"); // 目录不存在（ENOENT）或无权限都会失败
-    await unlink(probe);
+    // 写成功即判可写；清理失败（unlink）不影响结论，best-effort 删除（审查 F-7）
+    await unlink(probe).catch(() => {});
     return true;
   } catch {
     return false;
