@@ -4,6 +4,8 @@ import {
   CAMPAIGN_EFFECT_KEYS,
   configFromTarget,
   findCampaignEffect,
+  siteHeroEffect,
+  siteLogoEffect,
   targetOfConfig,
   themePackEffect,
   validateCampaignConfig,
@@ -96,6 +98,46 @@ describe("运营排期 effect 注册表", () => {
       expect(targetOfConfig("theme.pack", { file: "x" })).toBeNull();
       expect(targetOfConfig("theme.pack", null)).toBeNull();
       expect(targetOfConfig("site.decor", { file: "x" })).toBeNull();
+    });
+  });
+
+  // —— M11.4 Step 0：注册表扩展（kind + effect 自管的选项值互转）——
+
+  describe("效果类别与互转声明（M11.4 Step 0）", () => {
+    it("每个 effect 都声明 kind 与可调用的选项值互转", () => {
+      for (const effect of CAMPAIGN_EFFECTS) {
+        expect(["visual", "behavior"]).toContain(effect.kind);
+        expect(typeof effect.toConfig).toBe("function");
+        expect(typeof effect.toValue).toBe("function");
+      }
+    });
+
+    it("M11.2 三个视觉 effect：kind=visual、不带自带选项（选项由页面按库生成）", () => {
+      for (const effect of [themePackEffect, siteLogoEffect, siteHeroEffect]) {
+        expect(effect.kind).toBe("visual");
+        expect(effect.fixedOptions).toBeUndefined();
+      }
+    });
+
+    it("互转往返：合法选项值 → 配置 → 通过严格校验 → 还原同一选项值", () => {
+      const cases = [
+        ["theme.pack", "xmas-2026"],
+        ["site.logo", "logo-aaaa1111.png"],
+        ["site.hero", "hero-bbbb2222.png"],
+      ] as const;
+      for (const [key, value] of cases) {
+        const config = configFromTarget(key, value);
+        expect(config).not.toBeNull();
+        expect(validateCampaignConfig(key, config).ok).toBe(true);
+        expect(targetOfConfig(key, config)).toBe(value);
+      }
+    });
+
+    it("非法选项值在组装配置时即被拒绝（后台提交值恒为字符串，不能靠类型系统兜底）", () => {
+      expect(configFromTarget("theme.pack", "BAD ID")).toBeNull();
+      expect(configFromTarget("theme.pack", "")).toBeNull();
+      expect(configFromTarget("site.logo", "hero-aaaa1111.png")).toBeNull();
+      expect(configFromTarget("site.hero", "logo-aaaa1111.png")).toBeNull();
     });
   });
 });

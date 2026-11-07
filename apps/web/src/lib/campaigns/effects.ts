@@ -1,10 +1,10 @@
 import { z } from "zod";
 
 /**
- * 运营排期效果（effect）注册表（M11.2，docs/milestones/M11.2-theme-switching.md）。
+ * 运营排期效果（effect）注册表（M11.2，M11.4 Step 0 扩展，docs/milestones/M11.2-theme-switching.md / M11.4-campaign-behavior-effects.md）。
  *
- * 一个 effect = 一种「被排期临时覆盖的站点生效值」。本期只注册视觉类三项
- * （主题包 / LOGO / Hero），后续邀请码策略、积分加成等**只加注册项**，不改表、不改读取骨架。
+ * 一个 effect = 一种「被排期临时覆盖的站点生效值」。M11.2 注册视觉类三项（主题包 / LOGO / Hero）；
+ * M11.4 起扩展为可容纳行为类（开放注册窗口、积分加成等），新增效果仍只加注册项 + 接消费点，不改表、不改读取骨架。
  *
  * 设计约束（来自全仓既有范式与一次失败教训）：
  *  · 未知 effect 键在**读、写两侧都拒绝**（fail-closed）——同 lib/points/channels 的「未注册即拒」。
@@ -12,7 +12,13 @@ import { z } from "zod";
  *  · 注册表必须同时有消费者（apps/web/src/lib/chrome/site-chrome.ts 的合成），
  *    只加类型不加消费 = 名义可插拔（docs/GATES.md §M6.1 修订记录的反例）。
  *  · schema 一律 `.strict()`：多一个字段就拒绝，防止把拼写错误静默变成默认值。
+ *  · 表单沿用单个分组下拉 `<effect>::<选项值>`（无脚本可用，M11.4 D1）。后台提交值恒为字符串且不做类型转换
+ *    （lib/actions/form-data.ts），所以「选项值 ⇄ 配置」的互转由每个 effect 自己负责（toConfig / toValue），
+ *    不再假设"每个 effect 恰有一个字符串目标字段"——无参数、数值参数的行为类效果由此得以表达。
  */
+
+/** 效果类别：visual 只替换读取到的站点默认值（无副作用）；behavior 在时间窗内改变业务决策点，有不可回滚的副作用（M11.4） */
+export type CampaignEffectKind = "visual" | "behavior";
 
 /** effect 配置的公共形态：纯数据，可 JSON 序列化，不含 URL / 路径 / CSS 文本 */
 export interface CampaignEffect<C> {
@@ -20,12 +26,18 @@ export interface CampaignEffect<C> {
   readonly key: string;
   /** 后台展示名 */
   readonly label: string;
-  /** 配置里唯一的目标字段名：后台表单只提交这个值，由 configFromTarget 组装成完整配置 */
-  readonly targetKey: "pack" | "file";
+  /** 类别：后台列表据此区分视觉类 / 行为类（M11.4） */
+  readonly kind: CampaignEffectKind;
   /** 配置的严格校验；未知字段拒绝 */
   readonly schema: z.ZodType<C>;
-  /** 后台卡片上的一行摘要（纯函数，不含 IO） */
+  /** 该效果的一行摘要（纯函数，不含 IO；列表摘要与测试断言用） */
   readonly describe: (config: C) => string;
+  /** 下拉选项值 → 待校验配置；值不合法返回 null（写入侧再由 schema 严格校验） */
+  readonly toConfig: (value: string) => Record<string, unknown> | null;
+  /** 已存配置 → 下拉选项值（编辑回填、列表摘要用）；形态不符返回 null */
+  readonly toValue: (config: unknown) => string | null;
+  /** 行为类自带下拉选项（无 IO，[选项值, 展示名]）；视觉类不设，选项由页面按库里的包与素材池生成 */
+  readonly fixedOptions?: readonly (readonly [string, string])[];
 }
 
 /** 主题包 id 语法（与 lib/theme/packs.ts 的 THEME_PACK_ID_RE 同口径，避免循环依赖故本地重复） */
@@ -34,33 +46,52 @@ const PACK_ID_RE = /^[a-z0-9][a-z0-9_-]{1,31}$/;
 const LOGO_FILE_RE = /^logo-[a-z0-9]+\.png$/;
 const HERO_FILE_RE = /^hero-[a-z0-9]+\.png$/;
 
+/**
+ * 单字符串目标字段的通用互转（M11.2 三个视觉效果共用）：选项值填进唯一字段；
+ * toValue 只做形态提取（与 M11.2 既有口径一致，不做语法复核）。
+ */
+function stringFieldConverters(field: "pack" | "file", pattern: RegExp) {
+  return {
+    toConfig: (value: string): Record<string, unknown> | null =>
+      pattern.test(value) ? { [field]: value } : null,
+    toValue: (config: unknown): string | null => {
+      if (typeof config !== "object" || config === null) return null;
+      const value = (config as Record<string, unknown>)[field];
+      return typeof value === "string" ? value : null;
+    },
+  } as const;
+}
+
 export const themePackEffect: CampaignEffect<{ pack: string }> = {
   key: "theme.pack",
   label: "主题包",
-  targetKey: "pack",
+  kind: "visual",
   schema: z.object({ pack: z.string().regex(PACK_ID_RE, "非法主题包 id") }).strict(),
   describe: ({ pack }) => `主题包 → ${pack}`,
+  ...stringFieldConverters("pack", PACK_ID_RE),
 };
 
 export const siteLogoEffect: CampaignEffect<{ file: string }> = {
   key: "site.logo",
   label: "站点 LOGO",
-  targetKey: "file",
+  kind: "visual",
   schema: z.object({ file: z.string().regex(LOGO_FILE_RE, "非法 LOGO 池文件名") }).strict(),
   describe: ({ file }) => `LOGO → ${file}`,
+  ...stringFieldConverters("file", LOGO_FILE_RE),
 };
 
 export const siteHeroEffect: CampaignEffect<{ file: string }> = {
   key: "site.hero",
   label: "首页横幅",
-  targetKey: "file",
+  kind: "visual",
   schema: z.object({ file: z.string().regex(HERO_FILE_RE, "非法 Hero 池文件名") }).strict(),
   describe: ({ file }) => `首页横幅 → ${file}`,
+  ...stringFieldConverters("file", HERO_FILE_RE),
 };
 
 /**
  * 全部已注册 effect。
- * 新增一项 = 在这里 push + 在 site-chrome 的合成里接上消费 + 补 effects.test 的键清单断言。
+ * 新增一项 = 在这里 push + 在读取链接上消费（视觉类 site-chrome；行为类各自的决策点）+ 补 effects.test 的键清单断言。
  */
 export const CAMPAIGN_EFFECTS: readonly CampaignEffect<never>[] = [
   themePackEffect,
@@ -95,25 +126,18 @@ export function validateCampaignConfig(
   return { ok: true, value: parsed.data };
 }
 
-/** 后台卡片摘要：配置无效或效果未注册时给出明确文案，类型擦除只在这一处处理 */
-export function describeCampaign(effect: string, config: unknown): string {
-  const registered = findCampaignEffect(effect);
-  if (!registered) return `未注册的效果：${effect}`;
-  const parsed = registered.schema.safeParse(config);
-  if (!parsed.success) return "配置无效（读取时会被忽略）";
-  return (registered.describe as (value: unknown) => string)(parsed.data);
-}
-
-/** 由表单提交的目标值组装配置；未注册 effect 返回 null */
+/** 由表单提交的选项值组装配置；effect 未注册或值不合法返回 null */
 export function configFromTarget(effect: string, target: string): Record<string, string> | null {
   const registered = findCampaignEffect(effect);
-  return registered ? { [registered.targetKey]: target } : null;
+  if (!registered) return null;
+  const config = registered.toConfig(target);
+  return config && Object.values(config).every((v) => typeof v === "string")
+    ? (config as Record<string, string>)
+    : null;
 }
 
-/** 从已存配置取出目标值（编辑回填、引用校验用）；形态不符返回 null */
+/** 从已存配置取出选项值（编辑回填、引用校验、列表摘要用）；形态不符返回 null */
 export function targetOfConfig(effect: string, config: unknown): string | null {
   const registered = findCampaignEffect(effect);
-  if (!registered || typeof config !== "object" || config === null) return null;
-  const value = (config as Record<string, unknown>)[registered.targetKey];
-  return typeof value === "string" ? value : null;
+  return registered ? registered.toValue(config) : null;
 }

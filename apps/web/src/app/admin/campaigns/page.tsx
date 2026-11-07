@@ -5,7 +5,7 @@ import { getLogoPoolRaw } from "@/lib/brand/logo-pool";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import type { CampaignErrorCode } from "@/lib/campaigns/admin";
 import { decodeCampaignDraft, type CampaignDraft } from "@/lib/campaigns/draft";
-import { CAMPAIGN_EFFECTS } from "@/lib/campaigns/effects";
+import { CAMPAIGN_EFFECTS, type CampaignEffect } from "@/lib/campaigns/effects";
 import { joinChoice } from "@/lib/campaigns/input";
 import { listCampaigns, type CampaignListItem } from "@/lib/campaigns/list";
 import { getThemeCatalog } from "@/lib/theme/catalog";
@@ -46,6 +46,18 @@ const toLocalInput = (value: string | null) => (value ? value.replace(" ", "T").
 
 const EMPTY: CampaignDraft = { name: "", choice: "", startsAt: "", endsAt: "", priority: "0" };
 
+/**
+ * 下拉选项（M11.4 Step 0）：视觉类按库里的主题包 / 素材池生成；自带 fixedOptions 的效果
+ * （M11.4 行为类）用注册表清单。新增效果时页面零改动。
+ */
+function optionsOf(
+  effect: CampaignEffect<never>,
+  libraryOptions: readonly { value: string; label: string }[],
+): { value: string; label: string }[] {
+  const source = effect.fixedOptions ?? libraryOptions.map((o) => [o.value, o.label] as const);
+  return source.map(([value, label]) => ({ value, label }));
+}
+
 function draftOf(item: CampaignListItem): CampaignDraft {
   return {
     id: item.id,
@@ -78,14 +90,16 @@ export default async function CampaignsAdminPage(props: { searchParams: Promise<
     getHeroPoolRaw(),
   ]);
 
-  const targets: Record<string, { value: string; label: string }[]> = {
+  const libraryOptions: Record<string, { value: string; label: string }[]> = {
     "theme.pack": catalog.map((pack) => ({ value: pack.id, label: `${pack.label}（${pack.id}）` })),
     "site.logo": logoPool.items.map((item) => ({ value: item.file, label: item.name })),
     "site.hero": heroPool.items.map((item) => ({ value: item.file, label: item.name })),
   };
   const labelByChoice = new Map(
-    Object.entries(targets).flatMap(([effect, options]) =>
-      options.map((option) => [joinChoice(effect, option.value), option.label] as const),
+    CAMPAIGN_EFFECTS.flatMap((effect) =>
+      optionsOf(effect, libraryOptions[effect.key] ?? []).map(
+        (option) => [joinChoice(effect.key, option.value), option.label] as const,
+      ),
     ),
   );
 
@@ -97,7 +111,7 @@ export default async function CampaignsAdminPage(props: { searchParams: Promise<
 
   // 当前取值若已不在可选项里（包被停用、素材被移出池），补一个“已失效”选项，避免编辑时静默丢掉原值
   const groups: ChoiceGroup[] = CAMPAIGN_EFFECTS.map((effect) => {
-    const options = [...(targets[effect.key] ?? [])].map((option) => ({
+    const options = optionsOf(effect, libraryOptions[effect.key] ?? []).map((option) => ({
       value: joinChoice(effect.key, option.value),
       label: option.label,
     }));
