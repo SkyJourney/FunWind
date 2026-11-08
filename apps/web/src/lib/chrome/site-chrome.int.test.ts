@@ -13,6 +13,24 @@ const db = () => getWebDb();
 
 beforeAll(async () => {
   tdb = await setupTempDb();
+  // qy2010 已移出内置种子（站长 2026-11-08）：作为「数据库启用的自定义包」夹具行插入，
+  // 供 site.theme 读回用例验证目录校验的 db 来源分支
+  await db()
+    .insert(themePackages)
+    .values({
+      id: "qy2010",
+      name: "复刻·青翼2010",
+      description: "",
+      schemaVersion: 1,
+      definition: { surfaces: {} },
+      assets: [],
+      enabled: true,
+      isBuiltin: false,
+      revision: 1,
+      createdAt: sql`NOW()`,
+      updatedAt: sql`NOW()`,
+    });
+  invalidateThemeCatalog();
 });
 
 afterAll(async () => {

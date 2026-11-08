@@ -6,7 +6,7 @@ import { INSTALL_THEME_PACKS, installConfigFromEnv, validateInstallConfig } from
 const validRaw = () => ({
   db: installConfigFromEnv().db,
   site: { name: "青翼字幕组", tagline: "日语·ACG 情怀社区", url: "https://qingyisub.top" },
-  themePack: "qy2010" as const,
+  themePack: "default" as const,
   registration: { mode: "open", verifyEmail: true },
   admin: { username: "inst_admin", email: "admin@example.com", password: "install-pass-123" },
 });
@@ -16,7 +16,7 @@ describe("安装配置校验（M12）", () => {
     const r = validateInstallConfig(validRaw());
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.value.themePack).toBe("qy2010");
+      expect(r.value.themePack).toBe("default");
       expect(r.value.registration).toEqual({ mode: "open", verifyEmail: true });
       expect(r.value.db).toEqual(installConfigFromEnv().db);
     }

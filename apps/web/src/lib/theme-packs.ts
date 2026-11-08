@@ -2,7 +2,8 @@
  * 主题包静态注册表（M11.6 Step 5b 后只保留系统回退包）：
  *
  * 只有 `default` 包在此注册（CSS 在 styles/tokens/themes/default.css，作为冷启动 / 数据库不可达时的最终兜底）。
- * 其余内置包（如 `qy2010`）与自定义包均在 `theme_packages` 表中，由种子 / 管理员维护，运行时经 lib/theme/catalog 读取。
+ * 其余主题包（含站点自定义的 `qy2010`——站长 2026-11-08 拍板不内置）均在 `theme_packages` 表中，
+ * 由种子 / 管理员维护，运行时经 lib/theme/catalog 读取。
  * html[data-pack] 由服务端直出（用户偏好 → 站点默认 → default），主题样式经 SSR 注入 <style data-fw-theme-pack>。
  */
 export const THEME_PACKS = [

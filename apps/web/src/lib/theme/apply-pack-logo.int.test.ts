@@ -11,6 +11,7 @@ import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { invalidateThemeCatalog } from "@/lib/theme/catalog";
 import { BUNDLED_PACK_LOGOS } from "@/lib/theme-packs";
 import * as packs from "./packs";
+import { insertQy2010Fixture } from "@/test/qy2010-pack-fixture";
 import { applyThemePackLogo, tryApplyThemePackLogo } from "./apply-pack-logo";
 
 let tdb: TempDb;
@@ -40,6 +41,9 @@ async function seedLogos(pack?: string) {
 describe.skipIf(skipDb)("数据主题包 LOGO 联动（临时库）", () => {
   beforeAll(async () => {
     tdb = await setupTempDb({ demo: false });
+    // qy2010 生产中已是自定义包（站长 2026-11-08），此处夹具行以 isBuiltin=true 覆盖
+    // bundled 联动分支（pack.isBuiltin && bundledLogoOf 命中的路径）；自定义包 no-logo 语义另有用例
+    await insertQy2010Fixture({ isBuiltin: true });
     // 内置包联动会把随代码发布的 LOGO 真实写进存储目录：指向临时目录，用后清理
     storage = await mkdtemp(join(tmpdir(), "fw-pack-logo-bundled-"));
     vi.stubEnv("STORAGE_DIR", storage);
@@ -84,6 +88,24 @@ describe.skipIf(skipDb)("数据主题包 LOGO 联动（临时库）", () => {
     expect(activate).not.toHaveBeenCalled();
     expect((await logoPool.logoPool.getRaw()).active).toBe(logoB);
     expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it("qy2010 降级为自定义包（is_builtin=0）后不再自动带 LOGO：走 no-logo 语义（站长 2026-11-08）", async () => {
+    await getWebDb()
+      .update(themePackages)
+      .set({ isBuiltin: false })
+      .where(eq(themePackages.id, "qy2010"));
+    invalidateThemeCatalog();
+    expect(await tryApplyThemePackLogo("qy2010", themeActor)).toEqual({
+      status: "unchanged",
+      reason: "no-logo",
+    });
+    expect(console.error).not.toHaveBeenCalled();
+    await getWebDb()
+      .update(themePackages)
+      .set({ isBuiltin: true })
+      .where(eq(themePackages.id, "qy2010"));
+    invalidateThemeCatalog();
   });
 
   it("没有自带 LOGO 的内置 default 同样正常 unchanged，无日志", async () => {

@@ -4,11 +4,12 @@
  * 覆盖：新建 / 编辑 / 乐观锁冲突 / 启停 / 删除 / 引用失效 / 审计 / 缓存失效 / 与读取链联动。
  */
 import { and, eq } from "drizzle-orm";
-import { auditLog, campaigns, getWebDb, siteSettings } from "@funwind/db";
+import { auditLog, campaigns, getWebDb, siteSettings, themePackages } from "@funwind/db";
 import { sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { getSiteChrome, invalidateSiteChrome } from "@/lib/chrome/site-chrome";
+import { invalidateThemeCatalog } from "@/lib/theme/catalog";
 import type { ConfigActor } from "@/lib/audit";
 import { createCampaign, deleteCampaign, setCampaignEnabled, updateCampaign } from "./admin";
 import type { CampaignFields } from "./input";
@@ -20,6 +21,24 @@ const ACTOR: ConfigActor = { userId: 90004, via: "admin", ip: "127.0.0.1" };
 
 beforeAll(async () => {
   tdb = await setupTempDb();
+  // qy2010 已移出内置种子（站长 2026-11-08）：作为「数据库启用的自定义包」夹具行插入，
+  // theme.pack effect 的目录校验（isKnownPackId）需要 DB 中存在启用包
+  await db()
+    .insert(themePackages)
+    .values({
+      id: "qy2010",
+      name: "复刻·青翼2010",
+      description: "",
+      schemaVersion: 1,
+      definition: { surfaces: {} },
+      assets: [],
+      enabled: true,
+      isBuiltin: false,
+      revision: 1,
+      createdAt: sql`NOW()`,
+      updatedAt: sql`NOW()`,
+    });
+  invalidateThemeCatalog();
 });
 afterAll(async () => {
   await tdb?.teardown();

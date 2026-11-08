@@ -23,6 +23,7 @@ import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { FULL_TOKENS } from "@/test/theme-token-fixture";
 import { GET as exportPack } from "../[id]/export/route";
 import { POST } from "./route";
+import { insertQy2010Fixture } from "@/test/qy2010-pack-fixture";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/authz/require-admin", () => ({
@@ -116,6 +117,8 @@ function expectAllCompensations(spies: ReturnType<typeof cleanupSpies>) {
 describe.skipIf(skipDb)("主题包导入（临时库 + 临时存储）", () => {
   beforeAll(async () => {
     tdb = await setupTempDb({ demo: false });
+    // qy2010 已移出内置种子（站长 2026-11-08）：导出用例仍按登记表附带自带 LOGO，需包行存在
+    await insertQy2010Fixture();
     storage = await mkdtemp(join(tmpdir(), "fw-theme-import-"));
     vi.stubEnv("STORAGE_DIR", storage);
     const png = await sharp({

@@ -4,6 +4,7 @@ import { eq, sql } from "drizzle-orm";
 import { DEMO, getWebDb, themePackages, userProfiles } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
+import { insertQy2010Fixture } from "@/test/qy2010-pack-fixture";
 import { invalidateThemeCatalog } from "@/lib/theme/catalog";
 import { getUserThemePack, setUserThemePack } from "./pref";
 
@@ -11,6 +12,8 @@ let tdb: TempDb;
 
 beforeAll(async () => {
   tdb = await setupTempDb();
+  // qy2010 已移出内置种子（站长 2026-11-08）：夹具行提供偏好校验的 DB 启用包
+  await insertQy2010Fixture();
 });
 
 afterAll(async () => {

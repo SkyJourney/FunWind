@@ -142,7 +142,7 @@ describe.skipIf(process.env.SKIP_DB_TESTS === "1")("install:cli（M12 Step 2，�
     async () => {
       const args = [
         "--site-name=CLI 安装站",
-        "--theme=qy2010",
+        "--theme=default",
         "--registration=open",
         "--verify-email",
         ...ADMIN,

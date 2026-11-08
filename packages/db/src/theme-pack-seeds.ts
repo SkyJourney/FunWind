@@ -2,7 +2,10 @@
  * 内置主题包定义（M11.1，docs/milestones/M11.1-theme-engine.md §1.2）。
  * 值来源：styles/tokens/themes/{default,qy2010}.css 的数据化（单一事实源=种子首写）；
  * bootstrap 只补缺（INSERT IGNORE 语义），站长在 /admin/themes 的编辑不被升级覆盖。
- * 站长决策（2026-11-01）：M13 上线以新主题体系做完整新主题，qy2010 降级为可选情怀包保留。
+ * 站长决策（2026-11-01）：M13 上线以新主题体系做完整新主题，qy2010 降级为可选情怀包保留；
+ * 站长决策（2026-11-08）：qy2010 **不再内置**——作为青翼站点自己添加的自定义主题存在
+ *   （导入路径上线时 UPDATE is_builtin=false），种子/补缺/升级不再触碰它；
+ *   BUILTIN_THEME_COLORS 的 qy2010 条目保留（PWA 色值表，非内置语义）。
  *
  * 注意：本模块不得 import web 私有模块（packages/db 被 web/migration 共享）；
  * surface-schema 的 zod 校验在 web 渲染/编辑层执行，种子层为信任数据（与 CSS 同源审阅）。
@@ -114,107 +117,10 @@ const defaultPack: BuiltinThemePackSeed = {
   },
 };
 
-/** qy2010 包：旧站 whitesimple/wood_phpwind/kiminitodoke 采样色板（M11 Step 4 采样对照表） */
-const qy2010Pack: BuiltinThemePackSeed = {
-  id: "qy2010",
-  name: "复刻·青翼2010",
-  description: "复刻 2010 旧站气质：米黄纸底、暖白方角卡、天蓝链接、若叶绿点缀、宋体站名。仅浅色。",
-  definition: {
-    pwa: { themeColor: "#116a92", backgroundColor: "#f6f3e7" },
-    surfaces: {
-      header: {
-        light: {
-          fill: { type: "solid", color: "#f8f5e8" },
-          border: { color: "#ddd5b4", width: 1, style: "solid" },
-          blur: 0,
-        },
-      },
-      tabbar: {
-        light: {
-          fill: { type: "solid", color: "#f8f5e8" },
-          border: { color: "#ddd5b4", width: 1, style: "solid" },
-          blur: 0,
-        },
-      },
-      page: {
-        light: {
-          fill: {
-            type: "solid",
-            color: "#f6f3e7",
-          },
-        },
-      },
-      "banner-announce": {
-        light: {
-          fill: { type: "solid", color: "#f3edc8" },
-          text: { primary: "#6d4a0f", muted: "#706952", link: "#116a92" },
-        },
-      },
-      "forum-band": {
-        light: {
-          fill: { type: "solid", color: "#fffdf4" },
-          overlay: { type: "solid", color: "#fffdf4", overlayOpacity: 0 },
-        },
-      },
-      footer: {
-        light: {
-          fill: { type: "solid", color: "#f8f5e8" },
-          border: { color: "#ddd5b4", width: 1, style: "solid" },
-          text: { primary: "#33332f", muted: "#706952", link: "#116a92" },
-        },
-      },
-      auth: {
-        light: { fill: { type: "solid", color: "#f6f3e7" } },
-      },
-    },
-    // 语义令牌层（M11.6 Step 4）：值取自 styles/tokens/themes/qy2010.css，仅浅色档。
-    // CSS 里的 var() 引用在这里解析成具体色值：card-foreground / popover-foreground 来自 --foreground，
-    // success 来自 --fw-green-800，info 来自 --fw-blue-500；与 Step 0 冻结的计算值一致。
-    // 纸纹（--page-bg 里的重复条纹）按站长决定 D1 丢弃，不进数据；--theme-name 没有消费方，也不进数据。
-    // 板块卡不写 maskColor：基础层 --band-mask-color 是 var(--card)，本包的 --card 同在 :root，算出来仍是 #fffdf4。
-    tokens: {
-      light: {
-        colors: {
-          background: "#f6f3e7",
-          foreground: "#33332f",
-          card: "#fffdf4",
-          "card-foreground": "#33332f",
-          popover: "#fffdf4",
-          "popover-foreground": "#33332f",
-          primary: "#116a92",
-          "primary-foreground": "#ffffff",
-          secondary: "#f3edc8",
-          "secondary-foreground": "#6d4a0f",
-          muted: "#efe9d6",
-          "muted-foreground": "#706952",
-          accent: "#e7f1e4",
-          "accent-foreground": "#33613f",
-          destructive: "#a3425b",
-          "destructive-foreground": "#ffffff",
-          success: "#166534",
-          warning: "#8a5200",
-          info: "#3b82f6",
-          border: "#e0d9c0",
-          input: "#e0d9c0",
-          ring: "#116a92",
-        },
-        radius: "sm",
-        shadows: {
-          s1: { x: 0, y: 1, blur: 2, spread: 0, color: "#786428", alpha: 0.1 },
-          s2: { x: 0, y: 4, blur: 12, spread: 0, color: "#786428", alpha: 0.14 },
-          s3: { x: 0, y: 12, blur: 32, spread: 0, color: "#786428", alpha: 0.2 },
-        },
-        displayFont: "songti",
-        brandGradient: { angle: 120, from: "#9bcba5", to: "#efe9b5" },
-        band: { width: 8.5, angle: 90, fade: 0, dim: 1, mask: false },
-      },
-    },
-  },
-};
+export const BUILTIN_THEME_PACK_SEEDS: readonly BuiltinThemePackSeed[] = [defaultPack];
 
-export const BUILTIN_THEME_PACK_SEEDS: readonly BuiltinThemePackSeed[] = [defaultPack, qy2010Pack];
-
-/** 主题色（PWA manifest / 地址栏）：qy2010 情怀青蓝（M11.6 Step 6 加深到 #116a92）、default 品牌青 */
+/** 主题色（PWA manifest / 地址栏）：qy2010 情怀青蓝（M11.6 Step 6 加深到 #116a92）、default 品牌青。
+ *  qy2010 已非内置包——此条目仅为该自定义包的已知色值（catalog 回退用），不代表内置语义。 */
 export const BUILTIN_THEME_COLORS: Record<string, { themeColor: string; backgroundColor: string }> =
   {
     default: { themeColor: "#0e7490", backgroundColor: "#f8fafc" },

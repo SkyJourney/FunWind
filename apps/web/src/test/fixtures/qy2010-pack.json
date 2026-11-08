@@ -1,0 +1,77 @@
+{
+  "pwa": { "themeColor": "#116a92", "backgroundColor": "#f6f3e7" },
+  "tokens": {
+    "light": {
+      "band": { "dim": 1, "fade": 0, "mask": false, "angle": 90, "width": 8.5 },
+      "colors": {
+        "card": "#fffdf4",
+        "info": "#3b82f6",
+        "ring": "#116a92",
+        "input": "#e0d9c0",
+        "muted": "#efe9d6",
+        "accent": "#e7f1e4",
+        "border": "#e0d9c0",
+        "popover": "#fffdf4",
+        "primary": "#116a92",
+        "success": "#166534",
+        "warning": "#8a5200",
+        "secondary": "#f3edc8",
+        "background": "#f6f3e7",
+        "foreground": "#33332f",
+        "destructive": "#a3425b",
+        "card-foreground": "#33332f",
+        "muted-foreground": "#706952",
+        "accent-foreground": "#33613f",
+        "popover-foreground": "#33332f",
+        "primary-foreground": "#ffffff",
+        "secondary-foreground": "#6d4a0f",
+        "destructive-foreground": "#ffffff"
+      },
+      "radius": "sm",
+      "shadows": {
+        "s1": { "x": 0, "y": 1, "blur": 2, "alpha": 0.1, "color": "#786428", "spread": 0 },
+        "s2": { "x": 0, "y": 4, "blur": 12, "alpha": 0.14, "color": "#786428", "spread": 0 },
+        "s3": { "x": 0, "y": 12, "blur": 32, "alpha": 0.2, "color": "#786428", "spread": 0 }
+      },
+      "displayFont": "songti",
+      "brandGradient": { "to": "#efe9b5", "from": "#9bcba5", "angle": 120 }
+    }
+  },
+  "surfaces": {
+    "auth": { "light": { "fill": { "type": "solid", "color": "#f6f3e7" } } },
+    "page": { "light": { "fill": { "type": "solid", "color": "#f6f3e7" } } },
+    "footer": {
+      "light": {
+        "fill": { "type": "solid", "color": "#f8f5e8" },
+        "text": { "link": "#116a92", "muted": "#706952", "primary": "#33332f" },
+        "border": { "color": "#ddd5b4", "style": "solid", "width": 1 }
+      }
+    },
+    "header": {
+      "light": {
+        "blur": 0,
+        "fill": { "type": "solid", "color": "#f8f5e8" },
+        "border": { "color": "#ddd5b4", "style": "solid", "width": 1 }
+      }
+    },
+    "tabbar": {
+      "light": {
+        "blur": 0,
+        "fill": { "type": "solid", "color": "#f8f5e8" },
+        "border": { "color": "#ddd5b4", "style": "solid", "width": 1 }
+      }
+    },
+    "forum-band": {
+      "light": {
+        "fill": { "type": "solid", "color": "#fffdf4" },
+        "overlay": { "type": "solid", "color": "#fffdf4", "overlayOpacity": 0 }
+      }
+    },
+    "banner-announce": {
+      "light": {
+        "fill": { "type": "solid", "color": "#f3edc8" },
+        "text": { "link": "#116a92", "muted": "#706952", "primary": "#6d4a0f" }
+      }
+    }
+  }
+}

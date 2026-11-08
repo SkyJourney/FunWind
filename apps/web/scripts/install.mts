@@ -7,7 +7,7 @@
  *   pnpm install:cli --unlock --yes ...   （删除安装锁并重装；--unlock 交互确认，--yes 跳过）
  *
  * 可选覆盖（均有默认值，见 lib/install/schema.ts 的 installConfigFromEnv）：
- *   --site-name= --site-tagline= --site-url= --theme=default|qy2010
+ *   --site-name= --site-tagline= --site-url= --theme=default
  *   --registration=open|invite|closed [--verify-email]（仅 open 模式有意义）
  * 数据库连接一律读 .env（NEW_DB_*）：运行中的实例不能换库，CLI 不提供连接参数。
  *
@@ -22,6 +22,7 @@ import {
   installConfigFromEnv,
   validateInstallConfig,
   type InstallConfig,
+  type InstallThemePack,
 } from "../src/lib/install/schema";
 
 type Args = Record<string, string | boolean>;
@@ -83,7 +84,7 @@ async function main(): Promise<number> {
       tagline: str(args, "site-tagline") ?? "日语·ACG 情怀社区",
       url: str(args, "site-url") ?? "http://127.0.0.1:3100",
     },
-    themePack: (str(args, "theme") ?? "default") as "default" | "qy2010",
+    themePack: (str(args, "theme") ?? "default") as InstallThemePack,
     registration,
     admin: {
       username: str(args, "admin-username") ?? "",

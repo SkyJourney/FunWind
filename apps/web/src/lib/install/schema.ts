@@ -12,8 +12,9 @@ import { isValidEmail } from "@/lib/auth/email";
 /** 库名白名单：CREATE DATABASE 语句按此校验后拼接，杜绝注入与非法字符 */
 export const INSTALL_DATABASE_NAME_RE = /^[A-Za-z0-9_]{1,64}$/;
 
-/** 可选的出厂主题包：与 packages/db 的内置主题包种子保持同步（有漂移哨兵测试） */
-export const INSTALL_THEME_PACKS = ["default", "qy2010"] as const;
+/** 可选的出厂主题包：与 packages/db 的内置主题包种子保持同步（有漂移哨兵测试）。
+ *  qy2010 已不内置（站长 2026-11-08 拍板：站点自定义主题），安装只出厂 default。 */
+export const INSTALL_THEME_PACKS = ["default"] as const;
 export type InstallThemePack = (typeof INSTALL_THEME_PACKS)[number];
 
 export const installRegistrationSchema = z.discriminatedUnion("mode", [

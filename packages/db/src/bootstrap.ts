@@ -292,7 +292,7 @@ export async function seedSystemData(db: Db): Promise<SystemSeedSummary> {
   const settingsInserted = missing.length;
 
   // 内置主题包种子（M11.1）：只补缺（INSERT IGNORE 语义），站长在 /admin/themes 的编辑不被覆盖；
-  // `default` 为系统回退包（不可删除/停用），qy2010 为内置情怀包（可编辑 definition）。
+  // `default` 为系统回退包（不可删除/停用）。qy2010 已移出内置（站长 2026-11-08：站点自定义主题）。
   let themePacksInserted = 0;
   for (const seed of BUILTIN_THEME_PACK_SEEDS) {
     const inserted = await db

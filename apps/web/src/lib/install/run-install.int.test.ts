@@ -40,7 +40,7 @@ const adminPool = createPool({ ...base, database: "information_schema" });
 
 const config: InstallConfig = installConfigFromEnv({
   site: { name: "安装测试站", tagline: "集成测试", url: "http://127.0.0.1:3203" },
-  themePack: "qy2010",
+  themePack: "default",
   registration: { mode: "open", verifyEmail: true },
   admin: { username: "inst_admin", email: "inst-admin@example.com", password: "install-pass-123" },
 });
@@ -154,7 +154,7 @@ describe.skipIf(process.env.SKIP_DB_TESTS === "1")("安装管线（真实 MySQL�
       tagline: "集成测试",
       url: "http://127.0.0.1:3203",
     });
-    expect(byKey.get("site.theme")).toEqual({ pack: "qy2010" });
+    expect(byKey.get("site.theme")).toEqual({ pack: "default" });
     // 运行时读取（React cache 在 node 环境=每调用独立，读到的是刚写入的值）
     expect(await getRegisterPolicy()).toEqual({ open: true, invite: false, verifyEmail: true });
     expect(await installProgress()).toEqual({

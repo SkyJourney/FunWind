@@ -184,9 +184,9 @@ describe("内置种子的有效性", () => {
     },
   );
 
-  it("至少有 default 与 qy2010 两个种子（防止参数化用例因空数组而空转）", () => {
+  it("至少有 default 种子（防止参数化用例因空数组而空转；qy2010 已于 2026-11-08 移出）", () => {
     expect(BUILTIN_THEME_PACK_SEEDS.map((seed) => seed.id)).toEqual(
-      expect.arrayContaining(["default", "qy2010"]),
+      expect.arrayContaining(["default"]),
     );
   });
 });

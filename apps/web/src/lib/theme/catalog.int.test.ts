@@ -7,13 +7,16 @@ import { eq, sql } from "drizzle-orm";
 import { getWebDb, siteSettings, themePackages } from "@funwind/db";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
+import { insertQy2010Fixture } from "@/test/qy2010-pack-fixture";
 import { invalidateThemeCatalog, isKnownPackId, refreshThemeCatalog } from "./catalog";
 
 let tdb: TempDb;
 
 beforeAll(async () => {
   tdb = await setupTempDb();
-  // 演练数据包：启用 xmas + 停用 legacy（内置 static 包 default/qy2010 来自静态注册表）
+  // qy2010 已移出内置种子（站长 2026-11-08）：夹具行 = 数据库启用的自定义包
+  await insertQy2010Fixture();
+  // 演练数据包：启用 xmas + 停用 legacy（default 为静态注册表回退包）
   await getWebDb()
     .insert(themePackages)
     .values([
@@ -38,7 +41,7 @@ beforeAll(async () => {
         updatedAt: sql`NOW()`,
       },
       {
-        // id 按字母序排在 qy2010 之前：只有目录读取时带上 isBuiltin，内置包才会排在它前面
+        // id 按字母序排在 qy2010 之前：目录读取带 isBuiltin，内置包（default）排在自定义包前面
         id: "aaa-pk",
         name: "排序探针",
         definition: { surfaces: {} },
@@ -59,15 +62,16 @@ afterAll(async () => {
   await getWebDb().delete(themePackages).where(eq(themePackages.id, "xmas"));
   await getWebDb().delete(themePackages).where(eq(themePackages.id, "legacy-pk"));
   await getWebDb().delete(themePackages).where(eq(themePackages.id, "aaa-pk"));
+  await getWebDb().delete(themePackages).where(eq(themePackages.id, "qy2010"));
   await tdb?.teardown();
 });
 
 describe.skipIf(skipDb)("主题包目录（catalog）", () => {
-  it("目录 = default 静态回退 ∪ DB 启用包（含种子 qy2010）；停用包不进目录", async () => {
+  it("目录 = default 静态回退 ∪ DB 启用包（含夹具 qy2010）；停用包不进目录", async () => {
     const packs = await refreshThemeCatalog();
     const ids = packs.map((p) => p.id);
     expect(ids).toContain("default"); // 代码内置的回退包
-    expect(ids).toContain("qy2010"); // 种子行（bootstrap 写入），不再有静态兜底
+    expect(ids).toContain("qy2010"); // 夹具行（DB 启用的自定义包）
     expect(ids).toContain("xmas"); // DB 启用
     expect(ids).not.toContain("legacy-pk"); // DB 停用
     expect(packs.find((p) => p.id === "default")?.source).toBe("static");
@@ -79,12 +83,13 @@ describe.skipIf(skipDb)("主题包目录（catalog）", () => {
     expect(xmas).toMatchObject({ source: "db", label: "圣诞青翼" });
   });
 
-  it("真实库的目录顺序：default、内置包、自定义包（按 id）；内置包排在 id 更靠前的自定义包之前", async () => {
+  it("真实库的目录顺序：default（内置回退）在前，自定义包按 isBuiltin 与 id 排序", async () => {
     const packs = await refreshThemeCatalog();
     const order = packs
       .map((p) => p.id)
       .filter((id) => ["default", "qy2010", "aaa-pk", "xmas"].includes(id));
-    expect(order).toEqual(["default", "qy2010", "aaa-pk", "xmas"]);
+    // qy2010 降级为自定义包（is_builtin=0）后按 id 字母序与 aaa-pk/xmas 同段排序
+    expect(order).toEqual(["default", "aaa-pk", "qy2010", "xmas"]);
   });
 
   it("isKnownPackId：静态/启用 DB 包有效；停用与未知 id 无效", async () => {

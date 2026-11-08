@@ -8,6 +8,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { invalidateThemeCatalog } from "@/lib/theme/catalog";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { PATCH } from "./route";
+import { insertQy2010Fixture } from "@/test/qy2010-pack-fixture";
 
 vi.mock("@/lib/auth/session", () => ({ getCurrentUser: vi.fn() }));
 
@@ -30,6 +31,8 @@ describe.skipIf(skipDb)("偏好 PATCH 持久化边界", () => {
   let tdb: TempDb;
   beforeAll(async () => {
     tdb = await setupTempDb();
+    // qy2010 已移出内置种子（站长 2026-11-08）：夹具行提供偏好校验的 DB 启用包
+    await insertQy2010Fixture();
   });
   afterAll(async () => {
     invalidateThemeCatalog();

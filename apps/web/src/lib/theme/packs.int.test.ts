@@ -7,6 +7,7 @@ import { desc, eq, sql } from "drizzle-orm";
 import { auditLog, getWebDb, siteSettings, themePackages } from "@funwind/db";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
+import { insertQy2010Fixture } from "@/test/qy2010-pack-fixture";
 import { invalidateThemeCatalog } from "@/lib/theme/catalog";
 import {
   copyThemePack,
@@ -35,6 +36,9 @@ const DEF = {
 
 beforeAll(async () => {
   tdb = await setupTempDb({ demo: false });
+  // qy2010 夹具行以 isBuiltin=true 出现：覆盖写服务的内置保护/容量语义分支
+  // （生产中该行已是自定义包，protected 判定另有自定义包用例）
+  await insertQy2010Fixture({ isBuiltin: true });
   invalidateThemeCatalog();
 });
 

@@ -1,6 +1,5 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { BUILTIN_THEME_PACK_SEEDS } from "@funwind/db";
 import { describe, expect, it } from "vitest";
 import { BUNDLED_PACK_LOGOS, bundledLogoOf, DEFAULT_PACK, THEME_PACKS } from "./theme-packs";
 
@@ -16,9 +15,7 @@ describe("THEME_PACKS（静态注册表，M11.6 Step 5b）", () => {
   });
 });
 
-describe("BUNDLED_PACK_LOGOS（内置包随代码发布的 LOGO 登记）", () => {
-  const seedIds = BUILTIN_THEME_PACK_SEEDS.map((seed) => seed.id);
-
+describe("BUNDLED_PACK_LOGOS（随代码发布的 LOGO 登记）", () => {
   it("文件名是 public/logo 下真实存在的 PNG（不带路径；防登记表悬空）", () => {
     expect(BUNDLED_PACK_LOGOS.length).toBeGreaterThan(0); // 防止空表让下面的循环空转
     for (const entry of BUNDLED_PACK_LOGOS) {
@@ -28,10 +25,12 @@ describe("BUNDLED_PACK_LOGOS（内置包随代码发布的 LOGO 登记）", () =
     }
   });
 
-  it("id 唯一，且都是内置种子包（自定义包的 LOGO 走自己的 assets，不进这张表）", () => {
+  it("id 唯一；qy2010 是历史来源标记（站长 2026-11-08 起该包不再内置，LOGO 素材仍随代码发布）", () => {
     const ids = BUNDLED_PACK_LOGOS.map((entry) => entry.id);
     expect(new Set(ids).size).toBe(ids.length);
-    for (const id of ids) expect(seedIds).toContain(id);
+    // default 之外的历史登记项（qy2010）不要求是内置种子：applyPackLogo 的素材读取按此表定位
+    // 文件，与主题包的内置性解耦；新增登记项须确认素材确需随代码发布。
+    expect(ids).toContain("qy2010");
   });
 });
 

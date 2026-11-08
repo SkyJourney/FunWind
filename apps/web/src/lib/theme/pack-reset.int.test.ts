@@ -14,7 +14,8 @@ import { resetThemePack } from "./pack-reset";
 let tdb: TempDb;
 let original: typeof themePackages.$inferSelect;
 const actor = { userId: 1, via: "admin" as const, ip: null };
-const ID = "qy2010";
+// 站长 2026-11-08：qy2010 移出内置种子——重置语义的唯一内置对象是 default
+const ID = "default";
 const seed = BUILTIN_THEME_PACK_SEEDS.find((candidate) => candidate.id === ID)!;
 const LOGO_FILE = `logo-${"a".repeat(32)}.png`;
 const STALE_DECOR_FILE = `decor-${"b".repeat(32)}.png`;

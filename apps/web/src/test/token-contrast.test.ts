@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { BUILTIN_THEME_PACK_SEEDS } from "@funwind/db";
 import { describe, expect, it } from "vitest";
 import { evaluateContrast } from "@/lib/theme/contrast-advisor";
 import {
@@ -76,12 +75,12 @@ const over = (fg: Rgb, bg: Rgb, alpha: number): Rgb =>
 
 const primitives = declarations("primitives.css", ":root");
 const semantic = declarations("semantic.css", ":root");
-// qy2010 CSS 已删除（M11.6 Step 5c），从种子渲染令牌声明
-const qy2010Seed = BUILTIN_THEME_PACK_SEEDS.find((s) => s.id === "qy2010");
-if (!qy2010Seed?.definition) throw new Error("qy2010 种子缺失 definition");
-const qy2010Light = (
-  qy2010Seed.definition.tokens as { light?: Record<string, unknown> } | undefined
-)?.light;
+// qy2010 CSS 已删除（M11.6 Step 5c）、种子也已移出（站长 2026-11-08：站点自定义主题）——
+// 令牌 fixture 固化为 JSON（生产库当前 definition 的导出，换主题时同步更新此文件）
+const qy2010Pack = JSON.parse(
+  readFileSync(path.resolve(import.meta.dirname, "fixtures/qy2010-pack.json"), "utf8"),
+) as { tokens?: { light?: Record<string, unknown> } };
+const qy2010Light = qy2010Pack.tokens?.light;
 // 缺 tokens.light 必须明确失败：回退成空对象会让 qy2010 与默认浅色完全相同，下面的断言空转通过
 if (!qy2010Light) throw new Error("qy2010 种子缺失 tokens.light，无法计算对比度");
 const qy2010Vars = renderTokenVars(qy2010Light as Parameters<typeof renderTokenVars>[0]);
