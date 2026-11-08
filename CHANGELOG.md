@@ -5,6 +5,17 @@
 
 ## [Unreleased]
 
+### Added（M13 · 部署与社区重启，Step 6）
+
+- **`docs/ops/LAUNCH-RUNBOOK.md`**：上线演练与切换手册（站长执行）——服务器目录布局与镜像上传流、
+  演练一（容器+迁移全链路：13306 避让端口、SSH 隧道在线读 MariaDB、`pnpm init-brand`、端口转发目视）、
+  演练二（切换彩排含**回滚演练**：vhost 恢复 ≤5 分钟）、正式切换日八步动作序列（预置→停写归档→
+  迁移→vhost 切换→公告/邀请码→召回→拨测确认→观察期）、多实例检查单 G-17/G-18 处置记录表。
+  `docker/mysql/compose.yaml` 端口变量化（`MYSQL_HOST_PORT`，演练避让 3306）。
+- README 文档索引补三份 ops 文档（BACKUP/OBSERVABILITY/LAUNCH-RUNBOOK）；BLUEPRINT 补 §10
+  「上线实录」占位（Step 7 执行后回写）。M13 全量回归与安全走查全绿（E2E 476+8、visual 零更新、
+  layout 0 问题、lighthouse PWA 100/100、perf p95 15.9ms、`pnpm audit --prod` 0 漏洞）。
+
 ### Added（M13 · 部署与社区重启，Step 4）
 
 - **默认站标初始化（D2）**：`lib/brand/init-brand.ts` ensureDefaultLogo——幂等（LOGO 池已有当前项即

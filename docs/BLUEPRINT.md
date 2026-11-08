@@ -258,3 +258,15 @@ src/modules/
 | 表情目录 | 同上 `res/images/emotion/{folder}/`（新站路由 `/emotion/**`） |
 | 迁移程序 | `FunWind/migration/`（环境见仓库根 `.env`；`pnpm migrate` / `pnpm verify:migration`） |
 | 新库容器 | `FunWind/docker/qysub-next/compose.yaml` |
+
+## 10. 上线实录（M13 Step 7 执行后回写）
+
+> 占位：正式切换完成、验收门禁逐项勾选后，由 AI 配合站长回写实际执行记录
+> （切换时间线、迁移耗时、301 抽样结果、召回发送统计、观察期结论）。
+> 执行脚本见 [docs/ops/LAUNCH-RUNBOOK.md](docs/ops/LAUNCH-RUNBOOK.md)；交付态记录见
+> [docs/milestones/M13-launch.md](docs/milestones/M13-launch.md) §9。
+
+- [ ] 演练一（容器 + 迁移全链路）：（站长执行后填）
+- [ ] 演练二（切换彩排 + 回滚）：（站长执行后填）
+- [ ] 正式切换 + 公告/邀请码/召回：（站长执行后填）
+- [ ] 观察期 24h 结论：（回写）

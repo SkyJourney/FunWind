@@ -21,7 +21,8 @@ services:
       - --innodb_buffer_pool_size=256M
       - --max_connections=80
     ports:
-      - "127.0.0.1:3306:3306"
+      # 演练一（旧 MariaDB 仍占 3306）时设 MYSQL_HOST_PORT=13306 避让；正式切换后用默认 3306
+      - "127.0.0.1:${MYSQL_HOST_PORT:-3306}:3306"
     environment:
       - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:?请在同目录 .env 设置 MYSQL_ROOT_PASSWORD}
       - MYSQL_DATABASE=qingyisub
