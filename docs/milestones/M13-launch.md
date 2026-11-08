@@ -200,6 +200,15 @@ BLUEPRINT「上线实录」占位 + M13 文档 ✅（演练执行项留站长）
       实施教训：nginx `rewrite` 不匹配 query string（须 map $request_uri）；map 捕获组不可跨变量拼接
       （/f/$1$3 会连体——type 条目须单列）；`?pid=` 形态 URI 带前导斜杠（`^/\?pid=`）。
 - [ ] Step 3 备份与恢复：
+- [x] Step 3 备份与恢复（2026-11-08）：`scripts/backup/backup-db.sh`（容器内 mysqldump 一致性快照 +
+      gzip + sha256 + 完整性自检「gzip 可解压 + Dump completed 尾标」+ RETAIN_DAYS 轮转；口令不出宿主机
+      命令行）与 `backup-storage.sh`（rsync 严格镜像，排除 .cache/.tmp，SRC/DEST 互嵌/颠倒护栏——实测
+      2092 文件清单 diff 为空、sha256 抽样一致、--delete 同步删除）。本机对 dev 库实测一轮完整恢复演练：
+      dump 4.5MB → 临时 MySQL 8.4 容器导入（55 表/10763 用户）→ 假名账号字节级无损（HEX 核对）→
+      `db:verify` 21 项全过 → 幂等 bootstrap 三列 _bin 全跳过 → 清理。`docs/ops/BACKUP.md`（四件套/
+      crontab/binlog 口径/恢复演练命令/真实切换步骤/旧库最终转储 + 退役序列数据口径）。实施修正：
+      sh 变量名紧跟全角字符会被吞进变量名（`$VAR）` unbound——统一 `${VAR}` 收口）；rsync 护栏在
+      DEST 未建时 cd 失败退化为 `/` 误命中（mkdir 提前）。
 - [ ] Step 4 社区重启包：
 - [ ] Step 5 全量回归与安全走查：
 - [ ] Step 6 收口与演练手册：

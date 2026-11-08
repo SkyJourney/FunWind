@@ -5,6 +5,18 @@
 
 ## [Unreleased]
 
+### Added（M13 · 部署与社区重启，Step 3）
+
+- **备份脚本**：`scripts/backup/backup-db.sh`（宿主机经容器内 mysqldump 一致性快照，口令取容器 env
+  不出命令行；gzip + sha256 + 完整性自检——gzip 可解压且含 `Dump completed` 尾标，管道中断不会产出
+  半截文件冒充成功；RETAIN_DAYS 轮转）与 `backup-storage.sh`（STORAGE_DIR rsync 严格镜像，排除
+  `.cache/.tmp`，SRC/DEST 颠倒/互嵌护栏拒绝执行）。
+- **`docs/ops/BACKUP.md`**：备份四件套（MySQL/存储/`.env`/旧库转储）、crontab 建议、binlog PITR 口径、
+  已实测的恢复演练命令序列（临时实例 → `db:verify` → bootstrap 冒烟）、真实故障切换步骤、
+  旧库最终转储（utf8mb4 转码）与旧栈退役序列的数据口径。
+- 本机对 dev 库完整演练一轮：dump → 临时 MySQL 8.4 导入（55 表/10763 用户）→ 假名账号字节级无损 →
+  `db:verify` 21 项全过 → 幂等 bootstrap `_bin` 全跳过；存储镜像文件清单 diff 为空 + `--delete` 同步验证。
+
 ### Added（M13 · 部署与社区重启，Step 2）
 
 - **301/410 映射表 `docker/production/nginx/redirect-map.conf`**：旧 phpwind URL → 新站，形态按 QY_HK
