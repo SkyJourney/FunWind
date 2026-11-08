@@ -65,6 +65,7 @@ const NAV_GROUPS: { label: string; items: NavEntry[] }[] = [
       { href: "/admin/badges", label: "徽章", need: { admin: "admin.badges" } },
       { href: "/admin/logs", label: "审计日志", need: { admin: "admin.logs" } },
       { href: "/admin/mail", label: "邮件", need: { admin: "admin.logs" } },
+      { href: "/admin/ops", label: "运维", need: { admin: "site.admin" } },
     ],
   },
   {
@@ -78,7 +79,6 @@ const NAV_GROUPS: { label: string; items: NavEntry[] }[] = [
       { href: "/admin/invites", label: "邀请码", need: { admin: "site.admin" } },
       { href: "/admin/logo", label: "LOGO 管理", need: { admin: "site.admin" } },
       { href: "/admin/hero", label: "首页横幅", need: { admin: "site.admin" } },
-      { href: "/admin/decor", label: "主题素材", need: { admin: "site.admin" } },
     ],
   },
 ];

@@ -1,0 +1,50 @@
+# FunWind 备份服务编排（职责分离的备份/恢复执行体，docs/ops/BACKUP.md）
+# 部署位置（站长服务器）：/opt/funwind/backup/compose.yaml + 同目录 .env
+#   .env：BACKUP_DB_PASSWORD / OPS_TOKEN（chmod 600，不入库）
+# 依赖网络：funwind-internal（docker/mysql/compose.yaml 创建）；依赖卷：funwind-storage（app 编排创建，只读挂载）
+name: funwind-backup
+
+services:
+  backup:
+    image: funwind-backup:latest
+    build:
+      context: ../../services/backup
+    container_name: funwind-backup
+    restart: unless-stopped
+    environment:
+      - BACKUP_DB_HOST=funwind-mysql
+      - BACKUP_DB_PORT=3306
+      - BACKUP_DB_USER=root
+      - BACKUP_DB_PASSWORD=${BACKUP_DB_PASSWORD:?请在 .env 设置}
+      - BACKUP_DB_NAME=qingyisub
+      - OPS_TOKEN=${OPS_TOKEN:?请在 .env 设置}
+      - BACKUP_SOURCE_DIR=/source/storage
+      - BACKUP_TARGET_DIR=/data/backups
+      - BACKUP_KEEP_DB=${BACKUP_KEEP_DB:-14}
+      - BACKUP_KEEP_STORAGE=${BACKUP_KEEP_STORAGE:-7}
+    volumes:
+      - funwind-backup-files:/data/backups # 备份输出（应用只读挂载同卷提供下载）
+      - funwind-storage:/source/storage:ro # 应用存储源（只读）
+    networks:
+      - funwind-internal
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import urllib.request; urllib.request.urlopen(''http://127.0.0.1:8000/health'')" || exit 1',
+        ]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+volumes:
+  funwind-backup-files:
+
+networks:
+  funwind-internal:
+    external: true

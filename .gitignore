@@ -50,3 +50,6 @@ apps/web/AGENTS.md
 /storage-e2e/
 /storage-e2e-*/
 apps/web/.vitest/
+
+# 本地联调临时产物（备份服务 dump 等，含数据，绝不入库）
+.tmp-backup-dev/
