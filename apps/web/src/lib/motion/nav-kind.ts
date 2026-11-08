@@ -34,6 +34,9 @@ function rank(pathname: string): number | null {
   if (/^\/(f|u)\/[^/]+\//.test(pathname)) return 3;
   // 主题详情 /t/{tid}：第 3 层
   if (/^\/t\/[^/]+/.test(pathname)) return 3;
+  // 公告：/a 归档是第 1 层（与 boards / notifications 同级），/a/{id} 详情是第 2 层（M13 追加）
+  if (/^\/a$/.test(pathname)) return 1;
+  if (/^\/a\/[^/]+$/.test(pathname)) return 2;
   if (
     /^\/(boards|follows|search|messages|notifications|points|me|admin|submit|settings)(\/|$)/.test(
       pathname,

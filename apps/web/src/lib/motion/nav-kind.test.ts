@@ -302,3 +302,22 @@ describe("resolveNavKind（触点扩散 / 收起）", () => {
     expect(result.origin).toMatchObject({ x: 50, y: 160 - 57 });
   });
 });
+
+describe("公告路由（M13 追加 /a、/a/{id}）", () => {
+  it("/a 归档是一级栏目：首页 → /a 为 push，/a → 首页为 pop，/a ↔ /boards 同级为 fade", () => {
+    expect(kindBetween("/", "/a")).toBe("push");
+    expect(kindBetween("/a", "/")).toBe("pop");
+    expect(kindBetween("/a", "/boards")).toBe("fade");
+  });
+
+  it("/a/{id} 详情是二级：首页 → 详情为 push，详情 → 首页为 pop；详情 → 详情同层为 fade", () => {
+    expect(kindBetween("/", "/a/1")).toBe("push");
+    expect(kindBetween("/a/1", "/")).toBe("pop");
+    expect(kindBetween("/a/1", "/a/2")).toBe("fade");
+  });
+
+  it("帖子（3 层）→ 公告详情（2 层）为 pop（跨模块按层级判定）", () => {
+    expect(kindBetween("/t/17", "/a/1")).toBe("pop");
+    expect(kindBetween("/a/1", "/t/17")).toBe("push");
+  });
+});
