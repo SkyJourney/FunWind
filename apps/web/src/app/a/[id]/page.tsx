@@ -3,14 +3,12 @@ import Link from "next/link";
 
 import { RichContent } from "@/components/content/rich-content";
 import { getCurrentSubject } from "@/lib/authz/subject";
-import {
-  getAnnouncement,
-  isAnnouncementRead,
-  markAnnouncementRead,
-} from "@/lib/announcements/queries";
+import { getAnnouncement, markAnnouncementRead } from "@/lib/announcements/queries";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "公告" };
+
+const fmtDate = (s: string): string => (s || "").slice(0, 10);
 
 /**
  * 公告详情页（M13 追加功能）：/a/{id}
@@ -32,26 +30,16 @@ export default async function AnnouncementDetailPage({
   const announcement = await getAnnouncement(id, loggedIn);
   if (!announcement) notFound();
 
-  const read = await isAnnouncementRead(id, subject.userId);
   await markAnnouncementRead(id, subject.userId);
 
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-10">
-      <div className="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+      <div className="mb-6 flex items-center gap-3 text-sm text-muted-foreground">
         <Link href="/a" className="whitespace-nowrap hover:text-foreground hover:underline">
           ← 全部公告
         </Link>
         <span aria-hidden="true">·</span>
-        <span className="whitespace-nowrap tabular-nums">
-          {announcement.startsAt}
-          {announcement.endsAt ? ` ~ ${announcement.endsAt}` : " 起长期有效"}
-        </span>
-        {read && (
-          <>
-            <span aria-hidden="true">·</span>
-            <span className="whitespace-nowrap">已读</span>
-          </>
-        )}
+        <span className="whitespace-nowrap tabular-nums">{fmtDate(announcement.startsAt)}</span>
       </div>
 
       <article className="rounded-xl border bg-card p-6">
