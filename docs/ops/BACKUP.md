@@ -15,52 +15,46 @@
 
 表情包随 git（`public/emoji`），不在存储备份范围。
 
-## 2. 备份脚本
+## 2. 备份服务容器（funwind-backup，M13 追加功能）
 
-### backup-db.sh（宿主机执行，经容器内 mysqldump）
+备份执行体已从宿主机脚本迁移为**独立服务容器**（Python + FastAPI + APScheduler，源码 `services/backup/`）：
+
+- **定时**：服务内置 cron（默认每日 03:10 数据库 / 03:40 存储，`BACKUP_DB_CRON` / `BACKUP_STORAGE_CRON` 可配）。
+- **手动**：后台 `/admin/ops`「备份数据库 / 备份存储」按钮（走备份服务 API）；CLI 兜底
+  `docker exec funwind-backup python cli.py backup db`。
+- **保留策略**：按份数轮转（`BACKUP_KEEP_DB=14` / `BACKUP_KEEP_STORAGE=7`），手动与定时同池，删最旧。
+- **产物**：备份卷 `funwind-backup-files`（`db/*.sql.gz`、`storage/*.tgz`，均 gzip 压缩）；
+  应用容器只读挂载同卷提供后台下载。
+- **元数据**：`backup_runs` 表（备份服务自治建表；后台历史列表直接查库）。
+- **互斥**：MySQL `GET_LOCK`——定时/手动/恢复互相排斥。
+
+### 恢复（restore，服务内置）
+
+覆盖式恢复，全部有安全前置（恢复前自动对目标库做一次现场 dump）：
 
 ```sh
-# 生产（每日 crontab；口令取容器 env，不出现在宿主机命令行）
-BACKUP_DIR=/opt/funwind/backups/mysql CONTAINER=funwind-mysql DATABASE=qingyisub \
-  /opt/funwind/app/scripts/backup/backup-db.sh
+# 预览（不执行）
+docker exec funwind-backup python cli.py restore <run_id> --target-db qingyisub --dry-run
+# 真实恢复（--yes 显式确认；MRG_MYISAM 表自动容忍跳过并在结果标注）
+docker exec funwind-backup python cli.py restore <run_id> --target-db qingyisub --yes
 ```
 
-- `--single-transaction`：InnoDB 一致性快照，不锁写（备份期间站点可用）。
-- 产出 `db-<库名>-YYYYmmdd-HHMMSS.sql.gz` + 同名 `.sha256`；内置完整性自检
-  （gzip 可解压 + `Dump completed` 尾标——管道中断不会产出半截文件冒充成功）。
-- 轮转：`RETAIN_DAYS`（默认 14）按 mtime 删除过期备份。
-- 本机对 dev 库：`CONTAINER=qysub-next-mysql DATABASE=qysub_next`。
+恢复完成后跑 `pnpm db:verify`（env 指向恢复实例）对账。**恢复是覆盖生产库的核弹级操作**：
+UI 后续提供，当前仅 CLI/API（`POST /restore`，OPS_TOKEN + confirm 双确认）。
 
-### backup-storage.sh（rsync 增量镜像）
+### 保留策略说明
 
-```sh
-# 生产：STORAGE_DIR 用宿主机上的实际卷路径（docker volume 在 /var/lib/docker/volumes/funwind-storage/_data）
-STORAGE_DIR=/var/lib/docker/volumes/funwind-storage/_data BACKUP_DIR=/opt/funwind/backups \
-  /opt/funwind/app/scripts/backup/backup-storage.sh
-```
+DB 备份单份 ~4.7MB（14 份 ≈ 66MB）、storage 备份单份 ~95MB（7 份 ≈ 665MB）——备份卷峰值约 0.8GB，
+持续受保留份数约束不会膨胀。目录继续做异地保护（对象存储/另一台机器拉取）——单机备份不抗整机故障。
 
-- 严格镜像（默认 `--delete`：源端删除会同步到备份）；`WITH_DELETE=0` 可保守保留已删文件。
-- 护栏：DEST 固定 `$BACKUP_DIR/storage` 且与 SRC 互不嵌套——参数颠倒会拒绝执行。
-- 排除 `.cache/`（缩略图缓存）与 `.tmp/`（可再生）。
+### 定时（备份服务内置 cron；宿主机无需 crontab）
 
-### 建议的 crontab（宝塔「计划任务」→ Shell 脚本）
+备份服务容器自带调度器（`BACKUP_DB_CRON` / `BACKUP_STORAGE_CRON` 环境变量，默认每日 03:10 / 03:40），
+宿主机无需配置定时任务。备份/恢复的历史在后台 `/admin/ops` 可查（含失败原因），
+日志落在备份容器 stdout（`docker logs funwind-backup`）与 `/opt/funwind/backups/backup.log`。
 
-```cron
-# 每日 03:10 数据库全备（保留 14 天）
-10 3 * * * BACKUP_DIR=/opt/funwind/backups/mysql CONTAINER=funwind-mysql DATABASE=qingyisub /opt/funwind/app/scripts/backup/backup-db.sh >> /opt/funwind/backups/backup.log 2>&1
-# 每日 03:40 存储镜像
-40 3 * * * STORAGE_DIR=/var/lib/docker/volumes/funwind-storage/_data BACKUP_DIR=/opt/funwind/backups /opt/funwind/app/scripts/backup/backup-storage.sh >> /opt/funwind/backups/backup.log 2>&1
-```
-
-> **生产实测注记（2026-11-08）**：QY_HK 服务器 yum 源不可达、无 rsync——存储备份以 **tar 全量**等效替代
-> （当前规模 125MB/天，全量无压力；目录增大后可再装 rsync 切回增量）：
->
-> ```cron
-> 40 3 * * * cd /var/lib/docker/volumes/funwind-storage/_data && tar czf /opt/funwind/backups/storage/storage-$(date +\%Y\%m\%d).tgz --exclude=.cache --exclude=.tmp . && find /opt/funwind/backups/storage -name "storage-*.tgz" -mtime +14 -delete >> /opt/funwind/backups/backup.log 2>&1
-> ```
->
-> 两条 crontab 已部署并各自手动首跑验证（DB 4.6MB / storage 92MB）。备份目录建议再做一层异地保护
-> （对象存储/另一台机器 rsync/pull 式拉取）——单机备份不抗整机故障。
+> 2026-11-08 历史：初版为宿主机 crontab + `scripts/backup/*.sh`（含服务器 tar 变体），
+> 已被备份服务容器整体替代；脚本保留于仓库作参照。手动备份 = 后台 `/admin/ops` 按钮。
 
 ## 3. binlog 说明（PITR 边界）
 

@@ -42,9 +42,11 @@ services:
 
 volumes:
   funwind-storage:
+    # 生产数据卷（Step A 部署时手动创建的裸名卷，迁移数据与上线新数据都在其中）——external 引用，绝不能换卷
+    external: true
+    name: funwind-storage
   funwind-backup-files:
     external: true # 备份服务编排创建（显式名，见 docker/backup/compose.yaml）
-    external: true # 预建裸卷（docker volume create funwind-storage + chown 100:101），避免 compose 项目前缀另建一份
 
 networks:
   funwind-internal:
