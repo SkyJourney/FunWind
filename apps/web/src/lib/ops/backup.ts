@@ -105,7 +105,8 @@ export async function backupServiceHealth(): Promise<{ ok: boolean; jobs: string
       headers: { "x-ops-token": cfg.token },
       signal: AbortSignal.timeout(5000),
     });
-    return (await res.json()) as { ok: boolean; jobs: string[] };
+    const body = (await res.json()) as { ok?: boolean; scheduler_jobs?: string[] };
+    return { ok: Boolean(body.ok), jobs: body.scheduler_jobs ?? [] };
   } catch {
     return { ok: false, jobs: [] };
   }
