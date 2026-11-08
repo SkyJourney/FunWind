@@ -52,7 +52,15 @@ STORAGE_DIR=/var/lib/docker/volumes/funwind-storage/_data BACKUP_DIR=/opt/funwin
 40 3 * * * STORAGE_DIR=/var/lib/docker/volumes/funwind-storage/_data BACKUP_DIR=/opt/funwind/backups /opt/funwind/app/scripts/backup/backup-storage.sh >> /opt/funwind/backups/backup.log 2>&1
 ```
 
-备份目录建议再做一层异地保护（对象存储/另一台机器 rsync/pull 式拉取）——单机备份不抗整机故障。
+> **生产实测注记（2026-11-08）**：QY_HK 服务器 yum 源不可达、无 rsync——存储备份以 **tar 全量**等效替代
+> （当前规模 125MB/天，全量无压力；目录增大后可再装 rsync 切回增量）：
+>
+> ```cron
+> 40 3 * * * cd /var/lib/docker/volumes/funwind-storage/_data && tar czf /opt/funwind/backups/storage/storage-$(date +\%Y\%m\%d).tgz --exclude=.cache --exclude=.tmp . && find /opt/funwind/backups/storage -name "storage-*.tgz" -mtime +14 -delete >> /opt/funwind/backups/backup.log 2>&1
+> ```
+>
+> 两条 crontab 已部署并各自手动首跑验证（DB 4.6MB / storage 92MB）。备份目录建议再做一层异地保护
+> （对象存储/另一台机器 rsync/pull 式拉取）——单机备份不抗整机故障。
 
 ## 3. binlog 说明（PITR 边界）
 

@@ -37,6 +37,7 @@ services:
 
 volumes:
   funwind-storage:
+    external: true # 预建裸卷（docker volume create funwind-storage + chown 100:101），避免 compose 项目前缀另建一份
 
 networks:
   funwind-internal:

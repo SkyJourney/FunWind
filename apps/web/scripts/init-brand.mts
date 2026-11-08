@@ -23,5 +23,7 @@ switch (result.action) {
   case "failed":
     console.error(`✘ 初始化失败：${result.reason}`);
     console.error("  请检查 public/logo/qy2010.png 与 STORAGE_DIR 可写性后重试。");
+    // 显式退出：mysql2 连接池不释放事件循环（与 recall-blast 同款处理）
     process.exit(1);
 }
+process.exit(0);

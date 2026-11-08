@@ -259,14 +259,18 @@ src/modules/
 | 迁移程序 | `FunWind/migration/`（环境见仓库根 `.env`；`pnpm migrate` / `pnpm verify:migration`） |
 | 新库容器 | `FunWind/docker/qysub-next/compose.yaml` |
 
-## 10. 上线实录（M13 Step 7 执行后回写）
+## 10. 上线实录（M13 Step 7）
 
-> 占位：正式切换完成、验收门禁逐项勾选后，由 AI 配合站长回写实际执行记录
-> （切换时间线、迁移耗时、301 抽样结果、召回发送统计、观察期结论）。
 > 执行脚本见 [docs/ops/LAUNCH-RUNBOOK.md](docs/ops/LAUNCH-RUNBOOK.md)；交付态记录见
 > [docs/milestones/M13-launch.md](docs/milestones/M13-launch.md) §9。
 
-- [ ] 演练一（容器 + 迁移全链路）：（站长执行后填）
-- [ ] 演练二（切换彩排 + 回滚）：（站长执行后填）
-- [ ] 正式切换 + 公告/邀请码/召回：（站长执行后填）
+- [x] 正式切换：**2026-11-08 完成**（站点停写窗口约 18 分钟）。迁移 10698 用户/33245 内容行/2046 文件
+  （SHA-256 去重省 6309 份，头像 7330 回填），`verify:migration` 119 项全过；MySQL 8.4 独立编排接管
+  3306（D7），宝塔 vhost 反代 SSR 容器（3311）+ 旧 URL 301/410 映射生效；最近 20 帖公网直达 20/20；
+  备份双链路（每日 dump + storage tar 全量，14 天轮转）部署并首跑验证。旧栈（MySQL 5.7/php-fpm/旧站
+  文件）数据与目录一律未删，保留至站长签字。旧库最终 dump：
+  `/opt/funwind/backups/legacy/qingyisub-final-20261108-1239.sql.gz`（26MB，sha256 留档）。
+  现场勘误：服务器旧库实为 **MySQL 5.7.40**（本节与探查早期记录的「MariaDB」以本行为准）。
+- [ ] 公告 / 邀请码批次 / 召回邮件发送：（站长执行后勾选）
+- [ ] 外部拨测配置 + 告警触达验证：（站长执行后勾选）
 - [ ] 观察期 24h 结论：（回写）

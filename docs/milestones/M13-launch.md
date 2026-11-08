@@ -241,7 +241,25 @@ BLUEPRINT「上线实录」占位 + M13 文档 ✅（演练执行项留站长）
       处置记录表、已知差异（QUIC 模块/证书续期/卷直备/安全组））；README 文档索引补三份 ops 文档；
       docker/mysql/compose.yaml 加 MYSQL_HOST_PORT 变量（演练避让 3306）。BLUEPRINT 补「上线实录」占位。
       **Step 7（上线执行）移交站长**：按 RUNBOOK 两次演练（含回滚）→ 正式切换 → 验收门禁逐项勾选。
-- [ ] Step 7 上线执行（站长主导）：
+- [x] Step 7 上线执行（2026-11-08，站长授权 AI 全程执行）：**正式切换完成**。
+      **A 段（无损）**：镜像 amd64 重建上传（初版误为 arm64 已修）；MySQL 独立编排 13306 避让 + 空库；
+      SSH 双隧道真实迁移（10698 用户/33245 内容/2046 文件入库——SHA-256 去重省 6309 份、头像 7330 回填）；
+      `pnpm verify:migration` **119 项全过**；init-brand 品牌在位；app 容器 health 全绿（storage 卷
+      external 声明 + chown 100:101 两处坑修复）。
+      **B 段（窗口 ~18 分钟）**：旧库最终 dump 归档（26MB + sha256）→ 旧 vhost 切 503 停写 →
+      最终迁移（防重跑护栏拦截 audit_log 1 行——归档后 MIGRATION_FORCE=1，文件零重复复制 ✓ 幂等实证）→
+      停旧栈（MySQL 5.7/php-fpm-56/83；数据与目录一律未删）→ MySQL 8.4 同卷接管 3306 →
+      宝塔 vhost 切换反代 → 公网验证：health ok、首页 200、裸域 301、旧帖/版块/登录 301 正确、
+      attachment 410、**最近 20 帖直达 20/20**（tid=1000 为旧站删帖空洞，404 正确语义）、app 日志 0 错误。
+      **C 段（已做）**：备份双链路部署 + 手动首跑验证（DB 4.6MB / storage tar 92MB——服务器 yum 源不可达
+      无 rsync，存储备份用 tar 全量变体，14 天轮转）。
+      **现场勘误**：服务器旧库实为 **MySQL 5.7.40**（探查记录误为 MariaDB 10.5）；宝塔无 mysql_root 存档，
+      迁移源凭据 = 旧站应用配置（data/sql_config.php 的 qingyisub 账号，与本机副本同口令）。
+      实施修正：init-brand/recall-blast 补 `process.exit`（mysql2 连接池不释放事件循环，脚本挂起不退）；
+      ssh 隧道加 ServerAliveInterval 保活（空闲期被中间设备断连导致 ETIMEDOUT 间歇故障）；
+      本地 33620/33621 与 docker 端口映射冲突（改用 33630/33631 并显式绑定验证指向）。
+      **待站长完成（C 段剩余）**：后台发公告 + 生成邀请码批次；`pnpm recall-blast --apply` 最终确认后发送；
+      外部拨测注册（OBSERVABILITY.md §1）+ 告警触达验证（§2）。
 
 ## 验收门禁
 
