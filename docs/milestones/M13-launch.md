@@ -258,6 +258,12 @@ BLUEPRINT「上线实录」占位 + M13 文档 ✅（演练执行项留站长）
       实施修正：init-brand/recall-blast 补 `process.exit`（mysql2 连接池不释放事件循环，脚本挂起不退）；
       ssh 隧道加 ServerAliveInterval 保活（空闲期被中间设备断连导致 ETIMEDOUT 间歇故障）；
       本地 33620/33621 与 docker 端口映射冲突（改用 33630/33631 并显式绑定验证指向）。
+      **管理员角色治理（2026-11-08，站长拍板）**：旧站 admin 随站点组（gid=3）整体映射到新站，
+      共 21 个个人账号——新系统权限模型不同，**19 个历史管理员全部降级为会员**（team-* 身份保留），
+      admin 行 21 → 2（青翼 uid5097 + 站长 SkyJourney uid17911）；「青翼」作为**站点级兜底超管**
+      设为可登录（argon2id，旧站 md5 凭据清除，验证可登录/错误密码被拒）；全部写 audit_log。
+      脚本入库：`apps/web/scripts/admin-roles.mts`（幂等、dry-run 默认）、`set-system-admin-password.mts`。
+      uid=1 为 2010 年删号孤儿占位行（deleted、无角色、非初始管理员），保留不动。
       **待站长完成（C 段剩余）**：后台发公告 + 生成邀请码批次；`pnpm recall-blast --apply` 最终确认后发送；
       外部拨测注册（OBSERVABILITY.md §1）+ 告警触达验证（§2）。
 
