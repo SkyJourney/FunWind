@@ -71,6 +71,11 @@ export function NotificationRow({
             <Link href={`/messages/${row.conversationId}`} className="hover:text-primary">
               {row.label}
             </Link>
+          ) : row.kind === "announcement" ? (
+            // 公告项：进公告详情页（M13 追加——此前公告无处可去）
+            <Link href={`/a/${row.id}`} className="hover:text-primary">
+              {row.label}
+            </Link>
           ) : (
             row.label
           )}

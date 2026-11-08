@@ -144,15 +144,27 @@ export function NotificationBell() {
               item.kind === "announcement"
                 ? { label: `公告：${item.title ?? ""}`, categoryLabel: "公告" }
                 : renderNotification(item.type, item.data, item.actorName);
-            return (
-              <DropdownMenuItem
-                key={`${item.kind}:${item.id}`}
-                className="flex-col items-start gap-0.5"
-              >
+            // 公告项：整条可点进详情页（M13 追加——此前铃铛里的公告点不动）
+            const body = (
+              <>
                 <span className="text-xs text-muted-foreground">
                   {CATEGORY_NAMES[item.category] ?? item.category}
                 </span>
                 <span className="line-clamp-2 text-sm">{rendered?.label ?? item.type}</span>
+              </>
+            );
+            return item.kind === "announcement" ? (
+              <DropdownMenuItem key={`${item.kind}:${item.id}`} asChild>
+                <Link href={`/a/${item.id}`} className="flex-col items-start gap-0.5">
+                  {body}
+                </Link>
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem
+                key={`${item.kind}:${item.id}`}
+                className="flex-col items-start gap-0.5"
+              >
+                {body}
               </DropdownMenuItem>
             );
           })

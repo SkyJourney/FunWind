@@ -165,6 +165,9 @@ export default async function AdminAnnouncementsPage({ searchParams }: Params) {
                   defaultChecked={editing?.showBanner ?? false}
                 />{" "}
                 顶部横幅
+                <span className="text-xs text-muted-foreground">
+                  （勾选即在全站顶部展示该公告的横幅，点击标题进详情页；同一时刻只显示最新一条带横幅的公告——取消勾选即下线）
+                </span>
               </label>
               <input
                 type="datetime-local"

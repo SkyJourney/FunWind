@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { X } from "lucide-react";
 import { themeSurfaceStyle } from "@/lib/theme/surface-style";
 
@@ -57,12 +58,13 @@ export function AnnouncementBanner({ banner }: { banner: BannerAnnouncement | nu
           height: "var(--sf-banner-announce-content-image-height, 100%)",
         }}
       />
-      <span
-        className="relative z-10 truncate"
+      <Link
+        href={`/a/${banner.id}`}
+        className="relative z-10 truncate hover:underline"
         style={{ opacity: "calc(1 - var(--sf-banner-announce-content-hide-text, 0))" }}
       >
         📢 {banner.title}
-      </span>
+      </Link>
       <button
         type="button"
         aria-label="关闭公告横幅"
