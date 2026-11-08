@@ -225,6 +225,14 @@ BLUEPRINT「上线实录」占位 + M13 文档 ✅（演练执行项留站长）
       向导自检补 TRUSTED_PROXY_HOPS 行（F3 出入修正）。守卫两次纠偏：邮件唯一出口（trySendMail 须从
       @/lib/mail 桶导入）与模板预览登记。
 - [ ] Step 5 全量回归与安全走查：
+- [x] Step 5 全量回归与安全走查（2026-11-08）：`pnpm test:e2e` 全量 476 + 8 条全过（8.9m，prod+dev）；
+      安装 E2E 4 条全过（Step 4 收口实测）；`pnpm test:visual` 10 条全过**基线零更新**；`pnpm test:layout`
+      18 条全过 + `layout:summary` 12 份审计 0 问题；lighthouse PWA **100/100**（3203 临时生产服务，
+      pwa:lighthouse 显式传址）；`perf:posting` p95 **15.9ms** < 300ms；`pnpm audit --prod` **0 漏洞**。
+      安全走查：Cookie HttpOnly+Lax+Secure（随站点协议，session.ts:179/193）✓；全站无 CORS 开放头
+      （同源策略）✓；CSP Report-Only + X-Frame-Options DENY 强制 ✓；密钥不入库 check:secrets 过 +
+      部署资产全占位/env_file ✓；M13-4「登录不销毁旧会话」核对结论 = 设计语义一致（登录签发新会话
+      多设备共存；改密/重置/认领吊销全部旧会话，session.ts:307–312），非缺陷，无需改动。
 - [ ] Step 6 收口与演练手册：
 - [ ] Step 7 上线执行（站长主导）：
 
