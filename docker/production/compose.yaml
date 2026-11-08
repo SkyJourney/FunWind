@@ -24,8 +24,13 @@ services:
     environment:
       - STORAGE_DIR=/data/storage
       - TZ=Asia/Shanghai
+      # 备份服务（docker/backup/compose.yaml）管理入口：手动触发/健康/备份文件下载
+      - BACKUP_SERVICE_URL=http://funwind-backup:8000
+      - BACKUP_OPS_TOKEN=${BACKUP_OPS_TOKEN:?请在 .env 设置}
+      - BACKUP_FILES_DIR=/data/backups
     volumes:
       - funwind-storage:/data/storage
+      - funwind-backup-files:/data/backups:ro # 备份卷只读挂载（/admin/ops 下载用；写入方是备份服务）
     networks:
       - funwind-internal # MySQL 独立编排（docker/mysql/compose.yaml）创建的共享网络
     depends_on: [] # MySQL 由独立编排管理；健康由 /api/health 兜底
@@ -37,6 +42,8 @@ services:
 
 volumes:
   funwind-storage:
+  funwind-backup-files:
+    external: true # 备份服务编排创建（显式名，见 docker/backup/compose.yaml）
     external: true # 预建裸卷（docker volume create funwind-storage + chown 100:101），避免 compose 项目前缀另建一份
 
 networks:
