@@ -1,8 +1,10 @@
 import { AdminFlash } from "@/components/admin/admin-flash";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { backupServiceHealth, listBackupRuns, type BackupRunRow } from "@/lib/ops/backup";
+import { PolicyForm } from "./policy-form";
 import { TriggerBackupForm } from "./trigger-form";
-import { triggerBackupAction } from "./actions";
+import { getBackupPolicy } from "@/lib/ops/backup";
+import { saveBackupPolicyAction, triggerBackupAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "运维" };
@@ -32,7 +34,11 @@ const STATUS_BADGE: Record<BackupRunRow["status"], { label: string; cls: string 
 export default async function AdminOpsPage({ searchParams }: Params) {
   await requireAdmin();
   const sp = await searchParams;
-  const [runs, svcHealth] = await Promise.all([listBackupRuns(50), backupServiceHealth()]);
+  const [runs, svcHealth, policy] = await Promise.all([
+    listBackupRuns(50),
+    backupServiceHealth(),
+    getBackupPolicy(),
+  ]);
 
   const lastDb = runs.find((r) => r.kind === "db" && r.status === "success");
   const lastStorage = runs.find((r) => r.kind === "storage" && r.status === "success");
@@ -54,6 +60,12 @@ export default async function AdminOpsPage({ searchParams }: Params) {
       {sp.done && (
         <AdminFlash kind="success" dismissHref="/admin/ops">
           备份完成（{sp.backup === "storage" ? "存储" : "数据库"}），下方历史已刷新。
+        </AdminFlash>
+      )}
+      {sp.policy === "saved" && (
+        <AdminFlash kind="success" dismissHref="/admin/ops">
+          保留策略已保存（数据库 {policy.keepDb} 份 / 存储 {policy.keepStorage}{" "}
+          份），下一次备份轮转即按新策略执行。
         </AdminFlash>
       )}
       {sp.err && (
@@ -115,6 +127,20 @@ export default async function AdminOpsPage({ searchParams }: Params) {
         </div>
       </div>
 
+      {/* 保留策略（site_settings ops.backup.policy；备份服务轮转时动态读取） */}
+      <div className="rounded-xl border bg-card p-4">
+        <h2 className="text-sm font-semibold">备份保留策略</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          按份数轮转，超出即删除最旧的一份（手动与定时同池）。storage 备份单份约
+          95MB，份数越大占用越高。
+        </p>
+        <PolicyForm
+          action={saveBackupPolicyAction}
+          keepDb={policy.keepDb}
+          keepStorage={policy.keepStorage}
+        />
+      </div>
+
       {/* 历史列表 */}
       <div className="rounded-xl border bg-card">
         <div className="border-b p-4 text-sm font-semibold">备份历史（最近 50 条）</div>
@@ -134,6 +160,7 @@ export default async function AdminOpsPage({ searchParams }: Params) {
                   <th className="p-3 font-medium">大小</th>
                   <th className="p-3 font-medium">开始时间</th>
                   <th className="p-3 font-medium">备注</th>
+                  <th className="p-3 font-medium">文件</th>
                 </tr>
               </thead>
               <tbody>

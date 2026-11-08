@@ -111,3 +111,42 @@ export async function backupServiceHealth(): Promise<{ ok: boolean; jobs: string
     return { ok: false, jobs: [] };
   }
 }
+
+/** 保留策略（site_settings key=ops.backup.policy；备份服务轮转时动态读取，改完即生效） */
+export interface BackupPolicy {
+  keepDb: number;
+  keepStorage: number;
+}
+
+const POLICY_KEY = "ops.backup.policy";
+
+export async function getBackupPolicy(): Promise<BackupPolicy> {
+  const result = await getWebDb().execute(sql`
+    SELECT value FROM site_settings WHERE ${sql.raw("`key`")} = ${POLICY_KEY} LIMIT 1
+  `);
+  const rows = (Array.isArray(result) && Array.isArray(result[0]) ? result[0] : result) as Array<{
+    value: unknown;
+  }>;
+  const raw = rows[0]?.value;
+  const parsed =
+    typeof raw === "string" ? JSON.parse(raw) : (raw as Partial<BackupPolicy> | undefined);
+  return {
+    keepDb: clampKeep(parsed?.keepDb, 14),
+    keepStorage: clampKeep(parsed?.keepStorage, 7),
+  };
+}
+
+function clampKeep(value: unknown, fallback: number): number {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1 || n > 90) return fallback;
+  return n;
+}
+
+export async function setBackupPolicy(policy: BackupPolicy): Promise<void> {
+  const value = JSON.stringify({ keepDb: policy.keepDb, keepStorage: policy.keepStorage });
+  await getWebDb().execute(sql`
+    INSERT INTO site_settings (${sql.raw("`key`")}, value, updated_at)
+    VALUES (${POLICY_KEY}, ${value}, NOW())
+    ON DUPLICATE KEY UPDATE value = ${value}, updated_at = NOW()
+  `);
+}

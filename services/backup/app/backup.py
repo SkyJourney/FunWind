@@ -30,6 +30,24 @@ def _release_lock(conn) -> None:
     with conn.cursor() as cur:
         cur.execute("SELECT RELEASE_LOCK(%s)", (config.LOCK_NAME,))
 
+def _dynamic_keep(kind: str, env_default: int) -> int:
+    """保留份数：优先读 site_settings("ops.backup.policy")（后台设置区可改，保存即生效）；
+    无记录/字段非法时用 env 默认。查询失败静默回落（轮转不该因配置读取挂掉）。"""
+    try:
+        with metadata.connect() as conn, conn.cursor() as cur:
+            cur.execute('SELECT value FROM site_settings WHERE `key` = "ops.backup.policy" LIMIT 1')
+            row = cur.fetchone()
+        import json
+
+        raw = row[0] if row else None
+        parsed = json.loads(raw) if isinstance(raw, (str, bytes)) else (raw or {})
+        key = "keepDb" if kind == "db" else "keepStorage"
+        n = int(parsed.get(key, env_default))
+        return n if 1 <= n <= 90 else env_default
+    except Exception as e:
+        log.warning("保留策略读取失败，使用默认 %d：%s", env_default, e)
+        return env_default
+
 def _keep_latest(directory: Path, prefix: str, keep: int) -> list[str]:
     """按份数轮转：保留最新 keep 份（文件名时间戳+随机后缀，字典序≈时间序），返回被删除的文件名。
 
@@ -82,7 +100,7 @@ def run_db_backup(trigger: str) -> dict:
             if check.returncode != 0:
                 raise RuntimeError("备份完整性校验失败（gzip/尾标）")
 
-            removed = _keep_latest(target, f"db-{config.DB_NAME}-", config.KEEP_DB)
+            removed = _keep_latest(target, f"db-{config.DB_NAME}-", _dynamic_keep("db", config.KEEP_DB))
             size = out.stat().st_size
             detail = f"轮转删除 {len(removed)} 份" if removed else None
             metadata.finish_run(run_id, "success", path=str(out), size=size, detail=detail)
@@ -122,7 +140,7 @@ def run_storage_backup(trigger: str) -> dict:
             if check.returncode != 0:
                 raise RuntimeError("备份完整性校验失败（gzip）")
 
-            removed = _keep_latest(target, "storage-", config.KEEP_STORAGE)
+            removed = _keep_latest(target, "storage-", _dynamic_keep("storage", config.KEEP_STORAGE))
             size = out.stat().st_size
             detail = f"轮转删除 {len(removed)} 份" if removed else None
             metadata.finish_run(run_id, "success", path=str(out), size=size, detail=detail)
