@@ -210,6 +210,20 @@ BLUEPRINT「上线实录」占位 + M13 文档 ✅（演练执行项留站长）
       sh 变量名紧跟全角字符会被吞进变量名（`$VAR）` unbound——统一 `${VAR}` 收口）；rsync 护栏在
       DEST 未建时 cd 失败退化为 `/` 误命中（mkdir 提前）。
 - [ ] Step 4 社区重启包：
+- [x] Step 4 社区重启包（2026-11-08）：`lib/brand/init-brand.ts` ensureDefaultLogo（幂等：池已有当前项
+      跳过绝不覆盖站长自定义；包项在池但 active 空则复用激活不重复导入）——零数据安装 site-settings
+      步骤自动调用（失败只记日志不 fail 步骤）+ `pnpm init-brand` CLI（导入路径检查单，F4）；int 测试
+      3 用例（真实定稿图端到端，含字节一致断言）。favicon 一次性生成入库：`app/icon.png`（定稿图原样）+
+      `app/favicon.ico`（sharp 16/32/48 PNG-in-ICO，file 识别通过）；`NEXT_PUBLIC_LOGO` 补 .env.example
+      文档（真实拼法 = -112/-224 双档前缀）。召回：`recallRelaunchMail` 模板（notice/recall-relaunch，
+      未认领→找回页认领、已设密→登录；previews 登记双样例过守卫）+ `lib/mail/recall.ts`（白名单=active+
+      有邮箱+无生效全局封禁（版块封禁/已过期放行）；email_log sent 防重续跑；分批限速+单封重试；send
+      注入可测）+ int 测试 4 用例（9 类用户矩阵）+ `pnpm recall-blast` CLI（dry-run 默认、邮箱打码、
+      process.exit 显式退出——nodemailer 池不释放事件循环）。实测：dev 库 dry-run 10679 可发/84 过滤
+      （邮箱全打码）；e2e 库 --apply 真发 6 封全 sent（MailPit 收信 + email_log 双落点核对）+ 重跑
+      防重 0.59s 秒退。OBSERVABILITY.md（拨测建议/告警触达验证/日志前缀表/digest 心跳/slow log）；
+      向导自检补 TRUSTED_PROXY_HOPS 行（F3 出入修正）。守卫两次纠偏：邮件唯一出口（trySendMail 须从
+      @/lib/mail 桶导入）与模板预览登记。
 - [ ] Step 5 全量回归与安全走查：
 - [ ] Step 6 收口与演练手册：
 - [ ] Step 7 上线执行（站长主导）：

@@ -312,6 +312,35 @@ export function digestMail(
   });
 }
 
+/**
+ * S8 手动变体：社区重启召回（M13 D4，scripts/recall-blast.mts 批量发送）。
+ * 未认领老账号（旧密码不可迁移，password_hash 为空）引导到找回页认领；已设密账号直接登录。
+ * 一次性通知：发送脚本按 email_log（scene=recall-relaunch, status=sent）防重，重跑不会重复寄出。
+ */
+export function recallRelaunchMail(
+  opts: { username: string; claimed: boolean },
+  brand: MailBrand = FALLBACK_BRAND,
+): MailMessage {
+  return renderMail({
+    kind: "notice",
+    scene: "recall-relaunch",
+    brand,
+    title: `${brand.siteName}新论坛上线了`,
+    paragraphs: [
+      `**${opts.username}**，好久不见！`,
+      "论坛完成了全新改版：老帖子、老楼层、你的账号与发帖记录都完整保留，旧链接也会自动跳到新页面。",
+      opts.claimed
+        ? "你的账号已经可以直接登录，回来看看大家吧。"
+        : "旧站的密码无法迁移到新站，第一次回来需要先认领账号：在找回页输入这个邮箱，按收到的邮件设置新密码即可（不需要重新注册）。",
+    ],
+    action: opts.claimed
+      ? { href: `${brand.siteUrl}/login`, label: "回到社区" }
+      : { href: `${brand.siteUrl}/forgot`, label: "认领我的账号" },
+    note: "这是社区改版上线的一次性通知，不会重复发送。",
+    footer: `你收到这封邮件，是因为你曾在 ${brand.siteName} 注册过账号。`,
+  });
+}
+
 // ============================================================
 // 系统类（system）
 // ============================================================

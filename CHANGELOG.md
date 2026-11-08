@@ -5,6 +5,23 @@
 
 ## [Unreleased]
 
+### Added（M13 · 部署与社区重启，Step 4）
+
+- **默认站标初始化（D2）**：`lib/brand/init-brand.ts` ensureDefaultLogo——幂等（LOGO 池已有当前项即
+  跳过，绝不覆盖站长自定义；qy2010 包项在池但 active 被清空则复用激活，不重复导入）。两条入口共用：
+  零数据安装（向导/CLI 的 site-settings 步骤自动调用，失败只记日志不阻断）与导入路径上线检查单
+  `pnpm init-brand`。`app/icon.png` + `app/favicon.ico`（16/32/48 多尺寸）已从定稿图生成入库，
+  favicon 404 缺口补齐；`NEXT_PUBLIC_LOGO` 静态回退链补文档。
+- **社区重启召回发送器（D4）**：`pnpm recall-blast`——S8 手动变体（模板 `recallRelaunchMail`：
+  未认领老账号引导找回页认领、已设密账号引导登录）。**dry-run 默认**（统计 + 邮箱打码抽样，
+  `--apply` 才真发）；白名单过滤（注销/无邮箱/全局封禁生效中——版块封禁与已过期封禁放行）；
+  email_log 场景防重（中断重跑不重复打扰已发用户）；分批限速（默认 50 封/批、批间 10s）+ 单封
+  失败重试。dev 库实测：10679 可发 / 84 被过滤；e2e 库 `--apply` 真发 6 封全 sent（MailPit +
+  email_log 双落点核对）+ 重跑防重秒退。
+- **`docs/ops/OBSERVABILITY.md`**（D3）：`/api/health` 拨测配置建议、告警触达验证步骤（停容器制造
+  故障）、日志前缀约定表、digest 作为日级心跳、MySQL slow log 开启方式、上线检查单可观测段。
+- 向导环境自检补 `TRUSTED_PROXY_HOPS` 状态行（F3 出入修正：M12 文档称有此提示但代码没有）。
+
 ### Added（M13 · 部署与社区重启，Step 3）
 
 - **备份脚本**：`scripts/backup/backup-db.sh`（宿主机经容器内 mysqldump 一致性快照，口令取容器 env

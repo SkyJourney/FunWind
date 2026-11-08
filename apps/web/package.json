@@ -18,6 +18,8 @@
     "test:layout": "playwright test -c playwright.layout.config.ts",
     "modules:toggle": "node --import ./scripts/server-only-register.mjs --import tsx scripts/modules-toggle.ts",
     "install:cli": "node --import ./scripts/server-only-register.mjs --import tsx scripts/install.mts",
+    "init-brand": "node --import ./scripts/server-only-register.mjs --import tsx scripts/init-brand.mts",
+    "recall-blast": "node --import ./scripts/server-only-register.mjs --import tsx scripts/recall-blast.mts",
     "perf:lcp": "tsx scripts/lcp.ts",
     "perf:posting": "node --import ./scripts/server-only-register.mjs --import tsx scripts/perf-posting.ts",
     "outbox:drain": "node --import ./scripts/server-only-register.mjs --import tsx scripts/outbox-drain.ts",
