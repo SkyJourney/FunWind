@@ -175,6 +175,11 @@ export function NotificationBell() {
             查看全部
           </Link>
         </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/a" className="w-full text-center text-sm text-primary">
+            全部公告
+          </Link>
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -65,6 +65,14 @@ export default async function NotificationsPage({
         </div>
       </header>
 
+      {cat === "announcement" && (
+        <p className="text-sm">
+          <Link href="/a" className="text-primary underline-offset-4 hover:underline">
+            全部公告（含归档）→
+          </Link>
+        </p>
+      )}
+
       <nav className="flex flex-wrap gap-1.5" aria-label="通知分类">
         {CATEGORY_TABS.map((t) => {
           const href = t.key ? `/notifications?cat=${t.key}` : "/notifications";
