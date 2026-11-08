@@ -14,8 +14,8 @@ export function PolicyForm({
 }) {
   return (
     <form action={action} className="mt-3 flex flex-wrap items-end gap-4">
-      <label className="text-sm">
-        数据库备份保留
+      <label className="block text-sm">
+        <span className="block">数据库备份保留（份）</span>
         <input
           type="number"
           name="keepDb"
@@ -24,10 +24,9 @@ export function PolicyForm({
           defaultValue={keepDb}
           className="mt-1 block w-24 rounded-md border bg-background px-2 py-1.5 text-sm"
         />
-        份
       </label>
-      <label className="text-sm">
-        存储备份保留
+      <label className="block text-sm">
+        <span className="block">存储备份保留（份）</span>
         <input
           type="number"
           name="keepStorage"
@@ -36,7 +35,6 @@ export function PolicyForm({
           defaultValue={keepStorage}
           className="mt-1 block w-24 rounded-md border bg-background px-2 py-1.5 text-sm"
         />
-        份
       </label>
       <SubmitButton>保存策略</SubmitButton>
     </form>
