@@ -84,6 +84,8 @@ const DATABASE_ENTRIES = [
   "app/admin/settings/page.tsx",
   "app/api/dev/whoami/route.ts",
   "app/api/emojis/route.ts",
+  // M13 Step 1：健康端点直连 db 做 SELECT 1 拨测探针（D3）；只暴露布尔位不泄露细节
+  "app/api/health/route.ts",
   "app/api/settings/preferences/route.ts",
   "app/p/[pid]/hide/page.tsx",
   "app/settings/actions.ts",

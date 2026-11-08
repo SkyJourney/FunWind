@@ -22,6 +22,9 @@
 | [docs/POINTS.md](docs/POINTS.md) | 积分规范：用户积分台账、`applyPoints` 单一入口、渠道注册 |
 | [docs/MODULES.md](docs/MODULES.md) | 模块内核契约：事件清单、槽位清单、注册边界 |
 | [docs/milestones/](docs/milestones/) | 里程碑详单（范围/边界/测试/门禁） |
+| [docs/ops/BACKUP.md](docs/ops/BACKUP.md) | 运维·备份与恢复：备份四件套、恢复演练命令、旧栈退役序列（M13） |
+| [docs/ops/OBSERVABILITY.md](docs/ops/OBSERVABILITY.md) | 运维·可观测：健康拨测、告警触达验证、日志前缀约定（M13） |
+| [docs/ops/LAUNCH-RUNBOOK.md](docs/ops/LAUNCH-RUNBOOK.md) | 运维·上线手册：两次演练含回滚、切换日动作序列、多实例检查单处置（M13） |
 | [CHANGELOG.md](CHANGELOG.md) | 变更日志 |
 
 ## 技术栈（已确认）

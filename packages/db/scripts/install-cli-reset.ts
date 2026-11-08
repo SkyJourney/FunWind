@@ -22,7 +22,7 @@ const admin = await mysql.createConnection({
 });
 await admin.query(`DROP DATABASE IF EXISTS \`${database}\``);
 await admin.query(
-  `CREATE DATABASE \`${database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci`,
+  `CREATE DATABASE \`${database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
 );
 await admin.end();
 console.log(`✔ 空库就绪（install:cli 将自行建库表与数据）: ${database}`);

@@ -32,7 +32,8 @@ jobs:
     timeout-minutes: 25
     services:
       mysql:
-        image: mysql:8.4 # 默认字符集即 utf8mb4 / utf8mb4_0900_ai_ci，与本地 compose 一致
+        image: mysql:8.4 # server 默认 0900_ai_ci 无关紧要：全部测试库由脚本显式以 utf8mb4_unicode_ci 创建（D8）；
+        # GH Actions 的 service options 只接受 docker create 标志，mysqld 进程参数（--collation-server）放这里会创建失败
         env:
           MYSQL_ROOT_PASSWORD: ci-only-mysql-pass
         ports:

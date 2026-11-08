@@ -1,12 +1,15 @@
 /**
  * bootstrapDb —— 空库建表管线（零数据部署与青翼导入共用，决策 #10）
  * 1. drizzle 版本化迁移（drizzle/ 下的版本化迁移，journal 断点续跑，幂等）
- * 2. PATCHES：drizzle-kit 不支持的列级 COLLATE（username_key / email_key / post_gates.gate_key 需 utf8mb4_bin），按需执行、幂等
- * 3. seedSystemData：内置角色、权限词汇表、基线授权、站点设置默认值——零数据站点开箱即有可用的权限体系
+ * 2. 排序规则家族对齐：残留 0900 家族的表 CONVERT 为 utf8mb4_unicode_ci（M13，幂等）；
+ *    唯一索引先摘除、PATCHES 恢复 _bin 后再按终态排序规则重建（假名/大小写重复数据不受影响）
+ * 3. PATCHES：drizzle-kit 不支持的列级 COLLATE（username_key / email_key / post_gates.gate_key 需 utf8mb4_bin），按需执行、幂等
+ * 4. 唯一索引重建（仅家族对齐摘除过的表）
+ * 5. seedSystemData：内置角色、权限词汇表、基线授权、站点设置默认值——零数据站点开箱即有可用的权限体系
  */
 import { eq, sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/mysql2/migrator";
-import { createConnection, type RowDataPacket } from "mysql2/promise";
+import { createConnection, type Pool, type RowDataPacket } from "mysql2/promise";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -50,6 +53,67 @@ export const PATCHES = [
   },
 ] as const;
 
+/** 待重建的唯一索引元信息（家族对齐期间临时摘除，_bin 恢复后按终态语义重建） */
+interface DroppedUniqueIndex {
+  table: string;
+  name: string;
+  columns: string[];
+}
+
+/**
+ * 排序规则家族对齐（M13）：0900 是 MySQL 8 专有排序规则——家族默认改为全家族可移植的
+ * utf8mb4_unicode_ci 后，既有库（dev / 历史导入产物）在 bootstrap 时原地 CONVERT（幂等：全库无 0900 表后计 0）。
+ * CONVERT 会按新排序规则重建唯一索引——若 _bin 特例列（username_key 等）的数据在 _ci 视角有
+ * 「假名/大小写重复」，转换会以 Duplicate entry 失败。因此唯一索引必须先摘、转换后重建：
+ *   dropUniqueIndexes → CONVERT 全部 0900 表 → PATCHES 恢复 _bin → rebuildUniqueIndexes
+ * 重建时列已是终态排序规则（_bin 保假名/大小写区分），若无数据级真重复则必然成功；真重复属于
+ * 数据问题，报错指明表与索引，修复后重跑 bootstrap（全程可重入）。
+ * 前提：schema 无外键约束（字符串列改排序规则不会撞外键兼容性检查）；utf8mb4 → utf8mb4 同字符集，只改排序规则不改数据。
+ */
+async function dropUniqueIndexesOn0900Tables(
+  pool: Pool,
+): Promise<{ converted: number; dropped: DroppedUniqueIndex[] }> {
+  const [tables] = await pool.query<RowDataPacket[]>(
+    `SELECT TABLE_NAME AS name FROM information_schema.TABLES
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'
+       AND LOCATE('_0900_', TABLE_COLLATION) > 0`,
+  );
+  const dropped: DroppedUniqueIndex[] = [];
+  let converted = 0;
+  for (const row of tables) {
+    const table = String(row.name);
+    const [indexes] = await pool.query<RowDataPacket[]>(
+      `SELECT INDEX_NAME AS name, GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) AS cols
+       FROM information_schema.STATISTICS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME <> 'PRIMARY'
+       GROUP BY INDEX_NAME HAVING MAX(NON_UNIQUE = 0) = 1`,
+      [table],
+    );
+    for (const idx of indexes) {
+      await pool.query(`ALTER TABLE \`${table}\` DROP INDEX \`${String(idx.name)}\``);
+      dropped.push({ table, name: String(idx.name), columns: String(idx.cols).split(",") });
+    }
+    await pool.query(
+      `ALTER TABLE \`${table}\` CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+    );
+    converted += 1;
+  }
+  return { converted, dropped };
+}
+
+/** 按摘除前的定义重建唯一索引（列此时已是终态排序规则） */
+async function rebuildUniqueIndexes(
+  pool: Pool,
+  dropped: DroppedUniqueIndex[],
+  log: (m: string) => void,
+): Promise<void> {
+  for (const idx of dropped) {
+    const cols = idx.columns.map((c) => `\`${c}\``).join(", ");
+    await pool.query(`ALTER TABLE \`${idx.table}\` ADD UNIQUE KEY \`${idx.name}\` (${cols})`);
+    log(`✔ ${idx.table} 唯一索引 ${idx.name} 已按终态排序规则重建`);
+  }
+}
+
 export async function bootstrapDb(
   config = newDbConfig(),
   log = (m: string) => console.log(m),
@@ -59,6 +123,14 @@ export async function bootstrapDb(
   try {
     await migrate(db, { migrationsFolder });
     log("✔ 版本化迁移已应用（幂等）");
+
+    // 排序规则家族对齐（M13）：唯一索引先摘 → CONVERT → PATCHES 恢复 _bin → 唯一索引按终态重建
+    const { converted, dropped } = await dropUniqueIndexesOn0900Tables(pool);
+    if (converted > 0) {
+      log(
+        `✔ 排序规则家族对齐：${converted} 张表 0900 → unicode_ci（摘除唯一索引 ${dropped.length} 个待重建）`,
+      );
+    }
 
     for (const p of PATCHES) {
       const [rows] = await pool.query<RowDataPacket[]>(
@@ -74,6 +146,8 @@ export async function bootstrapDb(
         log(`✔ ${p.table}.${p.column} collation 修正：${collation} → ${p.collation}`);
       }
     }
+
+    await rebuildUniqueIndexes(pool, dropped, log);
 
     const summary = await seedSystemData(db);
     log(
@@ -119,7 +193,7 @@ export async function createDatabaseIfNotExists(
   const conn = await createConnection(withoutDb);
   try {
     await conn.query(
-      `CREATE DATABASE IF NOT EXISTS \`${database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci`,
+      `CREATE DATABASE IF NOT EXISTS \`${database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
     );
     log(`✔ 数据库就绪：${database}`);
   } finally {

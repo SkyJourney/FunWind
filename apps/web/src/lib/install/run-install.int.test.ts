@@ -27,6 +27,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { hashPassword } from "@/lib/auth/password";
 import { registerUser } from "@/lib/auth/register";
 import { getRegisterPolicy } from "@/lib/auth/settings";
+import { getLogoPoolRaw } from "@/lib/brand/logo-pool";
 import { isInstalled, removeInstallLock, writeInstallLock } from "./lock";
 import { installProgress } from "./progress";
 import { INSTALL_STEPS, runInstall, runInstallStep } from "./run-install";
@@ -46,7 +47,7 @@ const config: InstallConfig = installConfigFromEnv({
 
 beforeAll(async () => {
   await adminPool.query(
-    `CREATE DATABASE \`${dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci`,
+    `CREATE DATABASE \`${dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
   );
   // 运行时单例池与管线的 newDbConfig() 都读 env：必须在任何 getWebDb() 之前指到临时库
   process.env.NEW_DB_NAME = dbName;
@@ -161,6 +162,12 @@ describe.skipIf(process.env.SKIP_DB_TESTS === "1")("安装管线（真实 MySQL�
       siteConfigured: true,
       adminCreated: false,
     });
+    // 默认站标（M13 D2）：零数据安装即得品牌——site-settings 步骤自动初始化 LOGO 池
+    const logoPoolRaw = await getLogoPoolRaw();
+    expect(logoPoolRaw.items).toHaveLength(1);
+    expect(logoPoolRaw.items[0]).toMatchObject({ name: "清爽侦探半翼", pack: "qy2010" });
+    expect(logoPoolRaw.active).toBe(logoPoolRaw.items[0]?.file);
+    expect(existsSync(path.join(storageDir, "site", logoPoolRaw.active!))).toBe(true);
     // 另两种模式的策略键值（users 仍为空，重复执行设置步骤合法）
     expect(
       (await runInstallStep("site-settings", { ...config, registration: { mode: "invite" } })).ok,

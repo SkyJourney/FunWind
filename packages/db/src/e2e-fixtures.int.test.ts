@@ -50,7 +50,7 @@ describe.skipIf(skip)("E2E 夹具集成（临时库）", () => {
   beforeAll(async () => {
     process.env.STORAGE_DIR = storageDir; // 夹具文件落到临时目录，不污染仓库的 storage/
     const c = await admin();
-    await c.query(`CREATE DATABASE \`${dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci`);
+    await c.query(`CREATE DATABASE \`${dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
     await c.end();
     await bootstrapDb(config, () => {});
   });

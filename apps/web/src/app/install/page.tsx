@@ -139,6 +139,12 @@ export default async function InstallPage({
                 数据目录：
                 {process.env.STORAGE_DIR ? "已由 STORAGE_DIR 指定" : "默认（仓库根 storage/）"}
               </li>
+              <li>
+                TRUSTED_PROXY_HOPS：
+                {process.env.TRUSTED_PROXY_HOPS
+                  ? `已设为 ${process.env.TRUSTED_PROXY_HOPS}`
+                  : "未设置（直连部署填 0；nginx 反代后填实际代理层数，生产必填）"}
+              </li>
             </ul>
           </div>
           <form action={installDatabaseAction} className="grid gap-3">

@@ -13,6 +13,7 @@ import {
   users,
 } from "@funwind/db";
 import { INSTALL_ACTOR, writeAudit } from "@/lib/audit";
+import { ensureDefaultLogo } from "@/lib/brand/init-brand";
 import { hashPassword } from "@/lib/auth/password";
 import { registerUser } from "@/lib/auth/register";
 import { setSettings } from "@/lib/auth/settings";
@@ -263,6 +264,13 @@ async function runInstallStepLocked(
         ],
         INSTALL_ACTOR,
       );
+      // 默认站标（M13 D2）：零数据安装即得品牌；池已有当前项时幂等跳过。
+      // 附带动作——失败只记日志不 fail 步骤（与 applyPackLogo 的语义一致），重装/重跑可收敛。
+      const brand = await ensureDefaultLogo(INSTALL_ACTOR);
+      if (brand.action === "initialized") console.log("[install] 默认站标已初始化：", brand.file);
+      if (brand.action === "failed") {
+        console.error("[install] 默认站标初始化失败（可稍后用 pnpm init-brand 补）:", brand.reason);
+      }
       return ok;
     }
 

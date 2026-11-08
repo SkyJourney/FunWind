@@ -12,6 +12,7 @@ import {
   pmReceivedMail,
   resetPasswordMail,
   restrictionMail,
+  recallRelaunchMail,
   testMail,
   verifyEmailMail,
 } from "./templates";
@@ -158,6 +159,18 @@ export const MAIL_PREVIEWS: readonly MailPreview[] = [
     label: "每日动态",
     group: "汇总",
     build: (b) => digestMail({ unreadPm: 2, newReplies: 5, newMentions: 1, newFollowers: 3 }, b),
+  },
+  {
+    id: "recall-relaunch",
+    label: "社区重启召回（M13）",
+    group: "场景",
+    build: (b) => recallRelaunchMail({ username: "老朋友", claimed: false }, b),
+  },
+  {
+    id: "recall-relaunch-claimed",
+    label: "社区重启召回（已认领）",
+    group: "场景",
+    build: (b) => recallRelaunchMail({ username: "老朋友", claimed: true }, b),
   },
   {
     id: "test-mail",

@@ -29,11 +29,10 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-  // 非密钥常量内联进服务端 bundle（密钥类变量禁止走此通道，M5 另行处理）
-  env: {
-    STORAGE_DIR: process.env.STORAGE_DIR ?? "",
-    APP_URL: process.env.APP_URL ?? "",
-  },
+  // 不再用 next.config 的 env 字段内联 STORAGE_DIR / APP_URL（M13 Step 1）：
+  // env 字段是构建期内联——生产镜像 build 时拿不到部署值，固化占位会让运行时配置失效（违背 env 外置形态）。
+  // 服务端代码（getStorageDir / lib/site 的 APP_URL / isSecureSite）都是运行时读进程 env：
+  // 值由顶层 loadEnv（本机 .env）或部署环境注入（docker env_file / -e），两条路都走进程 env，行为一致。
 };
 
 export default nextConfig;

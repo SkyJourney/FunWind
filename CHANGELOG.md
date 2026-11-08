@@ -5,6 +5,95 @@
 
 ## [Unreleased]
 
+### Added（M13 · 部署与社区重启，Step 6）
+
+- **`docs/ops/LAUNCH-RUNBOOK.md`**：上线演练与切换手册（站长执行）——服务器目录布局与镜像上传流、
+  演练一（容器+迁移全链路：13306 避让端口、SSH 隧道在线读 MariaDB、`pnpm init-brand`、端口转发目视）、
+  演练二（切换彩排含**回滚演练**：vhost 恢复 ≤5 分钟）、正式切换日八步动作序列（预置→停写归档→
+  迁移→vhost 切换→公告/邀请码→召回→拨测确认→观察期）、多实例检查单 G-17/G-18 处置记录表。
+  `docker/mysql/compose.yaml` 端口变量化（`MYSQL_HOST_PORT`，演练避让 3306）。
+- README 文档索引补三份 ops 文档（BACKUP/OBSERVABILITY/LAUNCH-RUNBOOK）；BLUEPRINT 补 §10
+  「上线实录」占位（Step 7 执行后回写）。M13 全量回归与安全走查全绿（E2E 476+8、visual 零更新、
+  layout 0 问题、lighthouse PWA 100/100、perf p95 15.9ms、`pnpm audit --prod` 0 漏洞）。
+
+### Added（M13 · 部署与社区重启，Step 4）
+
+- **默认站标初始化（D2）**：`lib/brand/init-brand.ts` ensureDefaultLogo——幂等（LOGO 池已有当前项即
+  跳过，绝不覆盖站长自定义；qy2010 包项在池但 active 被清空则复用激活，不重复导入）。两条入口共用：
+  零数据安装（向导/CLI 的 site-settings 步骤自动调用，失败只记日志不阻断）与导入路径上线检查单
+  `pnpm init-brand`。`app/icon.png` + `app/favicon.ico`（16/32/48 多尺寸）已从定稿图生成入库，
+  favicon 404 缺口补齐；`NEXT_PUBLIC_LOGO` 静态回退链补文档。
+- **社区重启召回发送器（D4）**：`pnpm recall-blast`——S8 手动变体（模板 `recallRelaunchMail`：
+  未认领老账号引导找回页认领、已设密账号引导登录）。**dry-run 默认**（统计 + 邮箱打码抽样，
+  `--apply` 才真发）；白名单过滤（注销/无邮箱/全局封禁生效中——版块封禁与已过期封禁放行）；
+  email_log 场景防重（中断重跑不重复打扰已发用户）；分批限速（默认 50 封/批、批间 10s）+ 单封
+  失败重试。dev 库实测：10679 可发 / 84 被过滤；e2e 库 `--apply` 真发 6 封全 sent（MailPit +
+  email_log 双落点核对）+ 重跑防重秒退。
+- **`docs/ops/OBSERVABILITY.md`**（D3）：`/api/health` 拨测配置建议、告警触达验证步骤（停容器制造
+  故障）、日志前缀约定表、digest 作为日级心跳、MySQL slow log 开启方式、上线检查单可观测段。
+- 向导环境自检补 `TRUSTED_PROXY_HOPS` 状态行（F3 出入修正：M12 文档称有此提示但代码没有）。
+
+### Added（M13 · 部署与社区重启，Step 3）
+
+- **备份脚本**：`scripts/backup/backup-db.sh`（宿主机经容器内 mysqldump 一致性快照，口令取容器 env
+  不出命令行；gzip + sha256 + 完整性自检——gzip 可解压且含 `Dump completed` 尾标，管道中断不会产出
+  半截文件冒充成功；RETAIN_DAYS 轮转）与 `backup-storage.sh`（STORAGE_DIR rsync 严格镜像，排除
+  `.cache/.tmp`，SRC/DEST 颠倒/互嵌护栏拒绝执行）。
+- **`docs/ops/BACKUP.md`**：备份四件套（MySQL/存储/`.env`/旧库转储）、crontab 建议、binlog PITR 口径、
+  已实测的恢复演练命令序列（临时实例 → `db:verify` → bootstrap 冒烟）、真实故障切换步骤、
+  旧库最终转储（utf8mb4 转码）与旧栈退役序列的数据口径。
+- 本机对 dev 库完整演练一轮：dump → 临时 MySQL 8.4 导入（55 表/10763 用户）→ 假名账号字节级无损 →
+  `db:verify` 21 项全过 → 幂等 bootstrap `_bin` 全跳过；存储镜像文件清单 diff 为空 + `--delete` 同步验证。
+
+### Added（M13 · 部署与社区重启，Step 2）
+
+- **301/410 映射表 `docker/production/nginx/redirect-map.conf`**：旧 phpwind URL → 新站，形态按 QY_HK
+  线上 access log 聚合（23.3 万条）+ 旧站文件只读复核定稿，非猜测——tid/fid/uid 静态直跳（id 恒等），
+  pid 走 `/p/{pid}`（服务端按观众可见性算页码 + `#p{pid}` 锚点），`?type=` 直传（主题分类恒等），
+  forumlist→`/boards`、login/register/findPwd→新路由、旧搜索 keyword→`/search?q=`、旧头像路径→
+  `/u/{uid}`；页码不透传（旧 read.perpage=10 首帖占位 vs 新站 20 楼/页首帖常驻，口径不同）；
+  其余旧 `.php` 入口与退役资源目录 → 410 Gone。BLUEPRINT §4.5 两处形态勘误
+  （`simple/?t=N` 实为 `simple/?t{tid}.html`；`space/?uid=N` 实为 `index.php?m=space&uid=N`）。
+  用例集 36 条全绿（`e2e-prod/legacy-redirect.spec.ts`，自起临时 nginx 容器加载同一份映射文件）。
+- **生产编排**：`docker/mysql/compose.yaml`（MySQL 8.4 独立编排：funwind-internal 共享网络、仅
+  loopback 3306、256M buffer pool 适配 2GB 服务器、家族默认 utf8mb4_unicode_ci）；
+  `docker/production/compose.yaml`（单 SSR 容器 + storage 卷 + env_file，无 nginx/Redis 容器）+
+  `.env.example`；`nginx/funwind.conf`（宝塔 vhost 目标形态：反代 3311、client_max_body_size 64m、
+  TLSv1.1 移除、absolute_redirect off）+ `nginx/nginx.conf`（本机验证容器）。
+  端到端实测：真实 app 容器经同构 nginx 反代，旧链接全部落到真实页面（跳楼链接两跳精确落锚点）、
+  70MB 上传 413、应用安全头透传。
+
+### Added（M13 · 部署与社区重启，Step 1）
+
+- **健康端点 `/api/health`**：DB 连通（`SELECT 1`，3 秒超时兜底）与 `STORAGE_DIR` 可写（复用安装自检探针）
+  两项探活；响应只含 `{status,db,storage}` 布尔位、不泄露错误细节；任一项不健康即 503（外部拨测与容器
+  HEALTHCHECK 均打此端点，D3 最小可观测）。单测覆盖健康/DB 故障/存储故障/挂起超时四路。
+- **生产镜像 `docker/production/Dockerfile`**：多阶段构建（builder：全仓依赖 + `next build`；runner：
+  非根用户 `funwind` + `HEALTHCHECK` + `corepack prepare` 离线可用），产物形态保持「整仓 + node_modules +
+  env 外置」（F2，不做 standalone）；容器端口固定 3311（D7：宝塔 nginx 反代此口）。
+  构建期 `ARG APP_URL=https://qingyisub.top` 固化 HSTS（`headers()` 为 build 期求值，域名公开可覆盖）；
+  builder 末尾裁剪 `.next/cache`。实测 1.38GB、上下文 103KB。
+
+### Fixed（M13 Step 1）
+
+- **`next.config.ts` 移除 `env` 字段对 `STORAGE_DIR` / `APP_URL` 的构建期内联**：内联值在 build 时固化，
+  生产镜像 build 时拿不到部署值，会吞掉部署期注入的配置（env 外置形态失效）。服务端读取点均为运行时读进程 env，
+  本机（顶层 loadEnv 读根 .env）与容器（env_file / -e 注入）两条路行为一致。
+- **`.dockerignore` 补 `**/.next-*/`**：原 `.next-*/` 只匹配仓库根，`apps/web` 下 10 个 E2E/布局矩阵 distDir
+  产物（约 5GB）会进入构建上下文；同时补 `**/coverage/`、数据目录（`storage*/`）与 `.git/`。
+
+### Changed（M13 前置 · 排序规则家族切换）
+
+- **数据库家族默认 `utf8mb4_0900_ai_ci` → `utf8mb4_unicode_ci`**（D8）：0900 是 MySQL 8 专有排序规则，
+  绑定它等于绑死引擎版本；unicode_ci 整个 MySQL 系可移植且保留大小写/重音不敏感语义。全部 CREATE DATABASE
+  语句（bootstrap / e2e-reset / install-cli-reset / web 临时库与集成测试）、本地 dev compose 的
+  `--collation-server`、CI 的 MySQL 服务参数、迁移 rehearsal 的建库与 schema 设计稿已同步。
+  三个 `_bin` 特例（username_key/email_key/gate_key）与 rehearsal `username` 的 `_as_cs` 刻意保留
+  （さくら≠サクラ 的假名区分，见 BLUEPRINT 用户名编码考古）。
+- **bootstrap 新增幂等家族对齐**：残留 0900 的表原地 `CONVERT TO utf8mb4_unicode_ci`——唯一索引先摘除、
+  三列 `_bin` 由 PATCHES 恢复后再按终态排序规则重建（`users` 的假名两行实测不受影响；数据级真重复会报错
+  指明表与索引，修复后重跑收敛）。dev 库 qysub_next 已完成对齐（55 表全 unicode_ci、db:verify 21 项全过）。
+
 ### Added（M12 · 安装向导与零数据部署）
 
 - **Web 安装向导 `/install`**：四步（环境与数据库 → 站点设置 → 管理员 → 完成），预填 .env、字段级错误回显与

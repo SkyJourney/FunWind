@@ -17,7 +17,9 @@ services:
       - MYSQL_DATABASE=qysub_next
     command:
       - --character-set-server=utf8mb4
-      - --collation-server=utf8mb4_0900_ai_ci
+      # M13 起家族默认从 0900_ai_ci（MySQL 8 专有）切换为全家族可移植的 utf8mb4_unicode_ci；
+      # 三列 _bin（username_key/email_key/gate_key）与 rehearsal username 的 _as_cs 由各自显式定义保证
+      - --collation-server=utf8mb4_unicode_ci
     volumes:
       - /Volumes/Docker/data/qysub-next/mysql:/var/lib/mysql
     healthcheck:

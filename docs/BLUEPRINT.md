@@ -182,10 +182,12 @@ schema 演进：P0 期的 `migration/schema/schema.sql` 为基线底稿；**M1 �
 
 ## 4.5 URL 结构（M3 冻结，301 依赖）
 
-| 新 URL | 含义 | 旧站 301 源（M12 实施） |
+| 新 URL | 含义 | 旧站 301 源（M13 实施） |
 |--------|------|------------------------|
-| `/f/{fid}` | 版块（`?page=N`、`?type={type_id}`） | `thread.php?fid=N`、`simple/?f=N` |
-| `/t/{tid}` | 帖子（`?page=N`、锚点 `#p{pid}`） | `read.php?tid=N`、`simple/?t=N` |
+| `/f/{fid}` | 版块（`?page=N`、`?type={type_id}`） | `thread.php?fid=N`、`index.php?m=bbs&c=thread&fid=N`（两形态均日志实录） |
+| `/t/{tid}` | 帖子（`?page=N`、锚点 `#p{pid}`） | `read.php?tid=N`、`simple/?t{tid}.html`（phpwind 8 风格，M13 实测旧站 file-level 确认——本表初稿的 `simple/?t=N` 形态不存在，勘误） |
+| `/p/{pid}` | 精确定位到楼（服务端算页码 + 锚点） | `index.php?m=bbs&c=read&a=jump&tid=N&pid=N`、`/?pid=N`（日志实录） |
+| `/u/{uid}` | 用户 | `?uid=N`、`u.php?uid=N`、`index.php?m=space&uid=N`（初稿的 `space/?uid=N` 形态不存在，勘误） |
 | `/attachment/**`、`/emotion/**` | **已退役**（S4-4）：附件/头像/正文图片走 `/files/<storage_key>`（迁移已改写正文链接），表情走 `/emoji/{id}.{ext}`（M10.9 起 id 120–169 冻结不变） | 旧路径返回 404；旧外链的 301 表归 M13 评估 |
 
 旧站未启用伪静态（nginx conf 实证），301 源即原生 query string。**新格式自 M3 起冻结**：改动必须先迁移 301 表。
@@ -256,3 +258,15 @@ src/modules/
 | 表情目录 | 同上 `res/images/emotion/{folder}/`（新站路由 `/emotion/**`） |
 | 迁移程序 | `FunWind/migration/`（环境见仓库根 `.env`；`pnpm migrate` / `pnpm verify:migration`） |
 | 新库容器 | `FunWind/docker/qysub-next/compose.yaml` |
+
+## 10. 上线实录（M13 Step 7 执行后回写）
+
+> 占位：正式切换完成、验收门禁逐项勾选后，由 AI 配合站长回写实际执行记录
+> （切换时间线、迁移耗时、301 抽样结果、召回发送统计、观察期结论）。
+> 执行脚本见 [docs/ops/LAUNCH-RUNBOOK.md](docs/ops/LAUNCH-RUNBOOK.md)；交付态记录见
+> [docs/milestones/M13-launch.md](docs/milestones/M13-launch.md) §9。
+
+- [ ] 演练一（容器 + 迁移全链路）：（站长执行后填）
+- [ ] 演练二（切换彩排 + 回滚）：（站长执行后填）
+- [ ] 正式切换 + 公告/邀请码/召回：（站长执行后填）
+- [ ] 观察期 24h 结论：（回写）

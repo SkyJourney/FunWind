@@ -1,0 +1,43 @@
+# FunWind 生产 · 应用编排（D7：仅单个 SSR 容器；80/443/TLS 由宝塔系统级 nginx 承担，无 nginx/Redis 容器）
+# ============================================================
+# 部署位置（站长服务器）：/opt/funwind/app/compose.yaml + 同目录 .env（由仓库根 .env 生产段填充）
+# 镜像：本机构建后导出加载（CI 无部署 job，D6）：
+#   本机：docker build -f docker/production/Dockerfile -t funwind-web:latest .
+#         docker save funwind-web:latest | ssh QY_HK 'docker load'
+# 启动：cd /opt/funwind/app && docker compose --env-file .env up -d
+# 升级：load 新镜像 → docker compose up -d（同 tag 重建容器，秒级窗口）
+# 回滚：保留上一版 tag（funwind-web:<日期>），compose 改 image 后 up -d（RUNBOOK 详述）
+# 存储：STORAGE_DIR 必须挂卷（头像/附件/品牌位/安装锁全在这；D8 无关）
+#   —— 镜像内运行时 STORAGE_DIR=/data/storage；迁移后把本机 storage/ 内容 rsync 到该卷
+
+name: funwind-app
+
+services:
+  app:
+    image: funwind-web:latest # 升级/回滚只改此 tag
+    container_name: funwind-app
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3311:3311" # 宝塔 nginx proxy_pass 目标；仅 loopback
+    env_file:
+      - .env # 生产 .env（含 NEW_DB_* / SMTP_URL / TRUSTED_PROXY_HOPS=1 等，密钥不进镜像）
+    environment:
+      - STORAGE_DIR=/data/storage
+      - TZ=Asia/Shanghai
+    volumes:
+      - funwind-storage:/data/storage
+    networks:
+      - funwind-internal # MySQL 独立编排（docker/mysql/compose.yaml）创建的共享网络
+    depends_on: [] # MySQL 由独立编排管理；健康由 /api/health 兜底
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  funwind-storage:
+
+networks:
+  funwind-internal:
+    external: true # 已由 docker/mysql/compose.yaml 创建（先起 MySQL 再起 app）

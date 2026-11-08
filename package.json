@@ -22,6 +22,8 @@
     "prepare": "husky",
     "db:bootstrap": "pnpm --filter @funwind/db bootstrap",
     "install:cli": "pnpm --filter @funwind/web install:cli",
+    "init-brand": "pnpm --filter @funwind/web init-brand",
+    "recall-blast": "pnpm --filter @funwind/web recall-blast",
     "db:seed": "pnpm --filter @funwind/db seed",
     "db:e2e-fixtures": "pnpm --filter @funwind/db e2e-fixtures",
     "db:verify": "pnpm --filter @funwind/db verify",
