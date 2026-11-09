@@ -1,9 +1,40 @@
 # Changelog
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 格式；
-版本号采用语义化版本（SemVer）。里程碑交付在条目中标注（M1–M13，见 docs/ROADMAP.md）。
+版本号采用语义化版本（SemVer）。里程碑交付在条目中标注（M1–M15，见 docs/ROADMAP.md）。
 
 ## [Unreleased]
+
+### Added（M13 · Step 7 上线执行 + 上线后追加，2026-11-08/09）
+
+- **正式切换完成（2026-11-08）**：按 [LAUNCH-RUNBOOK](docs/ops/LAUNCH-RUNBOOK.md) 执行——amd64 生产镜像上传、
+  MySQL 8.4 独立编排接管 3306（演练期 13306 避让）、SSH 双隧道在线迁移 **10698 用户 / 33245 内容行 / 2046 文件**
+  （SHA-256 去重省 6309 份、头像 7330 回填），`verify:migration` **119 项全过**；旧库最终 dump 归档
+  （26MB + sha256 留档）。停写窗口 ~18 分钟：停旧栈 → MySQL 接管 → 宝塔 vhost 切反代 → 公网验证全绿
+  （health ok、裸域 301、旧帖/版块/登录 301 正确、attachment 410、最近 20 帖直达 20/20、app 日志 0 错误）。
+  旧栈数据与目录一律未删。现场勘误：服务器旧库实为 **MySQL 5.7.40**（探查记录误为 MariaDB）。
+- **备份服务容器 `funwind-backup`（Python + FastAPI + APScheduler）+ `/admin/ops` 运维页**：职责分离的
+  备份/恢复执行体——服务内置 cron（默认每日 03:10 DB / 03:40 storage，env 可配）、MySQL `GET_LOCK` 互斥、
+  mysqldump/tar 子进程 + gzip 完整性自检（gzip 可解 + Dump completed 尾标）、按份数轮转；保留策略动态读
+  `site_settings("ops.backup.policy")`（后台设置区可改，保存即生效）；`backup_runs` 自治建表（web 原生
+  SQL 只读，不进 drizzle schema）；`POST /restore` 覆盖式恢复（X-OPS-Token + confirm 双确认，恢复前自动
+  对目标库现场 dump；MRG_MYISAM 引擎代差容忍跳过）；CLI `status/runs/backup/restore` 等价能力。
+  运维页：手动触发按钮（未部署备份服务时降级提示不报错）、备份历史列表（含失败原因）、文件下载路由
+  （app 只读挂载备份卷，realpath 防穿越，仅 .gz/.tgz）、保留策略设置区。`docs/ops/BACKUP.md` 重写为
+  服务架构口径；**宿主机 crontab 备份线移除**（双定时线教训：同一备份重复执行两份）。
+- **公告展示链路**：`/a`（归档）与 `/a/{id}`（详情）——游客只看 audience=all，登录用户访问详情即标记
+  已读；后台公告「顶部横幅」勾选即上线/下线横幅，横幅点击进详情。「全部公告」站内入口补齐（铃铛下拉 +
+  通知中心公告分类）；详情 meta 行只留发布日期（已读语义归通知页）+ 窄屏断字修复；公告路由纳入页面
+  切换动效层级表（此前未登记 rank=null 恒走几乎不可见的 fade）。
+- **管理员角色治理（2026-11-08 站长拍板）**：旧站站点组（gid=3）随迁移整体映射 admin 共 21 个个人账号——
+  **19 个历史管理员全部降级为会员**（team-* 身份保留），「青翼」（uid=5097）设为站点级兜底超管并可登录
+  （argon2id 新凭据，旧 md5 清除），admin 行 21 → 2；全部动作写 audit_log；脚本入库
+  `scripts/admin-roles.mts`（幂等、dry-run 默认）与 `set-system-admin-password.mts`。
+- 顺带修复：`/admin/ops` 健康检查字段名对齐（`scheduler_jobs` 断言笔误致页面崩溃）、保留策略表单窄屏
+  串行布局、移除误提交的调试探针文件。
+
+> **M13 收口（2026-11-09 站长拍板）**：上线成功、进入观察期；备份恢复演练签字、告警触达验证、生产
+> 检查单余项转长线运营（见 M13 遗留事项 §转长线运营），不再挂在 M13。
 
 ### Added（M13 · 部署与社区重启，Step 6）
 
