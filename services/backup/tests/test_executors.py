@@ -10,10 +10,11 @@ from app.executors import REGISTRY, ParamsError, kinds_in_group
 from app.restore import validate_target_db
 
 
-def test_registry_holds_schedulable_backup_executors_only():
-    assert set(REGISTRY) == {"backup.db", "backup.storage"}
-    assert {spec.run_kind for spec in REGISTRY.values()} == {"db", "storage"}
-    assert all(spec.lock_group == "backup" for spec in REGISTRY.values())
+def test_registry_keys_and_lock_groups():
+    assert set(REGISTRY) == {"backup.db", "backup.storage", "campaign.holiday"}
+    assert {spec.run_kind for spec in REGISTRY.values()} == {"db", "storage", "holiday"}
+    backup = {k for k, s in REGISTRY.items() if s.lock_group == "backup"}
+    assert backup == {"backup.db", "backup.storage"}
 
 
 def test_backup_group_covers_restore_and_drill():

@@ -127,6 +127,19 @@ async function behaviorOverlapExists(
   return rows.some((row) => row.id !== window.id && intersects(row, window));
 }
 
+/** 按名称与 effect 精确查找方案（M14 节日装扮 create-if-absent 的幂等键：规则·年 × effect）。 */
+export async function findCampaignByNameAndEffect(
+  name: string,
+  effect: string,
+): Promise<typeof campaigns.$inferSelect | null> {
+  const [row] = await getWebDb()
+    .select()
+    .from(campaigns)
+    .where(and(eq(campaigns.name, name), eq(campaigns.effect, effect)))
+    .limit(1);
+  return row ?? null;
+}
+
 export async function createCampaign(
   fields: CampaignFields,
   actor: ConfigActor,

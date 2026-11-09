@@ -1,5 +1,6 @@
 import { AdminFlash } from "@/components/admin/admin-flash";
 import { CopyCode } from "@/components/admin/copy-code";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { opsServiceHealth } from "@/lib/ops/client";
 import { listOpsRunPage, listOpsTriggerStates, listSuccessfulRuns } from "@/lib/ops/runs";
@@ -7,6 +8,8 @@ import { getBackupRetention, listOpsTasks } from "@/lib/ops/tasks";
 import { parseDbDateTime } from "@/lib/datetime";
 import { parseAdminPage } from "@/lib/admin/query";
 import { OpsRunLedger } from "./parts/run-ledger";
+import { HolidayRuleForm } from "./holiday-form";
+import { saveHolidayRuleAction, setTaskEnabledAction } from "./actions";
 import { OpsTaskList } from "./parts/task-list";
 import { fmtSize, NOW_MS } from "./parts/shared";
 import { PolicyForm } from "./policy-form";
@@ -45,6 +48,34 @@ export default async function AdminOpsPage({ searchParams }: Params) {
       getBackupRetention(),
     ]);
   const runs = runPage.rows;
+  // 节日装扮规则卡：任务存在才渲染；草稿（上次失败的表单内容）优先回填（G-19）
+  const holidayTask = taskList.find((t) => t.executor === "campaign.holiday") ?? null;
+  let holidayDraft: Record<string, string> | null = null;
+  if (sp.draft) {
+    try {
+      const parsed: unknown = JSON.parse(sp.draft);
+      if (
+        typeof parsed === "object" &&
+        parsed !== null &&
+        Object.values(parsed).every((v) => typeof v === "string" || Array.isArray(v))
+      ) {
+        holidayDraft = parsed as Record<string, string>;
+      }
+    } catch {
+      holidayDraft = null;
+    }
+  }
+  const holidayParams = holidayTask
+    ? {
+        calendar: (holidayTask.params["calendar"] as string) ?? "lunar",
+        month: Number(holidayTask.params["month"] ?? 1),
+        day: Number(holidayTask.params["day"] ?? 1),
+        beforeDays: Number(holidayTask.params["beforeDays"] ?? 0),
+        durationDays: Number(holidayTask.params["durationDays"] ?? 7),
+        items:
+          (holidayTask.params["items"] as { effect: string; target: string }[] | undefined) ?? [],
+      }
+    : null;
   const lastDb = dbRuns[0];
   const lastStorage = storageRuns[0];
   const runningCount = runs.filter((r) => r.status === "running").length;
@@ -73,6 +104,21 @@ export default async function AdminOpsPage({ searchParams }: Params) {
         <AdminFlash kind="success" dismissHref="/admin/ops">
           保留策略已保存（数据库 {policy.keepDb} 份 / 存储 {policy.keepStorage}{" "}
           份），下一次备份轮转即按新策略执行。
+        </AdminFlash>
+      )}
+      {sp.holiday === "saved" && (
+        <AdminFlash kind="success" dismissHref="/admin/ops">
+          节日装扮规则已保存。任务启用后，管线每日自检会确保当前或下一年窗口的排期方案存在（已生成的
+          方案不会被覆盖，可在排期页微调）。
+        </AdminFlash>
+      )}
+      {sp.holidayErr && (
+        <AdminFlash kind="error" dismissHref="/admin/ops">
+          {sp.holidayErr === "conflict"
+            ? "规则已被他人修改（版本冲突）：下方表单保留了你的修改，请核对当前配置后重新保存。"
+            : sp.holidayErr === "bad-items"
+              ? "装扮内容格式无效：请检查各行的效果与目标。"
+              : sp.holidayErr}
         </AdminFlash>
       )}
       {sp.tasks && (
@@ -110,6 +156,40 @@ export default async function AdminOpsPage({ searchParams }: Params) {
           <OpsTaskList tasks={taskList} triggerStates={triggerStates} />
         )}
       </div>
+
+      {/* 节日装扮规则（campaign.holiday 任务存在时渲染） */}
+      {holidayTask && holidayParams && (
+        <div className="rounded-xl border bg-card p-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold">节日装扮规则</h2>
+            <span
+              className={`rounded px-1.5 py-0.5 text-xs ${
+                holidayTask.enabled
+                  ? "bg-success/10 text-success"
+                  : "bg-muted text-muted-foreground"
+              }`}
+            >
+              任务{holidayTask.enabled ? "启用中" : "已停用"}（每日 09:00 自检）
+            </span>
+          </div>
+          <HolidayRuleForm
+            action={saveHolidayRuleAction}
+            taskId={holidayTask.id}
+            revision={holidayTask.revision}
+            params={holidayParams}
+            draft={holidayDraft}
+          />
+          {!holidayTask.enabled && holidayTask.id > 0 && (
+            <form action={setTaskEnabledAction} className="mt-3">
+              <input type="hidden" name="id" value={holidayTask.id} />
+              <input type="hidden" name="enabled" value="1" />
+              <SubmitButton className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent">
+                启用任务（每日自检 + 手动触发）
+              </SubmitButton>
+            </form>
+          )}
+        </div>
+      )}
 
       {/* 备份状态速览 */}
       <div className="grid gap-3 sm:grid-cols-2">

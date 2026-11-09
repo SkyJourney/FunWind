@@ -7,7 +7,7 @@ JSON 夹具做双端测试。恢复（restore）需要逐次指定源备份与�
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
-from . import backup
+from . import backup, holiday
 
 
 class ParamsError(ValueError):
@@ -21,11 +21,15 @@ class ExecutorSpec:
     run_kind: str  # 台账 kind
     lock_group: str  # 互斥组：同组任务共用一把 GET_LOCK，串行执行
     validate: Callable[[Mapping[str, object]], dict]
-    run: Callable[..., dict]  # run(params, *, trigger, task_key, run_id) → 结果摘要（含 run_id）
+    run: Callable[..., dict]  # run(params, *, trigger, task_key, run_id=None) → 结果摘要（含 run_id）
 
 
-# 互斥组 → 台账类别（手动触发前按组预检 running；恢复与备份共用一把锁）
-LOCK_GROUP_KINDS: dict[str, tuple[str, ...]] = {"backup": ("db", "storage", "restore", "drill")}
+# 互斥组 → 台账类别（手动触发前按组预检 running；恢复与备份共用一把锁；
+# 节日装扮是幂等的 create-if-absent HTTP 写，不与备份互斥、自身也无并发风险）
+LOCK_GROUP_KINDS: dict[str, tuple[str, ...]] = {
+    "backup": ("db", "storage", "restore", "drill"),
+    "holiday": ("holiday",),
+}
 
 
 def _retention_params(raw: Mapping[str, object]) -> dict:
@@ -37,16 +41,31 @@ def _retention_params(raw: Mapping[str, object]) -> dict:
     if keep is None:
         return {}
     if isinstance(keep, bool) or not isinstance(keep, int) or not 1 <= keep <= 90:
-        raise ParamsError("keep 须为 1–90 的整数（保留份数）")
+        raise ParamsError(f"keep 须为 1–90 的整数：{keep!r}")
     return {"keep": keep}
 
 
-def _run_db(params: Mapping[str, object], *, trigger: str, task_key: str, run_id: int | None = None) -> dict:
+def _holiday_params(raw: Mapping[str, object]) -> dict:
+    """节日规则参数：结构校验（effect 集合/去重/日期范围），target 存在性由 SSR 写服务校验。"""
+    try:
+        return holiday.check_params(dict(raw))
+    except holiday.RuleError as exc:
+        raise ParamsError(str(exc)) from exc
+
+
+def _run_db(params: Mapping[str, object], *, trigger: str, task_key: str, run_id: int | None = None, task_name: str = "") -> dict:
     return backup.run_db_backup(trigger, task_key=task_key, keep=params.get("keep"), run_id=run_id)
 
 
-def _run_storage(params: Mapping[str, object], *, trigger: str, task_key: str, run_id: int | None = None) -> dict:
+def _run_storage(params: Mapping[str, object], *, trigger: str, task_key: str, run_id: int | None = None, task_name: str = "") -> dict:
     return backup.run_storage_backup(trigger, task_key=task_key, keep=params.get("keep"), run_id=run_id)
+
+
+def _run_holiday(params: Mapping[str, object], *, trigger: str, task_key: str, run_id: int | None = None, task_name: str = "") -> dict:
+    # 失败收尾在 ensure 内部（校验前置：坏规则不产生台账行）
+    return holiday.ensure_campaign_window(
+        params, task_name, trigger=trigger, task_key=task_key, run_id=run_id
+    )
 
 
 REGISTRY: dict[str, ExecutorSpec] = {
@@ -54,6 +73,14 @@ REGISTRY: dict[str, ExecutorSpec] = {
     for spec in (
         ExecutorSpec("backup.db", "数据库备份", "db", "backup", _retention_params, _run_db),
         ExecutorSpec("backup.storage", "存储备份", "storage", "backup", _retention_params, _run_storage),
+        ExecutorSpec(
+            "campaign.holiday",
+            "节日装扮",
+            "holiday",
+            "holiday",
+            _holiday_params,
+            _run_holiday,
+        ),
     )
 }
 

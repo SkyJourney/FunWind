@@ -55,7 +55,7 @@ class RuntimeStatus:
 def run_now(task: TaskDef, trigger: str = "manual") -> dict:
     """同步执行一个任务（不经调度器）：兼容旧 POST /runs 与 CLI，与定时/异步触发是同一执行器。"""
     spec = REGISTRY[task.executor]
-    return spec.run(task.params, trigger=trigger, task_key=task.key, run_id=None)
+    return spec.run(task.params, trigger=trigger, task_key=task.key, run_id=None, task_name=task.name)
 
 
 class PipelineRuntime:
@@ -227,7 +227,7 @@ class PipelineRuntime:
         spec = REGISTRY[task.executor]
         result, final_run_id = "failed", run_id
         try:
-            outcome = spec.run(task.params, trigger=source, task_key=task.key, run_id=run_id)
+            outcome = spec.run(task.params, trigger=source, task_key=task.key, run_id=run_id, task_name=task.name)
             final_run_id = outcome.get("run_id", run_id)
             result = "success"
             log.info("[ops] task=%s trigger=%s status=success run=%s", task.key, trigger_key, final_run_id)

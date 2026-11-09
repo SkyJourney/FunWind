@@ -1,11 +1,14 @@
 import { z } from "zod";
+import { configFromTarget, findCampaignEffect } from "@/lib/campaigns/effects";
 
 /**
- * 运维任务的执行器注册表与触发器写法校验（M14 Step 2，web 侧）。
+ * 运维任务的执行器注册表与触发器写法校验（M14 Step 2/4，web 侧）。
  *
  * 管线（services/backup）才是执行方：本模块是其 app/executors.py 与 app/triggers.py 的镜像——
  * 执行器清单、参数校验、cron 与单次时刻的写法规则两端必须逐条一致，由共享夹具
  * services/backup/tests/fixtures/ops-contract.json 双端测试守护（改规则先改夹具，两端测试都会提示对齐）。
+ * 差异口径：节日装扮 items 的 target 语法（包 id / 池文件名正则）只在 web 校验（写前拦截），
+ * 管线做结构校验、存在性由 SSR 写服务按 effect 注册表 fail-closed——此类用例不进共享夹具。
  * 纯模块（无 IO、不标 server-only）：后台表单与写服务共用。
  */
 
@@ -16,12 +19,62 @@ export interface OpsExecutor {
   description: string;
   /** 参数校验：未知字段拒绝（.strict()），与管线逐字段同口径 */
   params: z.ZodType<Record<string, unknown>>;
+  /** schema 通过后的语义校验（跨字段/注册表级），只有部分执行器需要 */
+  semantic?: (params: Record<string, unknown>) => OpsCheck<Record<string, unknown>>;
 }
 
 /** 备份类参数：只有可选的 keep（保留份数，1–90）；缺省时管线按 v1 保留策略 / 环境默认解析 */
 const retentionParams = z
   .object({ keep: z.number().int().min(1, "保留份数至少 1").max(90, "保留份数最多 90").nullish() })
   .strict();
+
+/** 节日装扮规则（结构层）；语义（日历/月末/day 范围/注册表）在 holidayRuleSemantic */
+const holidayRuleSchema = z
+  .object({
+    calendar: z.enum(["solar", "lunar"]),
+    month: z.number().int().min(1, "月份须为 1–12").max(12),
+    day: z.number().int().min(0).max(31),
+    beforeDays: z.number().int().min(0, "提前天数不能为负").max(30).nullish(),
+    durationDays: z.number().int().min(1, "持续至少 1 天").max(90, "持续最多 90 天").nullish(),
+    items: z
+      .array(
+        z
+          .object({ effect: z.string().min(1).max(32), target: z.string().trim().min(1).max(120) })
+          .strict(),
+      )
+      .min(1, "至少配置一项装扮内容")
+      .max(6, "装扮内容最多 6 项"),
+  })
+  .strict();
+
+/** 节日装扮的语义校验：日历与日的合法组合、effect 注册且为视觉类、target 语法、去重 */
+function holidayRuleSemantic(parsed: Record<string, unknown>): OpsCheck<Record<string, unknown>> {
+  const { calendar, day } = parsed as { calendar: "solar" | "lunar"; day: number };
+  if (calendar === "lunar" ? day > 30 : day < 1) {
+    return {
+      ok: false,
+      message:
+        calendar === "lunar"
+          ? "农历的日须为 0–30（0 = 该月最后一天，如除夕）"
+          : "公历的日须为 1–31",
+    };
+  }
+  const items = parsed["items"] as { effect: string; target: string }[];
+  const seen = new Set<string>();
+  for (const item of items) {
+    if (!findCampaignEffect(item.effect)) {
+      return { ok: false, message: `未注册的效果类型：${item.effect}` };
+    }
+    if (seen.has(item.effect)) {
+      return { ok: false, message: `装扮效果重复：${item.effect}` };
+    }
+    seen.add(item.effect);
+    if (!configFromTarget(item.effect, item.target)) {
+      return { ok: false, message: `装扮 ${item.effect} 的目标语法无效：${item.target}` };
+    }
+  }
+  return { ok: true, value: parsed };
+}
 
 export const OPS_EXECUTORS: readonly OpsExecutor[] = [
   {
@@ -35,6 +88,13 @@ export const OPS_EXECUTORS: readonly OpsExecutor[] = [
     label: "存储备份",
     description: "附件存储目录 tar 全量（排除可再生的缓存目录），按保留份数轮转",
     params: retentionParams,
+  },
+  {
+    key: "campaign.holiday",
+    label: "节日装扮",
+    description: "按农历/公历规则自动生成运营排期时间窗（当前或下一年，幂等）",
+    params: holidayRuleSchema,
+    semantic: holidayRuleSemantic,
   },
 ];
 
@@ -60,6 +120,10 @@ export function validateOpsParams(
   const normalized = Object.fromEntries(
     Object.entries(parsed.data).filter(([, value]) => value !== null && value !== undefined),
   );
+  if (executor.semantic) {
+    const semantic = executor.semantic(normalized);
+    return semantic.ok ? { ok: true, value: semantic.value } : semantic;
+  }
   return { ok: true, value: normalized };
 }
 

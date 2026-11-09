@@ -11,6 +11,7 @@ import {
   recordManualTrigger,
   setBackupRetention,
   setOpsTaskEnabled,
+  updateOpsTask,
 } from "@/lib/ops/tasks";
 
 const OPS_PAGE = "/admin/ops";
@@ -76,5 +77,84 @@ export const saveBackupPolicyAction = defineAction({
     revalidatePath(OPS_PAGE);
     if (result.ok) redirect(`${OPS_PAGE}?policy=saved`);
     redirect(`${OPS_PAGE}?err=${encodeURIComponent(result.message ?? "保留策略保存失败")}`);
+  },
+});
+
+// ── 节日装扮规则（M14 Step 4） ────────────────────────────
+
+const HOLIDAY_DRAFT_MAX = 2400;
+
+/** 节日规则表单提交失败（G-19）：整份表单编码进 draft 参数带回，不清空工作成果 */
+function holidayFail(query: string, draft: Record<string, unknown>): never {
+  redirect(
+    `${OPS_PAGE}?${query}&draft=${encodeURIComponent(JSON.stringify(draft).slice(0, HOLIDAY_DRAFT_MAX))}`,
+  );
+}
+
+const holidayFormInput = z.object({
+  id: z.coerce.number().int().positive(),
+  revision: z.coerce.number().int().nonnegative(),
+  calendar: z.enum(["solar", "lunar"]),
+  month: z.coerce.number().int().min(1).max(12),
+  day: z.coerce.number().int().min(0).max(31),
+  beforeDays: z.coerce.number().int().min(0).max(30),
+  durationDays: z.coerce.number().int().min(1).max(90),
+  /** 固定 3 行的同名多值字段（formDataToObject 归并为数组；单值兼容字符串） */
+  itemEffect: z.union([z.array(z.string()), z.string()]).default(""),
+  itemTarget: z.union([z.array(z.string()), z.string()]).default(""),
+});
+
+function asStringArray(value: string | string[]): string[] {
+  return Array.isArray(value) ? value : [value];
+}
+
+/** 保存节日装扮规则（写 campaign.holiday 任务的 params，带审计 + 热加载通知）。 */
+export const saveHolidayRuleAction = defineAction({
+  name: "admin.ops.holiday",
+  auth: { admin: "site.admin" },
+  input: holidayFormInput,
+  async run(ctx, input) {
+    const effects = asStringArray(input.itemEffect);
+    const targets = asStringArray(input.itemTarget);
+    // 固定 3 行：effect 留空 = 该行不使用；同名下标一一对应
+    const items = effects
+      .map((effect, index) => ({ effect, target: targets[index] ?? "" }))
+      .filter((item) => item.effect !== "");
+    const draft: Record<string, unknown> = {
+      id: String(input.id),
+      revision: String(input.revision),
+      calendar: input.calendar,
+      month: String(input.month),
+      day: String(input.day),
+      beforeDays: String(input.beforeDays),
+      durationDays: String(input.durationDays),
+      effects,
+      targets,
+    };
+    const result = await updateOpsTask(
+      input.id,
+      input.revision,
+      {
+        params: {
+          calendar: input.calendar,
+          month: input.month,
+          day: input.day,
+          beforeDays: input.beforeDays,
+          durationDays: input.durationDays,
+          items,
+        },
+      },
+      ctx.actor,
+    );
+    revalidatePath(OPS_PAGE);
+    if (result.ok) redirect(`${OPS_PAGE}?holiday=saved`);
+    if (result.code === "conflict") {
+      // G-19：版本冲突 → 带草稿回表单，不静默换用最新版本
+      holidayFail("holidayErr=conflict", draft);
+    }
+    holidayFail(
+      `holidayErr=${encodeURIComponent(result.message ?? "规则保存失败，请重试")}`,
+      draft,
+    );
   },
 });

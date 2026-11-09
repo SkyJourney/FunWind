@@ -407,7 +407,7 @@ async function seedOpsTasks(db: Db): Promise<number> {
           name: seed.name,
           executor: seed.executor,
           params: seed.params(legacyPolicy),
-          enabled: true,
+          enabled: seed.enabled ?? true,
           revision: 1,
           createdAt: sql`NOW()`,
           updatedAt: sql`NOW()`,

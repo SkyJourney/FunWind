@@ -28,7 +28,9 @@ const fixture = JSON.parse(
 describe("双端契约夹具", () => {
   it("执行器清单与夹具、管线注册表源码三方一致", () => {
     const pipelineSource = readFileSync(join(SERVICE, "app/executors.py"), "utf8");
-    const pipelineKeys = [...pipelineSource.matchAll(/ExecutorSpec\("([^"]+)"/g)].map((m) => m[1]);
+    const pipelineKeys = [...pipelineSource.matchAll(/ExecutorSpec\(\s*"([^"]+)"/g)].map(
+      (m) => m[1],
+    );
     const webKeys = OPS_EXECUTORS.map((executor) => executor.key);
     expect(webKeys.sort()).toEqual([...fixture.executors].sort());
     expect(pipelineKeys.sort()).toEqual([...fixture.executors].sort());

@@ -1,88 +1,538 @@
 {
   "$comment": "运维任务管线双端契约夹具（M14 Step 2）：管线 tests/test_contract_fixture.py 与 web apps/web/src/lib/ops/executors.test.ts 读同一份——执行器清单、参数校验、cron 与单次时刻写法的判定必须两端一致。新增执行器或改校验规则时先改这里，两端测试都会提示对齐。",
-  "executors": ["backup.db", "backup.storage"],
+  "executors": ["backup.db", "backup.storage", "campaign.holiday"],
   "params": [
-    { "executor": "backup.db", "params": {}, "valid": true },
-    { "executor": "backup.db", "params": { "keep": 1 }, "valid": true },
-    { "executor": "backup.db", "params": { "keep": 90 }, "valid": true },
-    { "executor": "backup.storage", "params": { "keep": 7 }, "valid": true },
-    { "executor": "backup.db", "params": { "keep": 0 }, "valid": false },
-    { "executor": "backup.db", "params": { "keep": 91 }, "valid": false },
-    { "executor": "backup.db", "params": { "keep": true }, "valid": false },
-    { "executor": "backup.db", "params": { "keep": "7" }, "valid": false },
-    { "executor": "backup.db", "params": { "keep": 7.5 }, "valid": false },
-    { "executor": "backup.db", "params": { "keep": null }, "valid": true },
-    { "executor": "backup.db", "params": { "keepDb": 7 }, "valid": false },
-    { "executor": "backup.storage", "params": { "keep": 7, "extra": 1 }, "valid": false }
+    {
+      "executor": "backup.db",
+      "params": {},
+      "valid": true
+    },
+    {
+      "executor": "backup.db",
+      "params": {
+        "keep": 1
+      },
+      "valid": true
+    },
+    {
+      "executor": "backup.db",
+      "params": {
+        "keep": 90
+      },
+      "valid": true
+    },
+    {
+      "executor": "backup.storage",
+      "params": {
+        "keep": 7
+      },
+      "valid": true
+    },
+    {
+      "executor": "backup.db",
+      "params": {
+        "keep": 0
+      },
+      "valid": false
+    },
+    {
+      "executor": "backup.db",
+      "params": {
+        "keep": 91
+      },
+      "valid": false
+    },
+    {
+      "executor": "backup.db",
+      "params": {
+        "keep": true
+      },
+      "valid": false
+    },
+    {
+      "executor": "backup.db",
+      "params": {
+        "keep": "7"
+      },
+      "valid": false
+    },
+    {
+      "executor": "backup.db",
+      "params": {
+        "keep": 7.5
+      },
+      "valid": false
+    },
+    {
+      "executor": "backup.db",
+      "params": {
+        "keep": null
+      },
+      "valid": true
+    },
+    {
+      "executor": "backup.db",
+      "params": {
+        "keepDb": 7
+      },
+      "valid": false
+    },
+    {
+      "executor": "backup.storage",
+      "params": {
+        "keep": 7,
+        "extra": 1
+      },
+      "valid": false
+    },
+    {
+      "executor": "campaign.holiday",
+      "params": {
+        "calendar": "lunar",
+        "month": 1,
+        "day": 1,
+        "items": [
+          {
+            "effect": "theme.pack",
+            "target": "qy2010"
+          }
+        ]
+      },
+      "valid": true
+    },
+    {
+      "executor": "campaign.holiday",
+      "params": {
+        "calendar": "solar",
+        "month": 10,
+        "day": 1,
+        "beforeDays": 1,
+        "durationDays": 14,
+        "items": [
+          {
+            "effect": "theme.pack",
+            "target": "default"
+          },
+          {
+            "effect": "site.logo",
+            "target": "logo-abcd1234.png"
+          }
+        ]
+      },
+      "valid": true
+    },
+    {
+      "executor": "campaign.holiday",
+      "params": {
+        "calendar": "lunar",
+        "month": 12,
+        "day": 0,
+        "items": [
+          {
+            "effect": "site.hero",
+            "target": "hero-abcd1234.png"
+          }
+        ]
+      },
+      "valid": true
+    },
+    {
+      "executor": "campaign.holiday",
+      "params": {
+        "calendar": "solar",
+        "month": 1,
+        "day": 1,
+        "items": [
+          {
+            "effect": "theme.pack",
+            "target": "default"
+          }
+        ]
+      },
+      "valid": true
+    },
+    {
+      "executor": "campaign.holiday",
+      "params": {
+        "calendar": "lunar",
+        "month": 1,
+        "day": 31,
+        "items": [
+          {
+            "effect": "theme.pack",
+            "target": "qy2010"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "executor": "campaign.holiday",
+      "params": {
+        "calendar": "solar",
+        "month": 1,
+        "day": 0,
+        "items": [
+          {
+            "effect": "theme.pack",
+            "target": "qy2010"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "executor": "campaign.holiday",
+      "params": {
+        "calendar": "lunar",
+        "month": 1,
+        "day": 1,
+        "durationDays": 0,
+        "items": [
+          {
+            "effect": "theme.pack",
+            "target": "qy2010"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "executor": "campaign.holiday",
+      "params": {
+        "calendar": "lunar",
+        "month": 1,
+        "day": 1,
+        "beforeDays": 31,
+        "items": [
+          {
+            "effect": "theme.pack",
+            "target": "qy2010"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "executor": "campaign.holiday",
+      "params": {
+        "calendar": "lunar",
+        "month": 1,
+        "day": 1,
+        "items": []
+      },
+      "valid": false
+    },
+    {
+      "executor": "campaign.holiday",
+      "params": {
+        "calendar": "lunar",
+        "month": 1,
+        "day": 1,
+        "items": [
+          {
+            "effect": "points.boost",
+            "target": "x"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "executor": "campaign.holiday",
+      "params": {
+        "calendar": "lunar",
+        "month": 1,
+        "day": 1,
+        "items": [
+          {
+            "effect": "theme.pack",
+            "target": "a"
+          },
+          {
+            "effect": "theme.pack",
+            "target": "b"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "executor": "campaign.holiday",
+      "params": {
+        "calendar": "lunar",
+        "month": 1,
+        "day": 1
+      },
+      "valid": false
+    }
   ],
   "cron": [
-    { "expr": "10 3 * * *", "valid": true },
-    { "expr": "0 2 * * fri", "valid": true },
-    { "expr": "0 9 * * mon-fri", "valid": true },
-    { "expr": "*/15 * * * *", "valid": true },
-    { "expr": "0 0 1 * *", "valid": true },
-    { "expr": "30 4 1,15 * *", "valid": true },
-    { "expr": "0 0-23/6 * * *", "valid": true },
-    { "expr": "0 0 * jan,jul *", "valid": true },
-    { "expr": "0 0 1 jan-mar *", "valid": true },
-    { "expr": "0 8 * * mon,wed,fri", "valid": true },
-    { "expr": "5 4 * * sun", "valid": true },
-    { "expr": "0 0 29 2 *", "valid": true },
-    { "expr": "0 0 * * sat-sun", "valid": true },
-    { "expr": "0,30 * * * *", "valid": true },
-    { "expr": "0 0 1-31/2 * *", "valid": true },
-    { "expr": "0 2 * * FRI", "valid": true },
-    { "expr": "*/59 * * * *", "valid": true },
-    { "expr": "0-10/10 * * * *", "valid": true },
-    { "expr": "0 */23 * * *", "valid": true },
-    { "expr": "0 0 * */11 *", "valid": true },
-    { "expr": "0 0 * jan-dec/11 *", "valid": true },
-    { "expr": "0 0 1-1 * *", "valid": true },
-    { "expr": "0 0 * * mon-mon", "valid": true },
-    { "expr": "00 03 * * *", "valid": true },
-    { "expr": "0 0 31 2 *", "valid": true },
-    { "expr": "", "valid": false },
-    { "expr": "* * * *", "valid": false },
-    { "expr": "0 0 * * * *", "valid": false },
-    { "expr": "61 * * * *", "valid": false },
-    { "expr": "0 24 * * *", "valid": false },
-    { "expr": "0 0 32 * *", "valid": false },
-    { "expr": "0 0 0 * *", "valid": false },
-    { "expr": "0 0 * 13 *", "valid": false },
-    { "expr": "0 0 * * 0", "valid": false },
-    { "expr": "0 0 * * 1-5", "valid": false },
-    { "expr": "0 0 * * */2", "valid": false },
-    { "expr": "0 0 * * funday", "valid": false },
-    { "expr": "*/0 * * * *", "valid": false },
-    { "expr": "5-1 * * * *", "valid": false },
-    { "expr": "a * * * *", "valid": false },
-    { "expr": "0 0 * * mon-", "valid": false },
-    { "expr": "0 0 * * sun-mon", "valid": false },
-    { "expr": "0 0 * * mon/2", "valid": false },
-    { "expr": "0 0 * dec-jan *", "valid": false },
-    { "expr": "0 0 L * *", "valid": false },
-    { "expr": "5/15 * * * *", "valid": false },
-    { "expr": "0 0 * * mon,,fri", "valid": false },
-    { "expr": "*/60 * * * *", "valid": false },
-    { "expr": "0-10/11 * * * *", "valid": false },
-    { "expr": "0 */24 * * *", "valid": false },
-    { "expr": "0 0 */31 * *", "valid": false },
-    { "expr": "0 0 * */12 *", "valid": false },
-    { "expr": "0 0 * jan-dec/13 *", "valid": false },
-    { "expr": "0 0 * * mon-fri/2", "valid": false }
+    {
+      "expr": "10 3 * * *",
+      "valid": true
+    },
+    {
+      "expr": "0 2 * * fri",
+      "valid": true
+    },
+    {
+      "expr": "0 9 * * mon-fri",
+      "valid": true
+    },
+    {
+      "expr": "*/15 * * * *",
+      "valid": true
+    },
+    {
+      "expr": "0 0 1 * *",
+      "valid": true
+    },
+    {
+      "expr": "30 4 1,15 * *",
+      "valid": true
+    },
+    {
+      "expr": "0 0-23/6 * * *",
+      "valid": true
+    },
+    {
+      "expr": "0 0 * jan,jul *",
+      "valid": true
+    },
+    {
+      "expr": "0 0 1 jan-mar *",
+      "valid": true
+    },
+    {
+      "expr": "0 8 * * mon,wed,fri",
+      "valid": true
+    },
+    {
+      "expr": "5 4 * * sun",
+      "valid": true
+    },
+    {
+      "expr": "0 0 29 2 *",
+      "valid": true
+    },
+    {
+      "expr": "0 0 * * sat-sun",
+      "valid": true
+    },
+    {
+      "expr": "0,30 * * * *",
+      "valid": true
+    },
+    {
+      "expr": "0 0 1-31/2 * *",
+      "valid": true
+    },
+    {
+      "expr": "0 2 * * FRI",
+      "valid": true
+    },
+    {
+      "expr": "*/59 * * * *",
+      "valid": true
+    },
+    {
+      "expr": "0-10/10 * * * *",
+      "valid": true
+    },
+    {
+      "expr": "0 */23 * * *",
+      "valid": true
+    },
+    {
+      "expr": "0 0 * */11 *",
+      "valid": true
+    },
+    {
+      "expr": "0 0 * jan-dec/11 *",
+      "valid": true
+    },
+    {
+      "expr": "0 0 1-1 * *",
+      "valid": true
+    },
+    {
+      "expr": "0 0 * * mon-mon",
+      "valid": true
+    },
+    {
+      "expr": "00 03 * * *",
+      "valid": true
+    },
+    {
+      "expr": "0 0 31 2 *",
+      "valid": true
+    },
+    {
+      "expr": "",
+      "valid": false
+    },
+    {
+      "expr": "* * * *",
+      "valid": false
+    },
+    {
+      "expr": "0 0 * * * *",
+      "valid": false
+    },
+    {
+      "expr": "61 * * * *",
+      "valid": false
+    },
+    {
+      "expr": "0 24 * * *",
+      "valid": false
+    },
+    {
+      "expr": "0 0 32 * *",
+      "valid": false
+    },
+    {
+      "expr": "0 0 0 * *",
+      "valid": false
+    },
+    {
+      "expr": "0 0 * 13 *",
+      "valid": false
+    },
+    {
+      "expr": "0 0 * * 0",
+      "valid": false
+    },
+    {
+      "expr": "0 0 * * 1-5",
+      "valid": false
+    },
+    {
+      "expr": "0 0 * * */2",
+      "valid": false
+    },
+    {
+      "expr": "0 0 * * funday",
+      "valid": false
+    },
+    {
+      "expr": "*/0 * * * *",
+      "valid": false
+    },
+    {
+      "expr": "5-1 * * * *",
+      "valid": false
+    },
+    {
+      "expr": "a * * * *",
+      "valid": false
+    },
+    {
+      "expr": "0 0 * * mon-",
+      "valid": false
+    },
+    {
+      "expr": "0 0 * * sun-mon",
+      "valid": false
+    },
+    {
+      "expr": "0 0 * * mon/2",
+      "valid": false
+    },
+    {
+      "expr": "0 0 * dec-jan *",
+      "valid": false
+    },
+    {
+      "expr": "0 0 L * *",
+      "valid": false
+    },
+    {
+      "expr": "5/15 * * * *",
+      "valid": false
+    },
+    {
+      "expr": "0 0 * * mon,,fri",
+      "valid": false
+    },
+    {
+      "expr": "*/60 * * * *",
+      "valid": false
+    },
+    {
+      "expr": "0-10/11 * * * *",
+      "valid": false
+    },
+    {
+      "expr": "0 */24 * * *",
+      "valid": false
+    },
+    {
+      "expr": "0 0 */31 * *",
+      "valid": false
+    },
+    {
+      "expr": "0 0 * */12 *",
+      "valid": false
+    },
+    {
+      "expr": "0 0 * jan-dec/13 *",
+      "valid": false
+    },
+    {
+      "expr": "0 0 * * mon-fri/2",
+      "valid": false
+    }
   ],
   "once": [
-    { "expr": "2027-02-16 00:00:00", "valid": true },
-    { "expr": " 2027-02-16 00:00:00 ", "valid": true },
-    { "expr": "2028-02-29 12:30:00", "valid": true },
-    { "expr": "", "valid": false },
-    { "expr": "2027-02-16", "valid": false },
-    { "expr": "2027/02/16 00:00:00", "valid": false },
-    { "expr": "2027-02-30 00:00:00", "valid": false },
-    { "expr": "2027-13-01 00:00:00", "valid": false },
-    { "expr": "2027-02-16 24:00:00", "valid": false },
-    { "expr": "2027-02-16T00:00:00", "valid": false },
-    { "expr": "2027-2-16 00:00:00", "valid": false },
-    { "expr": "2027-02-29 12:30:00", "valid": false }
+    {
+      "expr": "2027-02-16 00:00:00",
+      "valid": true
+    },
+    {
+      "expr": " 2027-02-16 00:00:00 ",
+      "valid": true
+    },
+    {
+      "expr": "2028-02-29 12:30:00",
+      "valid": true
+    },
+    {
+      "expr": "",
+      "valid": false
+    },
+    {
+      "expr": "2027-02-16",
+      "valid": false
+    },
+    {
+      "expr": "2027/02/16 00:00:00",
+      "valid": false
+    },
+    {
+      "expr": "2027-02-30 00:00:00",
+      "valid": false
+    },
+    {
+      "expr": "2027-13-01 00:00:00",
+      "valid": false
+    },
+    {
+      "expr": "2027-02-16 24:00:00",
+      "valid": false
+    },
+    {
+      "expr": "2027-02-16T00:00:00",
+      "valid": false
+    },
+    {
+      "expr": "2027-2-16 00:00:00",
+      "valid": false
+    },
+    {
+      "expr": "2027-02-29 12:30:00",
+      "valid": false
+    }
   ]
 }

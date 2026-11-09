@@ -23,6 +23,8 @@ export interface OpsTaskSeed {
   /** 由 v1 保留策略（可能缺失）推导任务参数 */
   params: (legacyPolicy: unknown) => Record<string, unknown>;
   triggers: readonly { kind: OpsTriggerKind; expr: string | null }[];
+  /** 默认停用（节日装扮）：启用是站长的显式动作——避免自动生成排期方案改变站点外观 */
+  enabled?: boolean;
 }
 
 /** 读 v1 保留策略里的某一项；缺失或越界（1–90 之外）回落默认 */
@@ -58,6 +60,26 @@ export const OPS_TASK_SEEDS: readonly OpsTaskSeed[] = [
       { kind: "cron", expr: "40 3 * * *" },
       { kind: "manual", expr: null },
     ],
+  },
+  {
+    // 节日装扮：默认停用 + 每日 09:00 自检（确保当前或下一年窗口的排期方案存在）。
+    // 默认规则 = 春节（农历正月初一，连 7 天）装扮 qy2010 情怀包；站长在 /admin/ops 改规则并启用。
+    taskKey: "campaign.holiday",
+    name: "节日装扮",
+    executor: "campaign.holiday",
+    params: () => ({
+      calendar: "lunar",
+      month: 1,
+      day: 1,
+      beforeDays: 0,
+      durationDays: 7,
+      items: [{ effect: "theme.pack", target: "qy2010" }],
+    }),
+    triggers: [
+      { kind: "cron", expr: "0 9 * * *" },
+      { kind: "manual", expr: null },
+    ],
+    enabled: false,
   },
 ];
 

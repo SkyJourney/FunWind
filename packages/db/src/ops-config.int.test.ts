@@ -186,17 +186,34 @@ describe.skipIf(skip)("运维任务配置表（临时库）", () => {
 
     it("空表首次写入：两条备份任务 + 各自 cron 与手动触发器，并记账", async () => {
       const summary = await seedSystemData(db());
-      expect(summary.opsTasksSeeded).toBe(2);
+      expect(summary.opsTasksSeeded).toBe(3);
       const state = await snapshotOps();
       expect(state.tasks).toEqual([
         { key: "backup.db", params: { keep: 14 }, revision: 1 },
         { key: "backup.storage", params: { keep: 7 }, revision: 1 },
+        // 节日装扮默认停用（站长显式启用才会自动生成排期方案）
+        {
+          key: "campaign.holiday",
+          params: {
+            calendar: "lunar",
+            month: 1,
+            day: 1,
+            beforeDays: 0,
+            durationDays: 7,
+            items: [{ effect: "theme.pack", target: "qy2010" }],
+          },
+          revision: 1,
+        },
       ]);
-      expect(state.triggers).toEqual([
+      expect(state.triggers.filter((t) => t.key === "backup.db")).toEqual([
         { key: "backup.db", kind: "cron", expr: "10 3 * * *" },
         { key: "backup.db", kind: "manual", expr: null },
-        { key: "backup.storage", kind: "cron", expr: "40 3 * * *" },
-        { key: "backup.storage", kind: "manual", expr: null },
+      ]);
+      expect(
+        state.triggers.filter((t) => t.key === "campaign.holiday").map((t) => [t.kind, t.expr]),
+      ).toEqual([
+        ["cron", "0 9 * * *"],
+        ["manual", null],
       ]);
       expect(state.seeded).toEqual(SEED_KEYS);
     });
@@ -230,7 +247,10 @@ describe.skipIf(skip)("运维任务配置表（临时库）", () => {
       await db().delete(opsTriggers).where(eq(opsTriggers.taskKey, "backup.storage"));
       await db().delete(opsTasks).where(eq(opsTasks.taskKey, "backup.storage"));
       expect((await seedSystemData(db())).opsTasksSeeded).toBe(0);
-      expect((await snapshotOps()).tasks.map((t) => t.key)).toEqual(["backup.db"]);
+      expect((await snapshotOps()).tasks.map((t) => t.key).sort()).toEqual([
+        "backup.db",
+        "campaign.holiday",
+      ]);
     });
 
     it("v1 保留策略迁入任务参数（升级路径）", async () => {
@@ -242,7 +262,9 @@ describe.skipIf(skip)("运维任务配置表（临时库）", () => {
           updatedAt: sql`NOW()`,
         });
       await seedSystemData(db());
-      expect((await snapshotOps()).tasks.map((t) => t.params)).toEqual([{ keep: 5 }, { keep: 3 }]);
+      const byKey = Object.fromEntries((await snapshotOps()).tasks.map((t) => [t.key, t.params]));
+      expect(byKey["backup.db"]).toEqual({ keep: 5 });
+      expect(byKey["backup.storage"]).toEqual({ keep: 3 });
     });
 
     it("站长先手工建了同键任务：只记账，不覆盖、不追加触发器", async () => {
@@ -258,7 +280,7 @@ describe.skipIf(skip)("运维任务配置表（临时库）", () => {
           createdAt: sql`NOW()`,
           updatedAt: sql`NOW()`,
         });
-      expect((await seedSystemData(db())).opsTasksSeeded).toBe(1); // 只写入了 backup.storage
+      expect((await seedSystemData(db())).opsTasksSeeded).toBe(2); // 写入 backup.storage 与 campaign.holiday
       const state = await snapshotOps();
       expect(state.tasks[0]).toEqual({ key: "backup.db", params: { keep: 30 }, revision: 4 });
       expect(state.triggers.filter((t) => t.key === "backup.db")).toEqual([]);

@@ -148,7 +148,7 @@ def test_once_trigger_fires_once_and_is_not_reregistered(runtime, db_conn, fake_
 def test_cron_fire_hitting_the_lock_is_recorded_as_skipped(runtime, monkeypatch):
     assert runtime.bootstrap_once()
 
-    def busy(params, *, trigger, task_key, run_id=None):
+    def busy(params, *, trigger, task_key, run_id=None, task_name=""):
         raise LockBusyError("已有备份/恢复任务在执行")
 
     monkeypatch.setitem(executors.REGISTRY, "backup.db", replace(executors.REGISTRY["backup.db"], run=busy))

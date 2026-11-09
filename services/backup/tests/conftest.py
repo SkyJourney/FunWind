@@ -132,7 +132,7 @@ def fake_executors(monkeypatch):
     calls: list[tuple] = []
 
     def make(run_kind: str):
-        def run(params, *, trigger, task_key, run_id=None):
+        def run(params, *, trigger, task_key, run_id=None, task_name=""):
             run_id = run_id if run_id is not None else ledger.insert_run(run_kind, trigger, task_key)
             calls.append((task_key, trigger, run_id, dict(params)))
             ledger.finish_run(run_id, "success", detail="fake")

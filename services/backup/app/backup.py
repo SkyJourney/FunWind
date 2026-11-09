@@ -138,7 +138,12 @@ def file_stamp() -> str:
 
 
 def run_db_backup(
-    trigger: str, *, task_key: str = "backup.db", keep: int | None = None, run_id: int | None = None
+    trigger: str,
+    *,
+    task_key: str = "backup.db",
+    keep: int | None = None,
+    run_id: int | None = None,
+    task_name: str = "",  # 统一签名：备份执行器不使用
 ) -> dict:
     """mysqldump 全量（--single-transaction 一致性快照，不锁写）→ gzip → 完整性校验 → 轮转。
 
@@ -191,7 +196,12 @@ def run_db_backup(
 
 
 def run_storage_backup(
-    trigger: str, *, task_key: str = "backup.storage", keep: int | None = None, run_id: int | None = None
+    trigger: str,
+    *,
+    task_key: str = "backup.storage",
+    keep: int | None = None,
+    run_id: int | None = None,
+    task_name: str = "",  # 统一签名：备份执行器不使用
 ) -> dict:
     """源存储目录 tar+gzip 全量（排除 .cache/.tmp 可再生内容）→ 完整性校验 → 轮转。"""
     source = Path(config.SOURCE_STORAGE_DIR)

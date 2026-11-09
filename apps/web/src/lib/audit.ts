@@ -13,10 +13,11 @@ export type DbExecutor = Db | DbTx;
  * 命令行脚本与开发接口没有，此时 userId 为 null，via 标明来源，写进审计的 after_json。
  * theme：站长设全站默认主题时由主题↔LOGO 联动触发的池写入（M11，docs/THEME-SYSTEM.md §5）。
  * install：安装管线（M12，向导与 CLI 共用同一状态机，docs/milestones/M12-install-wizard.md）。
+ * pipeline：运维任务管线经内部动作接口写入（M14 节日装扮生成 campaigns，token 鉴权）。
  */
 export interface ConfigActor {
   userId: number | null;
-  via: "admin" | "cli" | "dev-api" | "theme" | "install";
+  via: "admin" | "cli" | "dev-api" | "theme" | "install" | "pipeline";
   ip?: string | null;
 }
 
@@ -25,6 +26,9 @@ export const CLI_ACTOR: ConfigActor = { userId: null, via: "cli" };
 
 /** 安装管线（M12）的操作者：尚无会话身份，审计以 via="install" 标识 */
 export const INSTALL_ACTOR: ConfigActor = { userId: null, via: "install" };
+
+/** 运维任务管线（M14）的操作者：token 鉴权的服务间调用 */
+export const PIPELINE_ACTOR: ConfigActor = { userId: null, via: "pipeline" };
 
 export interface AuditEntry {
   actorId: number | null;

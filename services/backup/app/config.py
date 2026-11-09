@@ -22,8 +22,11 @@ DB_USER = os.environ.get("BACKUP_DB_USER", "root")
 DB_PASSWORD = os.environ.get("BACKUP_DB_PASSWORD", "")
 DB_NAME = os.environ.get("BACKUP_DB_NAME", "qingyisub")
 
-# 管理类 API 的鉴权口令（与 web 侧 BACKUP_OPS_TOKEN 同值）
+# 管理类 API 的鉴权口令（与 web 侧 OPS_API_TOKEN 同值；内部动作接口共用）
 OPS_TOKEN = os.environ.get("OPS_TOKEN", "")
+
+# SSR 内部动作接口（节日装扮写 campaigns 用，D8）：funwind-internal 网内的应用容器
+SSR_BASE_URL = os.environ.get("OPS_SSR_BASE_URL", "http://funwind-app:3311")
 
 # 备份源（应用存储卷，只读挂载）与备份输出（备份卷，读写挂载）
 SOURCE_STORAGE_DIR = os.environ.get("BACKUP_SOURCE_DIR", "/source/storage")
