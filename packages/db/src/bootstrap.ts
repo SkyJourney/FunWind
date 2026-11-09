@@ -22,10 +22,24 @@ import {
 import { BUILTIN_THEME_PACK_SEEDS } from "./theme-pack-seeds.js";
 import { THEME_PACK_VALUE_UPGRADES } from "./theme-pack-migrations.js";
 import { backfillMissingSections, swapManyIfUnchanged } from "./theme-pack-upgrade.js";
+import {
+  LEGACY_BACKUP_POLICY_KEY,
+  OPS_SEEDED_SETTING_KEY,
+  OPS_TASK_SEEDS,
+  seededKeysOf,
+} from "./ops-task-seeds.js";
 import { createDb, createPool, type Db } from "./client.js";
 import { newDbConfig } from "./env.js";
 import { incoming } from "./sql.js";
-import { permissions, roleGrants, roles, siteSettings, themePackages } from "./schema.js";
+import {
+  opsTasks,
+  opsTriggers,
+  permissions,
+  roleGrants,
+  roles,
+  siteSettings,
+  themePackages,
+} from "./schema.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const migrationsFolder = join(here, "../drizzle");
@@ -151,7 +165,7 @@ export async function bootstrapDb(
 
     const summary = await seedSystemData(db);
     log(
-      `✔ 系统种子（幂等）：角色 ${summary.roles} / 权限点 ${summary.permissions} / 新增基线授权 ${summary.grantsInserted} / 新增默认设置 ${summary.settingsInserted} / 内置主题包 ${summary.themePacksInserted} / 补缺的内置主题包 ${summary.themePacksBackfilled} / 升级的内置主题包 ${summary.themePacksUpgraded}`,
+      `✔ 系统种子（幂等）：角色 ${summary.roles} / 权限点 ${summary.permissions} / 新增基线授权 ${summary.grantsInserted} / 新增默认设置 ${summary.settingsInserted} / 内置主题包 ${summary.themePacksInserted} / 补缺的内置主题包 ${summary.themePacksBackfilled} / 升级的内置主题包 ${summary.themePacksUpgraded} / 新增默认运维任务 ${summary.opsTasksSeeded}`,
     );
   } finally {
     await pool.end();
@@ -211,6 +225,8 @@ export interface SystemSeedSummary {
   themePacksBackfilled: number;
   /** 按升级表替换了旧值的内置主题包升级次数（M11.6 Step 6；同一个包有多组升级时按组计） */
   themePacksUpgraded: number;
+  /** 本次新写入的默认运维任务个数（M14；按任务键首次写入，见 ops-task-seeds.ts） */
+  opsTasksSeeded: number;
 }
 
 /**
@@ -220,6 +236,7 @@ export interface SystemSeedSummary {
  *   （词汇表新增权限点对存量库的补授由增量迁移负责——见 drizzle/0005 的 EXISTS 守卫插入）
  * - 站点设置：仅写入缺失项，不覆盖已有值
  * - 内置主题包：行不存在才插入；已存在的内置行只补缺失的顶层段（backfillMissingSections），不覆盖已有段
+ * - 默认运维任务（M14）：按任务键首次写入（记账于 site_settings ops.tasks.seeded），改过/删过的不再碰
  */
 export async function seedSystemData(db: Db): Promise<SystemSeedSummary> {
   await db
@@ -344,6 +361,8 @@ export async function seedSystemData(db: Db): Promise<SystemSeedSummary> {
     if ((await swapManyIfUnchanged(db, upgrade.packId, upgrade.swaps)) > 0) themePacksUpgraded += 1;
   }
 
+  const opsTasksSeeded = await seedOpsTasks(db);
+
   return {
     roles: ROLE_DEFINITIONS.length,
     permissions: PERMISSION_DEFINITIONS.length,
@@ -352,5 +371,68 @@ export async function seedSystemData(db: Db): Promise<SystemSeedSummary> {
     themePacksInserted,
     themePacksBackfilled,
     themePacksUpgraded,
+    opsTasksSeeded,
   };
+}
+
+async function settingValue(db: Db, key: string): Promise<unknown> {
+  const [row] = await db
+    .select({ value: siteSettings.value })
+    .from(siteSettings)
+    .where(eq(siteSettings.key, key))
+    .limit(1);
+  return row?.value;
+}
+
+/**
+ * 默认运维任务（M14 Step 2）：按任务键首次写入，已写过的键记账于 site_settings(ops.tasks.seeded)。
+ * 每个键一个事务：任务 + 触发器 + 记账同进同退，中途失败下次重跑不会留下「有任务无触发器」的半成品。
+ * 返回本次新写入的任务数。
+ */
+async function seedOpsTasks(db: Db): Promise<number> {
+  const seeded = seededKeysOf(await settingValue(db, OPS_SEEDED_SETTING_KEY));
+  const legacyPolicy = await settingValue(db, LEGACY_BACKUP_POLICY_KEY);
+  let inserted = 0;
+  for (const seed of OPS_TASK_SEEDS) {
+    if (seeded.has(seed.taskKey)) continue;
+    const created = await db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({ id: opsTasks.id })
+        .from(opsTasks)
+        .where(eq(opsTasks.taskKey, seed.taskKey))
+        .limit(1);
+      if (!existing) {
+        await tx.insert(opsTasks).values({
+          taskKey: seed.taskKey,
+          name: seed.name,
+          executor: seed.executor,
+          params: seed.params(legacyPolicy),
+          enabled: true,
+          revision: 1,
+          createdAt: sql`NOW()`,
+          updatedAt: sql`NOW()`,
+        });
+        await tx.insert(opsTriggers).values(
+          seed.triggers.map((trigger) => ({
+            taskKey: seed.taskKey,
+            kind: trigger.kind,
+            expr: trigger.expr,
+            enabled: true,
+            revision: 1,
+            createdAt: sql`NOW()`,
+            updatedAt: sql`NOW()`,
+          })),
+        );
+      }
+      const marked = [...seeded, seed.taskKey].sort();
+      await tx
+        .insert(siteSettings)
+        .values({ key: OPS_SEEDED_SETTING_KEY, value: marked, updatedAt: sql`NOW()` })
+        .onDuplicateKeyUpdate({ set: { value: marked, updatedAt: sql`NOW()` } });
+      return !existing;
+    });
+    seeded.add(seed.taskKey);
+    if (created) inserted += 1;
+  }
+  return inserted;
 }

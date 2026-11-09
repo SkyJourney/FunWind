@@ -1131,6 +1131,64 @@ export const campaigns = mysqlTable(
 );
 
 // ============================================================
+// 运维任务管线配置（M14，schema v2.10）：任务与触发器由后台管理（web 写 + 审计 + 乐观锁），
+// 运维任务管线（services/backup，Python）读取并调度执行——配置与执行解耦（M14 D1）。
+// 两张表的列契约以 services/backup/tests/contract.py 为准（双端契约测试守护，改列须两处同步）。
+// 运行台账 ops_runs 与触发器状态 ops_trigger_state 由管线自治建表、不在本 schema（db:verify 显式豁免）。
+// ============================================================
+
+/**
+ * 运维配置两表共用的尾列：启停 + 乐观锁 revision（每次写 +1；G-20：启停与触发器增删改等旁路写
+ * 同样递增）+ 时间戳。列顺序即建表顺序——双端契约测试按顺序逐列比对。
+ */
+const opsConfigTailColumns = () => ({
+  enabled: boolean("enabled").notNull().default(true),
+  revision: int("revision", { unsigned: true }).notNull().default(1),
+  createdAt: dt("created_at").notNull(),
+  updatedAt: dt("updated_at").notNull(),
+});
+
+/**
+ * 运维任务：一个执行器 + 参数 + 启停。task_key 同时是台账与日志标识，定名后不要改。
+ * executor 的合法键与参数结构定义在管线注册表（services/backup/app/executors.py），
+ * web 侧镜像于 apps/web/src/lib/ops/executors.ts；管线加载时对未知执行器/坏参数逐项跳过（fail-closed）。
+ * 要停用任务置 enabled=0，不要删行：配置表被清空时管线会回落内置默认任务（备份是兜底能力）。
+ */
+export const opsTasks = mysqlTable(
+  "ops_tasks",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    taskKey: varchar("task_key", { length: 64 }).notNull(),
+    /** 后台展示名，如「数据库备份」 */
+    name: varchar("name", { length: 60 }).notNull(),
+    executor: varchar("executor", { length: 32 }).notNull(),
+    /** 执行参数（JSON 对象）；写入前经执行器参数 schema 严格校验，管线加载时再校验一次 */
+    params: json("params").notNull(),
+    ...opsConfigTailColumns(),
+  },
+  (t) => [primaryKey({ columns: [t.id] }), uniqueIndex("uq_ops_task_key").on(t.taskKey)],
+);
+
+/**
+ * 运维任务触发器：一个任务可挂多个。cron = 5 段表达式（**星期字段只认名称 mon…sun**——管线所用
+ * APScheduler 的 0 是周一而 crontab 的 0 是周日，数字写法会静默错位一天）；once = 北京墙面时间
+ * `YYYY-MM-DD HH:MM:SS`，触发一次；manual = 允许后台/API 手动触发（expr 为空）。
+ * 下次/上次触发时间由管线计算并写入 ops_trigger_state，web 只读展示、不复算 cron。
+ */
+export const opsTriggers = mysqlTable(
+  "ops_triggers",
+  {
+    id: int("id", { unsigned: true }).notNull().autoincrement(),
+    taskKey: varchar("task_key", { length: 64 }).notNull(),
+    kind: mysqlEnum("kind", ["cron", "once", "manual"]).notNull(),
+    /** cron 串或单次时刻；manual 为 NULL。可空是普通列、不参与唯一键（硬约定 3a 不适用） */
+    expr: varchar("expr", { length: 64 }),
+    ...opsConfigTailColumns(),
+  },
+  (t) => [primaryKey({ columns: [t.id] }), index("idx_ops_trigger_task").on(t.taskKey)],
+);
+
+// ============================================================
 // 表情体系（M10.9，schema v2.2）：分组 + 表情。旧站 50 枚以显式 id 120–169 入表
 // （/emoji/{id}.gif 是 URL 冻结约定，旧帖引用不能变）；后台上传的新表情自增接续，
 // 内容走内容寻址存储（storage_key），URL 形如 /emoji/{id}.{ext}。

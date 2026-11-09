@@ -125,3 +125,12 @@ def test_restore_rejects_bad_sources_without_leaving_a_restore_row(db_conn):
     with pytest.raises(ValueError):
         restore.run_restore(storage_id, "x;DROP DATABASE y")
     assert all(row["kind"] != "restore" for row in ledger.list_runs(20))
+
+
+def test_rapid_consecutive_backups_always_keep_the_newest(db_conn, fake_dump):
+    """同一秒内连续完成多份备份（库小、执行快）：每份都成功，轮转后留下的恰是最新的那份。"""
+    ledger.ensure_schema(db_conn)
+    results = [backup.run_db_backup("manual", keep=1) for _ in range(4)]
+    remaining = sorted(p.name for p in (Path(config.TARGET_DIR) / "db").iterdir())
+    assert remaining == [Path(results[-1]["path"]).name]
+    assert [r["status"] for r in ledger.list_runs(4)] == ["success"] * 4

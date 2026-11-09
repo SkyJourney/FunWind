@@ -15,7 +15,9 @@ import subprocess
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from . import config, db, ledger
 
@@ -102,12 +104,13 @@ def resolve_keep(kind: str, env_default: int, override: int | None) -> int:
         return env_default
 
 
-def keep_latest(directory: Path, prefix: str, keep: int) -> list[str]:
-    """按份数轮转：保留最新 keep 份（文件名时间戳+随机后缀，字典序≈时间序），返回被删除的文件名。
+def keep_latest(directory: Path, prefix: str, keep: int, protect: str | None = None) -> list[str]:
+    """按份数轮转：保留最新 keep 份（文件名时间戳精确到微秒，字典序即时间序），返回被删除的文件名。
 
     只匹配「前缀后紧跟时间戳数字」的常规备份：恢复前的安全 dump（`db-{库}-pre-restore-…`）同样以
     `db-{库}-` 开头，若一并参与，`p` 字典序排在数字之后会被当成「最新」永远保留并挤占保留份数，
     真实备份反被多删（v1 缺陷，M14 Step 1 修正）。
+    protect = 本次刚生成的文件名，任何情况下都不删（时间戳回拨等极端情况的最后防线）。
     实现 note：用 os.listdir + fnmatch 而非 Path.glob——Python 3.12 的 pathlib.glob 在容器
     （named volume 目录）对带具体前缀的模式出现过稳定复现的 0 命中，fnmatch 行为可预期。
     """
@@ -116,15 +119,22 @@ def keep_latest(directory: Path, prefix: str, keep: int) -> list[str]:
         for n in os.listdir(directory)
         if fnmatch.fnmatch(n, f"{prefix}[0-9]*.gz") and (directory / n).is_file()
     )
+    candidates = [n for n in names if n != protect]
+    surplus = len(names) - keep
     removed = []
-    for name in names[:-keep] if len(names) > keep else []:
+    for name in candidates[:surplus] if surplus > 0 else []:
         (directory / name).unlink(missing_ok=True)
         removed.append(name)
     return removed
 
 
-def _stamp() -> str:
-    return db.now().replace(" ", "-").replace(":", "")
+def file_stamp() -> str:
+    """备份文件名里的时间戳：北京墙面时间精确到微秒（定宽，字典序即时间序）。
+
+    v1 只精确到秒：同一秒内连续完成的几份备份只能靠随机后缀排序，轮转可能把刚生成的那份当成
+    最旧的删掉（M14 Step 2 暴露并修正）。
+    """
+    return datetime.now(ZoneInfo(config.TIMEZONE)).strftime("%Y-%m-%d-%H%M%S-%f")
 
 
 def run_db_backup(
@@ -136,7 +146,7 @@ def run_db_backup(
     """
     target = Path(config.TARGET_DIR) / "db"
     target.mkdir(parents=True, exist_ok=True)
-    out = target / f"db-{config.DB_NAME}-{_stamp()}-{secrets.token_hex(3)}.sql.gz"
+    out = target / f"db-{config.DB_NAME}-{file_stamp()}-{secrets.token_hex(3)}.sql.gz"
 
     conn = db.connect()
     try:
@@ -164,7 +174,9 @@ def run_db_backup(
             if check.returncode != 0:
                 raise RuntimeError("备份完整性校验失败（gzip/尾标）")
 
-            removed = keep_latest(target, f"db-{config.DB_NAME}-", resolve_keep("db", config.KEEP_DB, keep))
+            removed = keep_latest(
+                target, f"db-{config.DB_NAME}-", resolve_keep("db", config.KEEP_DB, keep), protect=out.name
+            )
             size = out.stat().st_size
             detail = f"轮转删除 {len(removed)} 份" if removed else None
             ledger.finish_run(run_id, "success", path=str(out), size=size, detail=detail)
@@ -185,7 +197,7 @@ def run_storage_backup(
     source = Path(config.SOURCE_STORAGE_DIR)
     target = Path(config.TARGET_DIR) / "storage"
     target.mkdir(parents=True, exist_ok=True)
-    out = target / f"storage-{_stamp()}-{secrets.token_hex(3)}.tgz"
+    out = target / f"storage-{file_stamp()}-{secrets.token_hex(3)}.tgz"
 
     conn = db.connect()
     try:
@@ -207,7 +219,9 @@ def run_storage_backup(
             if check.returncode != 0:
                 raise RuntimeError("备份完整性校验失败（gzip）")
 
-            removed = keep_latest(target, "storage-", resolve_keep("storage", config.KEEP_STORAGE, keep))
+            removed = keep_latest(
+                target, "storage-", resolve_keep("storage", config.KEEP_STORAGE, keep), protect=out.name
+            )
             size = out.stat().st_size
             detail = f"轮转删除 {len(removed)} 份" if removed else None
             ledger.finish_run(run_id, "success", path=str(out), size=size, detail=detail)

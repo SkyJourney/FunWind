@@ -33,6 +33,14 @@ import { checkSchemaRules, collectTables } from "../src/schema-rules.js";
 const config = newDbConfig();
 const pool = createPool(config);
 
+/**
+ * schema 之外、允许出现在业务库里的表（「全集一致」不判多余）：运维任务管线自治建表的运行台账
+ * 与触发器状态（M14 D1/D7——运行时产出的运维数据归管线管，web 只读，不进 drizzle schema）；
+ * backup_runs 是其 v1 旧名：管线升级前的库、以及回滚到旧镜像期间都会存在。
+ * 引擎与字符集检查（下文 2）仍覆盖这些表。新增条目须同步 M14 文档 §3.2。
+ */
+const EXTERNALLY_OWNED_TABLES = new Set(["ops_runs", "ops_trigger_state", "backup_runs"]);
+
 interface ColInfoRow extends RowDataPacket {
   COLUMN_NAME: string;
   COLUMN_TYPE: string;
@@ -96,7 +104,9 @@ try {
   const dbTables = new Set(tableRows.map((r) => String(r.TABLE_NAME)));
   const expectedNames = new Set(tables.map((t) => t.name));
   const missing = [...expectedNames].filter((t) => !dbTables.has(t));
-  const extra = [...dbTables].filter((t) => !expectedNames.has(t));
+  const extra = [...dbTables].filter(
+    (t) => !expectedNames.has(t) && !EXTERNALLY_OWNED_TABLES.has(t),
+  );
   add(
     "tables:全集一致",
     missing.length === 0 && extra.length === 0,

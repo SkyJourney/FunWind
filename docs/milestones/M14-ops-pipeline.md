@@ -2,7 +2,7 @@
 
 - 阶段：四·运营与演进 ｜ 依赖：M13（已收口，2026-11-09——上线成功进入观察期，开工前置已解除）
 - 状态：🚧 实施中（2026-11-09 立项；**推进计划已获站长批准**——前置探查完成、事实 F1–F26 与决策
-  D1–D12 定稿；Step A 文档定稿、Step 1 管线内核重构已完成，下一步 Step 2）
+  D1–D12 定稿；Step A 文档定稿、Step 1 管线内核重构、Step 2 配置模型与 web 写服务已完成，下一步 Step 3）
 - 来源：站长 2026-11-09 立项——备份服务升级为独立定时任务管线：不只承载备份，还把**运维类定时器**
   收编进来，任务与触发器在后台配置、元数据入表、管线到点执行并回写状态，「配置和执行解耦」；
   节日自动切换主题一类运营排期定时纳入。业务定时（领域逻辑自带的周期任务）仍留在业务侧。
@@ -367,7 +367,44 @@ Step 1 时配置表尚未建，管线测试按它自建；Step 2 的 drizzle 迁
       再跑一次就自行移除，原断言只查任务列表 → 补「执行次数」断言；⑦ 冒烟脚本两处工程教训：「生产者 |
       grep -q」在 pipefail 下命中反判失败（改为先捕获再匹配），`$VAR` 紧跟全角字符被吞（M13 同坑复现，
       统一 `${VAR}`；且该错误在最后一行时退出码仍为 0，不能只看退出码）。
-- [ ] Step 2 配置模型与 web 写服务
+- [x] **Step 2 配置模型与 web 写服务（2026-11-09）**：
+      **交付**：① `ops_tasks` / `ops_triggers` 进 drizzle schema（v2.10，迁移 0025，列契约与
+      `tests/contract.py` 逐列一致——`ops-config.int.test.ts` 直接解析管线侧契约 DDL 与真实表逐列逐索引
+      比对，任一端漂移变红）；② bootstrap 默认任务种子（`ops-task-seeds.ts`，**按任务键首次写入**：
+      记账于 `site_settings("ops.tasks.seeded")`，站长改过/删过的键重跑 bootstrap 不恢复、手工同键行只
+      记账不覆盖；保留份数自 v1 `ops.backup.policy` 迁入参数 `keep`，无记录用 14/7）；③ web 执行器注册表
+      （`lib/ops/executors.ts`，纯模块：executor 清单/参数 schema/cron 与单次时刻写法校验，与管线由共享
+      夹具 `services/backup/tests/fixtures/ops-contract.json` 双端守护——管线收紧 `validate_cron` 为严格
+      语法（名称/步长/区间规则，48 个夹具用例），web 同步）；④ 配置写服务（`lib/ops/tasks.ts`：任务与
+      触发器的增删改启停，事务内审计 + revision 乐观锁 + withDeadlockRetry + G-20 旁路写；写成功后
+      `notifyOpsReload` 热加载，best-effort 失败不影响写入；保留份数读写与 v1 回落、手动触发审计）；
+      ⑤ 触发链改异步（`lib/ops/client.ts`：`POST /tasks/{key}/runs` 202 拿 run_id，env 新名
+      `OPS_SERVICE_URL`/`OPS_API_TOKEN` 优先、旧名兜底；`/admin/ops` 两个 Action 改异步链，提示参数
+      `?queued=<runId>` 成对交付（G-15）；保留策略改写任务参数）；⑥ 台账读取迁 `lib/ops/runs.ts` 并做
+      **缺表降级**（F12 修复：`ops_runs` 不存在返回 null → 页面空态，不再整页 500；真故障照常抛）；
+      ⑦ `db:verify` 豁免清单（D7：`ops_runs`/`ops_trigger_state`/`backup_runs`）；⑧ server-only 守卫
+      登记 client/tasks/runs（F20 还账）。
+      **门禁实测**：`pnpm verify:all` 退出码 0（含 jscpd 1397 ≤ 基线 1400——写路径提取 taskTx /
+      withLockedTrigger / lockTaskForWrite 后自降）；db 包 124 项（新增种子/契约集成 18 项）、web ops
+      132 项（写服务集成 23 + 客户端 15 + 台账 3 + 夹具 91）；变异验证 W1–W7 + 回滚双向 + 缺表降级双向
+      全部被抓（其中 W4「审计不进事务」初版未抓到——`getWebDb()` 每次新建包装对象不能按身份比较，改为
+      `MySqlTransaction` 实例断言）；开发库连跑两轮 bootstrap 幂等（新增运维任务 2 → 0）、`db:verify`
+      21 项全过（清空豁免清单变异 → 立即红）；管线对真实 schema 端到端：镜像内 CLI 读开发库配置表
+      `配置来源：config`、服务模式 health 200 + 状态表回写下次运行（t1 03:10 / t3 03:40）、异步触发
+      storage 备份 success、改 cron → reload → 下次运行变 05:20、日志零口令。
+      **过程更正**：① drizzle journal 被 `git checkout` 误回退导致临时库缺 0025（CI 与 E2E 会红）——
+      补回条目后全绿；gen 空迁移目录语义（`No schema changes`）不会补 journal，手工恢复须连 snapshot
+      hash 核对。② 保留份数双任务写入先锁满再动笔（事务回调正常返回即提交，「改完第一条才发现第二条
+      不在」不会回滚）。③ prettier 重排 `await committed(await withDeadlockRetry(...))` 后语义不变，
+      但初版 verify 因格式红过一轮。
+      **全量 E2E（2026-11-09 本地）：457 过 / 10 败——定性为既有问题，非本步回归**：失败清单与远端 main CI
+      最近一次 e2e 作业（commit `490144b`，本步之前）**逐条相同**（`gh run view --log-failed` 核对）——
+      main 的 CI e2e 自 2026-11-08 中午起每次 push 都是 failure/cancelled。根因两类：①（9 条）`ef72eba`
+      「qy2010 移出内置种子」后，`theme-pack`、`theme-reset`、`campaigns`（排期选 qy2010）、
+      `responsive-management` 六档（qy2010「重置为内置定义」按钮）仍假设 E2E 库里有 qy2010，而种子/夹具
+      已不再写入它；②（1 条）`editor-crud-publish`「改」用例 h2 光标落到行首（「（改）章节标题」），
+      本地与 CI 同时出现。两类都与 M14 改动的文件无交集。处置：作为独立修复项立即处理（见遗留事项），
+      不混入 M14 Step 2 提交。
 - [ ] Step 3 后台运维任务中心
 - [ ] Step 4 节日装扮任务
 - [ ] Step 5 可选批次（自动恢复演练 + 失败告警）
@@ -376,6 +413,10 @@ Step 1 时配置表尚未建，管线测试按它自建；Step 2 的 drizzle 迁
 
 ## 遗留事项
 
+- **main 分支 E2E 既有失败（2026-11-09 定性，非 M14 引入）**：9 条 qy2010 相关（种子移除后用例/夹具未
+  同步：theme-pack、theme-reset、campaigns、responsive-management 六档）+ 1 条 editor-crud-publish「改」
+  光标落点。main CI 的 e2e 作业自 `ef72eba`/`490144b`（2026-11-08）起持续红。**独立修复，先行于 M14
+  Step 3**（E2E 基线不绿，后续每步门禁都不可信）。
 - （收口时回写）多实例部署时管线的 HA 口径（现单实例，GET_LOCK 防重）。
 - （收口时回写）binlog 清理是否立项（D12 缓）；告警通道若引入 Sentry / 外部拨测的接线记录。
 - （收口时回写）env 旧名兜底的删除时点（D10，计划下个里程碑）。

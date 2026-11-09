@@ -1,9 +1,10 @@
 import { AdminFlash } from "@/components/admin/admin-flash";
 import { requireAdmin } from "@/lib/authz/require-admin";
-import { backupServiceHealth, listBackupRuns, type BackupRunRow } from "@/lib/ops/backup";
+import { opsServiceHealth } from "@/lib/ops/client";
+import { listOpsRuns, type OpsRunRow } from "@/lib/ops/runs";
+import { getBackupRetention } from "@/lib/ops/tasks";
 import { PolicyForm } from "./policy-form";
 import { TriggerBackupForm } from "./trigger-form";
-import { getBackupPolicy } from "@/lib/ops/backup";
 import { saveBackupPolicyAction, triggerBackupAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -18,27 +19,37 @@ function fmtSize(bytes: number | null): string {
   return `${(bytes / 1024).toFixed(0)} KB`;
 }
 
-const KIND_LABEL: Record<BackupRunRow["kind"], string> = {
+const KIND_LABEL: Record<OpsRunRow["kind"], string> = {
   db: "数据库",
   storage: "存储",
   restore: "恢复",
+  drill: "恢复演练",
+  holiday: "节日装扮",
 };
 
-const STATUS_BADGE: Record<BackupRunRow["status"], { label: string; cls: string }> = {
+const TRIGGER_LABEL: Record<OpsRunRow["trigger"], string> = {
+  cron: "定时",
+  once: "单次",
+  manual: "手动",
+};
+
+const STATUS_BADGE: Record<OpsRunRow["status"], { label: string; cls: string }> = {
   running: { label: "执行中", cls: "bg-warning/10 text-warning" },
   success: { label: "成功", cls: "bg-success/10 text-success" },
   failed: { label: "失败", cls: "bg-destructive/10 text-destructive" },
 };
 
-/** 运维（M13 追加）：备份历史（元数据由备份服务容器写入 backup_runs 表）+ 手动触发 + 服务健康。 */
+/** 运维（M13 追加，M14 接入运维任务管线）：运行台账（ops_runs，管线写入）+ 手动触发 + 管线健康。 */
 export default async function AdminOpsPage({ searchParams }: Params) {
   await requireAdmin();
   const sp = await searchParams;
-  const [runs, svcHealth, policy] = await Promise.all([
-    listBackupRuns(50),
-    backupServiceHealth(),
-    getBackupPolicy(),
+  const [ledger, svcHealth, policy] = await Promise.all([
+    listOpsRuns(50),
+    opsServiceHealth(),
+    getBackupRetention(),
   ]);
+  // 台账表不存在（管线尚未部署或尚未完成首次引导）：按空历史展示，不再整页 500（M14 F12）
+  const runs = ledger ?? [];
 
   const lastDb = runs.find((r) => r.kind === "db" && r.status === "success");
   const lastStorage = runs.find((r) => r.kind === "storage" && r.status === "success");
@@ -52,14 +63,15 @@ export default async function AdminOpsPage({ searchParams }: Params) {
       <div>
         <h1 className="text-xl font-semibold">运维</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          备份与运行健康。备份由独立备份服务容器执行（每日 03:10 数据库 / 03:40 存储， 保留 DB 14
-          份、存储 7 份）；本页为管理入口与状态查询。
+          备份与运行健康。备份由独立的运维任务管线执行（默认每日 03:10 数据库 / 03:40
+          存储，按下方保留份数轮转）； 本页为管理入口与状态查询。
         </p>
       </div>
 
-      {sp.done && (
+      {sp.queued && (
         <AdminFlash kind="success" dismissHref="/admin/ops">
-          备份完成（{sp.backup === "storage" ? "存储" : "数据库"}），下方历史已刷新。
+          已提交执行（{sp.backup === "storage" ? "存储" : "数据库"}备份，运行 #{sp.queued}
+          ）——由管线在后台执行，稍后刷新本页在下方历史查看结果。
         </AdminFlash>
       )}
       {sp.policy === "saved" && (
@@ -114,20 +126,20 @@ export default async function AdminOpsPage({ searchParams }: Params) {
         </p>
         <TriggerBackupForm action={triggerBackupAction} />
         <div className="mt-3 text-xs text-muted-foreground">
-          备份服务：
+          运维任务管线：
           {svcHealth === null ? (
-            "未部署（BACKUP_SERVICE_URL / BACKUP_OPS_TOKEN 未配置；定时备份由宿主机 crontab 承担）"
+            "未部署（OPS_SERVICE_URL / OPS_API_TOKEN 未配置）"
           ) : svcHealth.ok ? (
             <span className="text-success">
               运行中（调度任务：{svcHealth.jobs.join("、") || "无"}）
             </span>
           ) : (
-            <span className="text-destructive">不可达——请检查备份服务容器</span>
+            <span className="text-destructive">不可达或降级——请检查运维任务管线容器</span>
           )}
         </div>
       </div>
 
-      {/* 保留策略（site_settings ops.backup.policy；备份服务轮转时动态读取） */}
+      {/* 保留策略（备份任务参数 keep；管线热加载后生效） */}
       <div className="rounded-xl border bg-card p-4">
         <h2 className="text-sm font-semibold">备份保留策略</h2>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -146,7 +158,9 @@ export default async function AdminOpsPage({ searchParams }: Params) {
         <div className="border-b p-4 text-sm font-semibold">备份历史（最近 50 条）</div>
         {runs.length === 0 ? (
           <p className="p-4 text-sm text-muted-foreground">
-            暂无记录——备份服务首次执行后这里会出现历史（元数据由备份服务写入 backup_runs 表）。
+            {ledger === null
+              ? "运行台账尚未建立——运维任务管线部署并完成首次启动后，这里会出现历史。"
+              : "暂无记录——运维任务管线首次执行后这里会出现历史（运行台账由管线写入 ops_runs 表）。"}
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -171,7 +185,7 @@ export default async function AdminOpsPage({ searchParams }: Params) {
                       <td className="p-3 tabular-nums">{r.id}</td>
                       <td className="p-3">{KIND_LABEL[r.kind] ?? r.kind}</td>
                       <td className="p-3 text-muted-foreground">
-                        {r.trigger === "cron" ? "定时" : "手动"}
+                        {TRIGGER_LABEL[r.trigger] ?? r.trigger}
                       </td>
                       <td className="p-3">
                         <span className={`rounded px-1.5 py-0.5 text-xs ${badge.cls}`}>

@@ -117,8 +117,7 @@ def run_restore(run_id: int, target_db: str, trigger: str = "manual") -> dict:
                 if _database_exists(target_db):
                     pre_dir = Path(config.TARGET_DIR) / "db"
                     pre_dir.mkdir(parents=True, exist_ok=True)
-                    stamp = db.now().replace(" ", "-").replace(":", "")
-                    pre = pre_dir / f"db-{target_db}-pre-restore-{stamp}.sql.gz"
+                    pre = pre_dir / f"db-{target_db}-pre-restore-{backup.file_stamp()}.sql.gz"
                     pre_result = subprocess.run(
                         ["sh", "-c", backup.dump_command(option_file, target_db, pre)],
                         capture_output=True,

@@ -120,16 +120,18 @@ pnpm layout:summary            # 汇总布局审计 JSON，有问题退出码 1�
 - **编辑器**（M6.3，`components/editor`）：所见即所得（Tiptap 3）默认，可切 CodeMirror 源码；操作**完整源码**（含门控隐藏正文）。**未编辑的旧帖保留原文，绝不重新序列化**；往返不等价的帖强制源码模式（`lib/posting/roundtrip-check.ts`，判定为渲染等价）。预览走 `POST /api/preview`（Route Handler，门控只显示占位）。
 - **草稿**（`components/editor/draft.ts`）：`localStorage`，键 `funwind:draft:<userId>:<kind>:<id>`，每次变化即写。**提交即暂存**：submit 时主键移到 `…:sent`，失败跳回从暂存键恢复，成功后主键为空；登出（`LogoutForm`）清除全部草稿键。草稿只是个人便利，读写都包在 try/catch 里。暂存键只在失败或冲突跳回时读取，进入页面时过期即清理；编辑冲突时正文与附件的暂存版本以提示交给作者选择。
 
-## 备份服务（funwind-backup，M13 追加）
+## 运维任务管线（funwind-backup → funwind-ops，M14 升级中）
 
-职责分离的备份/恢复执行体（Python + FastAPI + APScheduler，`services/backup/`）；Next 后台只是管理入口（`/admin/ops`），不承担备份执行。**交互通信设计**：
+职责分离的运维任务执行体（Python + FastAPI + APScheduler，`services/backup/`）；Next 后台只是管理入口（`/admin/ops`），不承担任务执行。**配置与执行解耦（M14 D1）**：
 
-- **执行隔离**：备份/恢复/轮转全部在备份服务容器内（mysqldump/tar 子进程 + GET_LOCK 互斥）；Next 不 spawn 任何备份进程。
-- **元数据入生产库**：`backup_runs` 表由备份服务**自治建表与写入**（cron/manual 触发、状态、产物路径、大小、错误）——web 侧用原生 SQL **只读**查询（`lib/ops/backup.ts`），不进 drizzle schema（运维表归备份服务管）。
-- **API + Token**：备份服务暴露 `GET /health` `/runs`、`POST /runs` `POST /restore`（`X-OPS-Token` 鉴权；restore 需 confirm 双确认）。web 调用它走 `BACKUP_SERVICE_URL` + `BACKUP_OPS_TOKEN`（funwind-internal 内网，凭据在服务器 .env 不入库）。
-- **共享卷读写分离**：备份卷 `funwind-backup-files`（备份服务读写）与源存储卷 `funwind-storage`（备份服务只读 = 备份源）；app 只读挂载备份卷提供下载（`/admin/ops/download`，realpath 防穿越）。
-- **保留策略动态化**：份数（KEEP_DB/KEEP_STORAGE）优先读 `site_settings("ops.backup.policy")`（后台设置区可改，保存即生效），读取失败回落 env 默认。
-- **注册策略运维写库**：生产库的一次性运维写（如 register.policy）统一走备份服务容器的 python 通道（参数化 SQL），不再用 ssh+mysql -e 手拼（四层引号转义会静默失配，2026-11-09 教训）。
+- **配置归 web**：任务（`ops_tasks`）与触发器（`ops_triggers`）进 drizzle schema（v2.10，迁移 0025），web 写配置 + 审计 + 乐观锁（`lib/ops/tasks.ts`，写法校验在 `lib/ops/executors.ts`）；执行器清单/参数/cron 规则与管线由共享夹具 `services/backup/tests/fixtures/ops-contract.json` 双端守护。管线读配置调度（启动 + 5 分钟对账 + `POST /config/reload` 热加载）；配置表为空回落内置默认。**cron 星期字段只认名称 mon…sun**（APScheduler 的 0=周一 ≠ crontab 的 0=周日，数字写法两端都拒绝）。
+- **执行与台账归管线**：`ops_runs`（v1 `backup_runs` 启动时幂等改名演进，id 连续保留——恢复按 run id 定位备份）与 `ops_trigger_state`（下次/上次触发，后台「下次运行」以它为准，web 不复算 cron）由管线自治建表与写入，web 原生 SQL 只读（`lib/ops/runs.ts`，缺表返回 null 不 500）；不进 drizzle schema，`db:verify` 显式豁免。
+- **API + Token**：`GET /health`（降级 503）、`GET /tasks`、`POST /tasks/{key}/runs`（异步手动触发，202 + run_id；同组忙碌 409）、`POST /config/reload`、`GET /runs[/{id}]`、兼容期 `POST /runs?kind=`、`POST /restore`（confirm 双确认 + 目标库白名单）。web 走 `OPS_SERVICE_URL` + `OPS_API_TOKEN`（`lib/ops/client.ts`，旧名 BACKUP_SERVICE_URL/BACKUP_OPS_TOKEN 兜底一轮）。web 写配置成功后调 reload（best-effort，失败由管线对账兜底）。
+- **执行隔离**：备份/恢复/轮转全部在管线容器内（mysqldump/tar 子进程 + GET_LOCK 互斥，口令经 0600 option 文件）；Next 不 spawn 任何任务进程。缺必需配置/库不可达：降级存活（/health 503）+ 自动重试，不崩溃循环。
+- **共享卷读写分离**：备份卷 `funwind-backup-files`（管线读写）与源存储卷 `funwind-storage`（只读 = 备份源）；app 只读挂载备份卷提供下载（`/admin/ops/download`，realpath 防穿越）。
+- **保留份数**：备份任务参数 `keep`（后台设置区写参数，保存即热加载）> v1 旧设置 `site_settings("ops.backup.policy")`（迁移期回落）> env 默认 14/7。
+- **种子**：默认两条备份任务由 bootstrap 按任务键**首次写入**（记账于 `site_settings("ops.tasks.seeded")`），站长改过/删过的键重跑 bootstrap 不恢复。
+- **注册策略运维写库**：生产库的一次性运维写（如 register.policy）统一走管线容器的 python 通道（参数化 SQL），不再用 ssh+mysql -e 手拼（四层引号转义会静默失配，2026-11-09 教训）。
 
 ## 已知坑
 

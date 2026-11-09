@@ -25,7 +25,9 @@
 - **保留策略**：按份数轮转（`BACKUP_KEEP_DB=14` / `BACKUP_KEEP_STORAGE=7`），手动与定时同池，删最旧。
 - **产物**：备份卷 `funwind-backup-files`（`db/*.sql.gz`、`storage/*.tgz`，均 gzip 压缩）；
   应用容器只读挂载同卷提供后台下载。
-- **元数据**：`backup_runs` 表（备份服务自治建表；后台历史列表直接查库）。
+- **元数据**：`ops_runs` 运行台账 + `ops_trigger_state` 触发器状态（管线自治建表；后台历史列表直接查库，
+  web 只读）。v1 的 `backup_runs` 由管线启动时幂等改名演进（id 连续保留）。默认任务由 web 侧 bootstrap
+  种子写入 `ops_tasks` / `ops_triggers`（M14 起配置与执行解耦，改 cron/份数在后台改配置，管线热加载生效）。
 - **互斥**：MySQL `GET_LOCK`——定时/手动/恢复互相排斥。
 
 ### 恢复（restore，服务内置）

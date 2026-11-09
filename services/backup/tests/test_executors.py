@@ -120,3 +120,24 @@ def test_reject_busy_settles_pre_inserted_run_only(monkeypatch):
     with pytest.raises(backup.LockBusyError):
         backup.reject_busy(7)
     assert settled == [(7, "failed")]
+
+
+def test_keep_latest_never_removes_the_protected_current_file(tmp_path):
+    """当前文件即便字典序最小（时间戳回拨、同刻随机后缀排在前面）也不删：它计入保留份数，
+    删掉的是其余文件里最旧的那些。"""
+    names = ["db-x-2026-11-09-120000-000001-ffffff.sql.gz", "db-x-2026-11-09-120000-000002-bbbbbb.sql.gz"]
+    for name in names:
+        (tmp_path / name).write_text("x")
+    current = "db-x-2026-11-09-120000-000000-aaaaaa.sql.gz"
+    (tmp_path / current).write_text("x")
+    assert backup.keep_latest(tmp_path, "db-x-", 2, protect=current) == [names[0]]
+    assert sorted(p.name for p in tmp_path.iterdir()) == [current, names[1]]
+    assert backup.keep_latest(tmp_path, "db-x-", 1, protect=current) == [names[1]]
+    assert [p.name for p in tmp_path.iterdir()] == [current]
+
+
+def test_file_stamp_is_fixed_width_and_time_ordered():
+    first = backup.file_stamp()
+    second = backup.file_stamp()
+    assert len(first) == len("2026-11-09-120000-123456")
+    assert first <= second

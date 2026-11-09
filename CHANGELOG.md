@@ -5,6 +5,29 @@
 
 ## [Unreleased]
 
+### Added（M14 · 运维任务管线，Step 2 配置模型与 web 写服务，2026-11-09）
+
+- **任务与触发器配置表**（schema v2.10，迁移 0025）：`ops_tasks`（任务键唯一 / 执行器 / JSON 参数 /
+  启停 / revision）与 `ops_triggers`（cron / once / manual，一个任务可挂多个）；列契约与管线
+  `tests/contract.py` 逐列一致，由解析契约 DDL 的双端契约集成测试守护（schema v2.10 共 56 表）。
+- **默认任务种子**：bootstrap 按任务键**首次写入**两条备份任务（cron + manual 各一），记账于
+  `site_settings("ops.tasks.seeded")`——站长改过/删过的键重跑 bootstrap 不恢复；保留份数从 v1 后台设置
+  `ops.backup.policy` 迁入任务参数 `keep`（无记录用默认 14/7）。
+- **配置写服务**（`lib/ops/tasks.ts`）：任务与触发器的增删改启停，事务内审计（`ops.task.*` /
+  `ops.trigger.*`）+ revision 乐观锁（冲突不覆盖）+ 死锁重试；触发器增删改启停同样让所属任务
+  revision+1（G-20）；写成功后通知管线热加载（best-effort，失败由管线 5 分钟对账兜底）。
+- **web 执行器注册表**（`lib/ops/executors.ts`，纯模块）：执行器清单、参数校验、cron/单次时刻写法与
+  管线由共享夹具 `ops-contract.json` 双端守护（管线 cron 校验收紧为严格语法：名称星期、步长/区间规则）。
+- **异步手动触发链**（`lib/ops/client.ts`）：`POST /tasks/{key}/runs` 立即拿运行编号（不再同步等待最长
+  30 分钟）；env 新名 `OPS_SERVICE_URL` / `OPS_API_TOKEN` 优先、旧名兜底一轮；`/admin/ops` 手动备份
+  Action 改异步（提示 `?queued=<runId>`，成对交付），保留策略改写为任务参数（带审计）。
+- **台账读取**（`lib/ops/runs.ts`）：改读管线演进后的 `ops_runs`，**表不存在时返回 null、页面降级为空态**
+  （修复 v1 运维页整页 500，F12）；真故障照常抛出。
+- **db:verify 豁免清单**：`ops_runs` / `ops_trigger_state` / `backup_runs`（管线自治表）不再被判
+  「多余表」——含台账表的库上 21 项全过。
+- **测试**：db 包种子/契约集成 18 项、web 写服务集成 23 项、管线客户端单测 15 项、台账读取 3 项、
+  双端夹具 91 项（web + 管线各跑一遍）；变异验证（乐观锁/旁路写/审计进事务/回滚完整/缺表降级）全部被抓。
+
 ### Added（M14 · 运维任务管线，Step 1 管线内核重构，2026-11-09）
 
 - **任务配置与执行解耦的内核**（`services/backup/app/`，web 零改动）：任务 = 执行器 + 参数 + 启停，触发器

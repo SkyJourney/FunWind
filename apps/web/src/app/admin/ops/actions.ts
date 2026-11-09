@@ -5,30 +5,26 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import { defineAction } from "@/lib/actions/define-action";
-import { setBackupPolicy, triggerBackup } from "@/lib/ops/backup";
+import { triggerOpsTask } from "@/lib/ops/client";
+import { recordManualTrigger, setBackupRetention } from "@/lib/ops/tasks";
+
+const BACKUP_TASKS = { db: "backup.db", storage: "backup.storage" } as const;
 
 /**
- * 手动触发一次备份（备份服务执行，后台只是管理入口；M13 追加运维功能）。
- * kind: db（mysqldump 全备）/ storage（源存储 tar 全备）。
- * 未部署备份服务时重带回提示（本地开发常态），不报错。
+ * 手动触发一次备份（M14：异步——运维任务管线受理后立即返回运行编号，执行进度见下方历史）。
+ * 受理成功写审计（ops.task.run）；管线未部署 / 忙碌 / 降级时带说明重定向回本页。
  */
 export const triggerBackupAction = defineAction({
   name: "admin.ops.backup",
   auth: { admin: "site.admin" },
   input: z.object({ kind: z.enum(["db", "storage"]) }),
-  async run(_ctx, input) {
-    const result = await triggerBackup(input.kind);
+  async run(ctx, input) {
+    const taskKey = BACKUP_TASKS[input.kind];
+    const result = await triggerOpsTask(taskKey);
+    if (result.ok) await recordManualTrigger(taskKey, result.runId, ctx.actor);
     revalidatePath("/admin/ops");
-    if (result.ok) {
-      redirect(`/admin/ops?backup=${input.kind}&done=1`);
-    }
-    const message =
-      result.code === "unconfigured"
-        ? "备份服务未部署（BACKUP_SERVICE_URL / BACKUP_OPS_TOKEN 未配置），定时备份仍由宿主机 crontab 承担"
-        : result.code === "busy"
-          ? "已有备份/恢复任务在执行，稍后再试"
-          : result.message;
-    redirect(`/admin/ops?backup=${input.kind}&err=${encodeURIComponent(message)}`);
+    if (result.ok) redirect(`/admin/ops?backup=${input.kind}&queued=${result.runId}`);
+    redirect(`/admin/ops?backup=${input.kind}&err=${encodeURIComponent(result.message)}`);
   },
 });
 
@@ -37,14 +33,18 @@ const backupPolicyInput = z.object({
   keepStorage: z.coerce.number().int().min(1).max(90),
 });
 
-/** 保存备份保留策略（份数；备份服务每次执行时动态读取，保存即生效）。 */
+/** 保存备份保留份数（M14：写入两条备份任务的参数 keep，带审计；管线热加载后生效）。 */
 export const saveBackupPolicyAction = defineAction({
   name: "admin.ops.policy",
   auth: { admin: "site.admin" },
   input: backupPolicyInput,
-  async run(_ctx, input) {
-    await setBackupPolicy({ keepDb: input.keepDb, keepStorage: input.keepStorage });
+  async run(ctx, input) {
+    const result = await setBackupRetention(
+      { keepDb: input.keepDb, keepStorage: input.keepStorage },
+      ctx.actor,
+    );
     revalidatePath("/admin/ops");
-    redirect("/admin/ops?policy=saved");
+    if (result.ok) redirect("/admin/ops?policy=saved");
+    redirect(`/admin/ops?err=${encodeURIComponent(result.message ?? "保留策略保存失败")}`);
   },
 });

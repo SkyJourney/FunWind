@@ -56,6 +56,8 @@ const SERVER_BOUNDARIES = [
   "lib/theme/packs.ts",
   "lib/posting/edit-page.ts",
   "lib/pm/reachability.ts",
+  // M14：运维任务管线的 HTTP 客户端（持有 OPS_API_TOKEN）、配置写服务、台账读取
+  ...["client", "tasks", "runs"].map((name) => `lib/ops/${name}.ts`),
 ].sort();
 
 function serverOnlyProblems(sources: Sources, required: readonly string[]) {
@@ -100,6 +102,7 @@ describe("服务端污染防线（G-05）", () => {
       "lib/editor/markdown/gate.ts",
       "lib/points/labels.ts",
       "lib/theme/surface-render.ts",
+      "lib/ops/executors.ts",
     ]) {
       const { modules } = buildGraph({ [path]: sources[path] });
       expect(

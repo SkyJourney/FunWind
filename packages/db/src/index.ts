@@ -12,3 +12,4 @@ export * from "./sql-result.js";
 export * from "./theme-pack-migrations.js";
 export * from "./theme-pack-seeds.js";
 export * from "./theme-pack-upgrade.js";
+export * from "./ops-task-seeds.js";

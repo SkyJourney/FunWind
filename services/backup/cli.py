@@ -13,6 +13,7 @@
 import argparse
 import json
 import sys
+from dataclasses import asdict
 
 from app import config, db, ledger
 from app.restore import run_restore, validate_target_db
@@ -58,7 +59,8 @@ def cmd_status() -> int:
 
 def cmd_tasks() -> int:
     loaded = _prepare()
-    print(_dump({"source": loaded.source, "problems": loaded.problems, "tasks": [t.__dict__ for t in loaded.tasks]}))
+    tasks = [asdict(task) for task in loaded.tasks]
+    print(_dump({"source": loaded.source, "problems": loaded.problems, "tasks": tasks}))
     return 0
 
 
