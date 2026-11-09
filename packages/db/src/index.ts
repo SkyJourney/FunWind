@@ -13,3 +13,4 @@ export * from "./theme-pack-migrations.js";
 export * from "./theme-pack-seeds.js";
 export * from "./theme-pack-upgrade.js";
 export * from "./ops-task-seeds.js";
+export * from "./qy2010-pack.js";

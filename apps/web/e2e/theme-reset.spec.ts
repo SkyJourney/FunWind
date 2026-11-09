@@ -6,14 +6,16 @@ import { USERS, loginAs } from "./support/session";
 
 /**
  * M11.6 Step 3f：内置主题包「重置为内置定义」（G-16：成功路径与错误路径成对）。
- * 用内置的 qy2010 包：先直接改库把它弄成「被改过」的样子，再走真实界面重置。
+ * 用唯一的内置包 default（qy2010 已于 2026-11-08 移出内置种子，改为站点自定义包，没有「内置定义」可重置）：
+ * 先直接改库把它弄成「被改过」的样子，再走真实界面重置。
  * 成功路径：取消不动库；确认后定义回到内置、版本 +1、写审计、名称说明启停素材不变。
  * 错误路径：页面加载之后别人又改了这个包（版本冲突）→ 提示冲突、库与审计原样；刷新重试可以成功。
  * 目录缓存的失效、事务回滚、并发由集成测试覆盖（lib/theme/pack-reset.int.test.ts）。
+ * 每个用例结束都把 default 写回快照（afterEach），不影响其后依赖默认主题外观的用例。
  */
 failOnPageErrors();
 
-const PACK = "qy2010";
+const PACK = "default";
 /** 篡改用的标记色：内置定义里不会出现 */
 const MARK = "#112233";
 
@@ -82,7 +84,7 @@ test.beforeAll(async () => {
   snapshot = await readPack();
   expect(
     JSON.stringify(snapshot.definition),
-    "qy2010 起点就带着标记色：上一次运行没有还原，或别的用例改了它",
+    "default 起点就带着标记色：上一次运行没有还原，或别的用例改了它",
   ).not.toContain(MARK);
 });
 

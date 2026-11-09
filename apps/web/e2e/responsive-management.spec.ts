@@ -737,9 +737,10 @@ for (const width of LAYOUT_WIDTHS) {
           });
         }
 
-        // 主题列表的内置行（Step 3f）：操作区新增了最长的按钮「重置为内置定义」，窄屏要换行，不能撑出横向滚动
+        // 主题列表的内置行（Step 3f）：操作区新增了最长的按钮「重置为内置定义」，窄屏要换行，不能撑出横向滚动。
+        // 唯一的内置包是 default（qy2010 已于 2026-11-08 改为站点自定义包，没有重置按钮）
         const builtinCard = page.locator(
-          '[data-slot="card"]:has(input[name="id"][value="qy2010"]):has(input[name="revision"])',
+          '[data-slot="card"]:has(input[name="id"][value="default"]):has(input[name="revision"])',
         );
         const resetTrigger = builtinCard.getByRole("button", {
           name: "重置为内置定义",

@@ -149,6 +149,7 @@ pnpm layout:summary            # 汇总布局审计 JSON，有问题退出码 1�
 - **E2E 写法**：用例以 `e2e/support/session.ts` 的 `loginAs()` 直接往库里写会话并注入 cookie，**不要在多个用例里走界面登录**——登录有账号级频控（每账号 10 分钟 5 次），共用账号会互相挤爆；界面登录只在 `auth.spec` 与 `modules.spec` 各测一次。
   E2E 用例**不得引用真实迁移数据**（fid/tid 写死会让 CI 变红）：稳定场景用 `support/fixtures.ts`（镜像 `packages/db/src/e2e-fixtures.ts`，两处同步）；
   用例要的临时数据用 `support/db.ts` 的 `withE2eDb()` 直连 e2e 库自己造、自己收尾（Playwright 以 CJS 加载，不能直接 import 纯 ESM 的 `@funwind/db`）；写 SQL 时 **`?` 占位符不能放在引号里**（mysql2 不替换字符串字面量中的 `?`）。
+- **改数据种子要连带检索 E2E**：集成测试的夹具齐全不代表 E2E 同步了。`ef72eba` 把 qy2010 移出内置种子，单测全绿，E2E 红了 9 条（另有 9 条串行连带没跑）。改种子/夹具语义时，检索 `apps/web/e2e*/` 对该实体的全部假设。qy2010 在 E2E 库里是自定义包（`E2E_FIX.customThemePack`，定稿在 `packages/db/src/qy2010-pack.ts`），唯一的内置包是 `default`。
 - `pnpm test` 必须串行跑各包（`--workspace-concurrency=1`）：并行时 content 与 db 的 vitest 会同时清理共享的 `node_modules/.vitest-cache`，间歇性 `ENOTEMPTY`。
 
 - Next 16 开发服务器需 `allowedDevOrigins: ["127.0.0.1"]`，否则页面可渲染但整页无交互（水合静默失败）。

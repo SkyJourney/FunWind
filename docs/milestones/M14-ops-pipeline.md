@@ -397,14 +397,26 @@ Step 1 时配置表尚未建，管线测试按它自建；Step 2 的 drizzle 迁
       hash 核对。② 保留份数双任务写入先锁满再动笔（事务回调正常返回即提交，「改完第一条才发现第二条
       不在」不会回滚）。③ prettier 重排 `await committed(await withDeadlockRetry(...))` 后语义不变，
       但初版 verify 因格式红过一轮。
-      **全量 E2E（2026-11-09 本地）：457 过 / 10 败——定性为既有问题，非本步回归**：失败清单与远端 main CI
-      最近一次 e2e 作业（commit `490144b`，本步之前）**逐条相同**（`gh run view --log-failed` 核对）——
-      main 的 CI e2e 自 2026-11-08 中午起每次 push 都是 failure/cancelled。根因两类：①（9 条）`ef72eba`
-      「qy2010 移出内置种子」后，`theme-pack`、`theme-reset`、`campaigns`（排期选 qy2010）、
-      `responsive-management` 六档（qy2010「重置为内置定义」按钮）仍假设 E2E 库里有 qy2010，而种子/夹具
-      已不再写入它；②（1 条）`editor-crud-publish`「改」用例 h2 光标落到行首（「（改）章节标题」），
-      本地与 CI 同时出现。两类都与 M14 改动的文件无交集。处置：作为独立修复项立即处理（见遗留事项），
+      **全量 E2E（2026-11-09 本地）：457 过 / 10 败——定性为既有问题，非本步回归**。根因两类，都与 M14
+      改动的文件无交集：①（9 条 + 串行连带未跑 9 条）`ef72eba`「qy2010 移出内置种子」后，`theme-pack`、
+      `theme-reset`、`campaigns`（排期选 qy2010）、`responsive-management` 六档（qy2010「重置为内置定义」
+      按钮）仍假设 E2E 库里有 qy2010，而种子/夹具已不再写入它；②（1 条）`editor-crud-publish`「改」用例
+      h2 光标落到行首（「（改）章节标题」），本地可复现（CI 未见）。处置：立即独立修复（见下一条），
       不混入 M14 Step 2 提交。
+- [x] **E2E 基线修复（2026-11-09，先行于 Step 3，独立提交）**：
+      **根因与修复**：① qy2010 定稿定义归一到 db 包（`packages/db/src/qy2010-pack.ts`，单一来源：web 集成
+      测试夹具、令牌对比度单测、E2E 夹具都读它；旧 JSON 删除）；`db:e2e-fixtures` 写入 qy2010 自定义包
+      （与生产同形：启用、非内置、不带素材，重跑整行还原）；theme-reset 与 responsive-management 的
+      「内置包重置」场景改指唯一内置包 default；theme-pack 的「自带 LOGO 联动」改为自定义包真实链路
+      （主题工作区上传绑定 → 池内两枚切换 → 设默认联动设当前 → 切回 default 不触碰 LOGO）。
+      ② editor 光标：`caretAtEndOf` 弃用原生 Selection（ProseMirror 异步同步，忙时被覆盖回行首），改为
+      Tiptap 编辑器实例 `setTextSelection(posAtDOM)` 设置 + 150ms 后回读确认，被覆盖自动重放（poll 至稳定）。
+      **验证**：受影响 5 个 spec 生产构建 24 项全过（含此前从未跑到的 9 条串行连带用例）；
+      editor-crud-publish `--repeat-each=5` 30 项全过；全量 `pnpm test:e2e` 生产 476 + dev 8 全过（退出码 0）、
+      `test:visual` 10 项全过且基线零更新、`test:layout` 18 项全过 + `layout:summary` 12 份审计 0 问题、
+      主题与令牌对比度单测 388 项全过；`verify:all` 退出码 0。
+      **教训**：`ef72eba` 改种子语义时只同步了集成测试（单测侧夹具齐全），漏了 E2E 夹具与用例——
+      「改种子 = 检索 e2e/ 目录对该实体的全部假设」，已写入 CLAUDE.md 已知坑。
 - [ ] Step 3 后台运维任务中心
 - [ ] Step 4 节日装扮任务
 - [ ] Step 5 可选批次（自动恢复演练 + 失败告警）
@@ -413,10 +425,6 @@ Step 1 时配置表尚未建，管线测试按它自建；Step 2 的 drizzle 迁
 
 ## 遗留事项
 
-- **main 分支 E2E 既有失败（2026-11-09 定性，非 M14 引入）**：9 条 qy2010 相关（种子移除后用例/夹具未
-  同步：theme-pack、theme-reset、campaigns、responsive-management 六档）+ 1 条 editor-crud-publish「改」
-  光标落点。main CI 的 e2e 作业自 `ef72eba`/`490144b`（2026-11-08）起持续红。**独立修复，先行于 M14
-  Step 3**（E2E 基线不绿，后续每步门禁都不可信）。
 - （收口时回写）多实例部署时管线的 HA 口径（现单实例，GET_LOCK 防重）。
 - （收口时回写）binlog 清理是否立项（D12 缓）；告警通道若引入 Sentry / 外部拨测的接线记录。
 - （收口时回写）env 旧名兜底的删除时点（D10，计划下个里程碑）。

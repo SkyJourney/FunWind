@@ -1,5 +1,9 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { withE2eDb } from "./support/db";
+import { FIX } from "./support/fixtures";
+import { PNG_1X1 } from "./support/images";
 import { failOnPageErrors } from "./support/page-errors";
 import { USERS, loginAs } from "./support/session";
 
@@ -8,12 +12,16 @@ import { USERS, loginAs } from "./support/session";
  *   · 外观页表单：自选主题包 → html[data-pack] 服务端直出、刷新与跨页保持；「跟随站点默认」回落；
  *   · 顶栏菜单即时切换：改属性零重载 + PATCH 持久化 → 刷新保持；
  *   · 后台全站默认：保存即生效，游客与未自选用户跟随；改回后复原。
- * qy2010 在 Step 2 仅为骨架（色板 Step 4 填），本案只断言 data-pack 值与持久化，不断言视觉。
+ * qy2010 是 E2E 夹具里的自定义包（2026-11-08 起非内置，与生产同形）；本案只断言 data-pack 值与持久化，不断言视觉。
  * 站点默认是全局状态：本文件串行，且每案结束与 afterAll 都复位（自愈）。
  */
 
 test.describe.configure({ mode: "serial" });
 failOnPageErrors();
+
+const PACK = FIX.customThemePack;
+/** 主题自带 LOGO 用真实定稿图（与生产 qy2010 的站标同一文件） */
+const PACK_LOGO = readFileSync(path.resolve(__dirname, "../public/logo/qy2010.png"));
 
 const dataPack = (page: Page) => page.locator("html").getAttribute("data-pack");
 
@@ -24,6 +32,8 @@ const resetAll = () =>
       USERS.member,
       USERS.admin,
     ]);
+    // LOGO 池清空后，主题绑定的池文件已不存在：一并解绑，回到夹具的「不带素材」状态
+    await q.exec("UPDATE theme_packages SET assets = JSON_ARRAY() WHERE id = ?", [PACK.id]);
   });
 
 test.beforeAll(resetAll);
@@ -85,7 +95,7 @@ test("顶栏菜单即时切换：改 data-pack 零重载 + PATCH 持久化 → �
   expect(await dataPack(page)).toBe("default");
 });
 
-test("后台全站默认：保存即生效 + 自带 LOGO 联动入池；游客跟随；用户自选优先；改回后主题复原而 LOGO 保留（补充关系）", async ({
+test("后台全站默认：保存即生效 + 主题绑定的 LOGO 联动设为当前；游客跟随；用户自选优先；改回后主题复原而 LOGO 保留（补充关系）", async ({
   browser,
 }) => {
   const admin = await browser.newContext();
@@ -96,20 +106,43 @@ test("后台全站默认：保存即生效 + 自带 LOGO 联动入池；游客�
     // 起点：LOGO 池为空（resetAll 清过），/brand/logo 404
     expect((await adminPage.request.get("/brand/logo")).status()).toBe(404);
 
+    // qy2010 是自定义包（2026-11-08 起非内置）：它的「自带 LOGO」= 在主题工作区上传并绑定的池文件
+    // （内置包的静态自带图分支在生产已无包可达）。上传即入池并设为当前。
+    await adminPage.goto(`/admin/themes/${PACK.id}`);
+    await adminPage
+      .getByLabel("上传 LOGO（PNG ≤512KB）")
+      .setInputFiles({ name: "qy2010.png", mimeType: "image/png", buffer: PACK_LOGO });
+    await expect(adminPage.getByText("LOGO 已上传并绑定为本主题自带。")).toBeVisible();
+    // 再传一枚通用 LOGO 设为当前：之后「设默认主题 → 切回主题自带图」才是一次可观察的切换
+    await adminPage.goto("/admin/logo");
+    await adminPage.getByLabel("名称").fill("E2E 通用 LOGO");
+    await adminPage
+      .getByLabel(/^PNG 文件/)
+      .setInputFiles({ name: "generic.png", mimeType: "image/png", buffer: PNG_1X1 });
+    await adminPage.getByRole("button", { name: "上传入池" }).click();
+    const packLogoCard = adminPage
+      .locator('[data-slot="card"]:has(input[name="file"])')
+      .filter({ hasText: `${PACK.name} 自带` });
+    const genericCard = adminPage
+      .locator('[data-slot="card"]:has(input[name="file"])')
+      .filter({ hasText: "E2E 通用 LOGO" });
+    await expect(genericCard).toContainText("当前生效中");
+    await expect(packLogoCard).not.toContainText("当前生效中");
+
     await adminPage.goto("/admin/settings");
-    await adminPage.getByRole("radio", { name: /复刻·青翼2010/ }).check();
+    await adminPage.getByRole("radio", { name: new RegExp(PACK.name) }).check();
     await adminPage.getByRole("button", { name: "保存默认主题" }).click();
-    // qy2010 自带 LOGO（public/logo/qy2010.png）：联动导入池并设为当前，flash 走 theme_logo 分支
+    // 主题绑定的 LOGO 联动设为当前，flash 走 theme_logo 分支
     await adminPage.waitForURL("**/admin/settings?saved=theme_logo");
     await expect(adminPage.getByText("已把 LOGO 切换为该主题自带图")).toBeVisible();
     expect((await adminPage.request.get("/brand/logo")).status()).toBe(200);
     await adminPage.goto("/admin/logo");
-    await expect(adminPage.getByText("复刻·青翼2010 自带")).toBeVisible();
-    await expect(adminPage.getByText("当前生效中")).toBeVisible();
+    await expect(packLogoCard).toContainText("当前生效中");
+    await expect(genericCard).not.toContainText("当前生效中");
 
     const guestPage = await guest.newPage();
     await guestPage.goto("/");
-    expect(await dataPack(guestPage)).toBe("qy2010");
+    expect(await dataPack(guestPage)).toBe(PACK.id);
     await expect(guestPage.locator('header img[src="/brand/logo"]')).toBeVisible();
     // 游客无主题包切换入口（无持久化载体）：菜单里不出现主题包选项
     await guestPage.getByRole("button", { name: "主题切换" }).click();

@@ -71,32 +71,56 @@ const inlineRows = (pid: number) =>
     ]),
   );
 
-/** 点到某个元素本身并把光标放到行尾；等 ProseMirror 异步同步 DOM 选区（脚本紧跟的按键会在旧选区上生效，真人手速不会） */
+/** Tiptap 把编辑器实例挂在 ProseMirror 根节点上（dom.editor）；这里只声明用到的最小接口 */
+type TiptapLike = {
+  view: { posAtDOM(node: Node, offset: number): number };
+  state: { selection: { from: number; empty: boolean } };
+  chain(): { focus(): { setTextSelection(pos: number): { run(): boolean } } };
+};
+
+/**
+ * 把光标放到目标节点（第 nth 个 selector）最后一个文本节点的末尾。mode=set 设置并返回是否到位；
+ * mode=check 只回读、不改动。在浏览器里执行（page.evaluate 序列化），必须自包含。
+ */
+function placeCaretInBrowser({ sel, n, mode }: { sel: string; n: number; mode: "set" | "check" }) {
+  const root = document.querySelector<HTMLElement & { editor?: TiptapLike }>(".fw-rich-editor");
+  const target = root?.querySelectorAll(sel)[n];
+  const editor = root?.editor;
+  if (!target || !editor) return false;
+  const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT);
+  let last: Text | null = null;
+  while (walker.nextNode()) last = walker.currentNode as Text;
+  if (!last) return false;
+  const pos = editor.view.posAtDOM(last, last.data.length);
+  if (mode === "set") editor.chain().focus().setTextSelection(pos).run();
+  return editor.state.selection.empty && editor.state.selection.from === pos;
+}
+
+/**
+ * 点到某个元素本身并把光标放到行尾。
+ * 生产模式实测的坑：①合成 End 键在 ProseMirror 不移动光标；②坐标点击块级元素右缘落在文字后的空白区；
+ * ③原生 Selection 靠 ProseMirror 异步同步回内部状态，编辑器初始化收尾或机器忙时会被覆盖
+ * （偶发「（改）章节标题」——光标落回行首）。所以直接用编辑器实例设选区，等一拍后回读确认；
+ * 被覆盖就重放，直到选区确实停在目标行尾再交给键盘。
+ */
 async function caretAtEndOf(page: Page, selector: string, nth = 0) {
-  // 生产模式实测两个坑：①合成 End 键在 ProseMirror 不移动光标；②坐标点击块级元素右缘
-  // 落在文字后的空白区（解析到行中）。最终方案：先 click 建立编辑器选区，
-  // 再用原生 Selection 把光标 collapse 到目标节点最后一个文本节点的末尾——
-  // ProseMirror 会把 DOM 选区同步回内部 state（posAtDOM），语义即「行尾」。
   await bodyEditor(page).locator(selector).nth(nth).click();
-  await page.evaluate(
-    ({ sel, n }) => {
-      const el = document.querySelector(".fw-rich-editor")?.querySelectorAll(sel)[n];
-      if (!el) return;
-      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-      let last: Text | null = null;
-      while (walker.nextNode()) last = walker.currentNode as Text;
-      if (last) {
-        const range = document.createRange();
-        range.setStart(last, last.data.length);
-        range.collapse(true);
-        const selection = document.getSelection();
-        selection?.removeAllRanges();
-        selection?.addRange(range);
-      }
-    },
-    { sel: selector, n: nth },
-  );
+  const args = { sel: selector, n: nth };
+  expect(await page.evaluate(placeCaretInBrowser, { ...args, mode: "set" as const })).toBe(true);
   await page.waitForTimeout(150);
+  await expect
+    .poll(
+      async () => {
+        const stable = await page.evaluate(placeCaretInBrowser, {
+          ...args,
+          mode: "check" as const,
+        });
+        if (!stable) await page.evaluate(placeCaretInBrowser, { ...args, mode: "set" as const });
+        return stable;
+      },
+      { timeout: 5_000, intervals: [150] },
+    )
+    .toBe(true);
 }
 
 async function openEdit(page: Page) {

@@ -38,4 +38,6 @@ export const FIX = {
   placeholderUserId: 95001,
   staffSecretTitle: "[内部] E2E 站务议程",
   teamSecretTitle: "[内部] 本季度字幕分工表",
+  /** 自定义主题包（非内置、启用、不带素材）：qy2010，与生产同形；唯一的内置包是 default */
+  customThemePack: { id: "qy2010", name: "复刻·青翼2010" },
 } as const;

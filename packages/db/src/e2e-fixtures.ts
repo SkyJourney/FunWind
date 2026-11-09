@@ -28,10 +28,12 @@ import {
   postGates,
   posts,
   siteSettings,
+  themePackages,
   threads,
   userProfiles,
   users,
 } from "./schema.js";
+import { QY2010_PACK, QY2010_PACK_DEFINITION } from "./qy2010-pack.js";
 import { incoming } from "./sql.js";
 
 export const E2E_FIX = {
@@ -47,6 +49,8 @@ export const E2E_FIX = {
   legacyUser: 95002,
   alice: 90001, // 演示种子里的用户（头像挂在她身上）
   member: 90005, // 演示种子里的用户：已购买门控附件帖的付费门控
+  /** 自定义主题包（非内置、启用）：qy2010，与生产同形（站长 2026-11-08 移出内置种子） */
+  customThemePack: "qy2010",
   thread: {
     emoji: 950001,
     image: 950002,
@@ -575,6 +579,25 @@ export async function seedE2eFixtures(db: Db, alice = E2E_FIX.alice): Promise<vo
     .insert(siteSettings)
     .values({ key: "points.name", value: { name: "青翼币" }, updatedAt: sql`NOW()` })
     .onDuplicateKeyUpdate({ set: { value: incoming("value") } });
+
+  // ---------- 主题包：qy2010 自定义包（站长 2026-11-08：移出内置种子，作为站点自定义主题存在） ----------
+  // 与生产同形：启用、非内置、定义为定稿导出、不带素材。主题切换 / 排期 / 后台工作区等用例需要
+  // 「默认包之外的启用包」；重跑时整行回到夹具状态（用例改过的定义、版本、绑定的 LOGO 一并还原）。
+  const qy2010 = {
+    id: F.customThemePack,
+    name: QY2010_PACK.name,
+    description: "",
+    schemaVersion: 1,
+    definition: QY2010_PACK_DEFINITION,
+    assets: [],
+    enabled: true,
+    isBuiltin: false,
+    revision: 1,
+  };
+  await db
+    .insert(themePackages)
+    .values({ ...qy2010, createdAt: sql`NOW()`, updatedAt: sql`NOW()` })
+    .onDuplicateKeyUpdate({ set: { ...qy2010, updatedAt: sql`NOW()` } });
 
   // ---------- 缓存计数：夹具直接插入了回帖等明细，计数统一由明细重算（与 db:recount、预言机同一口径） ----------
   await recountAll(poolOf(db));
