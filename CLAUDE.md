@@ -28,7 +28,9 @@ apps/web/        Next 应用（src/app 路由、src/lib 纯逻辑与服务、src
 packages/db/     @funwind/db：Drizzle schema 单一事实源 + 版本化迁移 + bootstrap/seed/verify + 权限词汇表
 migration/       青翼 phpwind → 新库 的可选导入器（旧库只读）
 docs/            蓝图/路线图/里程碑/权限/模块契约/前端设计
-docker/          qysub-next（MySQL 8.4 @33621）、dev（web 容器 + MailPit）
+services/backup/ 备份服务容器（Python + FastAPI：cron 备份/恢复/保留轮转/HTTP API；见 services/backup/README.md）
+docs/            蓝图/路线图/里程碑/权限/模块契约/前端设计
+docker/          qysub-next（MySQL 8.4 @33621）、dev（web 容器 + MailPit）、production（app 编排）、backup（备份服务编排）
 ```
 
 ## 常用命令
@@ -50,6 +52,10 @@ pnpm --filter @funwind/web test:e2e:prod                  # 仅运行生产构�
 pnpm --filter @funwind/web modules:toggle <id> <on|off>   # 模块启停（写 audit_log；脚本兼容 server-only 标记）
 pnpm --filter @funwind/web perf:lcp                       # 生产构建 LCP 门禁
 pnpm --filter @funwind/web perf:posting                   # 发帖性能基准（服务层 createReply×200，p95 < 300ms）；须显式 NEW_DB_NAME=qysub_next_e2e
+# 备份服务（funwind-backup 容器，生产；本地联调见 services/backup/README.md）
+docker exec funwind-backup python cli.py status | runs 20          # 服务状态 / 最近备份记录
+docker exec funwind-backup python cli.py backup db | storage       # 立即备份（等价后台 /admin/ops 按钮）
+docker exec funwind-backup python cli.py restore <run_id> --dry-run [--yes --target-db X]   # 恢复（覆盖式，有安全前置）
 pnpm test:layout               # 六档宽度（320–1440）布局矩阵：DOM 几何断言；RUN_LAYOUT_SCREENSHOTS=1 另导出截图与 ≤800px 的可读切块。含 db:build，3100 在跑时跑完需重启；目视验收规程见 docs/VISUAL-VERIFICATION.md
 pnpm layout:summary            # 汇总布局审计 JSON，有问题退出码 1（LAYOUT_AUDIT_ONLY=1 下用例恒为 ✓，问题只写在 JSON 里，必须跑它）
 ```
@@ -113,6 +119,17 @@ pnpm layout:summary            # 汇总布局审计 JSON，有问题退出码 1�
 - **编辑器**（M6.3，`components/editor`）：所见即所得（Tiptap 3）默认，可切 CodeMirror 源码；操作**完整源码**（含门控隐藏正文）。**未编辑的旧帖保留原文，绝不重新序列化**；往返不等价的帖强制源码模式（`lib/posting/roundtrip-check.ts`，判定为渲染等价）。预览走 `POST /api/preview`（Route Handler，门控只显示占位）。
 - **草稿**（`components/editor/draft.ts`）：`localStorage`，键 `funwind:draft:<userId>:<kind>:<id>`，每次变化即写。**提交即暂存**：submit 时主键移到 `…:sent`，失败跳回从暂存键恢复，成功后主键为空；登出（`LogoutForm`）清除全部草稿键。草稿只是个人便利，读写都包在 try/catch 里。暂存键只在失败或冲突跳回时读取，进入页面时过期即清理；编辑冲突时正文与附件的暂存版本以提示交给作者选择。
 
+## 备份服务（funwind-backup，M13 追加）
+
+职责分离的备份/恢复执行体（Python + FastAPI + APScheduler，`services/backup/`）；Next 后台只是管理入口（`/admin/ops`），不承担备份执行。**交互通信设计**：
+
+- **执行隔离**：备份/恢复/轮转全部在备份服务容器内（mysqldump/tar 子进程 + GET_LOCK 互斥）；Next 不 spawn 任何备份进程。
+- **元数据入生产库**：`backup_runs` 表由备份服务**自治建表与写入**（cron/manual 触发、状态、产物路径、大小、错误）——web 侧用原生 SQL **只读**查询（`lib/ops/backup.ts`），不进 drizzle schema（运维表归备份服务管）。
+- **API + Token**：备份服务暴露 `GET /health` `/runs`、`POST /runs` `POST /restore`（`X-OPS-Token` 鉴权；restore 需 confirm 双确认）。web 调用它走 `BACKUP_SERVICE_URL` + `BACKUP_OPS_TOKEN`（funwind-internal 内网，凭据在服务器 .env 不入库）。
+- **共享卷读写分离**：备份卷 `funwind-backup-files`（备份服务读写）与源存储卷 `funwind-storage`（备份服务只读 = 备份源）；app 只读挂载备份卷提供下载（`/admin/ops/download`，realpath 防穿越）。
+- **保留策略动态化**：份数（KEEP_DB/KEEP_STORAGE）优先读 `site_settings("ops.backup.policy")`（后台设置区可改，保存即生效），读取失败回落 env 默认。
+- **注册策略运维写库**：生产库的一次性运维写（如 register.policy）统一走备份服务容器的 python 通道（参数化 SQL），不再用 ssh+mysql -e 手拼（四层引号转义会静默失配，2026-11-09 教训）。
+
 ## 已知坑
 
 - **同源判定不能比较 `request.url`**：Next 按服务绑定的主机名构造它（本地为 localhost），浏览器的 Origin 是 127.0.0.1 或真实域名，会误拒所有同源请求。用 `lib/net/same-origin.ts`（Host 头 + X-Forwarded-Proto，与 Server Action 一致）。
@@ -140,6 +157,9 @@ pnpm layout:summary            # 汇总布局审计 JSON，有问题退出码 1�
 - `TRUSTED_PROXY_HOPS`：生产环境必须显式设置（直连填 0，nginx 之后填层数），漏配会在首次取 IP 时报错；取不到可信 IP 时跳过 IP 级限额，只留账号/邮箱级。
 - server-only 服务对应的 Node/tsx CLI 脚本须由 package script 预加载 `scripts/server-only-register.mjs`；直接 `pnpm exec tsx <服务脚本>` 可能绕过兼容钩子，生产/运维命令以 package script 为准。
 - **跑 E2E 会重建包的 `dist`，与正在运行的 3100 开发服务器冲突**：`test:e2e:run` 开头会执行 `db:build`（重新 `tsc` 编译 `packages/db`、`packages/content` 的 `dist/`）。此时若 3100 正在编译，会读到写了一半或旧的 `dist`，报 `Export xxx doesn't exist in target module`（例如给 `@funwind/content` 新增导出后），页面一直 500 / 「阻断性错误」遮罩，**这是缓存了过期状态而不是代码有问题**。处理：E2E 跑完后重启 3100（`pnpm dev` 会先重建 `dist` 再启动）。改了 `packages/*` 的导出后同理——先重建再重启，别指望热更新。
+- **新增页面要登记 `lib/motion/nav-kind.ts` 的层级表（rank）**：页面切换动效（View Transition）的方向判定依赖这张表；未登记的路由 rank 为 null，**凡「共享路由段」的导航（兄弟页面之间，如 /a ↔ /a/{id}、/t/{id} ↔ /t/{id}）一律不触发过渡**（React 19 stable 行为：跨大分支才有 VT），表现就是「新页面没有切换动效」。跨大分支导航不受影响。
+- **公告展示页**：`/a`（归档）与 `/a/{id}`（详情，M13 追加）——游客只看 audience=all；登录用户访问详情即标记已读；横幅（show_banner）是公告的属性而非独立实体，同一时刻只显最新一条带横幅的公告，点击进详情页。后台「公告」页勾选/取消「顶部横幅」即上线/下线横幅。
+
 - **编辑器的 `focus()` 会让页面一步跳过去，`preventScroll: true` 拦不住**：「平滑滚到某处再聚焦编辑器」做不出来——滚动开始前 / 进行中聚焦都会取消平滑滚动（第二次点击看起来平滑只是因为编辑器已有焦点）。要平滑只能等 `scrollend` 之后再聚焦，但那样聚焦不在用户手势内，iOS 唤不起软键盘。回复悬浮按钮（`components/posting/reply-fab.tsx`）取舍为「瞬时跳转 + 立即聚焦」（站长拍板）。
 - **编辑器 E2E 写法的几个坑**（`e2e/editor-crud*.spec.ts` 踩过）：① ProseMirror 的选区同步是异步的，点击 / `End` 后紧跟按键会在旧选区上生效，定位后等 ~120ms；② 点编辑区空白处会落进 `TrailingNode` 在末尾自动补的空段落（光标跑到引用 / 列表外面），全选还会把它也包含进去——要点到内容元素本身；③ Radix 弹层 / 下拉在关闭时用 `setTimeout(0)` 延后把焦点还给触发按钮，脚本紧接着重开会被关掉，关闭后等一个 tick；④ ProseMirror 历史把 500ms 内相邻的编辑合并成一个撤销组，脚本跑太快一次 Ctrl+Z 会连前面的插入一起撤；⑤ 会员每天 20 次上传额度，反复重跑会耗尽，上传用例用管理员；⑥ 切换源码 / 所见即所得后编辑器重建，光标回到文档开头。
 - **编辑器相关的用例必须同时检查「文档合法」与「页面无异常」**：往返测试只比较 Markdown 文本，文档结构不合法时文本照样逐字相同；只检查「元素在不在」的 E2E 在编辑器已损坏时也是绿的。用 `doc.check()`（单测 `doc-validity.test.ts`）与 `failOnPageErrors()`（`e2e/support/page-errors.ts`）兜底。

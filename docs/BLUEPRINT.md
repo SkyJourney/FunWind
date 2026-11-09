@@ -188,6 +188,7 @@ schema 演进：P0 期的 `migration/schema/schema.sql` 为基线底稿；**M1 �
 | `/t/{tid}` | 帖子（`?page=N`、锚点 `#p{pid}`） | `read.php?tid=N`、`simple/?t{tid}.html`（phpwind 8 风格，M13 实测旧站 file-level 确认——本表初稿的 `simple/?t=N` 形态不存在，勘误） |
 | `/p/{pid}` | 精确定位到楼（服务端算页码 + 锚点） | `index.php?m=bbs&c=read&a=jump&tid=N&pid=N`、`/?pid=N`（日志实录） |
 | `/u/{uid}` | 用户 | `?uid=N`、`u.php?uid=N`、`index.php?m=space&uid=N`（初稿的 `space/?uid=N` 形态不存在，勘误） |
+| `/a`、`/a/{id}` | 公告归档列表 / 公告详情（M13 追加；游客只看 audience=all，members-only 对游客 404） | 新增页面，无旧站来源 |
 | `/attachment/**`、`/emotion/**` | **已退役**（S4-4）：附件/头像/正文图片走 `/files/<storage_key>`（迁移已改写正文链接），表情走 `/emoji/{id}.{ext}`（M10.9 起 id 120–169 冻结不变） | 旧路径返回 404；旧外链的 301 表归 M13 评估 |
 
 旧站未启用伪静态（nginx conf 实证），301 源即原生 query string。**新格式自 M3 起冻结**：改动必须先迁移 301 表。
