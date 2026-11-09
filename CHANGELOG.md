@@ -5,6 +5,30 @@
 
 ## [Unreleased]
 
+### Added（M14 · 运维任务管线，Step 1 管线内核重构，2026-11-09）
+
+- **任务配置与执行解耦的内核**（`services/backup/app/`，web 零改动）：任务 = 执行器 + 参数 + 启停，触发器
+  三类 `cron` / `once` / `manual`（一个任务可挂多个）；配置读自 web 侧配置表（Step 2 建表，列契约定稿于
+  `tests/contract.py`），表不存在或为空回落内置默认（两条备份 cron + 手动触发）。启动时与每 5 分钟周期
+  对账、`POST /config/reload` 热加载，内容不变不重登。原硬编码的两条调度改为读配置（双定时线纪律）。
+- **台账演进**：v1 `backup_runs` 启动时幂等改名为 `ops_runs` 并补 `task_key`（数据与 id 全保，旧行按类别
+  回填）；新增 `ops_trigger_state` 记每个触发器的下次/上次触发与最近结果（后台「下次运行」以它为准）。
+- **异步手动触发** `POST /tasks/{task_key}/runs`：立即返回 `run_id`（同组忙碌 409），`GET /runs/{id}` 轮询；
+  `GET /tasks` 任务清单；旧同步端点 `POST /runs?kind=` 兼容期保留。CLI 增 `tasks` / `run <task_key>`。
+- **运行韧性**：缺必需配置 / 库不可达不再崩溃循环——服务降级存活、`/health` 如实 503 并点名原因，库恢复后
+  自愈无需重启；残留 running 记录在引导与对账时回收。执行日志统一 `[ops] task=… status=…` 前缀。
+- **清账（v1 安全与正确性）**：恢复目标库名白名单（此前直拼 shell 与 `DROP DATABASE`）；数据库口令改经
+  0600 临时 option 文件传给客户端（不再出现在进程参数）；口令常量时间比较；每连接 `SET time_zone='+08:00'`。
+- **测试**：新建 pytest（单测 + 真实 MySQL 临时库集成，镜像内 110 项、覆盖率 93%，变异验证 12/12）与
+  `scripts/smoke-docker.sh` 全链路冒烟（13 段：旧台账演进、真实 mysqldump/恢复、降级与自愈）。
+
+### Fixed（M14 · Step 1 顺带修复的 v1 缺陷）
+
+- 保留轮转误把恢复前的安全 dump（同前缀）算进份数：它被当成「最新」永久保留并挤占份数，真实备份被多删。
+- 恢复未限定源备份类别（误传存储备份 id 会把 tgz 喂给 mysql）；恢复到不存在的新库会因安全 dump 失败而
+  无法执行；覆盖业务库后台账回到备份时刻版本导致恢复记录丢失。
+- 存储备份源目录缺失时不留台账记录（现记为 failed，后台可见）。
+
 ### Added（M13 · Step 7 上线执行 + 上线后追加，2026-11-08/09）
 
 - **正式切换完成（2026-11-08）**：按 [LAUNCH-RUNBOOK](docs/ops/LAUNCH-RUNBOOK.md) 执行——amd64 生产镜像上传、

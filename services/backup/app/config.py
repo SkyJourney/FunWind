@@ -1,32 +1,59 @@
-"""备份服务配置（环境变量单一来源；全部必填项缺失时启动即报错，不带病运行）。"""
+"""运维任务管线配置（环境变量单一来源）。
+
+M14 起必填项缺失**不在 import 期抛错**：import 期 raise 会让 uvicorn 直接退出，在
+`restart: unless-stopped` 下形成崩溃循环（M14 F23）。改为收集缺失项、服务以降级模式启动——
+/health 返回 503 如实报告缺失项，调度器不启动，管理类 API 一律 503。
+"""
 import os
 
-def _required(name: str) -> str:
-    value = os.environ.get(name)
-    if not value:
-        raise RuntimeError(f"缺少必需环境变量：{name}")
-    return value
+
+def _env_int(name: str, default: int) -> int:
+    """整型环境变量；缺失或非法时回落默认值（运维参数写错不该让服务起不来）。"""
+    raw = os.environ.get(name, "")
+    try:
+        return int(raw) if raw else default
+    except ValueError:
+        return default
+
 
 DB_HOST = os.environ.get("BACKUP_DB_HOST", "funwind-mysql")
-DB_PORT = int(os.environ.get("BACKUP_DB_PORT", "3306"))
+DB_PORT = _env_int("BACKUP_DB_PORT", 3306)
 DB_USER = os.environ.get("BACKUP_DB_USER", "root")
-DB_PASSWORD = _required("BACKUP_DB_PASSWORD")
+DB_PASSWORD = os.environ.get("BACKUP_DB_PASSWORD", "")
 DB_NAME = os.environ.get("BACKUP_DB_NAME", "qingyisub")
 
-# 元数据与 dump 共用同一连接凭据；OPS_TOKEN 保护全部管理类 API
-OPS_TOKEN = _required("OPS_TOKEN")
+# 管理类 API 的鉴权口令（与 web 侧 BACKUP_OPS_TOKEN 同值）
+OPS_TOKEN = os.environ.get("OPS_TOKEN", "")
 
 # 备份源（应用存储卷，只读挂载）与备份输出（备份卷，读写挂载）
 SOURCE_STORAGE_DIR = os.environ.get("BACKUP_SOURCE_DIR", "/source/storage")
 TARGET_DIR = os.environ.get("BACKUP_TARGET_DIR", "/data/backups")
 
-# 保留策略：按份数轮转（手动与定时同池，删最旧）
-KEEP_DB = int(os.environ.get("BACKUP_KEEP_DB", "14"))
-KEEP_STORAGE = int(os.environ.get("BACKUP_KEEP_STORAGE", "7"))
+# 保留份数的环境默认值（优先级：任务参数 > site_settings 动态策略 > 这里）
+KEEP_DB = _env_int("BACKUP_KEEP_DB", 14)
+KEEP_STORAGE = _env_int("BACKUP_KEEP_STORAGE", 7)
 
-# 定时（cron 表达式，容器时区 Asia/Shanghai）
+# 内置默认任务的 cron（配置表未就绪时的回落；星期字段须用名称，见 triggers.validate_cron）
 DB_CRON = os.environ.get("BACKUP_DB_CRON", "10 3 * * *")
 STORAGE_CRON = os.environ.get("BACKUP_STORAGE_CRON", "40 3 * * *")
 
-# 互斥锁名：备份与恢复互斥（MySQL GET_LOCK，服务重启自动释放）
+# 备份/恢复互斥锁名（MySQL GET_LOCK，连接断开自动释放）
 LOCK_NAME = os.environ.get("BACKUP_LOCK_NAME", "funwind-backup")
+
+# 调度与台账时间口径：北京墙面时间（与库内 DATETIME 一致）
+TIMEZONE = "Asia/Shanghai"
+
+# 运行时节律
+RECONCILE_SECONDS = _env_int("OPS_RECONCILE_SECONDS", 300)  # 周期对账：配置热加载的兜底
+BOOTSTRAP_RETRY_SECONDS = _env_int("OPS_BOOTSTRAP_RETRY_SECONDS", 30)  # 库不通时的引导重试间隔
+STALE_RUN_MINUTES = _env_int("OPS_STALE_RUN_MINUTES", 120)  # running 超过该时长视为进程中断残留
+
+
+def missing_required_env() -> list[str]:
+    """缺失的必需配置项（读模块级取值，测试可直接改写属性）。"""
+    missing = []
+    if not DB_PASSWORD:
+        missing.append("BACKUP_DB_PASSWORD")
+    if not OPS_TOKEN:
+        missing.append("OPS_TOKEN")
+    return missing

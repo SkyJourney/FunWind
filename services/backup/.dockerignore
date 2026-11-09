@@ -1,0 +1,8 @@
+.venv/
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+**/__pycache__/
+requirements-dev.txt
+pytest.ini

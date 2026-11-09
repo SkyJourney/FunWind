@@ -1,4 +1,6 @@
-"""APScheduler 调度器实例（main 与 api 共用；生命周期由 main 的 lifespan 管理）。"""
+"""APScheduler 调度器实例（运行时与 API 共用；生命周期由运行时管理）。"""
 from apscheduler.schedulers.background import BackgroundScheduler
 
-scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
+from . import config
+
+scheduler = BackgroundScheduler(timezone=config.TIMEZONE)

@@ -1,138 +1,205 @@
 """备份执行器：DB（mysqldump→gzip）与 storage（tar→gzip），含 GET_LOCK 互斥与保留份数轮转。
 
-执行体全部是子进程（mysqldump / tar），本模块只负责编排、锁、元数据与轮转；
-备份与恢复共用同一把 MySQL 命名锁（服务崩溃自动释放），互斥保证同一时刻只有一个
-备份/恢复任务在执行。
+执行体全部是子进程（mysqldump / tar），本模块负责编排、锁、台账与轮转；备份与恢复共用同一把
+MySQL 命名锁（连接断开自动释放），保证同一时刻只有一个备份/恢复任务在执行。
+数据库口令经临时 option 文件（--defaults-extra-file，0600，用完即删）交给客户端，不出现在进程
+参数里（M14 清账 C2：v1 的 `-p口令` 可被同容器内的 ps 读到）。
 """
-import gzip
+import fnmatch
+import json
 import logging
 import os
+import secrets
+import shlex
 import subprocess
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
-from . import config, metadata
+from . import config, db, ledger
 
-log = logging.getLogger("backup")
+log = logging.getLogger("ops.backup")
+
 
 class LockBusyError(RuntimeError):
     """已有备份/恢复任务在执行。"""
 
-# 客户端 = 官方 mysql:8.4 镜像内的 mysqldump/mysql（镜像内 COPY，与生产服务端完全同源同版本）；
-# TLS 默认 PREFERRED 模式：自签证书不做 CA 校验即可用，无需禁用 TLS。
-MYSQL_CLIENT_COMMON = f"-h{config.DB_HOST} -P{config.DB_PORT} -u{config.DB_USER} -p{config.DB_PASSWORD}"
 
-def _acquire_lock(conn) -> bool:
+def acquire_lock(conn) -> bool:
     with conn.cursor() as cur:
         cur.execute("SELECT GET_LOCK(%s, 0)", (config.LOCK_NAME,))
         return bool(cur.fetchone()[0])
 
-def _release_lock(conn) -> None:
+
+def release_lock(conn) -> None:
     with conn.cursor() as cur:
         cur.execute("SELECT RELEASE_LOCK(%s)", (config.LOCK_NAME,))
 
-def _dynamic_keep(kind: str, env_default: int) -> int:
-    """保留份数：优先读 site_settings("ops.backup.policy")（后台设置区可改，保存即生效）；
-    无记录/字段非法时用 env 默认。查询失败静默回落（轮转不该因配置读取挂掉）。"""
+
+def reject_busy(run_id: int | None) -> None:
+    """抢锁失败：预先插入的 running 记录（异步手动触发）收尾为 failed，再抛忙碌。"""
+    if run_id is not None:
+        ledger.finish_run(run_id, "failed", error="已有备份/恢复任务在执行")
+    raise LockBusyError("已有备份/恢复任务在执行")
+
+
+def _option_value(raw: str) -> str:
+    """option 文件里的值一律加双引号，转义反斜杠与双引号（MySQL option 文件的转义规则）。"""
+    return '"' + raw.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+@contextmanager
+def client_option_file() -> Iterator[str]:
+    """临时 [client] option 文件（0600），交给 mysqldump/mysql 的 --defaults-extra-file，退出即删除。"""
+    fd, path = tempfile.mkstemp(prefix="ops-client-", suffix=".cnf")
     try:
-        with metadata.connect() as conn, conn.cursor() as cur:
-            cur.execute('SELECT value FROM site_settings WHERE `key` = "ops.backup.policy" LIMIT 1')
-            row = cur.fetchone()
-        import json
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write("[client]\n")
+            fh.write(f"host={_option_value(config.DB_HOST)}\n")
+            fh.write(f"port={config.DB_PORT}\n")
+            fh.write(f"user={_option_value(config.DB_USER)}\n")
+            fh.write(f"password={_option_value(config.DB_PASSWORD)}\n")
+        os.chmod(path, 0o600)
+        yield path
+    finally:
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
 
-        raw = row[0] if row else None
-        parsed = json.loads(raw) if isinstance(raw, (str, bytes)) else (raw or {})
-        key = "keepDb" if kind == "db" else "keepStorage"
-        n = int(parsed.get(key, env_default))
-        return n if 1 <= n <= 90 else env_default
-    except Exception as e:
-        log.warning("保留策略读取失败，使用默认 %d：%s", env_default, e)
-        return env_default
 
-def _keep_latest(directory: Path, prefix: str, keep: int) -> list[str]:
-    """按份数轮转：保留最新 keep 份（文件名时间戳+随机后缀，字典序≈时间序），返回被删除的文件名。
-
-    实现 note：用 os.listdir + fnmatch 而非 Path.glob——Python 3.12 的 pathlib.glob 在本容器
-    （named volume 目录）对带具体前缀的模式出现过稳定复现的 0 命中（同进程 `*.gz` 却能全量
-    命中），fnmatch 对同样文件名单测为 True；换 listdir+fnmatch 后行为可预期。"""
-    import fnmatch
-    names = sorted(
-        n for n in os.listdir(directory)
-        if fnmatch.fnmatch(n, f"{prefix}*.gz") and (directory / n).is_file()
+def dump_command(option_file: str, database: str, out: Path) -> str:
+    """mysqldump | gzip 的 shell 管道（--defaults-extra-file 必须是第一个选项）。"""
+    return (
+        f"exec mysqldump --defaults-extra-file={shlex.quote(option_file)} "
+        "--single-transaction --set-gtid-purged=OFF --routines --triggers --events "
+        f"--default-character-set=utf8mb4 {shlex.quote(database)} | gzip > {shlex.quote(str(out))}"
     )
 
+
+def resolve_keep(kind: str, env_default: int, override: int | None) -> int:
+    """保留份数：任务参数 > site_settings("ops.backup.policy")（后台旧设置区）> 环境默认。
+
+    读取失败静默回落环境默认（轮转不该因配置读取挂掉）。
+    """
+    if override is not None:
+        return override
+    try:
+        conn = db.connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT value FROM site_settings WHERE `key` = %s LIMIT 1", ("ops.backup.policy",))
+                row = cur.fetchone()
+        finally:
+            conn.close()
+        raw = row[0] if row else None
+        parsed = json.loads(raw) if isinstance(raw, (str, bytes)) else (raw or {})
+        n = int(parsed.get("keepDb" if kind == "db" else "keepStorage", env_default))
+        return n if 1 <= n <= 90 else env_default
+    except Exception as exc:
+        log.warning("保留策略读取失败，使用默认 %d：%s", env_default, exc)
+        return env_default
+
+
+def keep_latest(directory: Path, prefix: str, keep: int) -> list[str]:
+    """按份数轮转：保留最新 keep 份（文件名时间戳+随机后缀，字典序≈时间序），返回被删除的文件名。
+
+    只匹配「前缀后紧跟时间戳数字」的常规备份：恢复前的安全 dump（`db-{库}-pre-restore-…`）同样以
+    `db-{库}-` 开头，若一并参与，`p` 字典序排在数字之后会被当成「最新」永远保留并挤占保留份数，
+    真实备份反被多删（v1 缺陷，M14 Step 1 修正）。
+    实现 note：用 os.listdir + fnmatch 而非 Path.glob——Python 3.12 的 pathlib.glob 在容器
+    （named volume 目录）对带具体前缀的模式出现过稳定复现的 0 命中，fnmatch 行为可预期。
+    """
+    names = sorted(
+        n
+        for n in os.listdir(directory)
+        if fnmatch.fnmatch(n, f"{prefix}[0-9]*.gz") and (directory / n).is_file()
+    )
     removed = []
     for name in names[:-keep] if len(names) > keep else []:
         (directory / name).unlink(missing_ok=True)
         removed.append(name)
     return removed
 
-def run_db_backup(trigger: str) -> dict:
-    """mysqldump 全量（--single-transaction 一致性快照，不锁写）→ gzip。"""
+
+def _stamp() -> str:
+    return db.now().replace(" ", "-").replace(":", "")
+
+
+def run_db_backup(
+    trigger: str, *, task_key: str = "backup.db", keep: int | None = None, run_id: int | None = None
+) -> dict:
+    """mysqldump 全量（--single-transaction 一致性快照，不锁写）→ gzip → 完整性校验 → 轮转。
+
+    run_id 由异步手动触发预先插入时传入；定时与同步调用由本函数自行插入台账记录。
+    """
     target = Path(config.TARGET_DIR) / "db"
     target.mkdir(parents=True, exist_ok=True)
-    import secrets
-    stamp = metadata.now().replace(" ", "-").replace(":", "")
-    out = target / f"db-{config.DB_NAME}-{stamp}-{secrets.token_hex(3)}.sql.gz"
+    out = target / f"db-{config.DB_NAME}-{_stamp()}-{secrets.token_hex(3)}.sql.gz"
 
-    conn = metadata.connect()
+    conn = db.connect()
     try:
-        if not _acquire_lock(conn):
-            raise LockBusyError("已有备份/恢复任务在执行")
-        run_id = metadata.insert_run("db", trigger)
+        if not acquire_lock(conn):
+            reject_busy(run_id)
+        run_id = run_id if run_id is not None else ledger.insert_run("db", trigger, task_key)
         try:
-            dump_cmd = (
-                f"exec mysqldump {MYSQL_CLIENT_COMMON} "
-                f"--single-transaction --set-gtid-purged=OFF --routines --triggers --events "
-                f"--default-character-set=utf8mb4 {config.DB_NAME}"
-            )
-            # shell 管道：mysqldump | gzip（口令只出现在容器内进程参数，容器隔离保护）
-            result = subprocess.run(
-                ["sh", "-c", f"{dump_cmd} | gzip > '{out}'"],
-                capture_output=True, text=True, timeout=600,
-            )
+            with client_option_file() as option_file:
+                result = subprocess.run(
+                    ["sh", "-c", dump_command(option_file, config.DB_NAME, out)],
+                    capture_output=True,
+                    text=True,
+                    timeout=600,
+                )
             if result.returncode != 0 or not out.exists() or out.stat().st_size == 0:
                 raise RuntimeError(f"mysqldump 失败：{result.stderr.strip()[:500]}")
             # 完整性：gzip 可解 + 尾标在（防管道中断产出半截文件）
             check = subprocess.run(
-                ["sh", "-c", f"gzip -t '{out}' && gzip -dc '{out}' | tail -c 200 | grep -q 'Dump completed'"],
-                capture_output=True, text=True, timeout=120,
+                ["sh", "-c", f"gzip -t {shlex.quote(str(out))} && gzip -dc {shlex.quote(str(out))} "
+                 "| tail -c 200 | grep -q 'Dump completed'"],
+                capture_output=True,
+                text=True,
+                timeout=120,
             )
             if check.returncode != 0:
                 raise RuntimeError("备份完整性校验失败（gzip/尾标）")
 
-            removed = _keep_latest(target, f"db-{config.DB_NAME}-", _dynamic_keep("db", config.KEEP_DB))
+            removed = keep_latest(target, f"db-{config.DB_NAME}-", resolve_keep("db", config.KEEP_DB, keep))
             size = out.stat().st_size
             detail = f"轮转删除 {len(removed)} 份" if removed else None
-            metadata.finish_run(run_id, "success", path=str(out), size=size, detail=detail)
-            log.info("db 备份完成：%s（%d B，轮转删除 %s 份）", out, size, len(removed))
+            ledger.finish_run(run_id, "success", path=str(out), size=size, detail=detail)
+            log.info("db 备份完成：%s（%d B，轮转删除 %d 份）", out, size, len(removed))
             return {"run_id": run_id, "path": str(out), "size": size, "removed": removed}
-        except Exception as e:
-            metadata.finish_run(run_id, "failed", error=str(e)[:1000])
+        except Exception as exc:
+            ledger.finish_run(run_id, "failed", error=str(exc)[:1000])
             raise
     finally:
-        _release_lock(conn)
+        release_lock(conn)
         conn.close()
 
-def run_storage_backup(trigger: str) -> dict:
-    """源存储目录 tar+gzip 全量（排除 .cache/.tmp 可再生内容）→ 保留 KEEP_STORAGE 份。"""
+
+def run_storage_backup(
+    trigger: str, *, task_key: str = "backup.storage", keep: int | None = None, run_id: int | None = None
+) -> dict:
+    """源存储目录 tar+gzip 全量（排除 .cache/.tmp 可再生内容）→ 完整性校验 → 轮转。"""
     source = Path(config.SOURCE_STORAGE_DIR)
-    if not source.is_dir():
-        raise RuntimeError(f"源存储目录不存在（只读挂载）：{source}")
     target = Path(config.TARGET_DIR) / "storage"
     target.mkdir(parents=True, exist_ok=True)
-    import secrets
-    stamp = metadata.now().replace(" ", "-").replace(":", "")
-    out = target / f"storage-{stamp}-{secrets.token_hex(3)}.tgz"
+    out = target / f"storage-{_stamp()}-{secrets.token_hex(3)}.tgz"
 
-    conn = metadata.connect()
+    conn = db.connect()
     try:
-        if not _acquire_lock(conn):
-            raise LockBusyError("已有备份/恢复任务在执行")
-        run_id = metadata.insert_run("storage", trigger)
+        if not acquire_lock(conn):
+            reject_busy(run_id)
+        run_id = run_id if run_id is not None else ledger.insert_run("storage", trigger, task_key)
         try:
+            if not source.is_dir():
+                raise RuntimeError(f"源存储目录不存在（只读挂载）：{source}")
             result = subprocess.run(
                 ["tar", "czf", str(out), "--exclude=.cache", "--exclude=.tmp", "-C", str(source), "."],
-                capture_output=True, text=True, timeout=1800,
+                capture_output=True,
+                text=True,
+                timeout=1800,
             )
             if result.returncode != 0 or not out.exists():
                 raise RuntimeError(f"tar 失败：{result.stderr.strip()[:500]}")
@@ -140,15 +207,15 @@ def run_storage_backup(trigger: str) -> dict:
             if check.returncode != 0:
                 raise RuntimeError("备份完整性校验失败（gzip）")
 
-            removed = _keep_latest(target, "storage-", _dynamic_keep("storage", config.KEEP_STORAGE))
+            removed = keep_latest(target, "storage-", resolve_keep("storage", config.KEEP_STORAGE, keep))
             size = out.stat().st_size
             detail = f"轮转删除 {len(removed)} 份" if removed else None
-            metadata.finish_run(run_id, "success", path=str(out), size=size, detail=detail)
-            log.info("storage 备份完成：%s（%d B，轮转删除 %s 份）", out, size, len(removed))
+            ledger.finish_run(run_id, "success", path=str(out), size=size, detail=detail)
+            log.info("storage 备份完成：%s（%d B，轮转删除 %d 份）", out, size, len(removed))
             return {"run_id": run_id, "path": str(out), "size": size, "removed": removed}
-        except Exception as e:
-            metadata.finish_run(run_id, "failed", error=str(e)[:1000])
+        except Exception as exc:
+            ledger.finish_run(run_id, "failed", error=str(exc)[:1000])
             raise
     finally:
-        _release_lock(conn)
+        release_lock(conn)
         conn.close()

@@ -2,7 +2,7 @@
 
 - 阶段：四·运营与演进 ｜ 依赖：M13（已收口，2026-11-09——上线成功进入观察期，开工前置已解除）
 - 状态：🚧 实施中（2026-11-09 立项；**推进计划已获站长批准**——前置探查完成、事实 F1–F26 与决策
-  D1–D12 定稿；Step A 文档定稿完成，下一步 Step 1）
+  D1–D12 定稿；Step A 文档定稿、Step 1 管线内核重构已完成，下一步 Step 2）
 - 来源：站长 2026-11-09 立项——备份服务升级为独立定时任务管线：不只承载备份，还把**运维类定时器**
   收编进来，任务与触发器在后台配置、元数据入表、管线到点执行并回写状态，「配置和执行解耦」；
   节日自动切换主题一类运营排期定时纳入。业务定时（领域逻辑自带的周期任务）仍留在业务侧。
@@ -107,10 +107,14 @@ flowchart LR
 
 | 实体 | 归属 | 关键字段 | 说明 |
 |---|---|---|---|
-| `ops_tasks` | **web**（drizzle，迁移 0025） | `key`（唯一，定名不改）、`executor`（backup.db / backup.storage / restore / drill.restore / campaign.holiday…）、`params`(json，zod 校验)、`enabled`、`name`、`revision`、审计字段 | 任务定义 + 执行参数；保留策略（keepDb/keepStorage）迁入备份任务 params；建表逐条对照 F17 |
-| `ops_triggers` | **web**（同上） | `task_key`、`kind`（cron / once / manual）、`expr`（cron 串或时刻）、`enabled`、`revision` | 一个任务可挂多个触发器；恢复/演练任务只配 manual 或低频 cron |
-| `ops_runs` | **管线**（自治建表，web 只读） | 由 `backup_runs` 幂等演进（D7）；增 `task_key` 列，`kind` 语义并入 | 运行台账：状态、产物、错误、耗时；**id 连续保留**——恢复按 run id 定位备份 |
-| `ops_trigger_state` | **管线**（自治建表，web 只读） | `trigger_id`、`last_fired_at`、`next_fire_at`、`last_result` | 后台「下次运行」展示的数据源，由管线计算（F8：web 不复算 cron） |
+| `ops_tasks` | **web**（drizzle，迁移 0025） | `task_key`（唯一，定名不改）、`name`、`executor`（backup.db / backup.storage / drill.restore / campaign.holiday…）、`params`(json，双端校验)、`enabled`、`revision`、审计字段 | 任务定义 + 执行参数；保留策略迁入备份任务 params（键 `keep`）；建表逐条对照 F17 |
+| `ops_triggers` | **web**（同上） | `id`、`task_key`、`kind`（cron / once / manual）、`expr`（cron 串或 `YYYY-MM-DD HH:MM:SS`，manual 为空）、`enabled`、`revision` | 一个任务可挂多个触发器；有启用中的 manual 触发器才允许手动触发 |
+| `ops_runs` | **管线**（自治建表，web 只读） | 由 `backup_runs` 幂等演进（D7）；增 `task_key` 列（旧行按 kind 回填），`kind` 枚举末尾追加 drill/holiday、`trigger_source` 追加 once | 运行台账：状态、产物、错误、耗时；**id 连续保留**——恢复按 run id 定位备份 |
+| `ops_trigger_state` | **管线**（自治建表，web 只读） | `trigger_key`（配置触发器 `t{id}`，内置默认 `default:{任务}:{类型}`）、`task_key`、`next_fire_at`、`last_fired_at`、`last_run_id`、`last_result` | 后台「下次运行」展示的数据源，由管线计算（F8：web 不复算 cron） |
+
+**列契约**（Step 1 定稿）：配置表两张的列名与类型以 `services/backup/tests/contract.py` 的 DDL 为准——
+Step 1 时配置表尚未建，管线测试按它自建；Step 2 的 drizzle 迁移必须与之一致，并改由 `db:bootstrap`
+建出的真实 schema 跑同一组管线测试（契约测试）。
 
 **D7 台账演进**：管线启动时幂等执行——`backup_runs` 存在且 `ops_runs` 不存在 →
 `ALTER TABLE backup_runs RENAME TO ops_runs, ADD COLUMN task_key …`（单语句改名 + 加列，数据与 id
@@ -119,9 +123,10 @@ flowchart LR
 
 ### 3.3 执行器模型（管线内）
 
-- **执行器注册表**（Python 侧）：`executor` 键 → 参数 schema 校验 + 执行函数。首批：
-  `backup.db` / `backup.storage`（现逻辑平移，参数读任务配置）、`restore`（manual-only，清账后）、
-  `drill.restore`（D12 自动演练）、`campaign.holiday`（§3.5）。
+- **执行器注册表**（Python 侧，`app/executors.py`）：`executor` 键 → 参数校验 + 执行函数 + 互斥组 +
+  台账类别。Step 1 落地 `backup.db` / `backup.storage`；`campaign.holiday`（Step 4）与 `drill.restore`
+  （Step 5）随后登记。**恢复不进注册表**（Step 1 定）：每次都要指定源备份与目标库，不是可调度任务，
+  走专用 API（`POST /restore`）与 CLI。
 - **互斥**：沿用 `GET_LOCK`（备份/恢复/演练互斥；节日装扮生成是秒级轻操作，用独立锁名分池，避免被
   长备份阻塞）。
 - **异步手动触发**：`POST /tasks/{key}/runs` 立即返回 `{run_id}`（插入 running 行 + 后台线程执行）；
@@ -226,7 +231,8 @@ flowchart LR
 
 **Step 2 · 配置模型与 web 写服务**
 - 内容：`ops_tasks`/`ops_triggers` 进 drizzle schema（迁移 0025，对照 F17）；bootstrap 默认任务种子
-  （仿 theme-pack-seeds 只补缺：两条备份 cron 平移 + 手动恢复 + 节日装扮占位）；写服务（F14/F15 范式：
+  （仿 theme-pack-seeds 只补缺：两条备份任务平移，各带 cron + manual 触发器；保留份数从生产现值
+  `site_settings("ops.backup.policy")` 迁入 `keep` 参数，无现值用默认）；写服务（F14/F15 范式：
   事务内审计 + revision 乐观锁 + withDeadlockRetry + 冲突回显草稿）；保留策略迁入 params（旧读写链退役）；
   web 触发链改异步（拿 run_id 即返回）；`lib/ops/**` 补 server-only-guard 登记；verify.ts 豁免清单（D7）。
 - 测试：db 包单测（schema-rules/种子对账/迁移幂等重跑）+ 真实 MySQL 集成；写服务集成（审计同事务回滚、
@@ -337,7 +343,30 @@ flowchart LR
       检索 + 关键疑点亲自复核（verify 全集一致、nginx 透传、通知类别枚举、临时库助手）；本文件重写为
       执行版（F1–F26、D1–D12、§7 Step 测试流程、§9 审查流程、§10 回滚口径）。先期立项/收口文档已提交
       （`10aedb6`）。`format:check`、`check:secrets` 退出码均 0。
-- [ ] Step 1 管线内核重构
+- [x] **Step 1 管线内核重构（2026-11-09）**：只动 Python，web 零改动。
+      **交付**：`app/` 重构为 config（缺必需配置不再 import 期崩溃）/ db（每连接 `+08:00`）/ ledger（D7 三态
+      演进 + 台账 + 触发器状态 + 残留回收）/ triggers（cron 名称星期约定、once 北京时间）/ tasks（配置表 →
+      内置默认回落，逐项校验）/ executors（注册表）/ runtime（后台引导重试、周期对账与热加载、触发器登记、
+      异步手动触发、健康）/ api（常量时间鉴权、异步端点、兼容旧端点）/ backup、restore（清账）；CLI 增
+      `tasks`/`run`；删 `metadata.py`。原硬编码的两条 `add_job` 改为读配置/默认回落（§10 双定时线纪律）。
+      §4 清账 C1–C6 全部落地。列契约定稿（§3.2，`tests/contract.py`）。
+      **门禁实测**：宿主机 pytest 105 通过 + 5 跳过（需 MySQL 客户端的真链路项）；**管线镜像内**（Python
+      3.12.16 + 官方 mysql 8.4 客户端）110 项全过、覆盖率 93%（ledger/triggers 100%、restore 95%、
+      runtime 90%、api 82%）；变异验证 12/12 被抓到（数字星期放行、连接不设时区、旧台账不改名、目标库名
+      不校验、口令不比对、手动触发不预检忙碌、空配置表不回落、单次触发器重复登记、收尾覆盖已结束记录、
+      option 文件不删、引导不回收残留、轮转误含安全 dump）；`scripts/smoke-docker.sh` 全链路冒烟 13 段全过
+      （v1 旧台账演进保 id、真实 mysqldump、异步触发、409/401、site_settings 轮转、CLI 真实恢复假名字节级一致、
+      日志无口令、缺配置存活 0 重启 503、库不可达重试并自愈 0 重启）；`pnpm verify:all` 退出码 0
+      （web 3931 项等全过，jscpd 1390 ≤ 基线 1400）。
+      **实现中发现并更正**：① v1 轮转缺陷——恢复前安全 dump（`db-<库>-pre-restore-…`）命中 `db-<库>-*` 参与
+      轮转，`p` 字典序排在数字后被当成「最新」永久保留并挤占份数、真实备份被多删 → 只匹配「前缀+时间戳数字」；
+      ② v1 恢复未限定源备份类别（传 storage 的 id 会把 tgz 喂给 mysql）→ 只接受 db 备份；③ 覆盖业务库后
+      台账被换回备份时刻版本（旧备份可能是演进前结构）→ 恢复后重新演进并补记记录，覆盖中途失败也补记失败
+      记录；④ 目标库不存在时跳过安全 dump（v1 会因 dump 不存在的库而无法恢复到新库）；⑤ storage 源目录缺失
+      由「无记录抛错」改为台账 failed（可观测）；⑥ 变异 M8 初版未抓到——过期单次触发器重登后只在补跑宽限内
+      再跑一次就自行移除，原断言只查任务列表 → 补「执行次数」断言；⑦ 冒烟脚本两处工程教训：「生产者 |
+      grep -q」在 pipefail 下命中反判失败（改为先捕获再匹配），`$VAR` 紧跟全角字符被吞（M13 同坑复现，
+      统一 `${VAR}`；且该错误在最后一行时退出码仍为 0，不能只看退出码）。
 - [ ] Step 2 配置模型与 web 写服务
 - [ ] Step 3 后台运维任务中心
 - [ ] Step 4 节日装扮任务
