@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 
-/** 邀请码一键复制（M9.5）：clipboard API，失败回落选中文本提示 */
-export function CopyCode({ code }: { code: string }) {
+/** 一键复制（M9.5 邀请码，M14 恢复命令）：clipboard API，失败回落选中文本提示 */
+export function CopyCode({ code, ariaLabel }: { code: string; ariaLabel?: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
@@ -18,7 +18,7 @@ export function CopyCode({ code }: { code: string }) {
           setCopied(false);
         }
       }}
-      aria-label={`复制邀请码 ${code}`}
+      aria-label={ariaLabel ?? `复制邀请码 ${code}`}
       className="rounded border px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-accent"
     >
       {copied ? "已复制" : "复制"}

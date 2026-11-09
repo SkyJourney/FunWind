@@ -1,61 +1,56 @@
 import { AdminFlash } from "@/components/admin/admin-flash";
+import { CopyCode } from "@/components/admin/copy-code";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { opsServiceHealth } from "@/lib/ops/client";
-import { listOpsRuns, type OpsRunRow } from "@/lib/ops/runs";
-import { getBackupRetention } from "@/lib/ops/tasks";
+import { listOpsRunPage, listOpsTriggerStates, listSuccessfulRuns } from "@/lib/ops/runs";
+import { getBackupRetention, listOpsTasks } from "@/lib/ops/tasks";
+import { parseDbDateTime } from "@/lib/datetime";
+import { parseAdminPage } from "@/lib/admin/query";
+import { OpsRunLedger } from "./parts/run-ledger";
+import { OpsTaskList } from "./parts/task-list";
+import { fmtSize, NOW_MS } from "./parts/shared";
 import { PolicyForm } from "./policy-form";
-import { TriggerBackupForm } from "./trigger-form";
-import { saveBackupPolicyAction, triggerBackupAction } from "./actions";
+import { saveBackupPolicyAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "运维" };
 
 type Params = { searchParams: Promise<Record<string, string | undefined>> };
 
-function fmtSize(bytes: number | null): string {
-  if (bytes === null) return "—";
-  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
-  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  return `${(bytes / 1024).toFixed(0)} KB`;
+/** 恢复命令模板（D5：后台只预览 + 复制，真实恢复走 CLI --yes 双确认） */
+function restoreCommand(runId: number, targetDb: string): string {
+  return (
+    `docker exec funwind-backup python cli.py restore ${runId} --target-db ${targetDb} --dry-run   # 预演\n` +
+    `docker exec funwind-backup python cli.py restore ${runId} --target-db ${targetDb} --yes        # 真实恢复（覆盖目标库！）`
+  );
 }
 
-const KIND_LABEL: Record<OpsRunRow["kind"], string> = {
-  db: "数据库",
-  storage: "存储",
-  restore: "恢复",
-  drill: "恢复演练",
-  holiday: "节日装扮",
-};
-
-const TRIGGER_LABEL: Record<OpsRunRow["trigger"], string> = {
-  cron: "定时",
-  once: "单次",
-  manual: "手动",
-};
-
-const STATUS_BADGE: Record<OpsRunRow["status"], { label: string; cls: string }> = {
-  running: { label: "执行中", cls: "bg-warning/10 text-warning" },
-  success: { label: "成功", cls: "bg-success/10 text-success" },
-  failed: { label: "失败", cls: "bg-destructive/10 text-destructive" },
-};
-
-/** 运维（M13 追加，M14 接入运维任务管线）：运行台账（ops_runs，管线写入）+ 手动触发 + 管线健康。 */
+/**
+ * 运维任务中心（M14 Step 3）：任务清单（触发器/下次运行/手动触发/启停）+ 备份速览 + 保留策略 +
+ * 恢复预览（D5：只预览 + 复制 CLI）+ 运行台账（分页，执行中自动刷新）。
+ * 执行全部在运维任务管线，本页只是管理入口；展示件拆在 parts/（行数软限）。
+ */
 export default async function AdminOpsPage({ searchParams }: Params) {
   await requireAdmin();
   const sp = await searchParams;
-  const [ledger, svcHealth, policy] = await Promise.all([
-    listOpsRuns(50),
-    opsServiceHealth(),
-    getBackupRetention(),
-  ]);
-  // 台账表不存在（管线尚未部署或尚未完成首次引导）：按空历史展示，不再整页 500（M14 F12）
-  const runs = ledger ?? [];
-
-  const lastDb = runs.find((r) => r.kind === "db" && r.status === "success");
-  const lastStorage = runs.find((r) => r.kind === "storage" && r.status === "success");
+  const page = parseAdminPage(sp.page);
+  const [taskList, triggerStates, runPage, dbRuns, storageRuns, svcHealth, policy] =
+    await Promise.all([
+      listOpsTasks(),
+      listOpsTriggerStates(),
+      listOpsRunPage(page),
+      listSuccessfulRuns("db", 1),
+      listSuccessfulRuns("storage", 1),
+      opsServiceHealth(),
+      getBackupRetention(),
+    ]);
+  const runs = runPage.rows;
+  const lastDb = dbRuns[0];
+  const lastStorage = storageRuns[0];
+  const runningCount = runs.filter((r) => r.status === "running").length;
   const hoursSince = (finishedAt: string | null): number | null => {
     if (!finishedAt) return null;
-    return (new Date().getTime() - new Date(finishedAt.replace(" ", "T")).getTime()) / 3600_000;
+    return (NOW_MS - parseDbDateTime(finishedAt).getTime()) / 3600_000;
   };
 
   return (
@@ -63,15 +58,15 @@ export default async function AdminOpsPage({ searchParams }: Params) {
       <div>
         <h1 className="text-xl font-semibold">运维</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          备份与运行健康。备份由独立的运维任务管线执行（默认每日 03:10 数据库 / 03:40
-          存储，按下方保留份数轮转）； 本页为管理入口与状态查询。
+          运维任务清单、备份与运行健康。任务由独立的运维任务管线按触发器执行（本页只做配置与手动触发）；
+          保留份数随备份任务参数生效。
         </p>
       </div>
 
       {sp.queued && (
         <AdminFlash kind="success" dismissHref="/admin/ops">
-          已提交执行（{sp.backup === "storage" ? "存储" : "数据库"}备份，运行 #{sp.queued}
-          ）——由管线在后台执行，稍后刷新本页在下方历史查看结果。
+          已提交执行（{sp.task ?? "任务"}，运行 #{sp.queued}
+          ）——由管线在后台执行，下方台账稍后自动出现结果。
         </AdminFlash>
       )}
       {sp.policy === "saved" && (
@@ -80,11 +75,41 @@ export default async function AdminOpsPage({ searchParams }: Params) {
           份），下一次备份轮转即按新策略执行。
         </AdminFlash>
       )}
+      {sp.tasks && (
+        <AdminFlash kind="success" dismissHref="/admin/ops">
+          任务已{sp.tasks === "enabled" ? "启用" : "停用"}
+          ，管线热加载后生效（管线不可达时由周期对账兜底）。
+        </AdminFlash>
+      )}
       {sp.err && (
         <AdminFlash kind="error" dismissHref="/admin/ops">
           {sp.err}
         </AdminFlash>
       )}
+
+      {/* 任务清单：触发器、下次运行（管线回写）、手动触发与启停；管线健康在卡片头 */}
+      <div className="rounded-xl border bg-card">
+        <div className="flex flex-wrap items-baseline justify-between gap-2 border-b p-4">
+          <h2 className="text-sm font-semibold">任务清单</h2>
+          <div className="text-xs text-muted-foreground">
+            运维任务管线：
+            {svcHealth === null ? (
+              "未部署（OPS_SERVICE_URL / OPS_API_TOKEN 未配置）"
+            ) : svcHealth.ok ? (
+              <span className="text-success">运行中</span>
+            ) : (
+              <span className="text-destructive">不可达或降级——请检查管线容器</span>
+            )}
+          </div>
+        </div>
+        {taskList.length === 0 ? (
+          <p className="p-4 text-sm text-muted-foreground">
+            还没有配置任务——初始化会写入两条备份任务；也可以在这里手工新建（暂无界面时经配置表）。
+          </p>
+        ) : (
+          <OpsTaskList tasks={taskList} triggerStates={triggerStates} />
+        )}
+      </div>
 
       {/* 备份状态速览 */}
       <div className="grid gap-3 sm:grid-cols-2">
@@ -106,7 +131,7 @@ export default async function AdminOpsPage({ searchParams }: Params) {
                   </div>
                   <div className={`mt-1 ${stale ? "text-destructive" : "text-success"}`}>
                     {stale
-                      ? `⚠ 距上次成功已 ${hours === null ? "—" : hours.toFixed(0)} 小时（超过 26 小时，请检查备份服务）`
+                      ? `⚠ 距上次成功已 ${hours === null ? "—" : hours.toFixed(0)} 小时（超过 26 小时，请检查管线）`
                       : "正常（26 小时内）"}
                   </div>
                 </>
@@ -116,27 +141,6 @@ export default async function AdminOpsPage({ searchParams }: Params) {
             </div>
           );
         })}
-      </div>
-
-      {/* 手动触发 + 服务健康 */}
-      <div className="rounded-xl border bg-card p-4">
-        <h2 className="text-sm font-semibold">手动备份</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          立即执行一次（与定时备份同池参与保留轮转）。升级版本前建议先手动备份数据库与存储。
-        </p>
-        <TriggerBackupForm action={triggerBackupAction} />
-        <div className="mt-3 text-xs text-muted-foreground">
-          运维任务管线：
-          {svcHealth === null ? (
-            "未部署（OPS_SERVICE_URL / OPS_API_TOKEN 未配置）"
-          ) : svcHealth.ok ? (
-            <span className="text-success">
-              运行中（调度任务：{svcHealth.jobs.join("、") || "无"}）
-            </span>
-          ) : (
-            <span className="text-destructive">不可达或降级——请检查运维任务管线容器</span>
-          )}
-        </div>
       </div>
 
       {/* 保留策略（备份任务参数 keep；管线热加载后生效） */}
@@ -153,61 +157,49 @@ export default async function AdminOpsPage({ searchParams }: Params) {
         />
       </div>
 
-      {/* 历史列表 */}
-      <div className="rounded-xl border bg-card">
-        <div className="border-b p-4 text-sm font-semibold">备份历史（最近 50 条）</div>
-        {runs.length === 0 ? (
-          <p className="p-4 text-sm text-muted-foreground">
-            {ledger === null
-              ? "运行台账尚未建立——运维任务管线部署并完成首次启动后，这里会出现历史。"
-              : "暂无记录——运维任务管线首次执行后这里会出现历史（运行台账由管线写入 ops_runs 表）。"}
+      {/* 恢复预览（D5：后台只预览 + 复制 CLI；真实恢复在容器内执行，--yes 双确认） */}
+      <div className="rounded-xl border bg-card p-4">
+        <h2 className="text-sm font-semibold">恢复（CLI 预览）</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          恢复是覆盖目标库的高危操作，不在界面里执行：从下面复制命令，在服务器容器内先
+          <code className="mx-1 rounded bg-muted px-1">--dry-run</code>
+          预演，确认后再加 <code className="mx-1 rounded bg-muted px-1">--yes</code>
+          执行。恢复前管线会自动对目标库做一次安全 dump。详见
+          <code className="mx-1 rounded bg-muted px-1">docs/ops/BACKUP.md</code>。
+        </p>
+        {dbRuns.length === 0 ? (
+          <p className="mt-3 text-sm text-muted-foreground">
+            暂无可恢复的数据库备份——备份任务首次成功后，这里会列出最近的可恢复点。
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-muted-foreground">
-                  <th className="p-3 font-medium">#</th>
-                  <th className="p-3 font-medium">类型</th>
-                  <th className="p-3 font-medium">触发</th>
-                  <th className="p-3 font-medium">状态</th>
-                  <th className="p-3 font-medium">大小</th>
-                  <th className="p-3 font-medium">开始时间</th>
-                  <th className="p-3 font-medium">备注</th>
-                  <th className="p-3 font-medium">文件</th>
-                </tr>
-              </thead>
-              <tbody>
-                {runs.map((r) => {
-                  const badge = STATUS_BADGE[r.status];
-                  return (
-                    <tr key={r.id} className="border-b align-top last:border-0">
-                      <td className="p-3 tabular-nums">{r.id}</td>
-                      <td className="p-3">{KIND_LABEL[r.kind] ?? r.kind}</td>
-                      <td className="p-3 text-muted-foreground">
-                        {TRIGGER_LABEL[r.trigger] ?? r.trigger}
-                      </td>
-                      <td className="p-3">
-                        <span className={`rounded px-1.5 py-0.5 text-xs ${badge.cls}`}>
-                          {badge.label}
-                        </span>
-                        {r.error && (
-                          <div className="mt-1 max-w-xs text-xs text-destructive">{r.error}</div>
-                        )}
-                      </td>
-                      <td className="p-3 tabular-nums">{fmtSize(r.sizeBytes)}</td>
-                      <td className="p-3 whitespace-nowrap tabular-nums">{r.startedAt}</td>
-                      <td className="max-w-xs p-3 text-xs text-muted-foreground">
-                        {r.detail ?? ""}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <ul className="mt-3 space-y-2">
+            {dbRuns.map((run) => (
+              <li
+                key={run.id}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-xs"
+                data-testid={`ops-restore-${run.id}`}
+              >
+                <span className="font-medium tabular-nums">运行 #{run.id}</span>
+                <span className="text-muted-foreground tabular-nums">{run.finishedAt}</span>
+                <span className="text-muted-foreground">{fmtSize(run.sizeBytes)}</span>
+                <CopyCode
+                  code={restoreCommand(run.id, "qingyisub")}
+                  ariaLabel={`复制运行 ${run.id} 的恢复命令`}
+                />
+              </li>
+            ))}
+          </ul>
         )}
       </div>
+
+      {/* 运行台账（分页；执行中自动刷新） */}
+      <OpsRunLedger
+        runs={runs}
+        page={page}
+        hasMore={runPage.hasMore}
+        runningCount={runningCount}
+        ledgerMissing={runPage.ledgerMissing}
+      />
     </div>
   );
 }

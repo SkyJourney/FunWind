@@ -450,6 +450,22 @@ export async function deleteOpsTrigger(id: number, actor: ConfigActor): Promise<
   });
 }
 
+// ── 手动触发资格（Action 前置校验；触发本身走管线客户端） ────────────────────
+
+export type ManualTriggerCheck =
+  | { ok: true; task: OpsTaskView }
+  | { ok: false; code: "not-found" | "disabled" | "no-manual-trigger" };
+
+/** 任务存在、启用且配置了启用中的手动触发器才允许手动触发 */
+export async function getManuallyTriggerableTask(taskKey: string): Promise<ManualTriggerCheck> {
+  const tasks = await listOpsTasks();
+  const task = tasks.find((t) => t.taskKey === taskKey);
+  if (!task) return { ok: false, code: "not-found" };
+  if (!task.enabled) return { ok: false, code: "disabled" };
+  const manual = task.triggers.find((t) => t.kind === "manual" && t.enabled);
+  return manual ? { ok: true, task } : { ok: false, code: "no-manual-trigger" };
+}
+
 // ── 备份保留份数（备份任务参数 keep；v1 后台设置区沿用这组读写） ──────────────────
 
 export interface BackupRetention {

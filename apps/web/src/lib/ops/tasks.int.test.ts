@@ -17,6 +17,7 @@ import {
   deleteOpsTask,
   deleteOpsTrigger,
   getBackupRetention,
+  getManuallyTriggerableTask,
   listOpsTasks,
   recordManualTrigger,
   setBackupRetention,
@@ -418,6 +419,43 @@ describe.skipIf(skipDb)("运维任务配置写服务（临时库）", () => {
     ]);
     // getWebDb() 每次都新建包装对象（单例的是连接池），不能按对象身份比较——按类型判定事务句柄
     for (const [executor] of spy.mock.calls) expect(executor).toBeInstanceOf(MySqlTransaction);
+  });
+
+  describe("getManuallyTriggerableTask（手动触发资格）", () => {
+    it("启用 + 有启用中的手动触发器 → 通过并带回任务视图", async () => {
+      const check = await getManuallyTriggerableTask("backup.db");
+      expect(check.ok).toBe(true);
+      if (check.ok) {
+        expect(check.task.taskKey).toBe("backup.db");
+        expect(check.task.triggers.some((t) => t.kind === "manual" && t.enabled)).toBe(true);
+      }
+    });
+
+    it.each([
+      ["ghost", "not-found"] as const, // 不存在
+    ])("不存在 → not-found", async (key, code) => {
+      expect(await getManuallyTriggerableTask(key)).toEqual({ ok: false, code });
+    });
+
+    it("任务停用 → disabled（有手动触发器也不行）", async () => {
+      const task = await taskByKey("backup.db");
+      await setOpsTaskEnabled(task!.id, false, ACTOR);
+      expect(await getManuallyTriggerableTask("backup.db")).toEqual({
+        ok: false,
+        code: "disabled",
+      });
+    });
+
+    it("手动触发器被停用 → no-manual-trigger", async () => {
+      await db()
+        .update(opsTriggers)
+        .set({ enabled: false })
+        .where(sql`${opsTriggers.taskKey} = 'backup.db' AND ${opsTriggers.kind} = 'manual'`);
+      expect(await getManuallyTriggerableTask("backup.db")).toEqual({
+        ok: false,
+        code: "no-manual-trigger",
+      });
+    });
   });
 
   describe("提交后的热加载通知", () => {
