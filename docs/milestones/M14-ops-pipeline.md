@@ -508,7 +508,7 @@ Step 1 时配置表尚未建，管线测试按它自建；Step 2 的 drizzle 迁
       P1 一项：R-20 公历 2/31 等不存在日期可保存（双端真实日历校验 + 闰日拒绝 + 农历小月顺延）。四项均
       补回归测试并做变异验证；根因「夹具比真实环境干净」写入报告 §五。评审环境（3300 服务器、
       funwind-ops-review 容器、三个评审脚本）已按约定清理。
-- [x] Step 6 部署切换与收口（2026-11-10 启动）
+- [x] Step 6 部署切换与收口（2026-11-10 完成部署，24h 核对进行中）
       **编排修复（R-21）**：更名提交曾误把备份卷显式名改成 funwind-ops-files——按该文件部署会挂空卷
       （旧备份不可见、web 与管线读写分离在两个卷），修回 funwind-backup-files（D3 卷名不动）；两端
       compose config 解析实证一致。评审环境与 smoke 均不走 compose 卷声明，故全绿下漏网——补
@@ -516,9 +516,20 @@ Step 1 时配置表尚未建，管线测试按它自建；Step 2 的 drizzle 迁
       `cli.py backup db` 真实备份 #67 success → 台账回写 → down，全过。
       **门禁（部署前，全部退出码 0）**：verify:all（web 4118 / db 124 / scripts 55，jscpd 1405=基线）；
       全量 E2E 生产 488 + dev 8；安装 E2E；visual 10（基线零更新）；layout 18；perf:posting / perf:lcp；
-      管线 pytest 镜像内 266 项。RUNBOOK 附录 §6（升级顺序 / 部署后核对 / 回滚口径 / token 同值对账 /
-      卷名防呆）、目录树补 ops/、CHANGELOG 收口段。生产部署（nginx 封禁先行 → .env 新键 → 隧道
-      bootstrap → 停旧管线防双调度 → 换 web → 起新管线）与 24h 核对见 RUNBOOK 附录执行记录。
+      管线 pytest 镜像内 266 项；**CI 双绿**（run 42840400910：verify + e2e——E2E 基线修复首次上 CI
+      即绿，此前 main 连续两轮红为修复前的旧代码）。
+      **生产部署（2026-11-10 23:2x，按 RUNBOOK 附录 §6）**：镜像/conf/compose 上服务器 → nginx 封禁
+      reload（公网 /api/internal 404）→ 双 .env 写同值 token（对账一致）→ 隧道 bootstrap（迁移 0025/0026
+      幂等 + 种子 4 任务）→ 停旧管线防双调度 → 换 web → 起新管线。
+      **部署事故与恢复（教训已写入 RUNBOOK 附录防呆）**：首次换容器 `exec format error` 崩溃循环——
+      本机 arm64 裸 build 出 arm 镜像，服务器是 x86_64（RUNBOOK §6.1 命令缺 --platform，M13 构建时
+      带了但没写进文档）。约 3 分钟内回滚旧镜像（funwind-web:20261108 + 旧 backup compose）恢复服务，
+      随后 --platform linux/amd64 重建重新切换成功。
+      **部署后即时核对（全过）**：三容器 healthy、管线 health ok（config 来源、3 调度作业——节日按种子
+      默认停用不排）；backup_runs → ops_runs RENAME（旧表消失、历史 9 条 id 连续保留）；触发器状态表
+      回写（t1 明 03:10 / t3 明 03:40 / t7 周五 02:00；manual 为 NULL）；公网内部接口 404、管线无 token
+      401、app→管线内网 200；生产手动备份 run #10 success（4.7MB 落卷，web 同卷只读可下载）；CLI status
+      与配置表同源。**24h 核对**（进行中）：两条备份 cron 首跑、无 failed、后台台账与 CLI 一致、磁盘容量。
 
 ## 遗留事项
 

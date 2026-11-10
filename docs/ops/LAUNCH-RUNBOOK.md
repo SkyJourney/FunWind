@@ -175,12 +175,18 @@ curl -s -o /dev/null -w "旧站恢复：HTTP %{http_code}\n" https://www.qingyis
 
 ### 6.1 本机 → 服务器（镜像与编排文件）
 
+> **架构防呆（2026-11-10 教训）**：服务器是 x86_64，本机是 Apple Silicon——`docker build` 不带
+> `--platform linux/amd64` 会产出 arm64 镜像，load 后容器 `exec format error` 崩溃循环（已发生一次，
+> 站点中断约 3 分钟后回滚恢复）。**build 必带 --platform；load 后先 `docker inspect <镜像>
+> --format {{.Architecture}}` 核对再换容器。**
+
 ```sh
-docker build -f docker/production/Dockerfile -t funwind-web:latest .
-docker build -t funwind-ops:latest services/ops
+docker build --platform linux/amd64 -f docker/production/Dockerfile -t funwind-web:latest .
+docker build --platform linux/amd64 -t funwind-ops:latest services/ops
 docker save funwind-web:latest | ssh QY_HK 'docker load'
 docker save funwind-ops:latest  | ssh QY_HK 'docker load'
-ssh QY_HK 'docker tag funwind-web:latest funwind-web:$(date +%Y%m%d) && docker tag funwind-ops:latest funwind-ops:$(date +%Y%m%d) && docker images | grep -E "funwind-(web|ops)"'
+ssh QY_HK 'docker inspect funwind-web:latest funwind-ops:latest --format "{{.Repository}} {{.Architecture}}"'
+ssh QY_HK 'docker tag funwind-web:latest funwind-web:$(date +%Y%m%d) && docker tag funwind-ops:latest funwind-ops:$(date +%Y%m%d) && docker images --format "{{.Repository}}:{{.Tag}}" | grep -E "funwind-(web|ops)"'
 scp docker/production/nginx/funwind.conf QY_HK:/opt/funwind/nginx/funwind.conf
 ssh QY_HK 'mkdir -p /opt/funwind/ops'
 scp docker/ops/compose.yaml QY_HK:/opt/funwind/ops/compose.yaml
