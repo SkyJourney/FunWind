@@ -8,7 +8,12 @@ import "server-only";
 // 放在任务本体而不是调度器里：命令行脚本也直接引用本文件，脚本与服务进程行为一致。
 // 现有的 modules-import-guard 只认 route.ts 与 "use server" 文件，不认定时任务入口，
 // 所以这条由 src/test/scheduler-entry-guard.test.ts 单独钉住。
+import { and, eq } from "drizzle-orm";
+import { roles, userRoles, users } from "@funwind/db";
+import { getWebDb } from "@funwind/db";
 import "@/modules";
+import { listFailedRuns } from "@/lib/ops/runs";
+import { notify } from "@/lib/notifications/notify";
 import { processDueAccountDeletions } from "@/lib/auth/account-deletion";
 import {
   DEFAULT_UNVERIFIED_TTL_DAYS,
@@ -75,4 +80,62 @@ export function unverifiedPurgeJob(
     },
     ...overrides,
   };
+}
+
+// ── 运维告警（M14 Step 5，D11）：管线任务失败 → 通知站长 ──────────────────────────
+
+export const OPS_ALERTS_JOB_KEY = "ops.alerts";
+/** 扫描窗口：只看最近 7 天的失败（更早的由告警去重自然过期） */
+export const OPS_ALERTS_SCAN_HOURS = 24 * 7;
+/** 单轮最多告警条数（防止管线长时间故障后恢复时告警风暴） */
+export const OPS_ALERTS_LIMIT = 20;
+
+export function opsAlertsJob(overrides: Partial<JobDef> = {}): JobDef {
+  return {
+    key: OPS_ALERTS_JOB_KEY,
+    cron: "*/15 * * * *",
+    timeoutMs: 5 * 60_000,
+    async run(): Promise<JobResult> {
+      const failed = await listFailedRuns(OPS_ALERTS_SCAN_HOURS, OPS_ALERTS_LIMIT);
+      // 台账表不存在（管线未部署）→ 静默跳过（零告警是正确语义）
+      if (failed === null) return { summary: "skipped: 台账缺失（管线未部署）" };
+      const admins = await siteAdminIds();
+      // 没有可接收的管理员：告警无处可去，只记汇总（与既有告警渠道缺失的语义一致）
+      if (admins.length === 0) {
+        return { summary: `failed=${failed.length} skipped: 无可接收告警的管理员` };
+      }
+      let notified = 0;
+      const seen = new Set<string>();
+      for (const run of failed) {
+        // dedupKey 按 run id 幂等：重扫不重复打扰（唯一索引兜底）
+        if (seen.has(String(run.id))) continue;
+        seen.add(String(run.id));
+        const task = run.taskKey ?? run.kind;
+        for (const adminId of admins) {
+          await notify({
+            type: "ops.run.failed",
+            recipients: [adminId],
+            targetType: "ops_run",
+            targetId: run.id,
+            data: { task, runId: run.id, error: (run.error ?? "未知原因").slice(0, 200) },
+            dedupKey: () => `ops-failed:${run.id}`,
+          });
+        }
+        notified += 1;
+      }
+      return { summary: `failed=${failed.length} notified=${notified} admins=${admins.length}` };
+    },
+    ...overrides,
+  };
+}
+
+/** 拥有 admin 角色的启用用户（运维告警接收人；M13 管理员治理后的语义 = 站长 + 兜底超管） */
+async function siteAdminIds(): Promise<number[]> {
+  const rows = await getWebDb()
+    .select({ userId: users.id })
+    .from(users)
+    .innerJoin(userRoles, eq(userRoles.userId, users.id))
+    .innerJoin(roles, eq(roles.key, userRoles.roleKey))
+    .where(and(eq(roles.key, "admin"), eq(users.state, "active")));
+  return rows.map((r) => r.userId);
 }

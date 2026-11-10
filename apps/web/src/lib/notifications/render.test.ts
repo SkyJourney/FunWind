@@ -3,9 +3,9 @@ import { CATEGORY_LABELS, NOTIFICATION_TYPE_SPECS, renderNotification, typeSpec 
 
 /** 渲染模板与类型目录（纯函数；M8 审查整改后补齐覆盖） */
 describe("通知渲染目录", () => {
-  it("34 个类型目录齐全且键唯一（互动6+私信1+审核16+账号10；M9.6 增注销与申诉通知）", () => {
-    expect(NOTIFICATION_TYPE_SPECS.length).toBe(34);
-    expect(new Set(NOTIFICATION_TYPE_SPECS.map((s) => s.key)).size).toBe(34);
+  it("35 个类型目录齐全且键唯一（互动6+私信1+审核16+账号10+系统1；M14 增运维告警）", () => {
+    expect(NOTIFICATION_TYPE_SPECS.length).toBe(35);
+    expect(new Set(NOTIFICATION_TYPE_SPECS.map((s) => s.key)).size).toBe(35);
   });
 
   it("typeSpec 查找与未知键", () => {

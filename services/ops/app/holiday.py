@@ -148,7 +148,8 @@ def ensure_campaign_window(
         notes = []
         created = 0
         existing = 0
-        name = f"{task_name}·{window['year']}年"
+        # 方案名 = 任务名·年份；任务名截前 50 字（SSR 侧方案名上限 60，超长会被 422 拒绝）
+        name = f"{task_name[:50]}·{window['year']}年"
         for item in rule["items"]:
             body = json.dumps(
                 {

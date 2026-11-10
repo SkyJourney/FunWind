@@ -11,10 +11,11 @@ from app.restore import validate_target_db
 
 
 def test_registry_keys_and_lock_groups():
-    assert set(REGISTRY) == {"backup.db", "backup.storage", "campaign.holiday"}
-    assert {spec.run_kind for spec in REGISTRY.values()} == {"db", "storage", "holiday"}
+    assert set(REGISTRY) == {"backup.db", "backup.storage", "campaign.holiday", "drill.restore"}
+    assert {spec.run_kind for spec in REGISTRY.values()} == {"db", "storage", "holiday", "drill"}
     backup = {k for k, s in REGISTRY.items() if s.lock_group == "backup"}
-    assert backup == {"backup.db", "backup.storage"}
+    assert backup == {"backup.db", "backup.storage", "drill.restore"}
+    assert REGISTRY["campaign.holiday"].lock_group == "holiday"
 
 
 def test_backup_group_covers_restore_and_drill():

@@ -1,14 +1,23 @@
 # 定时任务汇总
 
-> 一处看全所有周期性任务，上线时对着它核对，不会漏配。最后更新：2026-11-04（M11.5）。
+> 一处看全所有周期性任务，上线时对着它核对，不会漏配。最后更新：2026-11-10（M14 Step 5）。
 > 设计与取舍见 [M11.5](milestones/M11.5-scheduler.md)。
 
 ## 1. 总表
+
+运维任务管线（funwind-ops 容器，M14）还承载两类**运维侧**周期任务——它们不走进程内调度器，见
+[BACKUP.md](ops/BACKUP.md) 与 [M14](milestones/M14-ops-pipeline.md)：备份（每日 03:10 / 03:40）与
+恢复演练（drill.restore，每周五 02:00，最新备份导入同实例临时库对账后清理）；节日装扮自检
+（campaign.holiday，每日 09:00，默认**停用**——启用是站长显式动作）。任务/触发器在后台
+「运维」页配置（ops_tasks / ops_triggers 表），运行台账在 ops_runs。它们与进程内调度器互不相干：
+
+
 
 | 任务 | 做什么 | 谁调度 | 频率（北京时间） | 命令行入口 | 互斥 |
 |---|---|---|---|---|---|
 | `account-deletion.drain` | 处理冷静期已到的账号注销申请 | **进程内调度器**（`SCHEDULER=on`） | 每 15 分钟 | `pnpm --filter @funwind/web account-deletion:drain` | 命名锁 |
 | `unverified-accounts.purge` | 清理超过 7 天仍未验证的注册账号，释放用户名与邮箱 | **进程内调度器**（`SCHEDULER=on`） | 每天 03:30 | `pnpm --filter @funwind/web unverified-accounts:purge [--apply]` | 命名锁（仅 `--apply`） |
+| `ops.alerts`（M14） | 扫描运维台账（`ops_runs`）近 7 天的失败记录，给 admin 角色用户发系统类告警（dedup 按运行 id 防重） | **进程内调度器**（`SCHEDULER=on`） | 每 15 分钟 | —（告警扫描无命令行入口） | 无（读-only 扫描 + 通知 dedup 幂等） |
 | 每日汇总邮件 | 给近 24 小时未登录、开了邮件汇总的用户发汇总 | **系统 cron**（每小时整点） | 脚本内部按后台配置的时刻判断，默认 20 点 | `pnpm --filter @funwind/web digest:run` | 无（靠脚本内的整点与活跃判定） |
 | outbox 补派 | 把消费失败而停在 outbox 里的事件补派出去 | **手动** | — | `pnpm --filter @funwind/web outbox:drain` | 无 |
 | 孤儿文件巡检 | 报告库内无引用的文件与磁盘上有而库里没有的孤儿 | **手动** | — | `pnpm db:gc-files --dry-run` | 无 |
@@ -33,7 +42,7 @@
 启动后服务日志里应有一行（没有就说明没启用）：
 
 ```
-[scheduler] 已登记 2 个任务：account-deletion.drain、unverified-accounts.purge（时区 Asia/Shanghai）
+[scheduler] 已登记 3 个任务：account-deletion.drain、unverified-accounts.purge、ops.alerts（时区 Asia/Shanghai）
 ```
 
 ### 部署

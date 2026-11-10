@@ -25,7 +25,7 @@ export interface OpsRunRow {
 }
 
 /** 台账表不存在（管线尚未部署或尚未完成首次引导）：mysql2 错误码，drizzle 会把它包在 cause 里 */
-function isMissingTable(e: unknown): boolean {
+export function isMissingTable(e: unknown): boolean {
   const err = e as { code?: string; errno?: number; cause?: { code?: string; errno?: number } };
   return [err, err?.cause].some((x) => x?.code === "ER_NO_SUCH_TABLE" || x?.errno === 1146);
 }
@@ -128,6 +128,30 @@ function mapRunRow(r: Record<string, unknown>): OpsRunRow {
     startedAt: String(r.startedAt ?? ""),
     finishedAt: r.finishedAt === null || r.finishedAt === undefined ? null : String(r.finishedAt),
   };
+}
+
+/**
+ * 近 N 小时内失败的运行（ops.alerts 告警扫描用）；表不存在返回 null（管线未部署 → 静默跳过）。
+ * 其余数据库错误照常抛出。
+ */
+export async function listFailedRuns(
+  sinceHours: number,
+  limit: number,
+): Promise<OpsRunRow[] | null> {
+  let result: unknown;
+  try {
+    result = await getWebDb().execute(sql`
+      SELECT id, kind, task_key AS taskKey, trigger_source AS triggerSource, status, path,
+             size_bytes AS sizeBytes, detail, error, started_at AS startedAt, finished_at AS finishedAt
+      FROM ops_runs
+      WHERE status = 'failed' AND started_at >= NOW() - INTERVAL ${sinceHours} HOUR
+      ORDER BY id DESC LIMIT ${limit}
+    `);
+  } catch (e) {
+    if (isMissingTable(e)) return null;
+    throw e;
+  }
+  return rowsOf(result).map(mapRunRow);
 }
 
 /** 某类别最近 N 条成功记录（速览卡与恢复预览卡共用，不随台账翻页变化）；表不存在返回空 */

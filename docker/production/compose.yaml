@@ -24,9 +24,11 @@ services:
     environment:
       - STORAGE_DIR=/data/storage
       - TZ=Asia/Shanghai
-      # 备份服务（docker/backup/compose.yaml）管理入口：手动触发/健康/备份文件下载
+      # 运维任务管线（docker/ops/compose.yaml，容器 funwind-ops）管理入口：手动触发/热加载/健康/下载
+      # D10：web 读 OPS_* 新名（BACKUP_* 旧名兜底一轮，回滚旧镜像仍可用）；OPS_API_TOKEN 与管线 OPS_TOKEN 同值
       - OPS_SERVICE_URL=http://funwind-ops:8000
-      - BACKUP_OPS_TOKEN=${BACKUP_OPS_TOKEN:?请在 .env 设置}
+      - OPS_API_TOKEN=${OPS_API_TOKEN:?请在服务器 .env 设置}
+      - BACKUP_OPS_TOKEN=${OPS_API_TOKEN}
       - BACKUP_FILES_DIR=/data/backups
     volumes:
       - funwind-storage:/data/storage

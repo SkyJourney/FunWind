@@ -81,6 +81,18 @@ export const OPS_TASK_SEEDS: readonly OpsTaskSeed[] = [
     ],
     enabled: false,
   },
+  {
+    // 恢复演练：默认启用（每周五 02:00）——备份必须演练过才算数（BACKUP.md §4），
+    // 同实例临时库导入 + 表对账后清理，不触碰生产数据（详见管线 app/drill.py）。
+    taskKey: "drill.restore",
+    name: "恢复演练",
+    executor: "drill.restore",
+    params: () => ({}),
+    triggers: [
+      { kind: "cron", expr: "0 2 * * fri" },
+      { kind: "manual", expr: null },
+    ],
+  },
 ];
 
 /** 记账值（JSON 数组）→ 已写过的任务键集合；形态不符视为空 */

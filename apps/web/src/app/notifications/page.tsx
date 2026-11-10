@@ -19,6 +19,7 @@ const CATEGORY_TABS: { key: FeedCategory | undefined; label: string }[] = [
   { key: "message", label: "私信" },
   { key: "moderation", label: "审核与管理" },
   { key: "account", label: "账号与安全" },
+  { key: "system", label: "系统" },
   { key: "announcement", label: "公告" },
 ];
 

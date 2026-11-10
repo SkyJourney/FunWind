@@ -7,7 +7,7 @@ JSON 夹具做双端测试。恢复（restore）需要逐次指定源备份与�
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
-from . import backup, holiday
+from . import backup, drill, holiday
 
 
 class ParamsError(ValueError):
@@ -30,6 +30,7 @@ LOCK_GROUP_KINDS: dict[str, tuple[str, ...]] = {
     "backup": ("db", "storage", "restore", "drill"),
     "holiday": ("holiday",),
 }
+assert "drill" in LOCK_GROUP_KINDS["backup"]
 
 
 def _retention_params(raw: Mapping[str, object]) -> dict:
@@ -61,6 +62,19 @@ def _run_storage(params: Mapping[str, object], *, trigger: str, task_key: str, r
     return backup.run_storage_backup(trigger, task_key=task_key, keep=params.get("keep"), run_id=run_id)
 
 
+def _drill_params(raw: Mapping[str, object]) -> dict:
+    """恢复演练不接受参数。"""
+    try:
+        return drill.check_params(dict(raw))
+    except ValueError as exc:
+        raise ParamsError(str(exc)) from exc
+
+
+def _run_drill(params: Mapping[str, object], *, trigger: str, task_key: str, run_id: int | None = None, task_name: str = "") -> dict:
+    # 演练的失败收尾在 run_drill 内部（校验前置：无参数恒通过）
+    return drill.run_drill(params, trigger=trigger, task_key=task_key, run_id=run_id)
+
+
 def _run_holiday(params: Mapping[str, object], *, trigger: str, task_key: str, run_id: int | None = None, task_name: str = "") -> dict:
     # 失败收尾在 ensure 内部（校验前置：坏规则不产生台账行）
     return holiday.ensure_campaign_window(
@@ -80,6 +94,14 @@ REGISTRY: dict[str, ExecutorSpec] = {
             "holiday",
             _holiday_params,
             _run_holiday,
+        ),
+        ExecutorSpec(
+            "drill.restore",
+            "恢复演练",
+            "drill",
+            "backup",
+            _drill_params,
+            _run_drill,
         ),
     )
 }

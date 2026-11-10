@@ -13,6 +13,7 @@ import {
 import { writeAudit, type ConfigActor, type DbTx } from "@/lib/audit";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import { withDeadlockRetry } from "@/lib/points/retry";
+import { isMissingTable } from "@/lib/ops/runs";
 import { notifyOpsReload } from "./client";
 import { validateOpsParams, validateTaskKey, validateTrigger } from "./executors";
 
@@ -135,8 +136,18 @@ function checkName(raw: string): string | null {
 
 // ── 读取 ────────────────────────────────────────────────
 
+/**
+ * 任务清单；配置表不存在（全新安装尚未跑迁移 0025）时返回空数组——零表韧性（M14 F12 同语义：
+ * 运维页降级空态而非 500）。其余数据库错误照常抛出。
+ */
 export async function listOpsTasks(): Promise<OpsTaskView[]> {
-  const tasks = await getWebDb().select().from(opsTasks).orderBy(asc(opsTasks.taskKey));
+  let tasks: TaskRow[];
+  try {
+    tasks = await getWebDb().select().from(opsTasks).orderBy(asc(opsTasks.taskKey));
+  } catch (e) {
+    if (isMissingTable(e)) return [];
+    throw e;
+  }
   if (tasks.length === 0) return [];
   const triggers = await getWebDb()
     .select()
@@ -489,15 +500,11 @@ function keepOf(params: unknown): number | null {
  * 当前生效的保留份数，与管线的解析顺序一致：任务参数 keep → v1 保留策略 site_settings → 默认 14 / 7。
  */
 export async function getBackupRetention(): Promise<BackupRetention> {
-  const tasks = await getWebDb()
-    .select({ taskKey: opsTasks.taskKey, params: opsTasks.params })
-    .from(opsTasks)
-    .where(
-      inArray(
-        opsTasks.taskKey,
-        RETENTION_TASKS.map((t) => t.taskKey),
-      ),
-    );
+  // 复用 listOpsTasks（配置表缺失时返回 []，零表韧性同语义）
+  const all = await listOpsTasks();
+  const tasks = all
+    .filter((t) => RETENTION_TASKS.some((r) => r.taskKey === t.taskKey))
+    .map((t) => ({ taskKey: t.taskKey, params: t.params as unknown }));
   const [legacy] = await getWebDb()
     .select({ value: siteSettings.value })
     .from(siteSettings)

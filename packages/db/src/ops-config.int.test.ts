@@ -186,7 +186,7 @@ describe.skipIf(skip)("运维任务配置表（临时库）", () => {
 
     it("空表首次写入：两条备份任务 + 各自 cron 与手动触发器，并记账", async () => {
       const summary = await seedSystemData(db());
-      expect(summary.opsTasksSeeded).toBe(3);
+      expect(summary.opsTasksSeeded).toBe(4);
       const state = await snapshotOps();
       expect(state.tasks).toEqual([
         { key: "backup.db", params: { keep: 14 }, revision: 1 },
@@ -204,6 +204,8 @@ describe.skipIf(skip)("运维任务配置表（临时库）", () => {
           },
           revision: 1,
         },
+        // 恢复演练默认启用（同实例临时库导入 + 对账，不碰生产数据）
+        { key: "drill.restore", params: {}, revision: 1 },
       ]);
       expect(state.triggers.filter((t) => t.key === "backup.db")).toEqual([
         { key: "backup.db", kind: "cron", expr: "10 3 * * *" },
@@ -215,7 +217,7 @@ describe.skipIf(skip)("运维任务配置表（临时库）", () => {
         ["cron", "0 9 * * *"],
         ["manual", null],
       ]);
-      expect(state.seeded).toEqual(SEED_KEYS);
+      expect(state.seeded).toEqual(SEED_KEYS); // [backup.db, backup.storage, campaign.holiday, drill.restore]
     });
 
     it("重跑幂等：第二次不写任何行", async () => {
@@ -250,6 +252,7 @@ describe.skipIf(skip)("运维任务配置表（临时库）", () => {
       expect((await snapshotOps()).tasks.map((t) => t.key).sort()).toEqual([
         "backup.db",
         "campaign.holiday",
+        "drill.restore",
       ]);
     });
 
@@ -280,11 +283,11 @@ describe.skipIf(skip)("运维任务配置表（临时库）", () => {
           createdAt: sql`NOW()`,
           updatedAt: sql`NOW()`,
         });
-      expect((await seedSystemData(db())).opsTasksSeeded).toBe(2); // 写入 backup.storage 与 campaign.holiday
+      expect((await seedSystemData(db())).opsTasksSeeded).toBe(3); // 写入 backup.storage、campaign.holiday 与 drill.restore
       const state = await snapshotOps();
       expect(state.tasks[0]).toEqual({ key: "backup.db", params: { keep: 30 }, revision: 4 });
       expect(state.triggers.filter((t) => t.key === "backup.db")).toEqual([]);
-      expect(state.seeded).toEqual(SEED_KEYS);
+      expect(state.seeded).toEqual(SEED_KEYS); // [backup.db, backup.storage, campaign.holiday, drill.restore]
     });
   });
 });

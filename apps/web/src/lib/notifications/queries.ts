@@ -79,7 +79,8 @@ export async function unreadSummary(userId: number | null): Promise<UnreadSummar
   return summary;
 }
 
-export type FeedCategory = "interaction" | "message" | "moderation" | "account" | "announcement";
+export type FeedCategory =
+  "interaction" | "message" | "moderation" | "account" | "system" | "announcement";
 
 export interface FeedItem {
   kind: "notification" | "announcement";

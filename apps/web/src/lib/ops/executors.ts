@@ -96,6 +96,12 @@ export const OPS_EXECUTORS: readonly OpsExecutor[] = [
     params: holidayRuleSchema,
     semantic: holidayRuleSemantic,
   },
+  {
+    key: "drill.restore",
+    label: "恢复演练",
+    description: "每周自动将最新数据库备份导入同实例临时库并对账，结束后清理（不接受参数）",
+    params: z.object({}).strict(),
+  },
 ];
 
 export function findOpsExecutor(key: string): OpsExecutor | null {

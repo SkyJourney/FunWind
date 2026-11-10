@@ -1,0 +1,1 @@
+ALTER TABLE `notifications` MODIFY COLUMN `category` enum('interaction','message','moderation','account','system') NOT NULL;

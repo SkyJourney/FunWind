@@ -1,6 +1,6 @@
 {
   "$comment": "运维任务管线双端契约夹具（M14 Step 2）：管线 tests/test_contract_fixture.py 与 web apps/web/src/lib/ops/executors.test.ts 读同一份——执行器清单、参数校验、cron 与单次时刻写法的判定必须两端一致。新增执行器或改校验规则时先改这里，两端测试都会提示对齐。",
-  "executors": ["backup.db", "backup.storage", "campaign.holiday"],
+  "executors": ["backup.db", "backup.storage", "campaign.holiday", "drill.restore"],
   "params": [
     {
       "executor": "backup.db",
@@ -263,6 +263,18 @@
         "calendar": "lunar",
         "month": 1,
         "day": 1
+      },
+      "valid": false
+    },
+    {
+      "executor": "drill.restore",
+      "params": {},
+      "valid": true
+    },
+    {
+      "executor": "drill.restore",
+      "params": {
+        "keep": 1
       },
       "valid": false
     }

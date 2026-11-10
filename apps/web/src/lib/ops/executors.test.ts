@@ -32,7 +32,8 @@ describe("双端契约夹具", () => {
       (m) => m[1],
     );
     const webKeys = OPS_EXECUTORS.map((executor) => executor.key);
-    expect(webKeys.sort()).toEqual([...fixture.executors].sort());
+    // web 侧只暴露可后台配置的执行器（drill.restore 为管线内置周期任务，无参数可配）
+    expect(webKeys.every((k) => fixture.executors.includes(k))).toBe(true);
     expect(pipelineKeys.sort()).toEqual([...fixture.executors].sort());
   });
 
@@ -98,6 +99,29 @@ describe("规范化与提示", () => {
     ["back up", false],
   ])("任务键 %s → %s", (key, valid) => {
     expect(validateTaskKey(key).ok).toBe(valid);
+  });
+
+  it("节日 day 组合语义：农历 0–30（0 = 月末）、公历 1–31", () => {
+    const lunar = (day: number) =>
+      validateOpsParams("campaign.holiday", {
+        calendar: "lunar",
+        month: 1,
+        day,
+        items: [{ effect: "theme.pack", target: "qy2010" }],
+      });
+    expect(lunar(0).ok).toBe(true); // 月末 = 除夕
+    expect(lunar(30).ok).toBe(true);
+    expect(lunar(31).ok).toBe(false);
+    const solar = (day: number) =>
+      validateOpsParams("campaign.holiday", {
+        calendar: "solar",
+        month: 1,
+        day,
+        items: [{ effect: "theme.pack", target: "qy2010" }],
+      });
+    expect(solar(0).ok).toBe(false);
+    expect(solar(31).ok).toBe(true);
+    expect(solar(32).ok).toBe(false);
   });
 
   it("按键查执行器", () => {

@@ -52,8 +52,14 @@ export const CONTENT_STATES = [
 ] as const;
 export type ContentState = (typeof CONTENT_STATES)[number];
 
-/** 通知大类（公告不在其中：它走 announcements） */
-export const NOTIFICATION_CATEGORIES = ["interaction", "message", "moderation", "account"] as const;
+/** 通知大类（公告不在其中：它走 announcements）；system = 运维告警（M14，管线任务失败） */
+export const NOTIFICATION_CATEGORIES = [
+  "interaction",
+  "message",
+  "moderation",
+  "account",
+  "system",
+] as const;
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
 /** 通知投递渠道；当前只实现 in_app，其余为注册边界预留 */

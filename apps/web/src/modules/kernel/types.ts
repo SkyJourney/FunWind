@@ -202,7 +202,7 @@ export interface PointChannelDef {
 }
 
 /** 通知类型（docs/NOTIFICATIONS.md §4）：M8 通知模块消费 */
-export type NotificationCategory = "interaction" | "message" | "moderation" | "account";
+export type NotificationCategory = "interaction" | "message" | "moderation" | "account" | "system"; // system = 运维告警（M14，管线任务失败，强制送达）
 export interface NotificationTypeDef {
   key: string;
   category: NotificationCategory;

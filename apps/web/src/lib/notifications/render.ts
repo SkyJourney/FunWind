@@ -261,6 +261,14 @@ export const NOTIFICATION_TYPE_SPECS: NotificationTypeSpec[] = [
     mandatory: false,
     template: "你的老账号可以认领了",
   },
+  {
+    // 运维任务失败告警（M14 Step 5，D11）：mandatory 强制送达（运维告警不可被偏好关闭）
+    key: "ops.run.failed",
+    category: "system",
+    aggregate: false,
+    mandatory: true,
+    template: "运维任务失败：{task}（运行 #{runId}）{error}",
+  },
 ];
 
 const SPEC_BY_KEY = new Map(NOTIFICATION_TYPE_SPECS.map((s) => [s.key, s]));
@@ -270,6 +278,7 @@ export const CATEGORY_LABELS: Record<NotificationCategory, string> = {
   message: "私信",
   moderation: "审核与管理",
   account: "账号与安全",
+  system: "系统",
 };
 
 /** 类型规格（未注册的 key 返回 null——调用方自行决定告警或跳过） */

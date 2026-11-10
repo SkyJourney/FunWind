@@ -5,7 +5,7 @@
 
 ## 当前阶段
 
-- **阶段四·运营与演进（2026-11-09 立项）**：M13 已收口（2026-11-08 正式切换成功，站长 2026-11-09 拍板关闭；剩余站长执行项转长线运营，见 M13 遗留事项 §转长线运营）。M14 运维任务管线（`docs/milestones/M14-ops-pipeline.md`）与 M15 统一动效管线（`docs/milestones/M15-motion-pipeline.md`）均已规划审批、未开工；二者相互独立，建议 M14 先行。发布口径：本地灰度 + 门禁全绿即上线公测。里程碑全貌以 `docs/ROADMAP.md` 为准。
+- **阶段四·运营与演进（2026-11-09 立项）**：M13 已收口（2026-11-08 正式切换成功，站长 2026-11-09 拍板关闭；剩余站长执行项转长线运营，见 M13 遗留事项 §转长线运营）。M14 运维任务管线（`docs/milestones/M14-ops-pipeline.md`，**执行中**：Step 1–5 已完成并更名 funwind-ops，余 Step 5.5 审查 / Step 6 部署收口）与 M15 统一动效管线（`docs/milestones/M15-motion-pipeline.md`，已规划未开工）；建议顺序 M14 先行。发布口径：本地灰度 + 门禁全绿即上线公测。里程碑全貌以 `docs/ROADMAP.md` 为准。
 - 阶段一·骨架 M1–M5 已交付，但 2026-10-23 审查发现其数据模型与多项门禁勾选需重做/更正。
   **M5.5 重构（设计先行）已完成，已合并 `main`**。站长思路：**先定目标模型（`docs/DESIGN-MODEL.md`，schema v2.1 共 43 表，含通知中心），旧数据向它靠拢，迁移只是适配层**。
   进度：R1 文档 ✅ → R2 `packages/db` 与 `packages/content` 重做 ✅ → R3 迁移适配层重做并重建开发库 ✅ → S4 应用适配 ✅ → **S5 E2E 与全量门禁 ✅（2026-10-24）**；之后进入 M6 发帖。
@@ -120,7 +120,7 @@ pnpm layout:summary            # 汇总布局审计 JSON，有问题退出码 1�
 - **编辑器**（M6.3，`components/editor`）：所见即所得（Tiptap 3）默认，可切 CodeMirror 源码；操作**完整源码**（含门控隐藏正文）。**未编辑的旧帖保留原文，绝不重新序列化**；往返不等价的帖强制源码模式（`lib/posting/roundtrip-check.ts`，判定为渲染等价）。预览走 `POST /api/preview`（Route Handler，门控只显示占位）。
 - **草稿**（`components/editor/draft.ts`）：`localStorage`，键 `funwind:draft:<userId>:<kind>:<id>`，每次变化即写。**提交即暂存**：submit 时主键移到 `…:sent`，失败跳回从暂存键恢复，成功后主键为空；登出（`LogoutForm`）清除全部草稿键。草稿只是个人便利，读写都包在 try/catch 里。暂存键只在失败或冲突跳回时读取，进入页面时过期即清理；编辑冲突时正文与附件的暂存版本以提示交给作者选择。
 
-## 运维任务管线（funwind-backup → funwind-ops，M14 升级中）
+## 运维任务管线（funwind-ops，M14）
 
 职责分离的运维任务执行体（Python + FastAPI + APScheduler，`services/ops/`，2026-11-10 目录随服务更名）；Next 后台只是管理入口（`/admin/ops`），不承担任务执行。**配置与执行解耦（M14 D1）**：
 

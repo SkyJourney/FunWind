@@ -23,7 +23,14 @@ const MODULE_ID_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const CHANNEL_KEY_RE = /^(earn|spend|adjust)\.[a-z][a-z0-9_]*$/;
 const IDENT_RE = /^[a-z][a-z0-9_]*$/;
 const NOTIFICATION_TYPE_RE = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/;
-const NOTIFICATION_CATEGORIES = new Set(["interaction", "message", "moderation", "account"]);
+// 与 packages/db 的 NOTIFICATION_CATEGORIES 同步；system = 运维告警（M14，管线任务失败）
+const NOTIFICATION_CATEGORIES = new Set([
+  "interaction",
+  "message",
+  "moderation",
+  "account",
+  "system",
+]);
 
 /**
  * 注册时校验四类新边界：非法声明在启动期就暴露，而不是等到运行时才发现（重名、方向与前缀不符、与内置冲突……）。

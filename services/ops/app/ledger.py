@@ -188,6 +188,21 @@ def list_runs(limit: int = 50) -> list[dict]:
         conn.close()
 
 
+def latest_successful_db_run() -> dict | None:
+    """最新一条成功的 db 备份（恢复演练取源）。"""
+    conn = db.connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {', '.join(_RUN_COLUMNS)} FROM `{LEDGER_TABLE}` "
+                "WHERE kind = 'db' AND status = 'success' ORDER BY id DESC LIMIT 1"
+            )
+            rows = _rows_to_dicts(cur)
+            return rows[0] if rows else None
+    finally:
+        conn.close()
+
+
 def running_count(kinds: Iterable[str]) -> int:
     """指定类别中仍在 running 的记录数（手动触发前的忙碌预检）。"""
     kinds = tuple(kinds)

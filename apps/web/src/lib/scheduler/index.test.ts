@@ -169,8 +169,12 @@ describe("startScheduler", () => {
 describe("任务清单自检（用真实 croner 解析表达式）", () => {
   const list = defaultJobs();
 
-  it("首批两个任务，键唯一且稳定（键同时是命名锁与日志标识，不能改名）", () => {
-    expect(list.map((j) => j.key)).toEqual(["account-deletion.drain", "unverified-accounts.purge"]);
+  it("首批三个任务，键唯一且稳定（键同时是命名锁与日志标识，不能改名）", () => {
+    expect(list.map((j) => j.key)).toEqual([
+      "account-deletion.drain",
+      "unverified-accounts.purge",
+      "ops.alerts",
+    ]);
     expect(new Set(list.map((j) => j.key)).size).toBe(list.length);
   });
 
