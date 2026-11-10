@@ -12,8 +12,9 @@
 目标年：今天 ≤ 今年窗口结束 → 今年；否则明年（农历年按农历年锚定，跨公历年自然成立）。
 
 规则参数（任务 params，web 侧 zod 与此同构，双端夹具守护）：
-  calendar: "solar" | "lunar"；month: 1–12；day: 公历 1–31 / 农历 0–30（0 = 月末，如除夕）；
-  beforeDays: 0–30（默认 0）；durationDays: 1–90（默认 7）；
+  calendar: "solar" | "lunar"；month: 1–12；day: 公历须为该月真实日期（1–28/29/30/31，闰日 2/29
+  不支持——候选年无闰日时会持续空转失败）/ 农历 0–30（0 = 月末，如除夕；30 遇小月由窗口计算
+  顺延到下一年）；beforeDays: 0–30（默认 0）；durationDays: 1–90（默认 7）；
   items: 1–6 个 {effect, target}，effect 限视觉类三键（theme.pack / site.logo / site.hero），
   target 是各 effect 的选项值（包 id / 池文件名）。effect 键集合与 web 侧 campaigns 注册表同步，
   两端各自维护（新生成效果须两边同时加）。
@@ -34,6 +35,8 @@ CALENDARS = ("solar", "lunar")
 KNOWN_EFFECTS = frozenset({"theme.pack", "site.logo", "site.hero"})
 MAX_ITEMS = 6
 SSR_TIMEOUT = 15  # 写服务走 campaigns 事务（含审计），给足余量
+# 公历每月天数（2 月按闰年上限计；闰日本身被 check_params 单独拒绝，见下）
+SOLAR_DAYS_IN_MONTH = (31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
 
 
 class RuleError(ValueError):
@@ -58,6 +61,13 @@ def check_params(raw: dict) -> dict:
     day_low, day_high = (0, 30) if calendar == "lunar" else (1, 31)
     if not isinstance(day, int) or isinstance(day, bool) or not day_low <= day <= day_high:
         raise RuleError(f"{calendar} 历的 day 须为 {day_low}–{day_high} 的整数：{day!r}")
+    # 真实日历校验（R-20）：公历 day 须在该月存在；闰日只在闰年存在，按年循环的候选年
+    # 大多无此日（任务会持续失败告警），配置期直接拒绝并给出替代写法
+    if calendar == "solar":
+        if month == 2 and day == 29:
+            raise RuleError("公历 2 月 29 日（闰日）只在闰年存在，按年循环规则请改用 2 月 28 日")
+        if day > SOLAR_DAYS_IN_MONTH[month - 1]:
+            raise RuleError(f"公历 {month} 月没有 {day} 日")
 
     def bounded(key: str, low: int, high: int, default: int) -> int:
         value = raw.get(key, default)
@@ -96,9 +106,19 @@ def check_params(raw: dict) -> dict:
 
 
 def fest_date(calendar: str, year: int, month: int, day: int) -> date:
-    """节日在某（农历/公历）年的公历日期；农历 day=0 = 该农历月最后一天（除夕）。"""
+    """节日在某（农历/公历）年的公历日期；农历 day=0 = 该农历月最后一天（除夕）。
+
+    该年不存在此日期时抛 RuleError（公历超月天数；农历 30 日遇 29 天小月，因年而异），
+    由 compute_window 顺延到下一个候选年。"""
     if calendar == "solar":
-        return date(year, month, day)
+        try:
+            return date(year, month, day)
+        except ValueError as exc:
+            raise RuleError(f"公历 {month} 月没有 {day} 日") from exc
+    if day > 0:
+        days = LunarMonth.fromYm(year, month).getDayCount()
+        if day > days:
+            raise RuleError(f"农历 {year} 年 {month} 月只有 {days} 天（没有 {day} 日）")
     solar = (
         Lunar.fromYmd(year + (1 if month == 12 else 0), 1 if month == 12 else month + 1, 1)
         .getSolar()
@@ -110,15 +130,20 @@ def fest_date(calendar: str, year: int, month: int, day: int) -> date:
 
 
 def compute_window(params: dict, today: date) -> dict:
-    """目标窗口：今天 ≤ 今年窗口结束 → 今年；否则明年。返回 {year, start, end}（datetime.date）。"""
+    """目标窗口：今天 ≤ 今年窗口结束 → 今年；否则明年。返回 {year, start, end}（datetime.date）。
+
+    候选年不存在该节日日期（如农历 30 日遇小月）→ 顺延到下一个候选年；两年都无 → RuleError。"""
     before, duration = params["beforeDays"], params["durationDays"]
     for year in (today.year, today.year + 1):
-        fest = fest_date(params["calendar"], year, params["month"], params["day"])
+        try:
+            fest = fest_date(params["calendar"], year, params["month"], params["day"])
+        except RuleError:
+            continue
         start = fest - timedelta(days=before)
         end = start + timedelta(days=duration)  # 左闭右开：窗口含 [start, end) 的天
         if end > today:  # end 当天窗口已过期（NOW() ≥ ends_at 时读取侧不再生效）
             return {"year": year, "start": start, "end": end}
-    raise RuleError("无法计算目标窗口")  # 理论不可达：明年的窗口必在未来
+    raise RuleError("今年与明年都算不出该节日的日期（农历小月无此日？）——请调整规则")
 
 
 def _wall(day: date) -> str:

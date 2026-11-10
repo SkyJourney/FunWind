@@ -87,7 +87,9 @@ export function HolidayRuleForm({
           />
         </label>
         <label className="block">
-          <span className="block">日{calendar === "lunar" && "（0 = 月末）"}</span>
+          <span className="block">
+            日{calendar === "lunar" ? "（0 = 月末）" : "（须为真实日期）"}
+          </span>
           <input
             type="number"
             name="day"

@@ -95,6 +95,26 @@ def test_solar_window():
     )
 
 
+def test_window_lunar_day30_skips_short_month_year():
+    # 农历 2026/2 只有 29 天（无 30 日）；2027/2 是大月（30 日 = 公历 2027-04-06）
+    # → 从 2026-05-01 看（今年窗口若存在也已过期）落到 2027 年
+    window = compute_window(_rule(month=2, day=30), date(2026, 5, 1))
+    assert window["year"] == 2027
+    assert (window["start"], window["end"]) == (date(2027, 4, 6), date(2027, 4, 13))
+
+
+def test_window_lunar_day30_both_years_short_fails_clearly():
+    # 农历 2026/5 与 2027/5 都只有 29 天 → 两年都算不出 30 日，报可读错误而不是库的英文异常
+    with pytest.raises(RuleError, match="今年与明年都算不出"):
+        compute_window(_rule(month=5, day=30), date(2026, 3, 1))
+
+
+def test_fest_date_solar_invalid_month_day_is_rule_error():
+    # 防御：绕过 check_params 的调用也不该拿到 ValueError 库异常
+    with pytest.raises(RuleError, match="公历 2 月没有 31 日"):
+        fest_date("solar", 2026, 2, 31)
+
+
 def test_lunar_year_boundary_chuxi_targets_next_gregorian_year():
     # 农历 2026 年腊月末（除夕）= 公历 2027-02-05：2026 年 6 月看，目标年 2026（农历年锚定），落在公历 2027
     window = compute_window(_rule(month=12, day=0, durationDays=1), date(2026, 6, 1))
@@ -116,6 +136,9 @@ def test_check_params_applies_defaults_and_normalizes():
         ({"month": 13}, "month"),
         ({"day": 31, "calendar": "lunar"}, "day"),  # 农历没有 31 日
         ({"day": 0, "calendar": "solar"}, "day"),  # 月末约定仅农历
+        ({"calendar": "solar", "month": 2, "day": 31}, "公历 2 月没有 31 日"),  # 真实日历（R-20）
+        ({"calendar": "solar", "month": 4, "day": 31}, "公历 4 月没有 31 日"),
+        ({"calendar": "solar", "month": 2, "day": 29}, "闰日"),  # 闰日不在候选年循环里
         ({"beforeDays": 31}, "beforeDays"),
         ({"durationDays": 0}, "durationDays"),
         ({"durationDays": 91}, "durationDays"),

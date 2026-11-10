@@ -112,16 +112,24 @@ describe("规范化与提示", () => {
     expect(lunar(0).ok).toBe(true); // 月末 = 除夕
     expect(lunar(30).ok).toBe(true);
     expect(lunar(31).ok).toBe(false);
-    const solar = (day: number) =>
+    const solar = (month: number, day: number) =>
       validateOpsParams("campaign.holiday", {
         calendar: "solar",
-        month: 1,
+        month,
         day,
         items: [{ effect: "theme.pack", target: "qy2010" }],
       });
-    expect(solar(0).ok).toBe(false);
-    expect(solar(31).ok).toBe(true);
-    expect(solar(32).ok).toBe(false);
+    expect(solar(1, 0).ok).toBe(false);
+    expect(solar(1, 31).ok).toBe(true);
+    expect(solar(1, 32).ok).toBe(false);
+    // 真实日历（R-20）：字段范围合法但日历上不存在的日期，保存时拒绝并给出可读提示
+    expect(solar(2, 28).ok).toBe(true);
+    expect(solar(2, 31)).toMatchObject({ ok: false, message: "公历 2 月没有 31 日" });
+    expect(solar(4, 31)).toMatchObject({ ok: false, message: "公历 4 月没有 31 日" });
+    expect(solar(2, 29)).toMatchObject({
+      ok: false,
+      message: "公历 2 月 29 日（闰日）只在闰年存在，按年循环规则请改用 2 月 28 日",
+    });
   });
 
   it("按键查执行器", () => {

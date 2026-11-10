@@ -88,6 +88,66 @@
     {
       "executor": "campaign.holiday",
       "params": {
+        "calendar": "solar",
+        "month": 2,
+        "day": 28,
+        "items": [
+          {
+            "effect": "theme.pack",
+            "target": "qy2010"
+          }
+        ]
+      },
+      "valid": true
+    },
+    {
+      "executor": "campaign.holiday",
+      "params": {
+        "calendar": "solar",
+        "month": 2,
+        "day": 31,
+        "items": [
+          {
+            "effect": "theme.pack",
+            "target": "qy2010"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "executor": "campaign.holiday",
+      "params": {
+        "calendar": "solar",
+        "month": 4,
+        "day": 31,
+        "items": [
+          {
+            "effect": "theme.pack",
+            "target": "qy2010"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "executor": "campaign.holiday",
+      "params": {
+        "calendar": "solar",
+        "month": 2,
+        "day": 29,
+        "items": [
+          {
+            "effect": "theme.pack",
+            "target": "qy2010"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "executor": "campaign.holiday",
+      "params": {
         "calendar": "lunar",
         "month": 1,
         "day": 1,

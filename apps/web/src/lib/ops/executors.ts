@@ -47,9 +47,16 @@ const holidayRuleSchema = z
   })
   .strict();
 
-/** 节日装扮的语义校验：日历与日的合法组合、effect 注册且为视觉类、target 语法、去重 */
+/** 公历每月天数（2 月按上限 29 计；闰日本身单独拒绝，见语义校验） */
+const SOLAR_DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+/** 节日装扮的语义校验：日历与日的合法组合（含真实日历，R-20）、effect 注册且为视觉类、target 语法、去重 */
 function holidayRuleSemantic(parsed: Record<string, unknown>): OpsCheck<Record<string, unknown>> {
-  const { calendar, day } = parsed as { calendar: "solar" | "lunar"; day: number };
+  const { calendar, month, day } = parsed as {
+    calendar: "solar" | "lunar";
+    month: number;
+    day: number;
+  };
   if (calendar === "lunar" ? day > 30 : day < 1) {
     return {
       ok: false,
@@ -58,6 +65,18 @@ function holidayRuleSemantic(parsed: Record<string, unknown>): OpsCheck<Record<s
           ? "农历的日须为 0–30（0 = 该月最后一天，如除夕）"
           : "公历的日须为 1–31",
     };
+  }
+  if (calendar === "solar") {
+    // 闰日只在闰年存在：按年规则的候选年大多无此日（任务会持续失败告警），保存时直接拒绝并给替代写法
+    if (month === 2 && day === 29) {
+      return {
+        ok: false,
+        message: "公历 2 月 29 日（闰日）只在闰年存在，按年循环规则请改用 2 月 28 日",
+      };
+    }
+    if (day > SOLAR_DAYS_IN_MONTH[month - 1]) {
+      return { ok: false, message: `公历 ${month} 月没有 ${day} 日` };
+    }
   }
   const items = parsed["items"] as { effect: string; target: string }[];
   const seen = new Set<string>();
