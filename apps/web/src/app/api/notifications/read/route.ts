@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth/session";
-import { markRead } from "@/lib/notifications/queries";
+import { FEED_CATEGORIES, markRead } from "@/lib/notifications/queries";
 import { isSameOrigin } from "@/lib/net/same-origin";
 
 export const dynamic = "force-dynamic";
 
 const bodySchema = z.object({
   ids: z.array(z.coerce.number().int().positive()).max(100).optional(),
-  category: z.enum(["interaction", "message", "moderation", "account", "announcement"]).optional(),
+  category: z.enum(FEED_CATEGORIES).optional(),
   all: z.boolean().optional(),
 });
 

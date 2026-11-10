@@ -73,3 +73,35 @@ def test_drill_without_any_backup_fails_cleanly(db_conn):
     with pytest.raises(RuntimeError, match="没有可演练的成功 db 备份"):
         REGISTRY["drill.restore"].run({}, trigger="cron", task_key="drill.restore", run_id=None, task_name="恢复演练")
     assert ledger.list_runs(5)[0]["status"] == "failed"
+
+
+def test_drill_full_dump_with_pipeline_and_internal_tables_passes(db_conn):
+    """真实全库 dump 会带上管线自治表（ops_runs/ops_trigger_state）与迁移记账表：
+    管线表两侧对称排除不算「演练库多表」；行数抽样只取业务表（跳过 __ 开头的内部表）。"""
+    ledger.ensure_schema(db_conn)
+    _seed_notes(db_conn)
+    with db_conn.cursor() as cur:
+        cur.execute("CREATE TABLE __drizzle_migrations (id INT PRIMARY KEY, hash VARCHAR(64))")
+        cur.execute("INSERT INTO __drizzle_migrations VALUES (1, 'h1')")
+    backed = ledger.insert_run("db", "cron", "backup.db")
+    path = f"{config.TARGET_DIR}/db/drill-full.sql.gz"
+    os.makedirs(f"{config.TARGET_DIR}/db", exist_ok=True)
+    with gzip.open(path, "wt") as fh:
+        fh.write(
+            "CREATE TABLE __drizzle_migrations (id INT PRIMARY KEY, hash VARCHAR(64));\n"
+            "INSERT INTO __drizzle_migrations VALUES (1, 'h1');\n"
+            "CREATE TABLE notes (id INT PRIMARY KEY, body VARCHAR(32));\n"
+            "INSERT INTO notes VALUES (1, 'さくら'), (2, 'サクラ');\n"
+            "CREATE TABLE ops_runs (id BIGINT PRIMARY KEY);\n"
+            "CREATE TABLE ops_trigger_state (trigger_key VARCHAR(64) PRIMARY KEY);\n"
+            "-- Dump completed\n"
+        )
+    ledger.finish_run(backed, "success", path=path)
+
+    from app.executors import REGISTRY
+
+    outcome = REGISTRY["drill.restore"].run({}, trigger="cron", task_key="drill.restore", run_id=None, task_name="恢复演练")
+
+    assert "演练通过" in outcome["detail"]
+    assert "notes 行数 源=2/演练=2" in outcome["detail"]
+    assert "__drizzle_migrations 行数" not in outcome["detail"]

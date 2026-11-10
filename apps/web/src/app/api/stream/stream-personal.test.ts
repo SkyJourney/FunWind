@@ -10,7 +10,10 @@ import { GET as notificationsGET } from "./notifications/route";
 import { GET as pointsGET } from "./points/route";
 
 vi.mock("@/lib/auth/session", () => ({ getCurrentUser: vi.fn() }));
-vi.mock("@/lib/notifications/queries", () => ({ listFeed: vi.fn() }));
+vi.mock("@/lib/notifications/queries", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/notifications/queries")>()),
+  listFeed: vi.fn(),
+}));
 vi.mock("@/lib/pm/queries", () => ({ conversationPage: vi.fn() }));
 vi.mock("@/lib/points/ledger", () => ({ getLedgerPage: vi.fn() }));
 
@@ -112,5 +115,11 @@ describe("GET /api/stream/notifications", () => {
     const body = await (await notificationsGET(get("notifications", "?cat=hack"))).json();
     expect(listFeed).toHaveBeenCalledWith(5, { category: undefined, before: undefined });
     expect(body).toMatchObject({ hasMore: false, nextCursor: null });
+  });
+
+  it("system 类（运维告警）分类透传：系统页签向下加载不混入其它类别", async () => {
+    vi.mocked(listFeed).mockResolvedValue({ items: [], nextCursor: null } as never);
+    await notificationsGET(get("notifications", "?cat=system"));
+    expect(listFeed).toHaveBeenCalledWith(5, { category: "system", before: undefined });
   });
 });

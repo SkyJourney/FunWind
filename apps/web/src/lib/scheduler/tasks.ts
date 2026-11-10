@@ -107,20 +107,19 @@ export function opsAlertsJob(overrides: Partial<JobDef> = {}): JobDef {
       let notified = 0;
       const seen = new Set<string>();
       for (const run of failed) {
-        // dedupKey 按 run id 幂等：重扫不重复打扰（唯一索引兜底）
         if (seen.has(String(run.id))) continue;
         seen.add(String(run.id));
         const task = run.taskKey ?? run.kind;
-        for (const adminId of admins) {
-          await notify({
-            type: "ops.run.failed",
-            recipients: [adminId],
-            targetType: "ops_run",
-            targetId: run.id,
-            data: { task, runId: run.id, error: (run.error ?? "未知原因").slice(0, 200) },
-            dedupKey: () => `ops-failed:${run.id}`,
-          });
-        }
+        // dedupKey 必须含接收人：uq_nf_dedup 是全局唯一索引，不含 uid 时只有第一个管理员能落库，
+        // 其余人被当作重放静默跳过。按 run id + uid 幂等，重扫不重复打扰。
+        await notify({
+          type: "ops.run.failed",
+          recipients: admins,
+          targetType: "ops_run",
+          targetId: run.id,
+          data: { task, runId: run.id, error: (run.error ?? "未知原因").slice(0, 200) },
+          dedupKey: (uid) => `ops-failed:${run.id}:${uid}`,
+        });
         notified += 1;
       }
       return { summary: `failed=${failed.length} notified=${notified} admins=${admins.length}` };

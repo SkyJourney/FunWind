@@ -13,7 +13,7 @@
 """
 import re
 import time
-from datetime import date
+from datetime import date, datetime
 
 from . import config, db, ledger, restore
 
@@ -34,7 +34,7 @@ def check_params(raw: dict) -> dict:
 
 def _scratch_name() -> str:
     # 目标库名过 restore 白名单（字母/数字/下划线），不能含连字符
-    return f"{SCRATCH_PREFIX}{date.today().strftime('%Y%m%d%H%M%S')}"
+    return f"{SCRATCH_PREFIX}{datetime.today().strftime('%Y%m%d%H%M%S')}"
 
 
 def _table_set(database: str) -> set[str]:
@@ -99,8 +99,9 @@ def run_drill(
         restore.run_restore(latest["id"], scratch, trigger=trigger)
         scratch_name = scratch
 
+        # 管线自治表在备份 dump 里随全量导出，两侧对称排除后不参与对账
         source_tables = _table_set(config.DB_NAME) - PIPELINE_TABLES
-        scratch_tables = _table_set(scratch)
+        scratch_tables = _table_set(scratch) - PIPELINE_TABLES
         # 结构对账：备份是全备，备份后源库新建的表不在演练库属正常迁移（计入明细不计失败）；
         # 反向（演练库有而源库没有）才是备份完整性问题 → 失败
         missing = source_tables - scratch_tables
@@ -112,8 +113,9 @@ def run_drill(
             notes.append(f"源库多 {len(missing)} 张表（备份后正常迁移所致，不计失败）：{', '.join(sorted(missing)[:6])}")
         else:
             notes.append(f"表集合与源库一致（{len(scratch_tables)} 张）")
-        # 核心表行数抽样（源 vs 演练，前 3 张）：备份可导入且数据可读的直接证据
-        for table in sorted(source_tables & scratch_tables)[:3]:
+        # 核心表行数抽样（源 vs 演练，业务表前 3 张）：备份可导入且数据可读的直接证据
+        business = sorted(t for t in source_tables & scratch_tables if not t.startswith("__"))
+        for table in business[:3]:
             notes.append(f"{table} 行数 源={_count(config.DB_NAME, table)}/演练={_count(scratch, table)}")
 
         _drop_database(scratch)

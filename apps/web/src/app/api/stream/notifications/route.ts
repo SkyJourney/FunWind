@@ -1,5 +1,5 @@
 import { getCurrentUser } from "@/lib/auth/session";
-import { listFeed, type FeedCategory } from "@/lib/notifications/queries";
+import { FEED_CATEGORIES, listFeed } from "@/lib/notifications/queries";
 import { toNotificationRow } from "@/lib/notifications/row";
 import { streamJson, streamRateLimit, streamUnauthorized } from "@/lib/stream/respond";
 
@@ -11,14 +11,6 @@ import { streamJson, streamRateLimit, streamUnauthorized } from "@/lib/stream/re
  */
 export const dynamic = "force-dynamic";
 
-const CATEGORIES: readonly FeedCategory[] = [
-  "interaction",
-  "message",
-  "moderation",
-  "account",
-  "announcement",
-];
-
 export async function GET(request: Request): Promise<Response> {
   const limited = streamRateLimit(request);
   if (limited) return limited;
@@ -28,7 +20,7 @@ export async function GET(request: Request): Promise<Response> {
 
   const query = new URL(request.url).searchParams;
   const catRaw = query.get("cat");
-  const category = CATEGORIES.find((c) => c === catRaw);
+  const category = FEED_CATEGORIES.find((c) => c === catRaw);
   const before = query.get("before") || undefined;
 
   const feed = await listFeed(user.id, { category, before });

@@ -1,5 +1,12 @@
 import { and, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
-import { announcementReads, announcements, getWebDb, notifications, users } from "@funwind/db";
+import {
+  announcementReads,
+  announcements,
+  getWebDb,
+  NOTIFICATION_CATEGORIES,
+  notifications,
+  users,
+} from "@funwind/db";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import { publicUserId, publicUsername } from "@/lib/identity-expr";
 
@@ -10,15 +17,16 @@ import { publicUserId, publicUsername } from "@/lib/identity-expr";
  * 精简页的分页容忍同秒并列的极小偏差（记录于 M8 文档取舍）。
  */
 
-export interface UnreadSummary {
-  interaction: number;
-  message: number;
-  moderation: number;
-  account: number;
-  /** 未读的有效公告数（合并进总数） */
-  announcement: number;
-  total: number;
-}
+/**
+ * 时间线分类 = 通知类别（schema 枚举）+ 公告。未读汇总、路由白名单、按类已读都从这里取：
+ * 新增通知类别只改 schema 枚举，读侧自动跟上（各处手抄清单曾漏掉 system 类）。
+ */
+export const FEED_CATEGORIES = [...NOTIFICATION_CATEGORIES, "announcement"] as const;
+
+export type FeedCategory = (typeof FEED_CATEGORIES)[number];
+
+/** 各分类未读数 + 总数；announcement 为未读的有效公告数（合并进总数） */
+export type UnreadSummary = Record<FeedCategory | "total", number>;
 
 /** 有效公告：NOW() ∈ [starts_at, ends_at]（ends_at 空为长期）且受众匹配（游客只看 all） */
 export function validAnnouncementWhere(viewerLoggedIn: boolean) {
@@ -35,6 +43,7 @@ export async function unreadSummary(userId: number | null): Promise<UnreadSummar
     message: 0,
     moderation: 0,
     account: 0,
+    system: 0,
     announcement: 0,
     total: 0,
   };
@@ -44,13 +53,7 @@ export async function unreadSummary(userId: number | null): Promise<UnreadSummar
       .from(notifications)
       .where(and(eq(notifications.userId, userId), isNull(notifications.readAt)))
       .groupBy(notifications.category);
-    for (const r of rows) {
-      const n = Number(r.n);
-      if (r.category === "interaction") summary.interaction = n;
-      else if (r.category === "message") summary.message = n;
-      else if (r.category === "moderation") summary.moderation = n;
-      else if (r.category === "account") summary.account = n;
-    }
+    for (const r of rows) summary[r.category] = Number(r.n);
     // 公告未读 = 有效公告数 - 其中已读的行数（已读行联表有效性——过期公告的读行不抵扣新公告）
     const [valid] = await getWebDb()
       .select({ n: sql<number>`COUNT(*)` })
@@ -70,17 +73,9 @@ export async function unreadSummary(userId: number | null): Promise<UnreadSummar
       .where(validAnnouncementWhere(false));
     summary.announcement = Number(valid?.n ?? 0);
   }
-  summary.total =
-    summary.interaction +
-    summary.message +
-    summary.moderation +
-    summary.account +
-    summary.announcement;
+  summary.total = FEED_CATEGORIES.reduce((sum, category) => sum + summary[category], 0);
   return summary;
 }
-
-export type FeedCategory =
-  "interaction" | "message" | "moderation" | "account" | "system" | "announcement";
 
 export interface FeedItem {
   kind: "notification" | "announcement";

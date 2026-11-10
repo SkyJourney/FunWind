@@ -44,6 +44,7 @@ beforeEach(() => {
     message: 0,
     moderation: 0,
     account: 0,
+    system: 0,
     announcement: 0,
   });
   mocks.feed.mockResolvedValue({ items: [], nextCursor: null });

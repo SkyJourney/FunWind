@@ -78,7 +78,7 @@ docker exec funwind-ops python cli.py restore <run_id> [--target-db X] [--dry-ru
 ## 测试
 
 ```sh
-cd services/backup
+cd services/ops
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 .venv/bin/python -m pytest                 # 单测 + 真实 MySQL 临时库集成（读仓库根 .env 的 NEW_DB_*；SKIP_DB_TESTS=1 跳过）
 

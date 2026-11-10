@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { renderNotification } from "@/lib/notifications/render";
+import type { NotificationCategory } from "@/modules/kernel/types";
 
 /**
  * 顶栏铃铛（M8，客户端岛）：挂载与窗口重新聚焦时拉取 /api/notifications/bell；
@@ -21,7 +22,7 @@ import { renderNotification } from "@/lib/notifications/render";
 interface BellItem {
   kind: "notification" | "announcement";
   id: number;
-  category: string;
+  category: NotificationCategory | "announcement";
   type: string;
   actorName: string | null;
   createdAt: string;
@@ -30,22 +31,16 @@ interface BellItem {
 }
 
 interface BellData {
-  unread: {
-    interaction: number;
-    message: number;
-    moderation: number;
-    account: number;
-    announcement: number;
-    total: number;
-  };
+  unread: Record<NotificationCategory | "announcement" | "total", number>;
   recent: BellItem[];
 }
 
-const CATEGORY_NAMES: Record<string, string> = {
+const CATEGORY_NAMES: Record<NotificationCategory | "announcement", string> = {
   interaction: "互动",
   message: "私信",
   moderation: "审核",
   account: "账号",
+  system: "系统",
   announcement: "公告",
 };
 

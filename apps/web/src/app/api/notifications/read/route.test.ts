@@ -5,7 +5,10 @@ import { markRead } from "@/lib/notifications/queries";
 import { POST } from "./route";
 
 vi.mock("@/lib/auth/session", () => ({ getCurrentUser: vi.fn() }));
-vi.mock("@/lib/notifications/queries", () => ({ markRead: vi.fn() }));
+vi.mock("@/lib/notifications/queries", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/notifications/queries")>()),
+  markRead: vi.fn(),
+}));
 
 const request = (body: unknown, origin = "http://127.0.0.1:3100") =>
   new Request("http://localhost:3100/api/notifications/read", {
@@ -47,6 +50,14 @@ describe("通知已读写入边界", () => {
       ids: undefined,
       category: undefined,
       all: true,
+    });
+  });
+  it.each(["system", "announcement", "interaction"])("按类已读接受 %s 类别", async (category) => {
+    expect((await POST(request({ category }))).status).toBe(204);
+    expect(markRead).toHaveBeenCalledExactlyOnceWith(42, {
+      ids: undefined,
+      category,
+      all: undefined,
     });
   });
 });

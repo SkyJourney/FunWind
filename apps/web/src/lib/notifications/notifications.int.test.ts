@@ -360,6 +360,50 @@ describe.skipIf(skipDb)("读取契约", () => {
     expect(feed.items.every((i) => i.kind === "announcement")).toBe(true);
   });
 
+  it("system 类（运维告警）：计入分类未读与总数；分类时间线与按类已读只动 system", async () => {
+    await markRead(TEAM, { all: true });
+    await notify({
+      type: "ops.run.failed",
+      recipients: [TEAM],
+      targetType: "ops_run",
+      targetId: 990001,
+      data: { task: "backup.db", runId: 990001, error: "集成测试注入" },
+      dedupKey: (uid) => `ops-failed:990001:${uid}`,
+    });
+    await notify({
+      type: "points.adjusted",
+      recipients: [TEAM],
+      targetType: "user",
+      targetId: TEAM,
+      data: { delta: 5, reason: "集成测试" },
+    });
+    try {
+      const summary = await unreadSummary(TEAM);
+      expect(summary.system).toBe(1);
+      expect(summary.total).toBe(
+        summary.interaction +
+          summary.message +
+          summary.moderation +
+          summary.account +
+          summary.system +
+          summary.announcement,
+      );
+      expect(summary.total).toBeGreaterThanOrEqual(2);
+
+      const systemFeed = await listFeed(TEAM, { category: "system" });
+      expect(systemFeed.items.map((i) => i.type)).toEqual(["ops.run.failed"]);
+
+      await markRead(TEAM, { category: "system" });
+      const after = await unreadSummary(TEAM);
+      expect(after.system).toBe(0);
+      expect(after.total).toBe(summary.total - 1);
+    } finally {
+      await db()
+        .delete(notifications)
+        .where(and(eq(notifications.userId, TEAM), eq(notifications.targetId, 990001)));
+    }
+  });
+
   it("markRead 公告：写 announcement_reads 且幂等", async () => {
     await markRead(TEAM, { category: "announcement" });
     const rows1 = await db()

@@ -12,6 +12,7 @@ import { opsAlertsJob } from "./tasks";
 
 let tdb: TempDb;
 const ADMIN_ID = 98001;
+const SECOND_ADMIN_ID = 98002;
 const db = () => getWebDb();
 
 const LEDGER_DDL = sql`
@@ -92,7 +93,7 @@ describe.skipIf(skipDb)("ops.alerts 告警任务（临时库）", () => {
     expect(first.summary).toContain("notified=1");
     const rows = await alertTexts();
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ userId: ADMIN_ID, dedupKey: "ops-failed:101" });
+    expect(rows[0]).toMatchObject({ userId: ADMIN_ID, dedupKey: `ops-failed:101:${ADMIN_ID}` });
     const data = rows[0]!.data as { task: string; runId: number; error: string };
     expect(data).toMatchObject({ task: "backup.db", runId: 101, error: "E2E 注入的失败原因" });
 
@@ -100,6 +101,36 @@ describe.skipIf(skipDb)("ops.alerts 告警任务（临时库）", () => {
     const second = await job.run();
     expect(second.summary).toContain("notified=1");
     expect((await alertTexts()).length).toBe(1);
+  });
+
+  it("多个管理员：每人各收一条（uq_nf_dedup 是全局唯一索引，dedupKey 须含接收人）", async () => {
+    await db().delete(users).where(eq(users.id, SECOND_ADMIN_ID));
+    await db()
+      .insert(users)
+      .values({
+        id: SECOND_ADMIN_ID,
+        username: "ops_alert_admin2",
+        usernameKey: "ops_alert_admin2",
+        state: "active",
+        createdAt: sql`NOW()`,
+      });
+    await db()
+      .insert(userRoles)
+      .values({ userId: SECOND_ADMIN_ID, roleKey: "admin", grantedAt: sql`NOW()` });
+    try {
+      await seedFailedRun(111);
+      const job = opsAlertsJob();
+      expect((await job.run()).summary).toContain("admins=2");
+      const recipients = (await alertTexts()).map((row) => row.userId).sort((a, b) => a - b);
+      expect(recipients).toEqual([ADMIN_ID, SECOND_ADMIN_ID]);
+
+      // 重扫：两人都不重复
+      await job.run();
+      expect((await alertTexts()).length).toBe(2);
+    } finally {
+      await db().delete(userRoles).where(eq(userRoles.userId, SECOND_ADMIN_ID));
+      await db().delete(users).where(eq(users.id, SECOND_ADMIN_ID));
+    }
   });
 
   it("成功与执行中的运行不告警；无管理员时静默跳过", async () => {
