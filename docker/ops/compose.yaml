@@ -44,7 +44,7 @@ services:
 
 volumes:
   funwind-backup-files:
-    name: funwind-ops-files # 显式命名：app 容器只读挂载同名卷提供备份下载
+    name: funwind-backup-files # 显式命名（D3 卷名不动）：app 容器只读挂载同名卷提供备份下载
   funwind-storage:
     external: true
     name: funwind-storage # 生产数据卷（app 容器同卷；只读挂载做备份源）

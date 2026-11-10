@@ -12,7 +12,10 @@
 ├── app/                # 应用编排
 │   ├── compose.yaml    #   docker/production/compose.yaml
 │   ├── .env            #   生产 env（docker/production/.env.example 填充，chmod 600）
-│   └── scripts/backup/ #   仓库 scripts/backup/*.sh（crontab 用）
+│   └── scripts/backup/ #   仓库 scripts/backup/*.sh（crontab 用；M14 起退役——调度归 funwind-ops）
+├── ops/                # 运维任务管线编排（M14，附录 §6；原 backup/ 旧栈停用后可归档）
+│   ├── compose.yaml    #   docker/ops/compose.yaml
+│   └── .env            #   BACKUP_DB_PASSWORD / OPS_TOKEN（chmod 600，不入库）
 ├── mysql/
 │   ├── compose.yaml    #   docker/mysql/compose.yaml
 │   └── .env            #   MYSQL_ROOT_PASSWORD=<强口令>（chmod 600）
@@ -155,3 +158,68 @@ curl -s -o /dev/null -w "旧站恢复：HTTP %{http_code}\n" https://www.qingyis
 - MySQL 数据卷 `funwind-mysql-data` 为 named volume：**宿主机直备**走 `docker run --rm -v funwind-mysql-data:/data alpine tar ...`
   或按 BACKUP.md 用 mysqldump（推荐）；删除卷 = 不可逆，签字前不删任何旧栈数据。
 - 阿里云安全组：确认 443/80 开放、3306 **不对公网**（仅 loopback + funwind-internal 网络）。
+
+## 6. M14 升级：运维任务管线（funwind-backup → funwind-ops，2026-11-10）
+
+> 公测期原地升级：换 web 容器一次（中断 < 1 分钟），管线无状态可随时重启。
+> 前置门禁：仓库内 verify:all / 全量 E2E / 安装 E2E / visual / layout / perf 全绿 + 本机 compose
+> 全链路实测（见 M14 文档 §执行记录）。审查报告：`docs/reviews/2026-11-10-m14-code-review.md`。
+
+### 6.0 前置核对（防呆，R-21 教训）
+
+- **卷名核对**：`docker/ops/compose.yaml` 的备份卷显式名必须是 `funwind-backup-files`（与服务器现存
+  卷同名——更名曾误改成 funwind-ops-files，挂到空卷会让旧备份全部「消失」）。
+  `BACKUP_DB_PASSWORD=x OPS_TOKEN=x docker compose -f docker/ops/compose.yaml config | grep -A3 volumes`。
+- **token 同值对账**（R-7）：`OPS_API_TOKEN`（app/.env）与 `OPS_TOKEN`（ops/.env）必须同值——用同一条
+  `openssl rand -base64 24` 输出写入两处，从来源上消灭双名漂移。
+
+### 6.1 本机 → 服务器（镜像与编排文件）
+
+```sh
+docker build -f docker/production/Dockerfile -t funwind-web:latest .
+docker build -t funwind-ops:latest services/ops
+docker save funwind-web:latest | ssh QY_HK 'docker load'
+docker save funwind-ops:latest  | ssh QY_HK 'docker load'
+ssh QY_HK 'docker tag funwind-web:latest funwind-web:$(date +%Y%m%d) && docker tag funwind-ops:latest funwind-ops:$(date +%Y%m%d) && docker images | grep -E "funwind-(web|ops)"'
+scp docker/production/nginx/funwind.conf QY_HK:/opt/funwind/nginx/funwind.conf
+ssh QY_HK 'mkdir -p /opt/funwind/ops'
+scp docker/ops/compose.yaml QY_HK:/opt/funwind/ops/compose.yaml
+```
+
+### 6.2 服务器侧（顺序执行，每步可核）
+
+1. **nginx 封禁先行**（内部接口三保险之①，先于新 web 上线）：确认 conf 含
+   `location /api/internal/ { return 404; }` → `nginx -t` → reload；核对
+   `curl -s -o /dev/null -w '%{http_code}' https://www.qingyisub.top/api/internal/x` = 404。
+2. **app/.env** 追加 `OPS_API_TOKEN=<6.0 生成的同值>`（chmod 600 保持）。
+3. **ops/.env** 新建：`BACKUP_DB_PASSWORD=<与 mysql/.env 同值>`、`OPS_TOKEN=<同值>`（chmod 600）。
+4. **迁移与种子（换容器前，G-17-7）**：本机隧道 `ssh -fNL 33620:127.0.0.1:3306 QY_HK` →
+   `NEW_DB_HOST=127.0.0.1 NEW_DB_PORT=33620 NEW_DB_NAME=qingyisub NEW_DB_PASSWORD=<root 口令> pnpm db:bootstrap`
+   （迁移 0025/0026 + ops_tasks 首写种子，幂等，重复跑无害）。
+5. **停旧管线**（防双调度——新旧锁名不同，不 down 会并行双备份）：
+   `ssh QY_HK 'cd /opt/funwind/backup && docker compose down'`（容器 funwind-backup；卷与数据不动）。
+6. **换 web**：`ssh QY_HK 'cd /opt/funwind/app && docker compose up -d'`（load 的新镜像即被拾取）。
+7. **起新管线**：`ssh QY_HK 'cd /opt/funwind/ops && docker compose up -d'`
+   （容器 funwind-ops：启动幂等把 backup_runs 演进为 ops_runs + 建 ops_trigger_state，id 连续保留）。
+
+### 6.3 部署后核对
+
+- **即时**：`/api/health` ok；`/admin/ops` 任务清单 4 任务、管线「运行中」；手动触发一次数据库备份 →
+  台账 running → success（5s 轮询自动刷新）；`docker exec funwind-ops python cli.py status` 与后台一致；
+  `/api/internal/x` 公网 404；管线 API 无/错 token 均 401。
+- **当天**：ops_trigger_state 出现四个下次触发时间（03:10 / 03:40 / 09:00 / 周五 02:00）；
+  无 failed 行 → ops.alerts 不产生告警。
+- **24h**：两条备份 cron 首跑成功且文件落卷；`docker exec funwind-ops python cli.py runs 20` 与后台
+  台账一致；服务器磁盘容量正常（存储备份单份约 95MB × keep 7）。
+
+### 6.4 回滚口径
+
+- **回退 web**（旧镜像 funwind-web:<日期戳>）：compose up 换回；旧代码读 `BACKUP_SERVICE_URL` /
+  `BACKUP_OPS_TOKEN`——app/.env 临时补 `BACKUP_SERVICE_URL=http://funwind-ops:8000`（容器名未变，
+  新管线继续可被触发）；/admin/ops 读不到 ops_runs → 降级空态（F12/R-4 已做实，不再 500）。
+- **回退管线**（旧镜像 funwind-backup:<日期戳>）：`cd /opt/funwind/backup && docker compose up -d`
+  （先 down 新 ops 防双调度）；旧管线启动 `CREATE IF NOT EXISTS backup_runs` 按旧语义继续备份；
+  `ops_runs` / `ops_trigger_state` 数据保留，升级回来幂等续用（id 连续不破坏）。
+- **配置表**：ops_tasks/ops_triggers 回滚后无消费者（旧管线不读），留着无害；迁移不做反向删除。
+- **节日装扮最坏情况** = 生成失败（台账 failed + 站内告警），不破坏生效语义（生效由 campaigns
+  读取时判定）。
