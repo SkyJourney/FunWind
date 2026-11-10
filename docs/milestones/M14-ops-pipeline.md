@@ -508,7 +508,17 @@ Step 1 时配置表尚未建，管线测试按它自建；Step 2 的 drizzle 迁
       P1 一项：R-20 公历 2/31 等不存在日期可保存（双端真实日历校验 + 闰日拒绝 + 农历小月顺延）。四项均
       补回归测试并做变异验证；根因「夹具比真实环境干净」写入报告 §五。评审环境（3300 服务器、
       funwind-ops-review 容器、三个评审脚本）已按约定清理。
-- [ ] Step 6 部署切换与收口
+- [x] Step 6 部署切换与收口（2026-11-10 启动）
+      **编排修复（R-21）**：更名提交曾误把备份卷显式名改成 funwind-ops-files——按该文件部署会挂空卷
+      （旧备份不可见、web 与管线读写分离在两个卷），修回 funwind-backup-files（D3 卷名不动）；两端
+      compose config 解析实证一致。评审环境与 smoke 均不走 compose 卷声明，故全绿下漏网——补
+      **本机 compose 全链路实测**：临时 override 落本机网络/卷，真实 compose 起 → health ok →
+      `cli.py backup db` 真实备份 #67 success → 台账回写 → down，全过。
+      **门禁（部署前，全部退出码 0）**：verify:all（web 4118 / db 124 / scripts 55，jscpd 1405=基线）；
+      全量 E2E 生产 488 + dev 8；安装 E2E；visual 10（基线零更新）；layout 18；perf:posting / perf:lcp；
+      管线 pytest 镜像内 266 项。RUNBOOK 附录 §6（升级顺序 / 部署后核对 / 回滚口径 / token 同值对账 /
+      卷名防呆）、目录树补 ops/、CHANGELOG 收口段。生产部署（nginx 封禁先行 → .env 新键 → 隧道
+      bootstrap → 停旧管线防双调度 → 换 web → 起新管线）与 24h 核对见 RUNBOOK 附录执行记录。
 
 ## 遗留事项
 
