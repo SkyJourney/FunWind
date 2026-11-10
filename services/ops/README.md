@@ -1,9 +1,8 @@
-# FunWind 运维任务管线（funwind-backup → funwind-ops）
+# FunWind 运维任务管线（funwind-ops）
 
 职责分离的运维任务执行体（Python + FastAPI + APScheduler）：任务与触发器作为配置管理，管线读配置调度执行、
-写运行台账。Next.js 后台只是管理入口，不承担执行逻辑。M14 升级中——Step 1 已完成管线内核重构；
-服务/容器名在 Step 6 统一更名为 `funwind-ops`（目录与容器名暂沿用 backup）。设计与决策见
-[M14 里程碑文档](../../docs/milestones/M14-ops-pipeline.md)。
+写运行台账。Next.js 后台只是管理入口，不承担执行逻辑。M14：管线内核与目录已统一更名为 `funwind-ops`（容器/镜像/项目名同名；备份卷
+`funwind-backup-files` 与数据不动，D3）。设计与决策见 [M14 里程碑文档](../../docs/milestones/M14-ops-pipeline.md)。
 
 ## 与其他服务的交互设计（通信契约）
 
@@ -59,12 +58,12 @@
 ## CLI（容器内；与 API 同一执行器）
 
 ```sh
-docker exec funwind-backup python cli.py status               # 配置来源、任务/触发器（含下次运行）、最近台账
-docker exec funwind-backup python cli.py tasks                # 任务清单（JSON）
-docker exec funwind-backup python cli.py runs 20
-docker exec funwind-backup python cli.py run backup.db        # 立即同步执行一个任务
-docker exec funwind-backup python cli.py backup db | storage  # 同上（v1 兼容写法）
-docker exec funwind-backup python cli.py restore <run_id> [--target-db X] [--dry-run] [--yes]
+docker exec funwind-ops python cli.py status               # 配置来源、任务/触发器（含下次运行）、最近台账
+docker exec funwind-ops python cli.py tasks                # 任务清单（JSON）
+docker exec funwind-ops python cli.py runs 20
+docker exec funwind-ops python cli.py run backup.db        # 立即同步执行一个任务
+docker exec funwind-ops python cli.py backup db | storage  # 同上（v1 兼容写法）
+docker exec funwind-ops python cli.py restore <run_id> [--target-db X] [--dry-run] [--yes]
 ```
 
 ## 运行韧性
@@ -84,13 +83,13 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt -r requiremen
 .venv/bin/python -m pytest                 # 单测 + 真实 MySQL 临时库集成（读仓库根 .env 的 NEW_DB_*；SKIP_DB_TESTS=1 跳过）
 
 # 镜像内全量（含真实 mysqldump/mysql 的恢复链路测试；本机无 MySQL 客户端时这 5 项会跳过）
-docker build -t funwind-backup:test . && docker run --rm \
+docker build -t funwind-ops:test . && docker run --rm \
   -v "$PWD/tests:/srv/tests:ro" -v "$PWD/pytest.ini:/srv/pytest.ini:ro" \
   -e OPS_TEST_DB_HOST=host.docker.internal -e OPS_TEST_DB_PORT=33621 -e OPS_TEST_DB_PASSWORD \
-  funwind-backup:test sh -c "pip install -q pytest==8.3.4 httpx==0.27.2 && python -m pytest -p no:cacheprovider"
+  funwind-ops:test sh -c "pip install -q pytest==8.3.4 httpx==0.27.2 && python -m pytest -p no:cacheprovider"
 
 # 全链路冒烟（自建临时 MySQL 与目录，结束自动清理；部署前必跑）
-docker build -t funwind-backup:smoke . && scripts/smoke-docker.sh funwind-backup:smoke
+docker build -t funwind-ops:smoke . && scripts/smoke-docker.sh funwind-ops:smoke
 ```
 
 ## 已知约束与教训

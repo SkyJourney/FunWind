@@ -29,7 +29,7 @@ apps/web/        Next 应用（src/app 路由、src/lib 纯逻辑与服务、src
 packages/db/     @funwind/db：Drizzle schema 单一事实源 + 版本化迁移 + bootstrap/seed/verify + 权限词汇表
 migration/       青翼 phpwind → 新库 的可选导入器（旧库只读）
 docs/            蓝图/路线图/里程碑/权限/模块契约/前端设计
-services/backup/ 备份服务容器（Python + FastAPI：cron 备份/恢复/保留轮转/HTTP API；见 services/backup/README.md）
+services/ops/ 运维任务管线（Python + FastAPI：定时任务调度/备份/恢复/保留轮转/HTTP API；见 services/ops/README.md）
 docs/            蓝图/路线图/里程碑/权限/模块契约/前端设计
 docker/          qysub-next（MySQL 8.4 @33621）、dev（web 容器 + MailPit）、production（app 编排）、backup（备份服务编排）
 ```
@@ -53,10 +53,10 @@ pnpm --filter @funwind/web test:e2e:prod                  # 仅运行生产构�
 pnpm --filter @funwind/web modules:toggle <id> <on|off>   # 模块启停（写 audit_log；脚本兼容 server-only 标记）
 pnpm --filter @funwind/web perf:lcp                       # 生产构建 LCP 门禁
 pnpm --filter @funwind/web perf:posting                   # 发帖性能基准（服务层 createReply×200，p95 < 300ms）；须显式 NEW_DB_NAME=qysub_next_e2e
-# 备份服务（funwind-backup 容器，生产；本地联调见 services/backup/README.md）
-docker exec funwind-backup python cli.py status | runs 20          # 服务状态 / 最近备份记录
-docker exec funwind-backup python cli.py backup db | storage       # 立即备份（等价后台 /admin/ops 按钮）
-docker exec funwind-backup python cli.py restore <run_id> --dry-run [--yes --target-db X]   # 恢复（覆盖式，有安全前置）
+# 运维任务管线（funwind-ops 容器，生产；本地联调见 services/ops/README.md）
+docker exec funwind-ops python cli.py status | runs 20          # 服务状态 / 最近备份记录
+docker exec funwind-ops python cli.py backup db | storage       # 立即备份（等价后台 /admin/ops 按钮）
+docker exec funwind-ops python cli.py restore <run_id> --dry-run [--yes --target-db X]   # 恢复（覆盖式，有安全前置）
 pnpm test:layout               # 六档宽度（320–1440）布局矩阵：DOM 几何断言；RUN_LAYOUT_SCREENSHOTS=1 另导出截图与 ≤800px 的可读切块。含 db:build，3100 在跑时跑完需重启；目视验收规程见 docs/VISUAL-VERIFICATION.md
 pnpm layout:summary            # 汇总布局审计 JSON，有问题退出码 1（LAYOUT_AUDIT_ONLY=1 下用例恒为 ✓，问题只写在 JSON 里，必须跑它）
 ```
@@ -122,9 +122,9 @@ pnpm layout:summary            # 汇总布局审计 JSON，有问题退出码 1�
 
 ## 运维任务管线（funwind-backup → funwind-ops，M14 升级中）
 
-职责分离的运维任务执行体（Python + FastAPI + APScheduler，`services/backup/`）；Next 后台只是管理入口（`/admin/ops`），不承担任务执行。**配置与执行解耦（M14 D1）**：
+职责分离的运维任务执行体（Python + FastAPI + APScheduler，`services/ops/`，2026-11-10 目录随服务更名）；Next 后台只是管理入口（`/admin/ops`），不承担任务执行。**配置与执行解耦（M14 D1）**：
 
-- **配置归 web**：任务（`ops_tasks`）与触发器（`ops_triggers`）进 drizzle schema（v2.10，迁移 0025），web 写配置 + 审计 + 乐观锁（`lib/ops/tasks.ts`，写法校验在 `lib/ops/executors.ts`）；执行器清单/参数/cron 规则与管线由共享夹具 `services/backup/tests/fixtures/ops-contract.json` 双端守护。管线读配置调度（启动 + 5 分钟对账 + `POST /config/reload` 热加载）；配置表为空回落内置默认。**cron 星期字段只认名称 mon…sun**（APScheduler 的 0=周一 ≠ crontab 的 0=周日，数字写法两端都拒绝）。
+- **配置归 web**：任务（`ops_tasks`）与触发器（`ops_triggers`）进 drizzle schema（v2.10，迁移 0025），web 写配置 + 审计 + 乐观锁（`lib/ops/tasks.ts`，写法校验在 `lib/ops/executors.ts`）；执行器清单/参数/cron 规则与管线由共享夹具 `services/ops/tests/fixtures/ops-contract.json` 双端守护。管线读配置调度（启动 + 5 分钟对账 + `POST /config/reload` 热加载）；配置表为空回落内置默认。**cron 星期字段只认名称 mon…sun**（APScheduler 的 0=周一 ≠ crontab 的 0=周日，数字写法两端都拒绝）。
 - **执行与台账归管线**：`ops_runs`（v1 `backup_runs` 启动时幂等改名演进，id 连续保留——恢复按 run id 定位备份）与 `ops_trigger_state`（下次/上次触发，后台「下次运行」以它为准，web 不复算 cron）由管线自治建表与写入，web 原生 SQL 只读（`lib/ops/runs.ts`，缺表返回 null 不 500）；不进 drizzle schema，`db:verify` 显式豁免。
 - **API + Token**：`GET /health`（降级 503）、`GET /tasks`、`POST /tasks/{key}/runs`（异步手动触发，202 + run_id；同组忙碌 409）、`POST /config/reload`、`GET /runs[/{id}]`、兼容期 `POST /runs?kind=`、`POST /restore`（confirm 双确认 + 目标库白名单）。web 走 `OPS_SERVICE_URL` + `OPS_API_TOKEN`（`lib/ops/client.ts`，旧名 BACKUP_SERVICE_URL/BACKUP_OPS_TOKEN 兜底一轮）。web 写配置成功后调 reload（best-effort，失败由管线对账兜底）。
 - **执行隔离**：备份/恢复/轮转全部在管线容器内（mysqldump/tar 子进程 + GET_LOCK 互斥，口令经 0600 option 文件）；Next 不 spawn 任何任务进程。缺必需配置/库不可达：降级存活（/health 503）+ 自动重试，不崩溃循环。

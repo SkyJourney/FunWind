@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 运维任务管线 · 本机 docker 全链路冒烟（M14 Step 1 门禁；Step 6 部署前复跑）
 #
-# 用法：services/backup/scripts/smoke-docker.sh [镜像标签]（默认 funwind-backup:smoke，需先 docker build）
+# 用法：services/ops/scripts/smoke-docker.sh [镜像标签]（默认 funwind-ops:smoke，需先 docker build）
 # 全程自建临时 MySQL 8.4 容器、临时网络与临时目录，口令随机生成且只经 env 文件传入；结束自动清理，
 # 不触碰任何开发库 / 生产库。任一断言失败立即以非零退出。
 #
@@ -10,7 +10,7 @@
 # 假名字节级核对，安全 dump 不参与轮转）→ 日志不含口令 → 缺必需配置降级不崩溃 → 库不可达降级并自愈。
 set -euo pipefail
 
-IMAGE="${1:-funwind-backup:smoke}"
+IMAGE="${1:-funwind-ops:smoke}"
 PREFIX="ops-smoke-$$"
 NET="$PREFIX-net"
 DB="$PREFIX-mysql"

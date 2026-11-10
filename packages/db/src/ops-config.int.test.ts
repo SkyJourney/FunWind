@@ -1,7 +1,7 @@
 /**
  * 运维任务配置表（M14 Step 2）：真实临时库上的双端契约测试 + 默认任务种子语义。
  *
- * 契约测试直接解析管线侧 services/backup/tests/contract.py 的建表 DDL（管线测试按它自建配置表），
+ * 契约测试直接解析管线侧 services/ops/tests/contract.py 的建表 DDL（管线测试按它自建配置表），
  * 与 drizzle 迁移建出的真实表逐列（名称/类型/可空/顺序）与逐索引比对——任一端改列而另一端没跟上，
  * 这里会变红（管线以 Python 读这两张表，类型系统无法跨语言守护）。
  * 需要本机 MySQL（docker/qysub-next）；确实无库的环境用 SKIP_DB_TESTS=1 显式跳过。结束后删库。
@@ -27,7 +27,7 @@ const skip = process.env.SKIP_DB_TESTS === "1";
 const base = newDbConfig();
 const dbName = `funwind_ops_it_${randomBytes(4).toString("hex")}`;
 const config = { ...base, database: dbName };
-const CONTRACT_FILE = join(import.meta.dirname, "../../../services/backup/tests/contract.py");
+const CONTRACT_FILE = join(import.meta.dirname, "../../../services/ops/tests/contract.py");
 
 interface ContractColumn {
   name: string;

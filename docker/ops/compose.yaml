@@ -1,15 +1,15 @@
-# FunWind 备份服务编排（职责分离的备份/恢复执行体，docs/ops/BACKUP.md）
-# 部署位置（站长服务器）：/opt/funwind/backup/compose.yaml + 同目录 .env
+# FunWind 运维任务管线编排（职责分离的备份/恢复执行体，docs/ops/BACKUP.md）
+# 部署位置（站长服务器）：/opt/funwind/ops/compose.yaml + 同目录 .env（M14 更名，目录树见 RUNBOOK 附录）
 #   .env：BACKUP_DB_PASSWORD / OPS_TOKEN（chmod 600，不入库）
 # 依赖网络：funwind-internal（docker/mysql/compose.yaml 创建）；依赖卷：funwind-storage（app 编排创建，只读挂载）
-name: funwind-backup
+name: funwind-ops
 
 services:
   backup:
-    image: funwind-backup:latest
+    image: funwind-ops:latest
     build:
-      context: ../../services/backup
-    container_name: funwind-backup
+      context: ../../services/ops
+    container_name: funwind-ops
     restart: unless-stopped
     environment:
       - BACKUP_DB_HOST=funwind-mysql
@@ -44,7 +44,7 @@ services:
 
 volumes:
   funwind-backup-files:
-    name: funwind-backup-files # 显式命名：app 容器只读挂载同名卷提供备份下载
+    name: funwind-ops-files # 显式命名：app 容器只读挂载同名卷提供备份下载
   funwind-storage:
     external: true
     name: funwind-storage # 生产数据卷（app 容器同卷；只读挂载做备份源）

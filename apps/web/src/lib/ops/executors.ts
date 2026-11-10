@@ -4,9 +4,9 @@ import { configFromTarget, findCampaignEffect } from "@/lib/campaigns/effects";
 /**
  * 运维任务的执行器注册表与触发器写法校验（M14 Step 2/4，web 侧）。
  *
- * 管线（services/backup）才是执行方：本模块是其 app/executors.py 与 app/triggers.py 的镜像——
+ * 管线（services/ops）才是执行方：本模块是其 app/executors.py 与 app/triggers.py 的镜像——
  * 执行器清单、参数校验、cron 与单次时刻的写法规则两端必须逐条一致，由共享夹具
- * services/backup/tests/fixtures/ops-contract.json 双端测试守护（改规则先改夹具，两端测试都会提示对齐）。
+ * services/ops/tests/fixtures/ops-contract.json 双端测试守护（改规则先改夹具，两端测试都会提示对齐）。
  * 差异口径：节日装扮 items 的 target 语法（包 id / 池文件名正则）只在 web 校验（写前拦截），
  * 管线做结构校验、存在性由 SSR 写服务按 effect 注册表 fail-closed——此类用例不进共享夹具。
  * 纯模块（无 IO、不标 server-only）：后台表单与写服务共用。

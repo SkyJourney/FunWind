@@ -23,8 +23,8 @@ type Params = { searchParams: Promise<Record<string, string | undefined>> };
 /** 恢复命令模板（D5：后台只预览 + 复制，真实恢复走 CLI --yes 双确认） */
 function restoreCommand(runId: number, targetDb: string): string {
   return (
-    `docker exec funwind-backup python cli.py restore ${runId} --target-db ${targetDb} --dry-run   # 预演\n` +
-    `docker exec funwind-backup python cli.py restore ${runId} --target-db ${targetDb} --yes        # 真实恢复（覆盖目标库！）`
+    `docker exec funwind-ops python cli.py restore ${runId} --target-db ${targetDb} --dry-run   # 预演\n` +
+    `docker exec funwind-ops python cli.py restore ${runId} --target-db ${targetDb} --yes        # 真实恢复（覆盖目标库！）`
   );
 }
 

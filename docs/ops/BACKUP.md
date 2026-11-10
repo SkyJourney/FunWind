@@ -15,13 +15,13 @@
 
 表情包随 git（`public/emoji`），不在存储备份范围。
 
-## 2. 备份服务容器（funwind-backup，M13 追加功能）
+## 2. 运维任务管线容器（funwind-ops，M13 引入 / M14 更名）
 
-备份执行体已从宿主机脚本迁移为**独立服务容器**（Python + FastAPI + APScheduler，源码 `services/backup/`）：
+备份执行体已从宿主机脚本迁移为**独立服务容器**（Python + FastAPI + APScheduler，源码 `services/ops/`，2026-11-10 随服务更名）：
 
 - **定时**：服务内置 cron（默认每日 03:10 数据库 / 03:40 存储，`BACKUP_DB_CRON` / `BACKUP_STORAGE_CRON` 可配）。
 - **手动**：后台 `/admin/ops`「备份数据库 / 备份存储」按钮（走备份服务 API）；CLI 兜底
-  `docker exec funwind-backup python cli.py backup db`。
+  `docker exec funwind-ops python cli.py backup db`。
 - **保留策略**：按份数轮转（`BACKUP_KEEP_DB=14` / `BACKUP_KEEP_STORAGE=7`），手动与定时同池，删最旧。
 - **产物**：备份卷 `funwind-backup-files`（`db/*.sql.gz`、`storage/*.tgz`，均 gzip 压缩）；
   应用容器只读挂载同卷提供后台下载。
@@ -36,9 +36,9 @@
 
 ```sh
 # 预览（不执行）
-docker exec funwind-backup python cli.py restore <run_id> --target-db qingyisub --dry-run
+docker exec funwind-ops python cli.py restore <run_id> --target-db qingyisub --dry-run
 # 真实恢复（--yes 显式确认；MRG_MYISAM 表自动容忍跳过并在结果标注）
-docker exec funwind-backup python cli.py restore <run_id> --target-db qingyisub --yes
+docker exec funwind-ops python cli.py restore <run_id> --target-db qingyisub --yes
 ```
 
 恢复完成后跑 `pnpm db:verify`（env 指向恢复实例）对账。**恢复是覆盖生产库的核弹级操作**：
@@ -53,7 +53,8 @@ DB 备份单份 ~4.7MB（14 份 ≈ 66MB）、storage 备份单份 ~95MB（7 份
 
 备份服务容器自带调度器（`BACKUP_DB_CRON` / `BACKUP_STORAGE_CRON` 环境变量，默认每日 03:10 / 03:40），
 宿主机无需配置定时任务。备份/恢复的历史在后台 `/admin/ops` 可查（含失败原因），
-日志落在备份容器 stdout（`docker logs funwind-backup`）与 `/opt/funwind/backups/backup.log`。
+日志落在管线容器 stdout（`docker logs funwind-ops`；M14 勘误：v1 文档所写
+  `/opt/funwind/backups/backup.log` 为 crontab 时代残留，实际无宿主机日志文件）。
 
 > 2026-11-08 历史：初版为宿主机 crontab + `scripts/backup/*.sh`（含服务器 tar 变体），
 > 已被备份服务容器整体替代；脚本保留于仓库作参照。手动备份 = 后台 `/admin/ops` 按钮。

@@ -112,7 +112,7 @@ flowchart LR
 | `ops_runs` | **管线**（自治建表，web 只读） | 由 `backup_runs` 幂等演进（D7）；增 `task_key` 列（旧行按 kind 回填），`kind` 枚举末尾追加 drill/holiday、`trigger_source` 追加 once | 运行台账：状态、产物、错误、耗时；**id 连续保留**——恢复按 run id 定位备份 |
 | `ops_trigger_state` | **管线**（自治建表，web 只读） | `trigger_key`（配置触发器 `t{id}`，内置默认 `default:{任务}:{类型}`）、`task_key`、`next_fire_at`、`last_fired_at`、`last_run_id`、`last_result` | 后台「下次运行」展示的数据源，由管线计算（F8：web 不复算 cron） |
 
-**列契约**（Step 1 定稿）：配置表两张的列名与类型以 `services/backup/tests/contract.py` 的 DDL 为准——
+**列契约**（Step 1 定稿）：配置表两张的列名与类型以 `services/ops/tests/contract.py` 的 DDL 为准——
 Step 1 时配置表尚未建，管线测试按它自建；Step 2 的 drizzle 迁移必须与之一致，并改由 `db:bootstrap`
 建出的真实 schema 跑同一组管线测试（契约测试）。
 
@@ -374,7 +374,7 @@ Step 1 时配置表尚未建，管线测试按它自建；Step 2 的 drizzle 迁
       记账于 `site_settings("ops.tasks.seeded")`，站长改过/删过的键重跑 bootstrap 不恢复、手工同键行只
       记账不覆盖；保留份数自 v1 `ops.backup.policy` 迁入参数 `keep`，无记录用 14/7）；③ web 执行器注册表
       （`lib/ops/executors.ts`，纯模块：executor 清单/参数 schema/cron 与单次时刻写法校验，与管线由共享
-      夹具 `services/backup/tests/fixtures/ops-contract.json` 双端守护——管线收紧 `validate_cron` 为严格
+      夹具 `services/ops/tests/fixtures/ops-contract.json` 双端守护——管线收紧 `validate_cron` 为严格
       语法（名称/步长/区间规则，48 个夹具用例），web 同步）；④ 配置写服务（`lib/ops/tasks.ts`：任务与
       触发器的增删改启停，事务内审计 + revision 乐观锁 + withDeadlockRetry + G-20 旁路写；写成功后
       `notifyOpsReload` 热加载，best-effort 失败不影响写入；保留份数读写与 v1 回落、手动触发审计）；

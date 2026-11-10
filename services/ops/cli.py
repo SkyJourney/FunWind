@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""运维任务管线 CLI（容器内执行）：docker exec funwind-backup python cli.py <命令>
+"""运维任务管线 CLI（容器内执行）：docker exec funwind-ops python cli.py <命令>
 
 命令：
   status                      配置来源、任务与触发器（含下次运行）、最近 5 条台账

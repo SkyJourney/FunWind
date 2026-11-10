@@ -15,7 +15,7 @@ import {
  * 双端契约（M14 Step 2）：web 侧判定必须与共享夹具一致——管线 tests/test_contract_fixture.py 读同一份，
  * 两端都对上夹具，即两端彼此一致。另解析管线注册表源码，执行器清单漂移直接变红。
  */
-const SERVICE = join(import.meta.dirname, "../../../../../services/backup");
+const SERVICE = join(import.meta.dirname, "../../../../../services/ops");
 const fixture = JSON.parse(
   readFileSync(join(SERVICE, "tests/fixtures/ops-contract.json"), "utf8"),
 ) as {

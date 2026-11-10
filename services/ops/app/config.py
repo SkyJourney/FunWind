@@ -41,7 +41,7 @@ DB_CRON = os.environ.get("BACKUP_DB_CRON", "10 3 * * *")
 STORAGE_CRON = os.environ.get("BACKUP_STORAGE_CRON", "40 3 * * *")
 
 # 备份/恢复互斥锁名（MySQL GET_LOCK，连接断开自动释放）
-LOCK_NAME = os.environ.get("BACKUP_LOCK_NAME", "funwind-backup")
+LOCK_NAME = os.environ.get("BACKUP_LOCK_NAME", "funwind-ops")  # M14 D10：随服务更名（无旧持有者，换名安全）
 
 # 调度与台账时间口径：北京墙面时间（与库内 DATETIME 一致）
 TIMEZONE = "Asia/Shanghai"
