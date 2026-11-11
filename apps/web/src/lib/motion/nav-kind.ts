@@ -87,6 +87,7 @@ export function kindBetween(from: string, to: string): NavKind {
 /** 方向属性的保底清除时间：正常由 releaseNavKind 清，这里只防「导航从未提交」导致的残留 */
 const SAFETY_CLEAR_MS = 15_000;
 let safetyTimer: ReturnType<typeof setTimeout> | undefined;
+let navRevision = 0;
 
 /**
  * 记录本次导航的方向（后一次覆盖前一次）。expand / collapse 另带圆心：写到 <html> 的 --vt-x / --vt-y，
@@ -97,6 +98,7 @@ export function setNavKind(
   origin?: NavOrigin | null,
   root: HTMLElement = document.documentElement,
 ): void {
+  navRevision += 1;
   root.dataset.nav = kind;
   if (origin) {
     root.style.setProperty("--vt-x", `${Math.round(origin.x)}px`);
@@ -114,6 +116,7 @@ export function setNavKind(
 
 /** 立即清除方向与圆心（导航失败 / 被拦下时用，避免残留到下一次导航）。 */
 export function clearNavKind(root: HTMLElement = document.documentElement): void {
+  navRevision += 1;
   clearTimeout(safetyTimer);
   delete root.dataset.nav;
   root.style.removeProperty("--vt-x");
@@ -134,11 +137,12 @@ export function releaseNavKind(root: HTMLElement = document.documentElement): vo
     return;
   }
   const kind = root.dataset.nav;
+  const revision = navRevision;
   void vt.finished
     .catch(() => {})
     .then(() => {
-      // 期间若已有新的导航写了别的方向，不能误清
-      if (root.dataset.nav === kind) clearNavKind(root);
+      // 方向相同也可能是更新的一次导航，须校验写入代次，避免旧链收尾清掉试点状态。
+      if (navRevision === revision && root.dataset.nav === kind) clearNavKind(root);
     });
 }
 

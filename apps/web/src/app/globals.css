@@ -308,6 +308,11 @@
 [data-fw-page] {
   background: var(--page-bg);
 }
+/* 取消只作用于这一笔动效；标记由拥有导航编号的 React finished 清理，不能提前移除而重启动画。 */
+:root[data-motion-skipped]::view-transition-old(.fw-page-out),
+:root[data-motion-skipped]::view-transition-new(.fw-page-in) {
+  animation: none !important;
+}
 
 /* tab-next / tab-prev Tab 切换（同级，按左右顺序）：旧页向反方向滑出（250ms），新页错开一小段再滑入（400ms，从全透明），
    总时长约 450ms，「滑出再滑入」才看得清；此前同级切换是 150ms 淡出 + 250ms 淡入，没有位移，肉眼几乎看不见 */

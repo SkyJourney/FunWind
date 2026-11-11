@@ -1,4 +1,4 @@
-# FunWind 动效规范（M15 引擎契约 · Step A 定稿）
+# FunWind 动效规范（M15 引擎契约 · Step 1/2 增补）
 
 > 本文档是**动效引擎的契约依据**：预设表、钩子签名、方向策略、守卫与验收全部以此为准；实现与本规范冲突时先改文档再改代码（M15 执行纪律）。
 > 视觉质感（圆角/阴影/边框/玻璃）继续以 [M10.5-S4](M10.5-S4-VISUAL-MOTION.md) 为准，本文只收动效。
@@ -66,13 +66,13 @@
 1. **三级注册**：全局配置 → 页面（`useMotionLifecycle`）→ 元素，**越近优先**；同层多注册按注册序执行。
 2. **可取消**：`onIntent` 返回值可改写/取消本次预设；其余钩子返回值忽略。
 3. **失败不阻塞**：钩子异常一律吞掉并 `console.warn` 上报，导航照常进行。
-4. **可重入**：StrictMode 双执行安全——钩子注册/清理对称（useEffect 返回清理函数）。
+4. **可重入**：StrictMode 双执行安全——effect 注册/清理对称；页面 hook 用 useLayoutEffect 注册并返回清理函数。
 5. **兜底清理**：导航未提交时由运行时安全计时器（现行 SAFETY_CLEAR 15s 语义）保证方向属性不残留。
 
 ## 5. 方向解析与灰度并存（D3）
 
 - **注册表**（Step 1 起）：路由段/页面 → 预设与层级的单一事实源；rank 层级语义迁入。
-- **transitionTypes**：跨模块同层、返回键等注册表表达不了的方向，用 `<Link transitionTypes>` / `router.push(…, { transitionTypes })` 显式声明（F2 官方路径）。
+- **transitionTypes**：主动 Link / push / replace 可显式声明方向；宿主 `MotionLink` / `useMotionRouter` 在 Next 的 transition 中透传类型。浏览器 back/forward 没有该选项，本期按 history 诚实跳过，不以主动 push 冒充历史恢复。
 - **灰度**：未接管路由由现行 nav-kind（rank 表 + `html[data-nav]` 选择器）兜底；一致性测试参数化比对两套判定对全路由矩阵一致，新增路由自动纳入。
 - **退役标准**：73 页全部接管且一致性测试连续一个 Step 全绿 → rank 表、`data-nav` 选择器、一致性测试整体退役（Step 4）。
 
@@ -93,7 +93,19 @@
 - 每个实例持有自己的导航编号与状态；`begin → commit → ready → finish/skip`。`commit` 是驱动开始前的唯一动效定稿点，不等同 React 的 DOM 提交；重复定稿、过期 ready/finish 与已结束任务的安全计时器全部忽略。新意图使前一笔 `skip(interrupted)`，终态至多发出一次。
 - `play` 接收显式驱动适配器，不直接安装浏览器监听或调用原生 VT。无驱动、reduce、显式取消、history 或同 pathname（含查询串变化）的导航只运行更新并发出 skip；驱动失败也须确保更新至多执行一次，业务更新本身失败继续向调用方抛出。更新按调用顺序预留并入队，不串行等待业务 Promise，异步业务自己的结果失效仍由调用方负责；开始/定稿异常须丢弃尚未入队的预约，后续导航不能复活已经拒绝的业务操作。
 - Step 0 的目标页覆写实验只证明新层动画可变化，尚未证明旧快照测量、目标页未挂载的钩子与流式晚到都可延迟：这些仍须提前捕获或在 Step 2 验证。流式内容就绪不新建导航会话（无在途编号不允许 commit/ready），但 React 自发的二次 VT 能否抑制仍归 Step 2 实测，不在本步宣称解决。
-- `MotionPageProps` / `MotionListProps` 为声明式接入的类型骨架；实际 React 宿主、组件与 hook 分别在 Step 2/3 接入，不导出无效果的占位组件。安全超时测试使用注入的调度器，只测状态与清理，不用假时钟推断浏览器动画。
+- Step 1 只交付接入类型；`MotionPage/MotionProvider/useMotion/useMotionLifecycle` 已在 Step 2 实现，`MotionList` 仍归 Step 3。安全超时测试使用注入的调度器，只测状态与清理，不用假时钟推断浏览器动画。
+
+## 6.2 Step 2 页面宿主与灰度契约
+
+- **唯一边界**：根 template 使用 `SiteMotionBoundary → MotionPage`，不再外套另一层 VT；唯一 `[data-fw-page]` 全宽盒子不变。试点 `/t/*`、`/a` 和 `/a/*` 的 VT 本体 key 取 pathname，其他路由 key 固定，由 Next 原有根模板重挂兜底；query/hash 不入 key。不为所有页面设置同一个显式 name（否则会走 share 而非进退场）。
+- **不重写 RSC**：异步页面仍作为 children 插槽，数据库读取不迁到客户端；引擎/provider 位于 layout 稳定层。业务页面不要在根宿主内再套一层 `MotionPage`；页面级 hook 放在客户端岛中即可。
+- **职责分离**：`MotionPage` 负责快照与页面作用域，`preset` 标记当前角色；层级、Tab 顺序和目标预设由宿主注册表在意图阶段提供。组件不接受尚未实现的 level/tabOrder 覆写，也不在目标页 effect 中重写已经定稿的整次导航。
+- **灰度桥**：默认方向解析迁到宿主注册表并全路由对照旧 rank。触点展开/收起仍只调用一次旧几何助手（显式普通方向不创建展开记录），旧 CSS `data-nav` 保留至 Step 4。自动方向不冒充显式 hint，以便全局 preset 仍能生效；显式 Link/router hint 或 expand/collapse 才传入 intent.direction。
+- **两类编号**：宿主请求 epoch 保护 URL 提交、进度条和旧 effect，内核导航 id 保护动效 ready/finish。不可变请求快照在会话与桥接状态准备完整后才发布，通过 `useSyncExternalStore` 订阅；提交通知必须携带渲染时的 epoch，旧提交和更早目标的晚到 RSC 不能结束新请求。守卫 `complete(url)` 再核对在途比较键。hash-only/原地址程序化调用仍交给 router，但不登记新 pending；history 在 capture 阶段保留来源完整 key。
+- **React 收尾**：参与者回调绑定渲染时捕获的 id，而非晚到时读取 current 来认领新导航；回调返回的 cleanup 由 React 绑定原生 finished，幂等归并为一次终态。`ViewTransitionInstance` 不是原生 VT，不从它读取 ready/finished；公共 `activeViewTransition` 仅可选补充，存在时校验 ready 的失败分支，缺失时使用 React 参与者的逻辑就绪/清理契约，不冒称物理动画已成功启动。
+- **取消与降级**：reduce/no API/history 不影响内容可用；cancel/disabled 的 CSS 抑制标记持有至对应 React cleanup，旧 cleanup 不得删新标记。加载期间偏好变化在参与者就绪时再次检查。现有慢网、重复点击去重、生产失败重置与重试继续由原守卫负责。
+- **流式边界**：`update="none" default="none"` 明确关闭持久页面边界的更新动画；试点按 pathname-key 变化形成进退场，非试点沿用根模板重挂。同 key 的流式就绪不产生额外整页动画/导航会话；独立子 VT、空的原生 start 仍可能存在，不要求全局原生 start 次数永远等于一。
+- **实验宿主**：导航实验面板只从 `/motion-lab` 显式开启，挂在稳定 layout 中，以真实 Link/router 跨 `/t`、`/a` 验证；关闭时无 DOM。日志通过真实生命周期 hook 写入只含阶段与编号的诊断输出，不导出应用私有 router。面板、入口及 lab 在 Step 4 一并删除。
 
 ## 7. 守卫与验收
 

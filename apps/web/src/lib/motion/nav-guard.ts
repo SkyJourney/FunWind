@@ -78,9 +78,9 @@ export interface NavGuardHandlers {
 
 export interface NavGuard {
   /** 页面已提交（地址变化）：结束在途导航 */
-  complete(): void;
-  /** 程序化发起（如 toast 的「重试」）：登记在途导航，调用方随后自行 router.push */
-  begin(url: string): void;
+  complete(url?: string): void;
+  /** 程序化登记；被钩子内更新导航取代时返回false，调用方不能再派发旧router动作。 */
+  begin(url: string): boolean;
   uninstall(): void;
 }
 
@@ -132,6 +132,7 @@ export function installNavGuard(
   win: Window & typeof globalThis = window,
 ): NavGuard {
   let pending: Pending | null = null;
+  let generation = 0;
   /** 最近一次观察到的导航型 RSC 失败：整页回退拦截只认它指向的 URL，避免误拦正常的整页跳转 */
   let lastFailure: { key: string; at: number } | null = null;
   const FAILURE_WINDOW_MS = 5000;
@@ -153,14 +154,17 @@ export function installNavGuard(
     key: string,
     host: Element | null,
     click?: { anchor: Element; point: { x: number; y: number } },
-  ) => {
+  ): boolean => {
+    const epoch = ++generation;
     if (pending) settle(); // 新导航取代旧的（Next 也只认最后一次）
+    if (generation !== epoch) return false;
     handlers.onStart({
       from: currentKey(),
       to: key,
       anchor: click?.anchor ?? null,
       point: click?.point ?? null,
     });
+    if (generation !== epoch) return false;
     const p: Pending = {
       key,
       host,
@@ -170,6 +174,8 @@ export function installNavGuard(
     pending = p;
     host?.setAttribute("data-nav-busy", "");
     emit(p.status);
+    if (generation !== epoch) return false;
+    if (pending !== p) return true;
     p.timers.push(
       setTimeout(() => {
         if (pending !== p) return;
@@ -187,6 +193,7 @@ export function installNavGuard(
         if (pending === p) settle();
       }, config.failAfterMs + 5000),
     );
+    return true;
   };
 
   const onClick = (e: MouseEvent) => {
@@ -225,7 +232,9 @@ export function installNavGuard(
       ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
       : { x: e.clientX, y: e.clientY };
     // busy 标记落在「卡片」上（整张卡变暗比一行链接文字更有「被点中」的反馈）
-    begin(key, a.closest("[data-nav-card], article, li, tr") ?? a, { anchor: a, point });
+    if (!begin(key, a.closest("[data-nav-card], article, li, tr") ?? a, { anchor: a, point })) {
+      e.preventDefault(); // 钩子已发起更新意图，不能再让旧Link覆盖它；动效取消本身不返回false。
+    }
   };
 
   // 保存原始引用，卸载时原样还原（还原 bind 之后的新函数会改变 window.fetch 的身份）
@@ -290,7 +299,10 @@ export function installNavGuard(
   document.addEventListener("click", onClick, true);
 
   return {
-    complete: () => settle(),
+    complete: (url) => {
+      if (url !== undefined && pending?.key !== navKeyOf(url, win.location.href)) return;
+      settle();
+    },
     begin: (url) => begin(navKeyOf(url, win.location.href), null),
     uninstall: () => {
       settle();

@@ -10,6 +10,8 @@ import { SiteHeader } from "@/components/site/site-header";
 import { AnnouncementBanner } from "@/components/site/announcement-banner";
 import { NavKindCapture } from "@/components/site/nav-kind-capture";
 import { NavigationGuard } from "@/components/site/navigation-guard";
+import { SiteMotionProvider } from "@/components/site/motion-provider";
+import { MotionLabPanel } from "@/components/site/motion-lab-panel";
 import { getEnabledModuleIds } from "@/modules/kernel/state";
 import { getCurrentUser } from "@/lib/auth/session";
 import { avatarKeyOf } from "@/lib/queries/users";
@@ -144,69 +146,72 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           enableSystem
           disableTransitionOnChange
         >
-          <ServiceWorkerRegistration />
-          <AnnouncementBanner banner={banner} />
-          <NavKindCapture />
-          <SiteHeader
-            user={user}
-            chromeNav={chrome.nav}
-            siteName={chrome.identity.name}
-            avatarUrl={avatarUrl}
-            notificationsOn={notificationsOn}
-            showAdmin={showAdmin}
-            registrationOpen={chrome.registrationOpen}
-            logoUrl={chrome.logoUrl}
-            packPref={packPref}
-            logoutAction={logoutAction}
-          />
-          {children}
-          {/* 移动端底部 Tab 占位：内容不被固定栏遮挡；后台无底部 Tab，不占位 */}
-          <BottomSpacer />
-          {chrome.links.length > 0 && (
-            <footer
-              data-surface="footer"
-              data-fw-theme-surface
-              className="border-t bg-transparent py-6"
-              style={themeSurfaceStyle("footer", {
-                background: "var(--background)",
-                borderColor: "var(--border)",
-                borderWidth: "1px",
-              })}
-            >
-              <div className="mx-auto max-w-6xl space-y-2 px-4 sm:px-6 lg:px-8">
-                <p
-                  data-surface-text="muted"
-                  className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground"
-                >
-                  <span className="font-medium text-foreground">友情链接</span>
-                  {chrome.links.map((l) => (
-                    <a
-                      key={`${l.label}:${l.href}`}
-                      href={l.href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      data-surface-text="link"
-                      className="hover:text-primary"
-                      title={l.description}
-                    >
-                      {l.label}
-                    </a>
-                  ))}
-                </p>
-                {chrome.footerText && (
-                  <p data-surface-text="muted" className="text-xs text-muted-foreground">
-                    {chrome.footerText}
+          <SiteMotionProvider>
+            <ServiceWorkerRegistration />
+            <AnnouncementBanner banner={banner} />
+            <SiteHeader
+              user={user}
+              chromeNav={chrome.nav}
+              siteName={chrome.identity.name}
+              avatarUrl={avatarUrl}
+              notificationsOn={notificationsOn}
+              showAdmin={showAdmin}
+              registrationOpen={chrome.registrationOpen}
+              logoUrl={chrome.logoUrl}
+              packPref={packPref}
+              logoutAction={logoutAction}
+            />
+            {children}
+            {/* 移动端底部 Tab 占位：内容不被固定栏遮挡；后台无底部 Tab，不占位 */}
+            <BottomSpacer />
+            {chrome.links.length > 0 && (
+              <footer
+                data-surface="footer"
+                data-fw-theme-surface
+                className="border-t bg-transparent py-6"
+                style={themeSurfaceStyle("footer", {
+                  background: "var(--background)",
+                  borderColor: "var(--border)",
+                  borderWidth: "1px",
+                })}
+              >
+                <div className="mx-auto max-w-6xl space-y-2 px-4 sm:px-6 lg:px-8">
+                  <p
+                    data-surface-text="muted"
+                    className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground"
+                  >
+                    <span className="font-medium text-foreground">友情链接</span>
+                    {chrome.links.map((l) => (
+                      <a
+                        key={`${l.label}:${l.href}`}
+                        href={l.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        data-surface-text="link"
+                        className="hover:text-primary"
+                        title={l.description}
+                      >
+                        {l.label}
+                      </a>
+                    ))}
                   </p>
-                )}
-              </div>
-            </footer>
-          )}
-          <BottomTabBar user={user ? { id: user.id } : null} pmOn={pmOn} pmUnread={pmUnread} />
-          <Suspense fallback={null}>
-            <QueryToast />
-            <NavigationGuard />
-          </Suspense>
-          <Toaster position="top-center" />
+                  {chrome.footerText && (
+                    <p data-surface-text="muted" className="text-xs text-muted-foreground">
+                      {chrome.footerText}
+                    </p>
+                  )}
+                </div>
+              </footer>
+            )}
+            <BottomTabBar user={user ? { id: user.id } : null} pmOn={pmOn} pmUnread={pmUnread} />
+            <MotionLabPanel />
+            <Suspense fallback={null}>
+              <NavKindCapture />
+              <QueryToast />
+              <NavigationGuard />
+            </Suspense>
+            <Toaster position="top-center" />
+          </SiteMotionProvider>
         </ThemeProvider>
       </body>
     </html>

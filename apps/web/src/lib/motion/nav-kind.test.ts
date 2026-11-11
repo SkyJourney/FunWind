@@ -144,6 +144,21 @@ describe("方向属性 <html data-nav>", () => {
     expect(root().dataset.nav).toBe("pop");
   });
 
+  it("旧链结束时即使新导航方向相同，也不能清除新一代写入", async () => {
+    let finish!: () => void;
+    (document as unknown as { activeViewTransition: unknown }).activeViewTransition = {
+      finished: new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+    };
+    setNavKind("push");
+    releaseNavKind();
+    setNavKind("push");
+    finish();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(root().dataset.nav).toBe("push");
+  });
+
   it("没有方向属性时 releaseNavKind 什么也不做", () => {
     expect(() => releaseNavKind()).not.toThrow();
   });

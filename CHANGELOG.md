@@ -5,6 +5,35 @@
 
 ## [Unreleased]
 
+### Added（M15 · Step 2 页面接入与共享段试点，2026-11-11）
+
+- **单根页面宿主**：根 template 改为 `SiteMotionBoundary → MotionPage`，不叠根/段级双 VT；
+  `MotionPage` 提供唯一全宽 `[data-fw-page]` 盒子。`/t/*`、`/a`、`/a/*` 试点的 VT 本体按 pathname 换 key，
+  其余路径 key 固定、继续由原根模板重挂兜底；query/hash 不入 VT key。稳定 layout 保存 provider/引擎实例，
+  RSC 页面仍以 children 插槽接入，数据库读取未迁到客户端，业务页不再额外包 `MotionPage`。
+- **页面导航 API 与灰度桥**：落地 `MotionProvider` / `MotionPage` / `useMotion` / `useMotionLifecycle`，
+  站点适配器提供 `MotionLink` / `useMotionRouter`，向 Next 透传主动 Link/push/replace 的 `transitionTypes`；
+  浏览器 back/forward 保持 history 诚实跳过，不伪装 push。业务注册表与旧 rank / `data-nav` CSS 并存，
+  自动扫描页面的全路由一致性矩阵守护两套方向语义；触点展开/收起仍只调用一次旧几何助手。
+- **请求与动效分别隔离**：宿主 epoch 保护 URL 提交、进度条与旧 effect，内核 id 保护 ready/finish；
+  提交绑定渲染时的 epoch，参与者回调和 cleanup 绑定原 id，旧提交、晚到 RSC、终态重入和旧 cleanup
+  不得结清或释放新请求。hash-only/原地址程序化调用仍交给 router，但不登记新 pending；
+  history 在 capture 阶段保留真实来源完整 key，不被 Next 的同目标历史记账 replace 覆盖。
+- **流式与降级边界**：页面边界显式 `update="none" default="none"`，验收不重复整页动画/导航会话，
+  不承诺独立子 VT 或空原生 start 永远不存在。加载期间再次核对减少动态效果偏好；取消动效不取消业务导航，
+  旧慢网、去重、生产失败重置与重试守卫继续保留。
+- **实验证据勘误**：Step 0 同属 `/motion-lab` 第一段的导航不能作为真实跨根证明；补充真实跨根/共享段
+  的旧新页面快照组断言。晚 effect 覆写只证明新层 CSS 可变化，不保证首帧、旧快照或几何可延迟；
+  当前方向在意图阶段定稿。实验面板只从 `/motion-lab` 显式开启，使用真实 Link/router，不暴露私有 router；
+  lab 只在本地生产构建中验证可达，当前分支未部署，面板与 lab 须在 Step 4、部署前删除。
+- **框架版本口径**：项目声明 React/React DOM 19.3.1、Next 16.4.2，但 Next 浏览器别名实际使用 bundled React
+  `19.3.0-canary-278794d7-20261002`；公开 `ViewTransition` 已可用且无需 experimental 开关，
+  不把声明版本写成运行时纯 stable 保证。
+- **验证与后续边界**：Step 2 已完成；全量 E2E、安装 E2E、视觉回归、最终 `verify:all` 与成功页面 LCP
+  均已实测通过，视觉基线零更新；详细结果以 [M15 执行记录](docs/milestones/M15-motion-pipeline.md) 为准。
+  Step 3 元素/`MotionList`/stagger/手动 VT 助手收编、Step 4 旧链退役、Step 4.5 独立审查及 Step 5 PR/CI/部署
+  均未执行，M15 未收口、未合并 main、未部署生产。
+
 ### Added（M15 · Step 1 动效引擎内核，2026-11-11）
 
 - 新增独立动效内核与唯一公开入口 `lib/motion/index.ts`：全局配置、页面/元素预设、路由声明解析、

@@ -9,7 +9,7 @@ import type {
   MotionPlayResult,
 } from ".";
 
-it("唯一公开入口只暴露配置、预设、纯解析与实例工厂，不泄露旧兼容链或内部调度器", () => {
+it("公开入口精确暴露内核与 React 接入，不泄露旧兼容链或内部调度器，Node 导入无 DOM 副作用", () => {
   expect(Object.keys(motion).sort()).toEqual(
     [
       "MOTION_DEFAULTS",
@@ -17,6 +17,10 @@ it("唯一公开入口只暴露配置、预设、纯解析与实例工厂，不�
       "MOTION_ELEMENT_PRESETS",
       "MOTION_PAGE_PRESETS",
       "MOTION_TOKENS",
+      "MotionPage",
+      "MotionProvider",
+      "useMotion",
+      "useMotionLifecycle",
       "createMotionConfig",
       "createMotionEngine",
       "createMotionRegistry",

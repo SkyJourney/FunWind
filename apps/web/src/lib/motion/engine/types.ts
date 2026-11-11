@@ -104,10 +104,12 @@ export interface MotionDriver {
   ): { readonly ready: PromiseLike<void>; readonly finished: PromiseLike<void> };
 }
 
-/** 只声明接入类型；组件与 hook 在页面层、元素层迁移时落地。 */
-export interface MotionPageProps extends Partial<MotionPageDeclaration> {
+/** 页面边界负责快照与作用域；层级/Tab 归宿主预注册，不能靠晚挂载补做旧页快照。 */
+export interface MotionPageProps {
   readonly children: ReactNode;
   readonly motionKey: string | number;
+  readonly pageKey?: string;
+  readonly preset?: MotionPagePreset;
 }
 export interface MotionListProps {
   readonly children: ReactNode;

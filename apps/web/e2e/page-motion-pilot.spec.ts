@@ -1,0 +1,276 @@
+import { expect, test, type Page, type Request as PlaywrightRequest } from "@playwright/test";
+import { FIX } from "./support/fixtures";
+import { failOnPageErrors } from "./support/page-errors";
+import { installTransitionProbe, readTransitions, resetTransitions } from "./support/vt";
+
+failOnPageErrors();
+const A = `/t/${FIX.thread.emoji}`;
+const B = `/t/${FIX.thread.image}`;
+const panel = (page: Page) => page.getByRole("complementary", { name: "导航实验面板" });
+async function idle(page: Page) {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => ({
+          owner: document.documentElement.dataset.motionNav ?? null,
+          direction: document.documentElement.dataset.nav ?? null,
+          active: document
+            .getAnimations()
+            .some(
+              (animation) =>
+                (animation.effect as KeyframeEffect | null)?.pseudoElement?.startsWith(
+                  "::view-transition",
+                ) && animation.playState === "running",
+            ),
+        })),
+      { timeout: 5000 },
+    )
+    .toEqual({ owner: null, direction: null, active: false });
+}
+async function events(page: Page): Promise<{ phase: string; id: number; reason?: string }[]> {
+  return JSON.parse((await page.getByLabel("动效生命周期").getAttribute("data-events")) ?? "[]");
+}
+async function clear(page: Page) {
+  await idle(page);
+  await panel(page).getByRole("button", { name: "清空动效记录" }).click();
+  await resetTransitions(page);
+}
+async function go(page: Page, href: string, method: "link" | "push" = "link") {
+  await panel(page).getByLabel("站内目标地址").fill(href);
+  if (method === "link") await panel(page).getByRole("link", { name: "链接前往" }).click();
+  else await panel(page).getByRole("button", { name: "程序化前往" }).click();
+  await expect(page).toHaveURL(new RegExp(`${href.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
+}
+async function open(page: Page, href: string) {
+  await installTransitionProbe(page);
+  await page.goto("/motion-lab");
+  await page.getByRole("button", { name: "开启持久导航实验面板" }).click();
+  await page.evaluate(() => {
+    (window as unknown as { __m15Document: string }).__m15Document = "same-document";
+  });
+  await go(page, href);
+  await clear(page);
+}
+async function oneNavigation(page: Page, oldAnimation: string, newAnimation: string) {
+  await idle(page);
+  const reading = await readTransitions(page);
+  expect(reading.starts).toHaveLength(1);
+  expect(reading.animations).toEqual(
+    expect.arrayContaining([
+      `::view-transition-old(page)|${oldAnimation}`,
+      `::view-transition-new(page)|${newAnimation}`,
+    ]),
+  );
+  // 不丢弃原始 group id：双根边界即使播放同名动画也不能被规范化 Set 掩盖。
+  for (const phase of ["old", "new"]) {
+    const groups = new Set(
+      reading.rawAnimations
+        .filter(
+          (entry) => entry.startsWith(`::view-transition-${phase}(`) && entry.includes("|vt-page-"),
+        )
+        .map((entry) => entry.split("|")[0]),
+    );
+    expect(groups.size, `${phase} 页面快照组数`).toBe(1);
+  }
+  expect(
+    await page.evaluate(() => (window as unknown as { __m15Document: string }).__m15Document),
+  ).toBe("same-document");
+  const lifecycle = await events(page);
+  expect(lifecycle.map((event) => event.phase)).toEqual(["intent", "before", "ready", "finish"]);
+  expect(new Set(lifecycle.map((event) => event.id)).size).toBe(1);
+}
+
+test("共享段公告真实 Link 双向过渡，旧新层各一个快照且 transitionTypes 透传", async ({ page }) => {
+  await open(page, "/a");
+  await page.locator('main a[href="/a/901"]').click();
+  await expect(page).toHaveURL(/\/a\/901$/);
+  await oneNavigation(page, "vt-page-out-left", "vt-page-in-right");
+  expect((await readTransitions(page)).transitionTypes.flat()).toContain("fw-push");
+  await clear(page);
+  await page.locator('main a[href="/a"]').click();
+  await expect(page).toHaveURL(/\/a$/);
+  await oneNavigation(page, "vt-page-out-right", "vt-page-in-left");
+  expect((await readTransitions(page)).transitionTypes.flat()).toContain("fw-pop");
+});
+
+test("共享段主题兄弟页通过真实 Next Link 导航，非整页重载且默认 fade", async ({ page }) => {
+  await open(page, A);
+  await go(page, B);
+  await oneNavigation(page, "vt-page-fade-out", "vt-page-fade-in");
+});
+
+test("程序化 push 使用同一守卫和生命周期，类型在 Next transition 内透传", async ({ page }) => {
+  await open(page, A);
+  await go(page, B, "push");
+  await oneNavigation(page, "vt-page-fade-out", "vt-page-fade-in");
+  expect((await readTransitions(page)).transitionTypes.flat()).toContain("fw-fade");
+});
+
+test("同 pathname 的 query/hash 不重挂页面，不创建导航生命周期", async ({ page }) => {
+  await open(page, A);
+  await go(page, `${A}?motion=1`);
+  await idle(page);
+  expect(
+    (await readTransitions(page)).rawAnimations.filter((entry) => entry.includes("|vt-page-")),
+  ).toEqual([]);
+  expect(await events(page)).toEqual([]);
+  await clear(page);
+  await go(page, `${A}?motion=1#top`);
+  await idle(page);
+  expect(
+    (await readTransitions(page)).rawAnimations.filter((entry) => entry.includes("|vt-page-")),
+  ).toEqual([]);
+  expect(await events(page)).toEqual([]);
+});
+
+test("浏览器返回诚实跳过，刷新不残留会话，刷新后 Link 仍可过渡", async ({ page }) => {
+  await open(page, "/a");
+  await page.locator('main a[href="/a/901"]').click();
+  await idle(page);
+  await clear(page);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/a$/);
+  await expect
+    .poll(async () =>
+      (await events(page)).filter((event) => event.phase === "skip").map((event) => event.reason),
+    )
+    .toEqual(["history"]);
+  await idle(page);
+  expect(
+    (await readTransitions(page)).rawAnimations.filter((entry) => entry.includes("|vt-page-")),
+  ).toEqual([]);
+  await page.reload();
+  await expect(page.locator('main a[href="/a/901"]')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.dataset.motionNav ?? null)).toBeNull();
+  await resetTransitions(page);
+  await page.locator('main a[href="/a/901"]').click();
+  await idle(page);
+  expect((await readTransitions(page)).animations).toContain(
+    "::view-transition-new(page)|vt-page-in-right",
+  );
+});
+
+for (const mode of ["reduced-motion", "no-api"] as const) {
+  test(`${mode} 下共享段内容同步可用，动效 skip 且无整页动画`, async ({ page }) => {
+    if (mode === "reduced-motion") await page.emulateMedia({ reducedMotion: "reduce" });
+    else
+      await page.addInitScript(() => {
+        Object.defineProperty(document, "startViewTransition", {
+          configurable: true,
+          value: undefined,
+        });
+      });
+    await open(page, "/a");
+    await page.locator('main a[href="/a/901"]').click();
+    await expect(page).toHaveURL(/\/a\/901$/);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    await idle(page);
+    expect(
+      (await readTransitions(page)).rawAnimations.filter((entry) => entry.includes("|vt-page-")),
+    ).toEqual([]);
+    expect(
+      (await events(page)).filter((event) => event.phase === "skip").map((event) => event.reason),
+    ).toEqual([mode]);
+  });
+}
+
+test("慢网期间重复点击去重，提交后只发一次 ready/finish", async ({ page }) => {
+  await open(page, "/a");
+  let requests = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(`**/a/901*`, async (route) => {
+    const headers = route.request().headers();
+    if (headers["rsc"] && !headers["next-router-prefetch"]) {
+      requests += 1;
+      await gate;
+    }
+    await route.continue();
+  });
+  const link = page.locator('main a[href="/a/901"]');
+  await link.click();
+  await expect.poll(() => requests).toBe(1);
+  await link.click({ force: true });
+  await link.click({ force: true });
+  expect(requests).toBe(1);
+  expect(await page.evaluate(() => document.documentElement.dataset.motionNav)).toBeTruthy();
+  release();
+  await expect(page).toHaveURL(/\/a\/901$/);
+  await oneNavigation(page, "vt-page-out-left", "vt-page-in-right");
+});
+
+test("不同目标快速切换只提交最新页面，旧RSC晚到不覆盖内容或清掉新状态", async ({ page }) => {
+  await open(page, "/a");
+  let release!: () => void;
+  let observed = 0;
+  const settled = new Promise<void>((resolve) => {
+    const complete = (request: PlaywrightRequest) => {
+      const headers = request.headers();
+      if (
+        new URL(request.url()).pathname !== A ||
+        !headers["rsc"] ||
+        headers["next-router-prefetch"]
+      )
+        return;
+      page.off("requestfinished", complete);
+      page.off("requestfailed", complete);
+      resolve();
+    };
+    page.on("requestfinished", complete);
+    page.on("requestfailed", complete);
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(`**${A}*`, async (route) => {
+    const headers = route.request().headers();
+    if (headers["rsc"] && !headers["next-router-prefetch"]) {
+      observed += 1;
+      await gate;
+    }
+    await route.continue().catch(() => {}); // 新导航可中止旧请求，晚到的旧拦截允许结束。
+  });
+  await panel(page).getByLabel("站内目标地址").fill(A);
+  await panel(page).getByRole("link", { name: "链接前往" }).click();
+  await expect.poll(() => observed).toBe(1);
+  await panel(page).getByLabel("站内目标地址").fill(B);
+  await panel(page).getByRole("link", { name: "链接前往" }).click();
+  await expect
+    .poll(async () => (await events(page)).filter((event) => event.phase === "intent").length)
+    .toBe(2);
+  // Next顺序队列可能等待较早的RSC；要求全部响应完成后保持最新目标，不要求B抢在A响应前提交。
+  release();
+  await settled;
+  await expect(page).toHaveURL(new RegExp(`${B}$`));
+  await idle(page);
+  const lifecycle = await events(page);
+  expect(lifecycle.filter((event) => event.phase === "skip").map((event) => event.reason)).toEqual([
+    "interrupted",
+  ]);
+  expect(lifecycle.filter((event) => event.phase === "ready")).toHaveLength(1);
+  expect(lifecycle.filter((event) => event.phase === "finish")).toHaveLength(1);
+  expect(lifecycle.find((event) => event.phase === "finish")!.id).not.toBe(lifecycle[0]!.id);
+  expect(await page.evaluate(() => document.documentElement.dataset.motionNav ?? null)).toBeNull();
+});
+
+test("同key Suspense内容就绪不播放额外整页动画，也不伪造第二个导航会话", async ({ page }) => {
+  await open(page, "/motion-lab/one");
+  await go(page, "/motion-lab/stream");
+  await expect(page.getByText("流式内容已就绪（400ms 延迟）", { exact: false })).toBeVisible();
+  await idle(page);
+  const reading = await readTransitions(page);
+  // lab内部有独立VT，允许它的内容动画和额外原生start；不能将其外推为生产整页重复动画。
+  expect(reading.rawAnimations.filter((entry) => entry.includes("|vt-page-"))).toEqual([]);
+  expect(await events(page)).toEqual([]);
+});
+
+test("试点跨根段进入与退出都只有一对页面动画，没有内外重复边界", async ({ page }) => {
+  await open(page, "/boards");
+  await go(page, A);
+  await oneNavigation(page, "vt-page-out-left", "vt-page-in-right");
+  await clear(page);
+  await go(page, "/boards");
+  await oneNavigation(page, "vt-page-out-right", "vt-page-in-left");
+});

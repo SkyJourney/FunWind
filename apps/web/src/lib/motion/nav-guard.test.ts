@@ -104,6 +104,49 @@ describe("navKeyOf", () => {
 });
 
 describe("点击即反馈", () => {
+  it("onStart重入新的导航后，旧click不能覆盖新pending，也不能继续派发旧Link", () => {
+    setup();
+    onStart.mockImplementation((nav) => {
+      if (nav.to === "/a/901") guard!.begin("/a/902");
+    });
+    const event = click(addLink("/a/901").a);
+    expect(event.defaultPrevented).toBe(true);
+    guard!.complete("/a/901");
+    expect(lastStatus().pending).toBe(true);
+    guard!.complete("/a/902");
+    expect(lastStatus().pending).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it("onSettled发起恢复导航时，外层begin返回false而不覆盖恢复请求", () => {
+    setup();
+    guard!.begin("/a/901");
+    onSettled.mockImplementationOnce(() => {
+      guard!.begin("/a/902");
+    });
+    expect(guard!.begin("/a/903")).toBe(false);
+    guard!.complete("/a/903");
+    expect(lastStatus().pending).toBe(true);
+    guard!.complete("/a/902");
+    expect(lastStatus().pending).toBe(false);
+  });
+  it("没有新意图时，原void onStart返回值不被解释为新的导航取消协议", () => {
+    setup();
+    onStart.mockImplementation(() => false);
+    const event = click(addLink("/a/901").a);
+    expect(event.defaultPrevented).toBe(false);
+    expect(lastStatus().pending).toBe(true);
+  });
+
+  it("带比较键的旧complete不能结清新在途导航，只有匹配目标才清理", () => {
+    setup();
+    guard!.begin("/a/901");
+    guard!.begin("/a/902");
+    guard!.complete("/a/901");
+    expect(lastStatus().pending).toBe(true);
+    guard!.complete("/a/902?_rsc=ignored#top");
+    expect(lastStatus()).toEqual({ pending: false, showBar: false, slow: false });
+  });
+
   it("点击站内链接：进入在途状态，80ms 后出现进度条，被点的卡片置 busy；地址变化后复位", () => {
     setup();
     const { a, card } = addLink("/t/9");

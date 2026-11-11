@@ -9,6 +9,8 @@ export {
 export type { MotionAnimation } from "./engine/presets";
 export { createMotionRegistry, directionBetween, resolveMotionPlan } from "./engine/resolver";
 export { createMotionEngine } from "./engine/runtime";
+export { MotionPage, MotionProvider, useMotion, useMotionLifecycle } from "./engine/react";
+export type { MotionProviderProps } from "./engine/react";
 export type { MotionEngine, MotionEngineOptions, MotionSession } from "./engine/runtime";
 export type { MotionPlayOptions, MotionPlayResult } from "./engine/play";
 export type {

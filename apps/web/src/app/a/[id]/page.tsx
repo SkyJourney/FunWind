@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
+import { MotionLink } from "@/components/site/motion-navigation";
 
 import { RichContent } from "@/components/content/rich-content";
 import { getCurrentSubject } from "@/lib/authz/subject";
@@ -35,9 +35,13 @@ export default async function AnnouncementDetailPage({
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-10">
       <div className="mb-6 flex items-center gap-3 text-sm text-muted-foreground">
-        <Link href="/a" className="whitespace-nowrap hover:text-foreground hover:underline">
+        <MotionLink
+          href="/a"
+          direction="pop"
+          className="whitespace-nowrap hover:text-foreground hover:underline"
+        >
           ← 全部公告
-        </Link>
+        </MotionLink>
         <span aria-hidden="true">·</span>
         <span className="whitespace-nowrap tabular-nums">{fmtDate(announcement.startsAt)}</span>
       </div>

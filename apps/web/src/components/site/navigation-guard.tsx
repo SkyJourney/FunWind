@@ -3,7 +3,7 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { clearNavKind, releaseNavKind, resolveNavKind, setNavKind } from "@/lib/motion/nav-kind";
+import { useSiteMotion } from "./motion-provider";
 import { installNavGuard, NAV_IDLE, type NavGuard, type NavStatus } from "@/lib/motion/nav-guard";
 
 /** 模块级的小 store：核心守卫（不依赖 React）把状态推到这里，进度条用 useSyncExternalStore 读取 */
@@ -31,9 +31,11 @@ const FAILED_TOAST = "nav-failed";
  */
 export function NavigationGuard() {
   const router = useRouter();
+  const motion = useSiteMotion();
   const pathname = usePathname();
   const search = useSearchParams().toString();
   const guardRef = useRef<NavGuard | null>(null);
+  const request = useSyncExternalStore(motion.subscribe, motion.getSnapshot, () => undefined);
   /**
    * 失败之后路由器需要重置一次（M10.7 4d 在**生产构建**上实测发现）：Next 回退整页跳转时会让 Router 组件
    * `use(unresolvedThenable)` 一直挂起、等待页面卸载；我们拦下了跳转，Router 就停在这个状态，
@@ -58,16 +60,15 @@ export function NavigationGuard() {
           needsReset.current = false;
           router.replace(`${window.location.pathname}${window.location.search}`, { scroll: false });
         }
-        const { kind, origin } = resolveNavKind(nav);
-        setNavKind(kind, origin);
+        motion.start(nav);
       },
       onOffline: () =>
         toast.error("网络已断开，请检查连接后重试", { id: FAILED_TOAST, duration: 6000 }),
       onSlow: () => toast.message("网络较慢，仍在加载…", { id: SLOW_TOAST, duration: Infinity }),
       onSettled: () => toast.dismiss(SLOW_TOAST),
       onFailure: ({ url, viaClick }) => {
-        clearNavKind(); // 失败的导航不会提交，已记录的方向不能残留到下一次导航
         needsReset.current = true;
+        motion.cancel("transition-error"); // 失败的导航不会提交；先备好重置标志，再允许钩子发起恢复导航
         toast.error("加载失败，请重试", {
           id: FAILED_TOAST,
           duration: 10_000,
@@ -75,8 +76,7 @@ export function NavigationGuard() {
             label: "重试",
             onClick: () => {
               if (viaClick) {
-                guardRef.current?.begin(url);
-                router.push(url);
+                if (guardRef.current?.begin(url) !== false) router.push(url);
               } else {
                 // 浏览器前进 / 后退失败：地址栏已经变了而页面还在原页，整页加载一次让两者一致
                 window.location.reload();
@@ -87,17 +87,24 @@ export function NavigationGuard() {
       },
     });
     guardRef.current = guard;
+    const unbind = motion.bindBegin(guard.begin, guard.complete);
     return () => {
+      unbind();
       guard.uninstall();
       guardRef.current = null;
     };
-  }, [router]);
+  }, [router, motion]);
 
-  // 地址变化 = 页面已提交 = 导航成功：结束在途状态，并在当次页面过渡结束后释放方向属性
+  // 绑定这次渲染观察到的请求代次，旧提交 effect 不能结清 layout effect 中新发起的导航。
   useEffect(() => {
-    guardRef.current?.complete();
-    releaseNavKind();
-  }, [pathname, search]);
+    if (!request) return;
+    if (
+      motion.committed(`${pathname}${search ? `?${search}` : ""}`, request.epoch) &&
+      !motion.getSnapshot()
+    ) {
+      guardRef.current?.complete(request.to);
+    }
+  }, [pathname, search, motion, request]);
 
   const current = useSyncExternalStore(
     subscribe,

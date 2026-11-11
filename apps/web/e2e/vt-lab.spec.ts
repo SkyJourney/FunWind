@@ -20,10 +20,12 @@ async function openLab(page: Page) {
   await expect(page.getByRole("heading", { name: "M15 Step 0 · VT 实验室" })).toBeVisible();
 }
 
-/** 等上一段过渡真正播完（页面过渡 slow 400ms + 余量）再 reset——URL 变更早于动画结束，
-    否则上一段的采样会混进新观察（2a/2b 首轮结论被该污染反噬的教训） */
+/** 等探针持有的公共原生finished，再让采样器走一帧；不靠固定等待猜上一段是否结束。 */
 async function settleTransitions(page: Page) {
-  await page.waitForTimeout(650);
+  await page.evaluate(async () => {
+    await (window as unknown as { __vtLastFinished?: Promise<void> }).__vtLastFinished;
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  });
   await resetTransitions(page);
 }
 
@@ -48,9 +50,7 @@ test.describe("M15 Step 0 · 共享段与双层 ViewTransition", () => {
     expect(reading.animations.every((a) => !a.includes("vt-page-"))).toBe(true);
   });
 
-  test("验证1b：跨段首次进入 lab（根 template 重挂 + 段级首挂）只有一次 startViewTransition", async ({
-    page,
-  }) => {
+  test("验证1b：lab 入口到 one（同第一段）只有一次原生start，不作为跨根证明", async ({ page }) => {
     await openLab(page);
     await resetTransitions(page);
     await page.getByRole("link", { name: "共享段兄弟切换（one）" }).click();
@@ -58,10 +58,8 @@ test.describe("M15 Step 0 · 共享段与双层 ViewTransition", () => {
     await expect
       .poll(async () => (await readTransitions(page)).starts.length, { timeout: 15000 })
       .toBe(1);
-    // Step 0-1 实测：跨段进入仍只有一次 startViewTransition（无双重过渡）；且目标页 one 的
-    // useLayoutEffect 在 commit 阶段写 push 生效（lab 组 in-right + 旧内容 fade-out）。
-    // 设计推定（Step 2 以 MotionPage 实证）：目标页不声明方向时，段内 children 替换走
-    // default="none" 静切——这正是 <MotionPage motionKey> 强制 remount 的必要性所在。
+    // 该路径仍在 motion-lab 第一段内，只证明段内模板参与。
+    // 真正跨第一段和原始快照组数量由 page-motion-pilot.spec 覆盖，不能用规范化后的 Set 推断。
     const animations = (await readTransitions(page)).animations;
     expect(animations).toEqual(
       expect.arrayContaining([
@@ -76,13 +74,12 @@ test.describe("M15 Step 0 · 共享段与双层 ViewTransition", () => {
     page,
   }) => {
     await openLab(page);
-    await page.getByRole("link", { name: "共享段兄弟切换（one）" }).click();
-    await expect(page).toHaveURL(/\/motion-lab\/one/);
-    await settleTransitions(page);
-    // NavigationGuard 在点击时按 rank 表兜底写 fade（starts[0] 可见）；one 的 useLayoutEffect
-    // 在提交阶段覆写为 push——若来得及，新层动画选 vt-lab-in-right 而非默认 fade-in
-    await page.getByRole("link", { name: "去-two" }).click();
+    await page.getByRole("link", { name: "共享段兄弟切换（two）" }).click();
     await expect(page).toHaveURL(/\/motion-lab\/two/);
+    await settleTransitions(page);
+    // 必须以 one 为目标：它才是 useLayoutEffect 版本；two 是 useEffect，不能混作同一实验。
+    await page.getByRole("link", { name: "去-one（段级过渡 + 延迟方向验证 2a）" }).click();
+    await expect(page).toHaveURL(/\/motion-lab\/one/);
     await expect
       .poll(async () => (await readTransitions(page)).animations, { timeout: 15000 })
       .toContain("::view-transition-new(page)|vt-lab-in-right");
@@ -93,23 +90,20 @@ test.describe("M15 Step 0 · 共享段与双层 ViewTransition", () => {
     expect(reading.animations.filter((a) => a.includes("vt-lab-in-right"))).toHaveLength(1);
   });
 
-  test("验证2b：useEffect（paint 后）声明的方向同样生效——fade-in 首帧前被覆盖", async ({
-    page,
-  }) => {
+  test("验证2b：晚覆写可改变新层动画，但不保证抢在首帧前", async ({ page }) => {
     await openLab(page);
     await page.getByRole("link", { name: "共享段兄弟切换（one）" }).click();
     await expect(page).toHaveURL(/\/motion-lab\/one/);
     await settleTransitions(page);
     await page.getByRole("link", { name: "去-two（段级过渡 + 延迟方向验证 2b）" }).click();
     await expect(page).toHaveURL(/\/motion-lab\/two/);
-    // two（目标页）的 useEffect 在 paint 后写 push——实测同样生效（fade-in 首帧前被覆盖，
-    // 采样中不出现）。结论：新层进场方向的覆写窗口覆盖 commit 与 paint 两个阶段；
-    // 红线是覆写次数（每次覆写重启动画，多次写会产生跳变）。
+    // 首帧可能已播fade，也可能来得及覆盖；late effect不是首帧协议，生产接线不得依赖它。
     await expect
       .poll(async () => (await readTransitions(page)).animations, { timeout: 15000 })
       .toContain("::view-transition-new(page)|vt-lab-in-right");
-    const animations = (await readTransitions(page)).animations;
-    expect(animations).not.toContain("::view-transition-new(page)|vt-lab-fade-in");
+    const reading = await readTransitions(page);
+    expect(reading.starts).toEqual(["fade"]);
+    expect(reading.animations.every((entry) => entry.includes("|vt-lab-"))).toBe(true);
   });
 });
 

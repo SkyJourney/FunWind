@@ -161,7 +161,13 @@ test.describe("页面过渡：方向与动画", () => {
     await page.getByRole("link", { name: FIX.anime.prefixName, exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`type=${FIX.anime.prefixId}`));
     await page.waitForTimeout(800);
-    expect(await readTransitions(page)).toEqual({ starts: [], origins: [], animations: [] });
+    expect(await readTransitions(page)).toEqual({
+      starts: [],
+      origins: [],
+      animations: [],
+      rawAnimations: [],
+      transitionTypes: [],
+    });
     await expect.poll(() => navAttr(page)).toBeNull(); // 没有过渡也要清掉方向属性
   });
 
