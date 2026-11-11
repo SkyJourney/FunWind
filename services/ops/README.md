@@ -100,7 +100,11 @@ docker build -t funwind-ops:smoke . && scripts/smoke-docker.sh funwind-ops:smoke
 - **cron 星期字段只认名称**：APScheduler 3.x 的 0 是周一（crontab 的 0 是周日），`from_crontab()` 不转换——
   数字写法会静默错位一天，管线直接拒绝。
 - 保留轮转只匹配「前缀 + 时间戳数字」的常规备份；恢复前的安全 dump（`db-<库>-pre-restore-…`）不参与轮转
-  （v1 曾因前缀相同而让安全 dump 挤占保留份数，M14 Step 1 修正）。
+  （v1 曾因前缀相同而让安全 dump 挤占保留份数，M14 Step 1 修正）。- **备份源目录的顶层写入竞争**：tar 归档结束会重 stat 源目录顶层，期间顶层 mtime/ctime 变化即判
+  「file changed」失败。生产曾因 web 健康探针每 30s 写删顶层探针文件而连续失败（M14 24h 核对发现，
+  探针已改写 `.tmp/`——该目录在 tar 排除清单内）。**新增任何写 STORAGE_DIR 顶层的逻辑前，先核对
+  管线 tar 的排除清单**。
+
 - 引入服务内置调度器时，**必须同步撤掉旧的宿主机 crontab**——双定时线会让同一备份重复执行
   （GET_LOCK 保证无损但浪费）。
 - 运维写库统一走本服务的 python 通道（参数化 SQL）；不要 ssh+mysql -e 手拼（多层引号转义会静默失配）。
