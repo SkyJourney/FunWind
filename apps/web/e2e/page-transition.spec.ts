@@ -3,7 +3,7 @@ import { FIX } from "./support/fixtures";
 import { installTransitionProbe, readTransitions, resetTransitions } from "./support/vt";
 
 /**
- * 页面级过渡（M10.7 Step 4b）：template.tsx 的 <ViewTransition> + <html data-nav> 选方向。
+ * 页面级过渡（M10.7 Step 4b）：template.tsx 的 <ViewTransition> + <html data-motion-direction> 选方向。
  * 用 support/vt.ts 采样浏览器真实播放的 ::view-transition-* 动画，而不是只断言 DOM。
  * 注意：浏览器前进 / 后退（popstate）不在这里断言动画——React 对 popstate 做同步急切提交，
  * 缓存命中时不走 View Transition（M10.7 §5.7），只断言它能正常工作且方向属性被清掉。
@@ -17,7 +17,8 @@ const pageTopOf = (page: Page) =>
     const el = document.querySelector("[data-fw-page]")!;
     return Math.round(el.getBoundingClientRect().top + window.scrollY);
   });
-const navAttr = (page: Page) => page.evaluate(() => document.documentElement.dataset.nav ?? null);
+const navAttr = (page: Page) =>
+  page.evaluate(() => document.documentElement.dataset.motionDirection ?? null);
 
 /** 打开列表并热身目标主题路由（dev 首次编译会让导航挂起很久） */
 async function openWater(page: Page) {
@@ -161,7 +162,13 @@ test.describe("页面过渡：方向与动画", () => {
     await page.getByRole("link", { name: FIX.anime.prefixName, exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`type=${FIX.anime.prefixId}`));
     await page.waitForTimeout(800);
-    expect(await readTransitions(page)).toEqual({ starts: [], origins: [], animations: [] });
+    expect(await readTransitions(page)).toEqual({
+      starts: [],
+      origins: [],
+      animations: [],
+      rawAnimations: [],
+      transitionTypes: [],
+    });
     await expect.poll(() => navAttr(page)).toBeNull(); // 没有过渡也要清掉方向属性
   });
 

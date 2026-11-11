@@ -37,7 +37,10 @@ async function waitForServer(): Promise<void> {
 }
 
 async function measureLcp(page: import("@playwright/test").Page, url: string): Promise<number> {
-  await page.goto(`${BASE}${url}`, { waitUntil: "load" });
+  const response = await page.goto(`${BASE}${url}`, { waitUntil: "load" });
+  if (!response?.ok() || new URL(page.url()).pathname !== new URL(url, BASE).pathname) {
+    throw new Error(`LCP 目标不是成功页面：${url}（HTTP ${response?.status() ?? "无响应"}）`);
+  }
   return page.evaluate(
     () =>
       new Promise<number>((resolve) => {
@@ -53,9 +56,10 @@ async function measureLcp(page: import("@playwright/test").Page, url: string): P
 
 async function main(): Promise<void> {
   const server = startServer();
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
   try {
     await waitForServer();
-    const browser = await chromium.launch();
+    browser = await chromium.launch();
     const page = await browser.newPage();
     let fails = 0;
     for (const [url, label] of PAGES) {
@@ -66,7 +70,6 @@ async function main(): Promise<void> {
         `${ok ? "✔" : "✘"} ${label.padEnd(14)} LCP ${lcp.toFixed(0)}ms（预算 ${BUDGET_MS}ms）`,
       );
     }
-    await browser.close();
     if (fails > 0) {
       console.error(`\n${fails} 页超预算`);
       process.exitCode = 1;
@@ -74,7 +77,11 @@ async function main(): Promise<void> {
       console.log("\nLCP 全部达标");
     }
   } finally {
-    server.kill("SIGTERM");
+    try {
+      await browser?.close();
+    } finally {
+      server.kill("SIGTERM");
+    }
   }
 }
 

@@ -6,6 +6,7 @@ import { checkinAction } from "@/app/actions/checkin";
 import { Slot } from "@/modules/kernel/slot";
 import { FeedCard } from "@/components/content/feed-card";
 import { HomeFeedStream } from "@/components/content/home-feed-stream";
+import { MotionList } from "@/lib/motion";
 import { BrandCard } from "@/components/site/site-header";
 import { EmptyState } from "@/components/empty-state";
 import { isDevEnv } from "@/lib/dev-only";
@@ -208,17 +209,13 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
                 hasMore={feed.hasMore}
                 seedIds={feed.items.map((i) => i.id)}
               >
-                {feed.items.map((item, index) => (
-                  <div
-                    key={item.id}
-                    className={page === 1 && index < 10 ? "fw-enter" : undefined}
-                    style={
-                      page === 1 && index < 10 ? { animationDelay: `${index * 50}ms` } : undefined
-                    }
-                  >
-                    <FeedCard item={item} forumName={feedForumName(item.forumId)} />
-                  </div>
-                ))}
+                <MotionList animate={page === 1}>
+                  {feed.items.map((item) => (
+                    <div key={item.id}>
+                      <FeedCard item={item} forumName={feedForumName(item.forumId)} />
+                    </div>
+                  ))}
+                </MotionList>
               </HomeFeedStream>
             </>
           )}

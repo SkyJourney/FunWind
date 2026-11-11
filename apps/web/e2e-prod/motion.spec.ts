@@ -7,7 +7,8 @@ import { installTransitionProbe, readTransitions, resetTransitions } from "../e2
  * 导航常常瞬时完成——页面过渡、导航守卫在生产下是否依然成立，必须在真实 next build + next start 上实测。
  */
 
-const navAttr = (page: Page) => page.evaluate(() => document.documentElement.dataset.nav ?? null);
+const navAttr = (page: Page) =>
+  page.evaluate(() => document.documentElement.dataset.motionDirection ?? null);
 
 /** 首页第一张内容卡片里的主题链接（e2e 夹具里首页有演示种子 + 夹具帖） */
 const firstCardLink = (page: Page) => page.locator("main article h3 a").first();

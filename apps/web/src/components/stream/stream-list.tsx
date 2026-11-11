@@ -3,10 +3,12 @@
 import { Fragment, useCallback, useEffect, useReducer, useRef, type ReactNode } from "react";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
+import { MOTION_ELEMENT_PRESETS } from "@/lib/motion";
 import { withParam, type StreamPage } from "@/lib/stream/page";
 
-/** 追加项的进场类（globals.css）：无延迟淡入，不错落（M10.7 站长裁定，覆盖 S4 §3.4 的「不重播」） */
-const APPEND_ENTER_CLASS = "fw-fade-in";
+/** 追加项的进场类（引擎 list.append 预设，M15 Step 3 收编，不再裸写类名）：
+    无延迟淡入，不错落（M10.7 站长裁定，覆盖 S4 §3.4 的「不重播」）；reduce 下由 globals.css 归零 */
+const APPEND_ENTER_CLASS = MOTION_ELEMENT_PRESETS["list.append"].className;
 
 type Key = string | number;
 

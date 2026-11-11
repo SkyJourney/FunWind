@@ -4,10 +4,16 @@ import { useState } from "react";
 import { Heart, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { captureTransitionOrigin, withViewTransition } from "@/lib/motion/view-transition";
+import {
+  MotionList,
+  MOTION_DIRECTIONS,
+  playStateTransition,
+  prefersReducedMotion,
+} from "@/lib/motion";
 
 /**
- * S4 四级动效演示（客户端岛）：仅用令牌时长/曲线；全部只动 transform/opacity。
+ * S4 四级动效演示（客户端岛，M15 Step 3 收编）：全部经引擎公开入口声明式接入，
+ * 只动 transform/opacity，时长/曲线/位移/步长一律来自令牌层，不再裸写魔法数。
  */
 
 function Section({
@@ -63,16 +69,21 @@ function MicroDemo() {
   );
 }
 
-/** L2：页面级方向性过渡（示意：真实作用于路由，见规范 §3.2） */
+/** L2：页面级方向性过渡（示意：真实路由已由 M15 页面管线接管，见 motion-spec §6.2） */
 function DirectionalDemo() {
   const [screen, setScreen] = useState<0 | 1>(0);
   const [anim, setAnim] = useState("");
-  const go = (next: 0 | 1, kind: "push" | "pop") => {
-    const kf = kind === "push" ? "vt-push-in" : "vt-pop-in";
+  const go = (next: 0 | 1, direction: "push" | "pop") => {
+    // 方向预设来自引擎单一事实源（关键帧名 + 令牌时长/曲线），不再裸写 vt-push-in 等演示遗留
+    const enter = MOTION_DIRECTIONS[direction].enter;
     setAnim("");
     requestAnimationFrame(() => {
       setScreen(next);
-      setAnim(`${kf} var(--fw-dur-slow) var(--fw-ease-out) both`);
+      setAnim(
+        enter && !prefersReducedMotion()
+          ? `${enter.name} ${enter.duration} ${enter.easing} both`
+          : "",
+      );
     });
   };
   return (
@@ -101,7 +112,7 @@ function DirectionalDemo() {
           返回 pop（自左切入）
         </Button>
         <p className="text-xs text-muted-foreground">
-          实际路由使用方向性进场，跨路由扩散尚未接线。
+          方向预设与令牌由引擎提供；真实路由切换见全站页面管线（motion-spec §6.2）。
         </p>
       </div>
     </div>
@@ -116,8 +127,11 @@ function ExpandDemo() {
       <Card
         className="max-w-sm cursor-pointer transition-shadow duration-fast hover:shadow-2"
         onClick={(e) => {
-          captureTransitionOrigin(e.clientX, e.clientY);
-          void withViewTransition(() => setOpen(true), "expand");
+          // 引擎状态级驱动：显式传入触点圆心，reduce / 无 API 自动降级为直接切换
+          void playStateTransition(() => setOpen(true), {
+            kind: "expand",
+            origin: { x: e.clientX, y: e.clientY },
+          });
         }}
       >
         <CardContent className="p-4">
@@ -134,12 +148,12 @@ function ExpandDemo() {
             <p className="text-xs text-muted-foreground">动画·アニメ · 10月新番</p>
             <h3 className="text-xl font-bold">『虫师 续章』第 03 话</h3>
             <p className="text-sm text-muted-foreground">
-              这层「详情」是经由 View Transitions 从你点击的坐标圆形扩散打开的（clip-path 圆心 =
-              --vt-x/--vt-y）。关闭走默认淡出。
+              这层「详情」是经由引擎状态级 View Transitions 从你点击的坐标圆形扩散打开的（clip-path
+              圆心 = --vt-x/--vt-y）。关闭走默认淡出。
             </p>
             <Button
               variant="outline"
-              onClick={() => void withViewTransition(() => setOpen(false), "fade")}
+              onClick={() => void playStateTransition(() => setOpen(false), { kind: "fade" })}
             >
               <X className="size-4" /> 关闭
             </Button>
@@ -150,7 +164,7 @@ function ExpandDemo() {
   );
 }
 
-/** L4：进场编排（加速度切入 + stagger 错落） */
+/** L4：进场编排（加速度切入 + stagger 错落，声明式 MotionList） */
 function StaggerDemo() {
   const [round, setRound] = useState(0);
   const items = [
@@ -163,18 +177,16 @@ function StaggerDemo() {
   return (
     <div className="space-y-3">
       <Button variant="outline" onClick={() => setRound((r) => r + 1)}>
-        重放进场（stagger 50ms）
+        重放进场（stagger 错落）
       </Button>
       <div key={round} className="grid max-w-md gap-2">
-        {items.map((t, i) => (
-          <div
-            key={t}
-            className="fw-enter rounded-lg border bg-card px-4 py-2.5 text-sm"
-            style={{ animationDelay: `${i * 50}ms` }}
-          >
-            {t}
-          </div>
-        ))}
+        <MotionList>
+          {items.map((t) => (
+            <div key={t} className="rounded-lg border bg-card px-4 py-2.5 text-sm">
+              {t}
+            </div>
+          ))}
+        </MotionList>
       </div>
     </div>
   );
@@ -185,29 +197,29 @@ export function MotionDemo() {
     <div className="space-y-10">
       <Section
         id="l1"
-        title="L1 · 微交互（150ms）"
+        title="L1 · 微交互（fast）"
         desc="所有可点元素都有按压反馈；状态切换用 spring 过冲。基类已全局生效（Button active:scale-0.97）。"
       >
         <MicroDemo />
       </Section>
       <Section
         id="l2"
-        title="L2 · 页面级方向性过渡（400ms）"
-        desc="左切进入、右切返回；实际路由使用 CSS 方向性进场。"
+        title="L2 · 页面级方向性过渡（slow）"
+        desc="左切进入、右切返回；方向预设与令牌由引擎单一事实源提供。"
       >
         <DirectionalDemo />
       </Section>
       <Section
         id="l3"
-        title="L3 · 触点扩散打开（spring 500ms）"
-        desc="详情自点击处圆形展开（需要 Chrome/Edge/Safari 18+；其余浏览器自动降级为直接切换）。"
+        title="L3 · 触点扩散打开（spring）"
+        desc="详情自点击处圆形展开（需要支持 View Transitions 的浏览器；其余自动降级为直接切换）。"
       >
         <ExpandDemo />
       </Section>
       <Section
         id="l4"
-        title="L4 · 进场编排（250ms × stagger 50ms）"
-        desc="列表首屏错落切入：fw-enter 类 + animationDelay；只做首屏，翻页不重复播。"
+        title="L4 · 进场编排（base × stagger 步长）"
+        desc="列表首屏错落切入：<MotionList> 声明式挂 fw-enter 并按令牌步长计算延迟；只做首屏，翻页不重复播。"
       >
         <StaggerDemo />
       </Section>

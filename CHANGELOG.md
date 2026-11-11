@@ -5,6 +5,116 @@
 
 ## [Unreleased]
 
+### Added（M15 · Step 4 全站收敛与 rank/data-nav 退役，2026-11-11）
+
+- **方向桥退役（机制：引擎自有方向属性）**：删除 `lib/motion/nav-kind.ts`（rank 表 + TAB_ORDER + kindBetween +
+  data-nav 属性时序 + resolveNavKind 几何），拆为 `components/site/nav-geometry.ts`（expand/collapse 几何，
+  base 方向改接注册表 `siteMotionDirection`）与 `nav-direction.ts`（`setDirection`/`clearDirection`/`releaseDirection`
+  写 `html[data-motion-direction]` + `--vt-x/y/r`，保留 15s 保底超时 + 代次校验）。方向归注册表单一事实源；
+  CSS 选择器 `:root[data-nav]` → `:root[data-motion-direction]`（**同名 keyframes 不动**，E2E 动画名断言零改动）；
+  `transitionTypes` 仍透传作为原生类型层。抉择理由：保留「几百处链接无需逐个加类型」的原设计优点；
+  expand/collapse 在点击拦截时定稿，引擎在导航 transition 之外写属性，不依赖 `addTransitionType`
+  （它只能在 startTransition 回调内调用）。
+- **全站接管**：移除 `isMotionPilot` 灰度门，`page-motion` 对所有路由（除同 pathname 查询串变化）建引擎会话。
+  根边界 `motion-boundary`：非共享路由 pathname-key 接管（组内/跨页都进退场）；共享路由
+  （`hasSharedLayout`=admin/settings）根边界 key/pageKey=`root-shared`、enter=`none`（跨组进入不双进场）、
+  exit 默认（跨组退出旧页正常淡出；不重挂共享壳、不认领会话）。
+- **共享 layout 边界下沉**：新增 `page-motion-boundary.tsx`（pathname-key MotionPage）；`admin-shell.tsx` 与
+  `settings/layout.tsx` 把 children 包进该边界——组内切换 fade 微动，侧栏/头部/抽屉在边界外静止不重挂，
+  每会话恰一个边界认领（根 root-shared 不匹配、内层 pathname 匹配）。`MotionPage` enter/exit 升为可配置 props。
+  admin 注册表 preset 改 `"admin"`（引擎 `resolveMotionPlan` 层默认 fade，显式 direction hint 仍可覆盖，
+  保持克制）。
+- **一致性退役**：`motion-routes.test` 删 kindBetween 全矩阵对比 + isMotionPilot 试点块 + lab 基线；`resolver.test`
+  删 49 对一致性矩阵；保留纯注册表方向/声明/query-hash 不变性断言。`nav-kind.test` 34 例：11 方向例删除
+  （注册表矩阵已覆盖），23 例忠实迁 `nav-direction.test`（10）+ `nav-geometry.test`（13）。
+- **资产清理**：删 `motion-lab/*`（7 文件）、`motion-lab-panel`、`navigation-demo`、`vt-lab.spec`、`vt-support.spec`、
+  `playwright.vt-support.config`、`view-transition` facade + 其测试（等价覆盖已在 `native.test`）；`globals.css`
+  删 lab 块。架构守卫 `LEGACY_ENTRIES` 仅留 `nav-guard.ts`（点击/进度/失败兜底守卫，非方向）。
+- **pilot harness 解耦**：新增 `motion-test-harness.tsx`（测试专用持久宿主，挂根 layout、provider 内、页面边界外
+  故落全局作用域；仅 E2E 经 addInitScript 置 `window.__fwMotionTest` 激活，生产渲染 null 不注册钩子），
+  复刻面板契约用真实 MotionLink/useMotionRouter。pilot 11 例脱离 lab（`open()` 改 flag+goto）；流式用例改用
+  真实异步页（/boards→主题）验证「单会话、流式就绪不伪造第二会话」不变量。
+- **验证与后续边界**：微交互组件行为零变化（15 例 E2E 零删减）；全站 pathname-key 收敛给原本无动画的组内导航
+  新增 fade（收敛目标，非删减）。Step 4.5 独立审查及 Step 5 PR/CI/部署均未执行，M15 未收口、未合并 main、
+  未部署生产；Firefox 仍未本机实测（站长暂缓）。最终 `verify:all` / 全量 E2E / 安装 / 视觉回归 / LCP 门禁与
+  视觉零更新以 [M15 执行记录](docs/milestones/M15-motion-pipeline.md) §14 实测为准。
+
+### Added（M15 · Step 3 元素层接入与魔法数清账，2026-11-11）
+
+- **令牌升格入 primitives.css**：`--fw-dur-progress`(12s)、`--fw-dur-float-up`(slow×1.75)、
+  `--fw-stagger-step`(50ms)、`--fw-stagger-max`(10)、`--fw-page-shift`(28/14px)、
+  `--fw-tab-shift`(min(24vw,96px)/56px) 统一定义（含桌面断点覆写）；`globals.css` 改引令牌，
+  删除 `:root` 位移定义、`fw-nav-grow 12s` 裸值与 float-up `×1.75` 内联。预设关键帧内部的小位移
+  （fw-enter 8px、float-up 20px 等）属预设实现细节，留在 sanctioned 预设区，不在升格清单。
+- **MotionList 元素层接入**：新增 `engine/list.tsx` 共享组件（无 `"use client"`，RSC 首屏即可挂类与延迟）；
+  `cloneElement` 把预设类与延迟合并进条目根元素，不新增包裹盒子，DOM/版式/`:last-child` 零变化。
+  `list.enter` 前 10 项挂 `fw-enter` + `calc(var(--fw-stagger-step) * 序号)`，`list.append` 每项
+  `fw-fade-in` 无延迟，`animate=false` 原样渲染（翻页/直达深页不重播）。8 处首屏 stagger
+  （首页/关注/版块/通知/私信/用户主页主题+回复/积分）全部迁移；`stream-list` 追加淡入类改引
+  `MOTION_ELEMENT_PRESETS["list.append"]`（不再裸写类名，renderItem 契约与 DOM 不变）。
+- **手动 VT 助手收编**：状态级驱动实现移入 `engine/native.ts`（`playStateTransition` /
+  `prefersReducedMotion` / `supportsViewTransition`，经 barrel 导出，SSR 安全）；`view-transition.ts`
+  降为薄兼容 facade（保留旧签名与 7 项单测，Step 4 随旧链移除）。状态级选型收敛 fade/expand
+  （push/pop 为演示遗留，已删；facade 单测原 push 用例改 fade，行为覆盖零删减）。
+- **演示页更新与死代码清理**：`/design/motion` StaggerDemo 用 `MotionList`、DirectionalDemo 用
+  `MOTION_DIRECTIONS` 方向预设、ExpandDemo 用 `playStateTransition` 显式圆心，不再依赖旧 facade
+  与裸写魔法数；删除 `vt-push-in`/`vt-pop-in` 关键帧、`html[data-vt="push"/"pop"]` 规则与
+  reduce 块死选择器 `[style*="vt-push-in"]`/`[style*="vt-pop-in"]`。
+- **裸写守卫上线**：`motion-bare-write-guard.test.ts`——业务 TS/TSX 禁裸写 `animationDelay/Duration`
+  （纯令牌引用豁免）、`cubic-bezier`、`animation` 简写裸时长；非令牌 CSS 禁裸写时长/曲线
+  （globals.css 预设区已全量令牌化，全文件扫描零命中）；令牌收敛断言（primitives 定义升格令牌、
+  globals 无残留魔法数/死代码、引擎 `maxStaggerItems` 与 `--fw-stagger-max` 钉住一致）与 reduce
+  收编核对（元素预设类全部在 reduce 媒体查询内归零）。检测器纯函数 + fixture 自检，隔离副本三类
+  变异（内联 animationDelay 裸值 / cubic-bezier / CSS 裸时长）均被拦截。
+- **reduced-motion 口径**：CSS reduce 仍是稳健机制（无 JS 也生效），引擎拥有预设定义，守卫钉住
+  元素预设覆盖；页面导航 reduce 由引擎驱动（Step 2）。本步不把 CSS reduce 迁成 JS，属「收编为
+  引擎对齐的单一策略 + 守卫」而非重写。
+- **验证与后续边界**：微交互组件（like-toggle/follow-toggle）仍用 fw-* 预设类，行为零变化
+  （微交互 E2E 用例零删减）；rank/data-nav 旧链未退役（Step 4），view-transition facade 与
+  motion-lab/实验面板 Step 4 清理。Step 4 全站收敛、Step 4.5 独立审查及 Step 5 PR/CI/部署均未执行，
+  M15 未收口、未合并 main、未部署生产；Firefox 仍未本机实测（站长本步明确暂缓）。最终
+  `verify:all` / 全量 E2E / 安装 / 视觉回归 / LCP 门禁与视觉零更新以
+  [M15 执行记录](docs/milestones/M15-motion-pipeline.md) §13 实测为准。
+
+### Added（M15 · Step 2 页面接入与共享段试点，2026-11-11）
+
+- **单根页面宿主**：根 template 改为 `SiteMotionBoundary → MotionPage`，不叠根/段级双 VT；
+  `MotionPage` 提供唯一全宽 `[data-fw-page]` 盒子。`/t/*`、`/a`、`/a/*` 试点的 VT 本体按 pathname 换 key，
+  其余路径 key 固定、继续由原根模板重挂兜底；query/hash 不入 VT key。稳定 layout 保存 provider/引擎实例，
+  RSC 页面仍以 children 插槽接入，数据库读取未迁到客户端，业务页不再额外包 `MotionPage`。
+- **页面导航 API 与灰度桥**：落地 `MotionProvider` / `MotionPage` / `useMotion` / `useMotionLifecycle`，
+  站点适配器提供 `MotionLink` / `useMotionRouter`，向 Next 透传主动 Link/push/replace 的 `transitionTypes`；
+  浏览器 back/forward 保持 history 诚实跳过，不伪装 push。业务注册表与旧 rank / `data-nav` CSS 并存，
+  自动扫描页面的全路由一致性矩阵守护两套方向语义；触点展开/收起仍只调用一次旧几何助手。
+- **请求与动效分别隔离**：宿主 epoch 保护 URL 提交、进度条与旧 effect，内核 id 保护 ready/finish；
+  提交绑定渲染时的 epoch，参与者回调和 cleanup 绑定原 id，旧提交、晚到 RSC、终态重入和旧 cleanup
+  不得结清或释放新请求。hash-only/原地址程序化调用仍交给 router，但不登记新 pending；
+  history 在 capture 阶段保留真实来源完整 key，不被 Next 的同目标历史记账 replace 覆盖。
+- **流式与降级边界**：页面边界显式 `update="none" default="none"`，验收不重复整页动画/导航会话，
+  不承诺独立子 VT 或空原生 start 永远不存在。加载期间再次核对减少动态效果偏好；取消动效不取消业务导航，
+  旧慢网、去重、生产失败重置与重试守卫继续保留。
+- **实验证据勘误**：Step 0 同属 `/motion-lab` 第一段的导航不能作为真实跨根证明；补充真实跨根/共享段
+  的旧新页面快照组断言。晚 effect 覆写只证明新层 CSS 可变化，不保证首帧、旧快照或几何可延迟；
+  当前方向在意图阶段定稿。实验面板只从 `/motion-lab` 显式开启，使用真实 Link/router，不暴露私有 router；
+  lab 只在本地生产构建中验证可达，当前分支未部署，面板与 lab 须在 Step 4、部署前删除。
+- **框架版本口径**：项目声明 React/React DOM 19.3.1、Next 16.4.2，但 Next 浏览器别名实际使用 bundled React
+  `19.3.0-canary-278794d7-20261002`；公开 `ViewTransition` 已可用且无需 experimental 开关，
+  不把声明版本写成运行时纯 stable 保证。
+- **验证与后续边界**：Step 2 已完成；全量 E2E、安装 E2E、视觉回归、最终 `verify:all` 与成功页面 LCP
+  均已实测通过，视觉基线零更新；详细结果以 [M15 执行记录](docs/milestones/M15-motion-pipeline.md) 为准。
+  Step 3 元素/`MotionList`/stagger/手动 VT 助手收编、Step 4 旧链退役、Step 4.5 独立审查及 Step 5 PR/CI/部署
+  均未执行，M15 未收口、未合并 main、未部署生产。
+
+### Added（M15 · Step 1 动效引擎内核，2026-11-11）
+
+- 新增独立动效内核与唯一公开入口 `lib/motion/index.ts`：全局配置、页面/元素预设、路由声明解析、
+  分层生命周期及实例化 `play` 接口；不引用业务模块，不自动安装浏览器监听，也不接管既有导航。
+- 导航意图按编号隔离且仅定稿一次；取消、减少动态效果、无 API、超时及驱动失败均可回退业务更新，
+  更新至多执行一次。快速连点和钩子重入时保留更新的入队顺序，终止会话不再分发非终态钩子，
+  元素事件使用不可变上下文快照。
+- 增加 AST 架构守卫，禁止内核反向依赖业务与外部深导内部实现；保留旧动效链兼容。
+  本步仅交付内核与接入类型，页面、列表和 React hook 的实际迁移留在后续步骤，现有页面表现不变。
+
 ### Fixed（M14 · Step 5.5 收口前审查：交互式评审环境与站长评审实测出，2026-11-10）
 
 - **失败告警只送达一名管理员**：告警去重键未含接收人，撞通知表全局唯一索引后其余管理员被当作重放

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser, getPasswordChangeUser } from "@/lib/auth/session";
+import { PageMotionBoundary } from "@/components/site/page-motion-boundary";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +48,8 @@ export default async function SettingsLayout({ children }: { children: React.Rea
           </nav>
         )}
       </header>
-      {children}
+      {/* 页面层 keyed VT 边界：组内切换有过渡，设置壳头部/导航在边界外静止不重挂（M15 Step 4） */}
+      <PageMotionBoundary>{children}</PageMotionBoundary>
     </main>
   );
 }

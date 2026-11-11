@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { MotionLink } from "@/components/site/motion-navigation";
 
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { listAnnouncements } from "@/lib/announcements/queries";
@@ -30,9 +30,13 @@ export default async function AnnouncementsPage() {
           {items.map((a) => (
             <li key={a.id} className="rounded-xl border bg-card p-4">
               <div className="flex flex-wrap items-center gap-2">
-                <Link href={`/a/${a.id}`} className="text-base font-medium hover:underline">
+                <MotionLink
+                  href={`/a/${a.id}`}
+                  direction="push"
+                  className="text-base font-medium hover:underline"
+                >
                   {a.title}
-                </Link>
+                </MotionLink>
                 {a.level === "important" && (
                   <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive">
                     重要

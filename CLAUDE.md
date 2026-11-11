@@ -5,7 +5,7 @@
 
 ## 当前阶段
 
-- **阶段四·运营与演进（2026-11-09 立项）**：M13 已收口（2026-11-08 正式切换成功，站长 2026-11-09 拍板关闭；剩余站长执行项转长线运营，见 M13 遗留事项 §转长线运营）。M14 运维任务管线（`docs/milestones/M14-ops-pipeline.md`，**已收口 2026-11-11**：管线 + 任务中心上线公测，24h 核对通过）与 M15 统一动效管线（`docs/milestones/M15-motion-pipeline.md`，已规划未开工）；建议顺序 M14 先行。发布口径：本地灰度 + 门禁全绿即上线公测。里程碑全貌以 `docs/ROADMAP.md` 为准。
+- **阶段四·运营与演进（2026-11-09 立项）**：M13 已收口（2026-11-08 正式切换成功，站长 2026-11-09 拍板关闭；剩余站长执行项转长线运营，见 M13 遗留事项 §转长线运营）。M14 运维任务管线（`docs/milestones/M14-ops-pipeline.md`，**已收口 2026-11-11**：管线 + 任务中心上线公测，24h 核对通过）与 M15 统一动效管线（`docs/milestones/M15-motion-pipeline.md`，**执行中**：Step A / 0 / 1 / 2 / 3 / 4 已完成，页面接入、元素层接入（MotionList）/魔法数令牌清账/手动助手收编与全站收敛、rank / `data-nav` 旧链退役均处于本地灰度；方向归业务注册表单一事实源，旧 `nav-kind.ts`、view-transition facade 与 motion-lab 已删除）；M14 已先行完成。M15 的 Step 4.5 独立审查与 Step 5 PR/CI/部署均未执行，尚未合并 main 或部署生产。发布口径仍为本地灰度 + 门禁全绿即上线公测，不代表 M15 已完成或上线。里程碑全貌以 `docs/ROADMAP.md` 为准。
 - 阶段一·骨架 M1–M5 已交付，但 2026-10-23 审查发现其数据模型与多项门禁勾选需重做/更正。
   **M5.5 重构（设计先行）已完成，已合并 `main`**。站长思路：**先定目标模型（`docs/DESIGN-MODEL.md`，schema v2.1 共 43 表，含通知中心），旧数据向它靠拢，迁移只是适配层**。
   进度：R1 文档 ✅ → R2 `packages/db` 与 `packages/content` 重做 ✅ → R3 迁移适配层重做并重建开发库 ✅ → S4 应用适配 ✅ → **S5 E2E 与全量门禁 ✅（2026-10-24）**；之后进入 M6 发帖。
@@ -39,7 +39,7 @@ docker/          qysub-next（MySQL 8.4 @33621）、dev（web 容器 + MailPit�
 ```bash
 pnpm dev                      # http://127.0.0.1:3100
 pnpm verify:all               # lint + format:check + typecheck + test(覆盖率) + build
-pnpm test:e2e                 # 重置并重建 qysub_next_e2e → 生产构建 3201 跑功能全量（desktop/mobile/安全用例）→ 重置并重建测试库 → dev 3200 仅跑 /api/dev/*、/design 冒烟；本地实测 341 + 8 全绿；需要 MailPit(8025)
+pnpm test:e2e                 # 重置并重建 qysub_next_e2e → 生产构建 3201 跑功能全量（desktop/mobile/安全用例）→ 重置并重建测试库 → dev 3200 仅跑 /api/dev/*、/design 冒烟；实测结果见对应里程碑；需要 MailPit(8025)
 pnpm db:bootstrap | db:seed | db:e2e-fixtures | db:verify   # 零数据路径：建表+系统种子 / 演示夹具 / E2E 专用夹具 / schema 对账（19 项：结构 + 孤儿引用 + 楼层唯一 + 首帖指针 + 主题与首帖状态 + 缓存计数）
 pnpm db:recount                # 全量重算缓存计数（幂等，默认直接修正；--check 只读，有漂移非零退出）
 pnpm db:gc-files --dry-run     # 孤儿文件巡检（只报告、不删除：库内无引用的文件 + 磁盘有、库里无的孤儿；超过 24 小时）
@@ -68,14 +68,14 @@ pnpm layout:summary            # 汇总布局审计 JSON，有问题退出码 1�
 1. **旧库只读**：只允许 SELECT/SHOW/DESC，迁移程序有代码级守卫。迁移是**一次性全量导入**：迁移独占的表整体替换式加载，检测到线上数据会拒绝重跑（`MIGRATION_FORCE=1` 强制）。
 2. **只保留 URL 必须稳定的旧主键**（uid/fid/tid/pid）；其余 id 自增。业务表不带 `raw`/`content_raw`，正文只留 `body_md`；
    未被新模型使用的旧表一律丢弃、**不建归档库**；旧库保持只读且在 M13 签字前不得删除（即归档）。
-2a. **运行时 schema 不认识旧站**：禁止 `legacy_*` 列、`migrated` 标记、迁移用 id 公式、`migration_*` 表；旧键映射/旧 gid/旧路径只放 `migration/`。
-    被引用但已不存在的作者建「已注销用户」占位账号（`state=deleted`），不在内容表加冗余列。`schema-rules.ts` 将加断言（R2）。
+   2a. **运行时 schema 不认识旧站**：禁止 `legacy_*` 列、`migrated` 标记、迁移用 id 公式、`migration_*` 表；旧键映射/旧 gid/旧路径只放 `migration/`。
+   被引用但已不存在的作者建「已注销用户」占位账号（`state=deleted`），不在内容表加冗余列。`schema-rules.ts` 将加断言（R2）。
 3. **垃圾空壳、回收站与屏蔽内容、私信不迁**（旧库即归档）；内容状态机为 `visible|pending|rejected|hidden|deleted|disabled`（M9.5 增封禁终态：迁移白名单中央定义于 `lib/posting/transition.ts`，disabled 不可编辑不可重审、唯一出路 →deleted）；旧密码不迁移（`password_hash=NULL`，走邮件认领/重置）。
-3a. **唯一键不得依赖 NULL 去重来表达作用域/层级**：全局作用域用 `scope_id = 0` 哨兵（MySQL 唯一索引不去重 NULL）。
-    唯一例外：单列且「空值 = 没有」即期望语义（`users.email_key`）。由 `packages/db/src/schema-rules.ts` 断言，`db:verify` 与单测强制。
-3b. **隐藏内容只能经 `getGateContent` 读取**；`body_md` 永远只含公开部分（门控规范见 `docs/GATES.md`）。
-3c. **积分变动只能经 `applyPoints`**，渠道须先注册（`docs/POINTS.md`）。
-3d. **附件表只能经 `lib/gates/attachments.ts` 读写**（M6.4 起，保存时的内联登记 `registerSourceFiles` 与编辑视图也在此；上传记录表 `file_uploads` 只能经 `lib/uploads/store.ts` 写入，守卫 `uploads-guard.test.ts`）：`attachments.gate_id` 非空的附件与门控隐藏正文同权，锁定项不得下发文件名 / 存储键 / 大小；`/files` 与帖子页共用同一出口（`docs/ATTACHMENT-GATES.md`，守卫测试 `attachments-guard.test.ts`）。
+   3a. **唯一键不得依赖 NULL 去重来表达作用域/层级**：全局作用域用 `scope_id = 0` 哨兵（MySQL 唯一索引不去重 NULL）。
+   唯一例外：单列且「空值 = 没有」即期望语义（`users.email_key`）。由 `packages/db/src/schema-rules.ts` 断言，`db:verify` 与单测强制。
+   3b. **隐藏内容只能经 `getGateContent` 读取**；`body_md` 永远只含公开部分（门控规范见 `docs/GATES.md`）。
+   3c. **积分变动只能经 `applyPoints`**，渠道须先注册（`docs/POINTS.md`）。
+   3d. **附件表只能经 `lib/gates/attachments.ts` 读写**（M6.4 起，保存时的内联登记 `registerSourceFiles` 与编辑视图也在此；上传记录表 `file_uploads` 只能经 `lib/uploads/store.ts` 写入，守卫 `uploads-guard.test.ts`）：`attachments.gate_id` 非空的附件与门控隐藏正文同权，锁定项不得下发文件名 / 存储键 / 大小；`/files` 与帖子页共用同一出口（`docs/ATTACHMENT-GATES.md`，守卫测试 `attachments-guard.test.ts`）。
 4. **时区**：库内 DATETIME 一律北京墙面时间；连接层 `+08:00` + `dateStrings`，**且每条新连接必须 `SET time_zone='+08:00'`**（mysql2 的 `timezone` 选项不改服务器会话时区，`NOW()` 会是容器的 UTC；`createPool` 已处理，任何绕过它的裸连接须自行设置；`db:verify` 与 `client.int.test.ts` 守护）；解析只走 `lib/datetime.ts`，禁止裸 `new Date(字符串)`。
 5. **DB 连接**：web 运行时只用 `getWebDb()` 单例；`withDb` 仅限一次性脚本。例外（M12）：安装前置步骤的裸一次性连接（`pingDatabase` / `createDatabaseIfNotExists` / `bootstrapDb` 自建池）——库尚不存在时 getWebDb 连不上，用完即 `end()`，不涉事务与时间语义。
 6. **渲染**：用户内容必须经 `lib/markdown.ts` + `lib/sanitize.ts` 管线，禁止 `dangerouslySetInnerHTML` 直出原文。管线启用的是**精简 GFM（只有表格与删除线，`singleTilde:false`，见 `lib/gfm-lite.ts`）**：不要换成完整 `remark-gfm`——它的自动链接会把紧跟 URL 的中文吞进链接，单波浪线删除线会误伤 1328 篇「语气词~」。
@@ -90,6 +90,18 @@ pnpm layout:summary            # 汇总布局审计 JSON，有问题退出码 1�
 - **依赖边界**：`src/test/architecture-guard.test.ts` 固定禁止 `authz→queries`、`uploads→posting`、根级 lib→业务域、lib→components、modules→app；静态、转发及字面量动态 import 均检查。app 直接值导入数据库按显式文件白名单管理；outbox 生产方须声明本次事件快路径。
 - **服务端模块**：数据库、会话、文件、凭据等明确服务入口加 `import "server-only"`，`src/test/server-only-guard.test.ts` 锁定服务清单并检查客户端运行时依赖闭包。分页、SQL 表达式、配额、主题渲染及共享编辑器扩展不按目录盲标；Vitest alias 与 Node CLI loader 只兼容 marker，不切换 React 条件。
 - **模块内核**（`src/modules/kernel`）：编译期注册（无热插拔）+ 同步事件总线（逐消费者隔离、落 `event_log`）+ UI 槽位；启停状态在 `module_state`。
+- **统一动效管线（M15 Step 4 全站收敛，本地灰度）**：实现口径见 `docs/milestones/M15-motion-pipeline.md` §12/§13/§14 与 `docs/motion-spec.md` §5（方向解析与全站收敛）、§6.2（页面宿主）、§1.2/§3/§7（元素层与守卫）。
+  - 根 `template.tsx` 只走 `SiteMotionBoundary → MotionPage`，不再外套 VT；`MotionPage` 提供唯一全宽 `[data-fw-page]` 盒子。**全站接管（Step 4）**：移除 `isMotionPilot` 灰度门，所有路由（除同 pathname 查询串变化）都建引擎会话；非共享路由根边界 pathname-key（组内/跨页都进退场），共享路由（`hasSharedLayout`=admin/settings）根边界 key/pageKey=`root-shared`、enter=`none`（跨组进入不双进场）、exit 默认（跨组退出旧页正常淡出；不重挂共享壳、不认领会话），动画交壳内下沉的 `PageMotionBoundary`（pathname-key MotionPage，`admin-shell` 与 `settings/layout` 包 children），组内 fade 微动、侧栏/头部静止不重挂，每会话恰一个边界认领；admin 注册表 preset 改 `"admin"`（resolver 层默认 fade，显式 direction hint 仍可覆盖，保持克制）。query/hash 不入 key。普通业务页不可自行再套 `MotionPage`，RSC 仍作为 children 插槽，provider/引擎实例留在稳定 layout。全站 pathname-key 收敛给原本无动画的组内导航新增 fade（收敛目标，非删减）；微交互组件行为零变化（15 例 E2E 零删减）。
+  - **方向桥退役（Step 4，机制：引擎自有方向属性）**：`lib/motion/nav-kind.ts`（rank 表 + TAB_ORDER + kindBetween + data-nav 属性时序 + resolveNavKind 几何）已删除，拆为 `components/site/nav-geometry.ts`（expand/collapse 几何，base 方向接注册表 `siteMotionDirection`）与 `nav-direction.ts`（`setDirection`/`clearDirection`/`releaseDirection` 写 `html[data-motion-direction]` + `--vt-x/y/r`，保留 15s 保底 + 代次校验）。方向归注册表单一事实源；CSS 选择器 `:root[data-nav]` → `:root[data-motion-direction]`，同名 keyframes 不动；`transitionTypes` 仍透传作原生类型层。抉择理由：保留「几百处链接无需逐个加类型」的原设计优点；expand/collapse 在点击拦截时定稿，引擎在导航 transition 之外写属性，不依赖 `addTransitionType`（仅限 startTransition 内）。
+  - `MotionLink` / `useMotionRouter` 透传主动导航的 `transitionTypes`；`useMotionLifecycle` 已落地。方向与目标预设在意图阶段由宿主注册表/显式 hint 提供，不能依靠目标页晚 effect 保证首帧或改写旧快照。浏览器 back/forward 诚实按 history 跳过，不伪装成 push。
+  - 宿主请求 epoch 隔离 URL 提交、进度条和旧 effect，内核导航 id 隔离 ready/finish；提交通知绑定渲染时的 epoch，参与者回调和 cleanup 绑定原 id。旧提交、晚到 RSC 与旧 cleanup 不得结清新请求；hash-only/原地址程序化调用仍交给 router，但不登记新 pending。
+  - 页面边界显式 `update="none" default="none"`，验收不重复整页动画/导航会话，不承诺所有原生 start 次数恒为一。reduce/无 API/history 不影响内容可用，原慢网与失败重试守卫继续负责业务兜底。motion-lab/实验面板/navigation-demo 已删除（Step 4）；pilot E2E 改由 `motion-test-harness.tsx` 承载——测试专用持久宿主挂根 layout（provider 内、页面边界外，落全局作用域），仅 E2E 经 addInitScript 置 `window.__fwMotionTest` 激活，生产渲染 null 不注册钩子，复刻面板契约用真实 MotionLink/useMotionRouter。
+  - **一致性退役与资产清理（Step 4）**：新旧两套方向一致性矩阵（motion-routes 的 kindBetween 全矩阵/试点块、resolver 49 对）随旧链退役，保留纯注册表断言；nav-kind.test 的 23 例几何/属性时序忠实迁 `nav-direction.test`（10）与 `nav-geometry.test`（13），11 方向例由注册表矩阵覆盖后删除。motion-lab（7 文件）、vt-lab/vt-support spec 与 playwright.vt-support.config、view-transition facade 及其测试均已删除；架构守卫 `LEGACY_ENTRIES` 仅留 `nav-guard.ts`（点击/进度/失败兜底守卫，非方向）。
+  - **元素层接入（Step 3）**：列表首屏错落一律用 `MotionList`（`lib/motion/engine/list.tsx`，共享组件无 `"use client"`，RSC 首屏即可挂类与延迟），**不再裸写 `animationDelay`**——`cloneElement` 把预设类与延迟合并进条目根元素，不新增包裹盒子，DOM/版式/`:last-child` 零变化；`list.enter` 前 10 项错落（步长 `--fw-stagger-step`）、`list.append` 无延迟淡入、`animate=false` 原样渲染（翻页/直达深页不重播）。`stream-list` 追加类改引 `MOTION_ELEMENT_PRESETS["list.append"]`（renderItem 契约不变）。微交互组件（like-toggle/follow-toggle）仍消费 fw-* 预设类，行为零变化。
+  - **魔法数升格令牌（Step 3）**：`--fw-dur-progress`(12s)、`--fw-dur-float-up`(slow×1.75)、`--fw-stagger-step`(50ms)、`--fw-stagger-max`(10)、`--fw-page-shift`(28/14px)、`--fw-tab-shift`(min(24vw,96px)/56px) 统一定义于 `primitives.css`（含桌面断点覆写），`globals.css` 改引令牌；预设关键帧内部小位移属 sanctioned 预设区，不在升格清单。
+  - **手动 VT 助手收编（Step 3，facade 已于 Step 4 退役）**：状态级驱动走引擎 `playStateTransition`（`engine/native.ts`，SSR 安全）；`view-transition.ts` 薄兼容 facade 及其单测已随旧链删除（等价覆盖在 `native.test`）。状态级选型收敛 fade/expand。
+  - **裸写守卫（Step 3）**：`motion-bare-write-guard.test.ts` 拦截业务 TS/TSX 裸写 `animationDelay/Duration`（纯令牌引用豁免）、`cubic-bezier`、`animation` 简写裸时长；非令牌 CSS 禁裸写时长/曲线；令牌收敛与元素预设 reduce 覆盖由断言钉住。reduced-motion 的 CSS reduce 仍是稳健机制（无 JS 也生效），未迁成 JS；页面导航 reduce 由引擎驱动。
+  - 项目声明 React/React DOM 19.3.1、Next 16.4.2；Next 浏览器别名实际使用 bundled React `19.3.0-canary-278794d7-20261002`。公开 `ViewTransition` 已可用且无需 experimental 开关，但不能据声明版本保证运行时是纯 stable；能力以框架内置实现与生产构建实测为准。
 - **认证**（`lib/auth`）：不透明令牌 cookie，库内只存 SHA-256；argon2id；登录签发新会话 cookie（**旧会话行不会被销毁**，到期前一直有效，见 M5.6 遗留事项）；邮件令牌 reset/verify/claim 单次原子消费；`register.mode = invite|open`。
 - **权限**（`lib/authz` + `packages/db/src/authz-vocab.ts`）：`roles` / `permissions` / `role_grants` / `user_roles` 四表；
   `forum.read` **就近层显式优先**（不回退父级），`forum.write/manage` **沿父链级联合并**；版主由授权派生，不指派。
@@ -161,7 +173,7 @@ pnpm layout:summary            # 汇总布局审计 JSON，有问题退出码 1�
 - `TRUSTED_PROXY_HOPS`：生产环境必须显式设置（直连填 0，nginx 之后填层数），漏配会在首次取 IP 时报错；取不到可信 IP 时跳过 IP 级限额，只留账号/邮箱级。
 - server-only 服务对应的 Node/tsx CLI 脚本须由 package script 预加载 `scripts/server-only-register.mjs`；直接 `pnpm exec tsx <服务脚本>` 可能绕过兼容钩子，生产/运维命令以 package script 为准。
 - **跑 E2E 会重建包的 `dist`，与正在运行的 3100 开发服务器冲突**：`test:e2e:run` 开头会执行 `db:build`（重新 `tsc` 编译 `packages/db`、`packages/content` 的 `dist/`）。此时若 3100 正在编译，会读到写了一半或旧的 `dist`，报 `Export xxx doesn't exist in target module`（例如给 `@funwind/content` 新增导出后），页面一直 500 / 「阻断性错误」遮罩，**这是缓存了过期状态而不是代码有问题**。处理：E2E 跑完后重启 3100（`pnpm dev` 会先重建 `dist` 再启动）。改了 `packages/*` 的导出后同理——先重建再重启，别指望热更新。
-- **新增页面要登记 `lib/motion/nav-kind.ts` 的层级表（rank）**：页面切换动效（View Transition）的方向判定依赖这张表；未登记的路由 rank 为 null，**凡「共享路由段」的导航（兄弟页面之间，如 /a ↔ /a/{id}、/t/{id} ↔ /t/{id}）一律不触发过渡**（React 19 stable 行为：跨大分支才有 VT），表现就是「新页面没有切换动效」。跨大分支导航不受影响。
+- **新增页面只需登记动效注册表（单一事实源，Step 4 已收敛）**：在 `components/site/motion-routes.ts` 登记路由段/页面（预设/层级/Tab 顺序）即自动纳入方向矩阵；旧 `lib/motion/nav-kind.ts`（rank/TAB_ORDER/kindBetween）与 `html[data-nav]` CSS 已退役删除，不再维护两套，方向经引擎写 `html[data-motion-direction]`。未知路由虽可回落 fade，也不能据此遗漏登记。全站根边界已收敛 pathname-key（除同 pathname），共享 layout 组（admin/settings）根边界 `root-shared` 不重挂共享壳、动画边界下沉壳内 `PageMotionBoundary`——新增共享状态 layout 时须同样重审边界下沉，不能把共享壳粗暴包进 pathname-key。新增页面首屏错落用 `MotionList` 声明式挂类，不再裸写 `animationDelay`；业务代码裸写时长/曲线会被 `motion-bare-write-guard.test.ts` 拦截（口径见架构要点·统一动效管线）。
 - **公告展示页**：`/a`（归档）与 `/a/{id}`（详情，M13 追加）——游客只看 audience=all；登录用户访问详情即标记已读；横幅（show_banner）是公告的属性而非独立实体，同一时刻只显最新一条带横幅的公告，点击进详情页。后台「公告」页勾选/取消「顶部横幅」即上线/下线横幅。
 
 - **编辑器的 `focus()` 会让页面一步跳过去，`preventScroll: true` 拦不住**：「平滑滚到某处再聚焦编辑器」做不出来——滚动开始前 / 进行中聚焦都会取消平滑滚动（第二次点击看起来平滑只是因为编辑器已有焦点）。要平滑只能等 `scrollend` 之后再聚焦，但那样聚焦不在用户手势内，iOS 唤不起软键盘。回复悬浮按钮（`components/posting/reply-fab.tsx`）取舍为「瞬时跳转 + 立即聚焦」（站长拍板）。

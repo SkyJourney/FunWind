@@ -6,6 +6,7 @@ import { notFound } from "next/navigation";
 import { positiveIntParam } from "@/lib/utils";
 import { ThreadRow } from "@/components/content/thread-row";
 import { ThreadStream } from "@/components/content/thread-stream";
+import { MotionList } from "@/lib/motion";
 import { Pagination } from "@/components/content/pagination";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { getForumTree } from "@/lib/authz/snapshot";
@@ -191,16 +192,11 @@ export default async function ForumPage({ params, searchParams }: Params) {
             hasMore={list.page < list.totalPages}
             seedIds={list.items.map((t) => t.id)}
           >
-            {list.items.map((t, index) => (
-              <ThreadRow
-                key={t.id}
-                thread={t}
-                className={list.page === 1 && index < 10 ? "fw-enter" : undefined}
-                style={
-                  list.page === 1 && index < 10 ? { animationDelay: `${index * 50}ms` } : undefined
-                }
-              />
-            ))}
+            <MotionList animate={list.page === 1}>
+              {list.items.map((t) => (
+                <ThreadRow key={t.id} thread={t} />
+              ))}
+            </MotionList>
           </ThreadStream>
         )}
         {list.items.length === 0 && list.pinned.length === 0 && (

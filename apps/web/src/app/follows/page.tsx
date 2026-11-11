@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { redirect } from "next/navigation";
 import { FeedCard } from "@/components/content/feed-card";
 import { HomeFeedStream } from "@/components/content/home-feed-stream";
+import { MotionList } from "@/lib/motion";
 import { Pagination } from "@/components/content/pagination";
 import { FollowButton } from "@/components/interact/follow-button";
 import { UserHoverCard } from "@/components/content/user-hover-card";
@@ -161,17 +162,13 @@ export default async function FollowsPage({
           seedIds={feed.items.map((i) => i.id)}
           listClassName="space-y-3"
         >
-          {feed.items.map((item, index) => (
-            <div
-              key={item.id}
-              className={feed.page === 1 && index < 10 ? "fw-enter" : undefined}
-              style={
-                feed.page === 1 && index < 10 ? { animationDelay: `${index * 50}ms` } : undefined
-              }
-            >
-              <FeedCard item={item} forumName={tree.get(item.forumId)?.name} />
-            </div>
-          ))}
+          <MotionList animate={feed.page === 1}>
+            {feed.items.map((item) => (
+              <div key={item.id}>
+                <FeedCard item={item} forumName={tree.get(item.forumId)?.name} />
+              </div>
+            ))}
+          </MotionList>
         </HomeFeedStream>
       )}
 

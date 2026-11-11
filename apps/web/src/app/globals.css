@@ -96,7 +96,7 @@
 
 /* ===== S4 动效基线（docs/M10.5-S4-VISUAL-MOTION.md）：只动 transform/opacity ===== */
 
-/* 进场（列表/卡片首屏）：配合 style={{ animationDelay }} 做 stagger 错落 */
+/* 进场（列表/卡片首屏）：由 <MotionList> 声明式挂类并按 --fw-stagger-step 计算错落延迟（M15 Step 3） */
 @keyframes fw-enter {
   from {
     opacity: 0;
@@ -187,7 +187,7 @@
   }
 }
 .fw-float-up {
-  animation: fw-float-up calc(var(--fw-dur-slow) * 1.75) var(--fw-ease-out) both;
+  animation: fw-float-up var(--fw-dur-float-up) var(--fw-ease-out) both;
 }
 
 /* 导航进度条（M10.7 Step 4a）：点击后 80ms 出现，只动 transform；组件只在在途时渲染，每次导航动画从头开始 */
@@ -206,7 +206,7 @@
   background: var(--primary);
   transform-origin: left;
   transform: scaleX(0.08);
-  animation: fw-nav-grow 12s var(--fw-ease-out) forwards;
+  animation: fw-nav-grow var(--fw-dur-progress) var(--fw-ease-out) forwards;
 }
 @keyframes fw-nav-grow {
   to {
@@ -246,29 +246,13 @@
   .fw-fade-in {
     animation: none;
   }
-  /* template.tsx 的方向性进场在 reduce 下关闭 */
-  [style*="vt-push-in"],
-  [style*="vt-pop-in"] {
-    animation: none !important;
-  }
 }
 
 /* ===== 页面级过渡（M10.7 Step 4b）=====
-   template.tsx 用 React <ViewTransition> 给页面内容打 `.fw-page` 类；浏览器同时持有新旧两张快照，进退场都能动。
-   方向由 <html data-nav> 决定（lib/motion/nav-kind.ts）：push 前进 / pop 返回 / 其余（fade 或缺省）淡入淡出。 */
+   template.tsx 经 SiteMotionBoundary → MotionPage 给页面内容挂 `fw-page-in/fw-page-out` 类；浏览器同时持有新旧两张快照，进退场都能动。
+   方向由 <html data-motion-direction> 决定（注册表解析，components/site/nav-direction.ts 写入）：push 前进 / pop 返回 / 其余（fade 或缺省）淡入淡出。 */
 
-/* 位移令牌：移动端 28px，桌面减半（S4 §3.2「桌面克制」）。
-   Tab 切换（底部导航 / 顶栏同级）要让人看得清「滑出再滑入」，幅度更大：移动端 min(24vw, 96px)，桌面 56px */
-:root {
-  --fw-page-shift: 28px;
-  --fw-tab-shift: min(24vw, 96px);
-}
-@media (min-width: 768px) {
-  :root {
-    --fw-page-shift: 14px;
-    --fw-tab-shift: 56px;
-  }
-}
+/* 位移令牌 --fw-page-shift / --fw-tab-shift 已升格至 primitives.css（M15 Step 3，含桌面断点覆写） */
 
 /* 过渡期间覆盖层不拦截指针事件：用户在动画中的点击仍落到真实页面上 */
 ::view-transition {
@@ -289,17 +273,17 @@
   animation: var(--fw-dur-base) var(--fw-ease-out) both vt-page-fade-in;
 }
 /* push 前进：旧页向左退出，新页自右切入（透明度 0.6 → 1） */
-:root[data-nav="push"]::view-transition-old(.fw-page-out) {
+:root[data-motion-direction="push"]::view-transition-old(.fw-page-out) {
   animation: var(--fw-dur-fast) var(--fw-ease-exit) both vt-page-out-left;
 }
-:root[data-nav="push"]::view-transition-new(.fw-page-in) {
+:root[data-motion-direction="push"]::view-transition-new(.fw-page-in) {
   animation: var(--fw-dur-slow) var(--fw-ease-out) both vt-page-in-right;
 }
 /* pop 返回：旧页向右退出，新页自左切入 */
-:root[data-nav="pop"]::view-transition-old(.fw-page-out) {
+:root[data-motion-direction="pop"]::view-transition-old(.fw-page-out) {
   animation: var(--fw-dur-fast) var(--fw-ease-exit) both vt-page-out-right;
 }
-:root[data-nav="pop"]::view-transition-new(.fw-page-in) {
+:root[data-motion-direction="pop"]::view-transition-new(.fw-page-in) {
   animation: var(--fw-dur-slow) var(--fw-ease-out) both vt-page-in-left;
 }
 /* 页面快照只含包装 div：body 的背景属于 root，不在快照里。扩散 / 收起时新旧页叠在一起，若包装没有不透明背景，
@@ -308,19 +292,24 @@
 [data-fw-page] {
   background: var(--page-bg);
 }
+/* 取消只作用于这一笔动效；标记由拥有导航编号的 React finished 清理，不能提前移除而重启动画。 */
+:root[data-motion-skipped]::view-transition-old(.fw-page-out),
+:root[data-motion-skipped]::view-transition-new(.fw-page-in) {
+  animation: none !important;
+}
 
 /* tab-next / tab-prev Tab 切换（同级，按左右顺序）：旧页向反方向滑出（250ms），新页错开一小段再滑入（400ms，从全透明），
    总时长约 450ms，「滑出再滑入」才看得清；此前同级切换是 150ms 淡出 + 250ms 淡入，没有位移，肉眼几乎看不见 */
-:root[data-nav="tab-next"]::view-transition-old(.fw-page-out) {
+:root[data-motion-direction="tab-next"]::view-transition-old(.fw-page-out) {
   animation: var(--fw-dur-base) var(--fw-ease-exit) both vt-tab-out-left;
 }
-:root[data-nav="tab-next"]::view-transition-new(.fw-page-in) {
+:root[data-motion-direction="tab-next"]::view-transition-new(.fw-page-in) {
   animation: var(--fw-dur-slow) var(--fw-ease-out) calc(var(--fw-dur-fast) / 2) both vt-tab-in-right;
 }
-:root[data-nav="tab-prev"]::view-transition-old(.fw-page-out) {
+:root[data-motion-direction="tab-prev"]::view-transition-old(.fw-page-out) {
   animation: var(--fw-dur-base) var(--fw-ease-exit) both vt-tab-out-right;
 }
-:root[data-nav="tab-prev"]::view-transition-new(.fw-page-in) {
+:root[data-motion-direction="tab-prev"]::view-transition-new(.fw-page-in) {
   animation: var(--fw-dur-slow) var(--fw-ease-out) calc(var(--fw-dur-fast) / 2) both vt-tab-in-left;
 }
 @keyframes vt-tab-out-left {
@@ -349,28 +338,28 @@
 }
 
 /* expand 触点扩散：卡片 → 主题页。新页以点击点为圆心圆形展开，旧页静止垫底不动。
-   圆心 --vt-x / --vt-y 与终点半径 --vt-r 由 nav-kind.ts 写在 <html> 上（相对 [data-fw-page] 包装盒子）。
+   圆心 --vt-x / --vt-y 与终点半径 --vt-r 由 nav-geometry.ts 计算、nav-direction.ts 写在 <html> 上（相对 [data-fw-page] 包装盒子）。
    终点半径 = 触点到视口最远角的距离，缓动用对称的 ease-inout：之前用 150vmax 加 expo-out（前快后慢），
    圆在 ~100ms 内就盖满视口，肉眼看不出扩散。mix-blend-mode 改 normal：默认的 plus-lighter 只适合淡入淡出的
    交叉溶解，两层都不透明时会把颜色加亮发白 */
-:root[data-nav="expand"]::view-transition-old(.fw-page-out) {
+:root[data-motion-direction="expand"]::view-transition-old(.fw-page-out) {
   animation: none;
   mix-blend-mode: normal;
 }
-:root[data-nav="expand"]::view-transition-new(.fw-page-in) {
+:root[data-motion-direction="expand"]::view-transition-new(.fw-page-in) {
   animation: var(--fw-dur-spring) var(--fw-ease-inout) both vt-page-expand;
   mix-blend-mode: normal;
 }
 /* collapse 收起：从扩散打开的主题页用站内链接回到原列表。详情页（旧页）以同一圆心缩回并盖在上层，列表页（新页）静止垫底。
    旧页与新页是两个独立的过渡组，z-index 只在组内生效，所以要抬高的是退场**组**（.fw-page-out），而不是组内的旧快照 */
-:root[data-nav="collapse"]::view-transition-group(.fw-page-out) {
+:root[data-motion-direction="collapse"]::view-transition-group(.fw-page-out) {
   z-index: 3;
 }
-:root[data-nav="collapse"]::view-transition-old(.fw-page-out) {
+:root[data-motion-direction="collapse"]::view-transition-old(.fw-page-out) {
   animation: var(--fw-dur-slow) var(--fw-ease-inout) both vt-page-collapse;
   mix-blend-mode: normal;
 }
-:root[data-nav="collapse"]::view-transition-new(.fw-page-in) {
+:root[data-motion-direction="collapse"]::view-transition-new(.fw-page-in) {
   animation: none;
   mix-blend-mode: normal;
 }
@@ -441,19 +430,13 @@
   animation: none;
 }
 
-/* 同文档状态过渡（lib/motion/view-transition 的 withViewTransition，/design/motion 演示）：由 html[data-vt] 选型，
-   与上面的路由过渡（html[data-nav]）互不干扰 */
+/* 同文档状态过渡（lib/motion/engine/native.ts 的 playStateTransition，/design/motion 演示）：由 html[data-vt] 选型，
+   与上面的路由过渡（html[data-motion-direction]）互不干扰 */
 html[data-vt]::view-transition-old(root) {
   animation: vt-fade-out var(--fw-dur-base) var(--fw-ease-exit) both;
 }
 html[data-vt]::view-transition-new(root) {
   animation: vt-fade-in var(--fw-dur-base) var(--fw-ease-out) both;
-}
-html[data-vt="push"]::view-transition-new(root) {
-  animation: vt-push-in var(--fw-dur-slow) var(--fw-ease-out) both;
-}
-html[data-vt="pop"]::view-transition-new(root) {
-  animation: vt-pop-in var(--fw-dur-slow) var(--fw-ease-out) both;
 }
 html[data-vt="expand"]::view-transition-new(root) {
   animation: vt-expand var(--fw-dur-spring) var(--fw-ease-out) both;
@@ -467,18 +450,6 @@ html[data-vt="expand"]::view-transition-new(root) {
   from {
     opacity: 0;
     transform: translateY(6px);
-  }
-}
-@keyframes vt-push-in {
-  from {
-    opacity: 0.6;
-    transform: translateX(28px);
-  }
-}
-@keyframes vt-pop-in {
-  from {
-    opacity: 0.6;
-    transform: translateX(-28px);
   }
 }
 @keyframes vt-expand {
