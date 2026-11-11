@@ -203,7 +203,7 @@ flowchart TD
 | 4 | 流式互扰 | ⚠️ **新互扰实锤**：Suspense fallback→content resolve（约 400ms，晚于导航过渡结束与 data-nav 清理）会触发**第二次 startViewTransition**（starts=["fade", null]），lab 组按默认 fade 再动一次 = 流式页导航后内容到达时闪一下。此现象与 M15 无关、生产现状即存在（任何 RSC streaming 页）。处置候选进 Step 1/2 设计吸收：Suspense resolve 包 startTransition 抑制 / 引擎钩子抑制 / 接受轻微闪变 | vt-lab 验证 4（固化断言 ["fade", null]） |
 | 5 | 支持面 | webkit（Safari 27.2 引擎）实测三项全支持；Firefox 本机 Playwright 启动失败（juggler profile 环境问题），按 caniuse/MDN：VT 同文档 = Firefox 144+ / Safari 18.0+（全球 93.17%），view-transition-class = Chrome 125+ / Firefox 144+ / Safari 18.2+（90.32%），types 参数 = Baseline 2025 Newly available（2025-10；Firefox 精确版本未经真机复核）。**引擎红线成立**：不支持环境必须同步可用（探测红线断言过） | e2e/vt-support.spec.ts + caniuse |
 
-- [x] Step 0 技术验证（5 项结论如上；实验路由 lab/ 与 vt-lab/vt-support spec 保留至 Step 4 清账）
+- [x] Step 0 技术验证（5 项结论如上；实验路由位于 **`app/motion-lab/`**（顶层，脱离 /design 的 dev-only 守卫范围——VT 结论须在 prod 构建下验证），noindex 无入口链接，**生产公测期短暂可达，Step 4 清账时整体移除**；vt-lab spec 在 prod E2E 持续回归，vt-support 仅 Step 0 一次性探测）
       **实验教训**：VT 采样必须在上一段过渡真正播完后 reset（页面过渡 slow 400ms，URL 变更早于动画
       结束——过早 reset 会让上一段的采样混入新观察，首轮 2a/2b 结论因此被污染反噬）；spec 已加
       settleTransitions 辅助。

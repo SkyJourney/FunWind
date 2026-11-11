@@ -29,7 +29,7 @@ export default function LabStream() {
           </li>
         ))}
       </ol>
-      <Link className="text-primary underline" href="/design/motion/lab/two">
+      <Link className="text-primary underline" href="/motion-lab/two">
         去-two（滚到底后点走，返回验证滚动恢复）
       </Link>
     </main>

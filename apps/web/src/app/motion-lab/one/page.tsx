@@ -20,7 +20,7 @@ export default function LabOne() {
       <p className="text-sm text-muted-foreground">
         共享段兄弟页。前往 two 触发段级过渡；本页 useLayoutEffect 声明 push 方向。
       </p>
-      <Link className="text-primary underline" href="/design/motion/lab/two">
+      <Link className="text-primary underline" href="/motion-lab/two">
         去-two（段级过渡 + 延迟方向验证 2b）
       </Link>
     </main>

@@ -8,7 +8,8 @@ import { mkdirSync } from "node:fs";
  * 供结论回写 M15 文档 §10；页面内容断言 = 引擎红线「不支持 VT 的浏览器同步可用」。
  */
 test("VT API 支持面探测", async ({ page, browserName }) => {
-  await page.goto("/design/motion/lab/one");
+  // 支持面探测与页面无关：在 prod 构建可达的首页上下文执行（lab 页是 dev-only，prod 下 notFound）
+  await page.goto("/");
   const support = await page.evaluate(() => {
     const doc = document as Document & { startViewTransition?: (o: unknown) => unknown };
     let typesSupported = false;
@@ -29,5 +30,5 @@ test("VT API 支持面探测", async ({ page, browserName }) => {
   mkdirSync("/tmp", { recursive: true });
   writeFileSync(`/tmp/vt-support-${browserName}.json`, JSON.stringify(support, null, 1));
   // 引擎红线：不论支持面如何，页面内容必须同步可用（不支持 VT 时直接切换）
-  await expect(page.getByRole("heading", { name: "Lab One" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 });

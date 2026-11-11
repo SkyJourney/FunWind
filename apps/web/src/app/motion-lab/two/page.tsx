@@ -19,10 +19,10 @@ export default function LabTwo() {
       <p className="text-sm text-muted-foreground">
         共享段兄弟页。前往 one 触发段级过渡；本页 useEffect 声明 pop 方向（预期来不及生效）。
       </p>
-      <Link className="text-primary underline" href="/design/motion/lab/one">
+      <Link className="text-primary underline" href="/motion-lab/one">
         去-one（段级过渡 + 延迟方向验证 2a）
       </Link>
-      <Link className="text-primary underline" href="/design/motion/lab/back">
+      <Link className="text-primary underline" href="/motion-lab/back">
         去返回键实验页（验证 3）
       </Link>
     </main>

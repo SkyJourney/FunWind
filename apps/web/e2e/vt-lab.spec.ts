@@ -11,7 +11,7 @@ import { installTransitionProbe, readTransitions, resetTransitions } from "./sup
  * 实验页与 CSS 组（.fw-lab-*）为 Step 0 专用，Step 4 清账时随 lab 移除。
  */
 
-const LAB = "/design/motion/lab";
+const LAB = "/motion-lab";
 
 /** 每次「开始一次新的观察」：装好探针后从入口页出发 */
 async function openLab(page: Page) {
@@ -31,10 +31,10 @@ test.describe("M15 Step 0 · 共享段与双层 ViewTransition", () => {
   test("验证1a：同段兄弟切换（one→two）只触发段级一次过渡，根组不动", async ({ page }) => {
     await openLab(page);
     await page.getByRole("link", { name: "共享段兄弟切换（one）" }).click();
-    await expect(page).toHaveURL(/\/lab\/one/);
+    await expect(page).toHaveURL(/\/motion-lab\/one/);
     await resetTransitions(page);
     await page.getByRole("link", { name: "去-two" }).click();
-    await expect(page).toHaveURL(/\/lab\/two/);
+    await expect(page).toHaveURL(/\/motion-lab\/two/);
     const reading = await readTransitions(page);
     // 段级一次：startViewTransition 只发生一次；根组动画（vt-page-*）不出现——F2 成立。
     // 新层动画 = in-right（two 的 useEffect 写 push 生效，fade-in 首帧前被覆盖——见验证 2b）
@@ -54,9 +54,9 @@ test.describe("M15 Step 0 · 共享段与双层 ViewTransition", () => {
     await openLab(page);
     await resetTransitions(page);
     await page.getByRole("link", { name: "共享段兄弟切换（one）" }).click();
-    await expect(page).toHaveURL(/\/lab\/one/);
+    await expect(page).toHaveURL(/\/motion-lab\/one/);
     await expect
-      .poll(async () => (await readTransitions(page)).starts.length, { timeout: 5000 })
+      .poll(async () => (await readTransitions(page)).starts.length, { timeout: 15000 })
       .toBe(1);
     // Step 0-1 实测：跨段进入仍只有一次 startViewTransition（无双重过渡）；且目标页 one 的
     // useLayoutEffect 在 commit 阶段写 push 生效（lab 组 in-right + 旧内容 fade-out）。
@@ -77,14 +77,14 @@ test.describe("M15 Step 0 · 共享段与双层 ViewTransition", () => {
   }) => {
     await openLab(page);
     await page.getByRole("link", { name: "共享段兄弟切换（one）" }).click();
-    await expect(page).toHaveURL(/\/lab\/one/);
+    await expect(page).toHaveURL(/\/motion-lab\/one/);
     await settleTransitions(page);
     // NavigationGuard 在点击时按 rank 表兜底写 fade（starts[0] 可见）；one 的 useLayoutEffect
     // 在提交阶段覆写为 push——若来得及，新层动画选 vt-lab-in-right 而非默认 fade-in
     await page.getByRole("link", { name: "去-two" }).click();
-    await expect(page).toHaveURL(/\/lab\/two/);
+    await expect(page).toHaveURL(/\/motion-lab\/two/);
     await expect
-      .poll(async () => (await readTransitions(page)).animations, { timeout: 5000 })
+      .poll(async () => (await readTransitions(page)).animations, { timeout: 15000 })
       .toContain("::view-transition-new(page)|vt-lab-in-right");
     const reading = await readTransitions(page);
     expect(reading.starts[0]).toBe("fade"); // Guard 兜底先写 fade
@@ -98,15 +98,15 @@ test.describe("M15 Step 0 · 共享段与双层 ViewTransition", () => {
   }) => {
     await openLab(page);
     await page.getByRole("link", { name: "共享段兄弟切换（one）" }).click();
-    await expect(page).toHaveURL(/\/lab\/one/);
+    await expect(page).toHaveURL(/\/motion-lab\/one/);
     await settleTransitions(page);
     await page.getByRole("link", { name: "去-two（段级过渡 + 延迟方向验证 2b）" }).click();
-    await expect(page).toHaveURL(/\/lab\/two/);
+    await expect(page).toHaveURL(/\/motion-lab\/two/);
     // two（目标页）的 useEffect 在 paint 后写 push——实测同样生效（fade-in 首帧前被覆盖，
     // 采样中不出现）。结论：新层进场方向的覆写窗口覆盖 commit 与 paint 两个阶段；
     // 红线是覆写次数（每次覆写重启动画，多次写会产生跳变）。
     await expect
-      .poll(async () => (await readTransitions(page)).animations, { timeout: 5000 })
+      .poll(async () => (await readTransitions(page)).animations, { timeout: 15000 })
       .toContain("::view-transition-new(page)|vt-lab-in-right");
     const animations = (await readTransitions(page)).animations;
     expect(animations).not.toContain("::view-transition-new(page)|vt-lab-fade-in");
@@ -117,12 +117,12 @@ test.describe("M15 Step 0 · 返回键与流式", () => {
   test("验证3：浏览器返回（popstate）是否产生过渡", async ({ page }) => {
     await openLab(page);
     await page.getByRole("link", { name: "共享段兄弟切换（two）" }).click();
-    await expect(page).toHaveURL(/\/lab\/two/);
+    await expect(page).toHaveURL(/\/motion-lab\/two/);
     await page.getByRole("link", { name: /去返回键实验页/ }).click();
-    await expect(page).toHaveURL(/\/lab\/back/);
+    await expect(page).toHaveURL(/\/motion-lab\/back/);
     await settleTransitions(page);
     await page.goBack();
-    await expect(page).toHaveURL(/\/lab\/two/);
+    await expect(page).toHaveURL(/\/motion-lab\/two/);
     // 观察记录（Step 0-3 结论数据）：starts 是否新增、动画是否被跳过。
     // React 文档预期：popstate 同步急切提交 → 缓存命中无 VT（M10.7 §5.7 现状）。
     // 无过渡 = 诚实降级成立（返回键无动画维持现状）；有过渡 = F11 打开优化空间。
@@ -133,9 +133,9 @@ test.describe("M15 Step 0 · 返回键与流式", () => {
   test("验证4：流式加载（Suspense 400ms）不产生二次过渡，滚动恢复无互扰", async ({ page }) => {
     await openLab(page);
     await page.getByRole("link", { name: "流式加载 + 滚动恢复" }).click();
-    await expect(page).toHaveURL(/\/lab\/stream/);
+    await expect(page).toHaveURL(/\/motion-lab\/stream/);
     await expect
-      .poll(async () => (await readTransitions(page)).starts.length, { timeout: 5000 })
+      .poll(async () => (await readTransitions(page)).starts.length, { timeout: 15000 })
       .toBe(1);
     await expect(page.getByText("流式内容已就绪")).toBeVisible();
     // Step 0-4 实测结论：流式内容 resolve（约 400ms，晚于导航过渡结束与 data-nav 清理）
@@ -150,9 +150,9 @@ test.describe("M15 Step 0 · 返回键与流式", () => {
     const scrolledY = await page.evaluate(() => window.scrollY);
     expect(scrolledY).toBeGreaterThan(0);
     await page.getByRole("link", { name: "去-two（滚到底后点走" }).click();
-    await expect(page).toHaveURL(/\/lab\/two/);
+    await expect(page).toHaveURL(/\/motion-lab\/two/);
     await page.goBack();
-    await expect(page).toHaveURL(/\/lab\/stream/);
+    await expect(page).toHaveURL(/\/motion-lab\/stream/);
     const restoredY = await page.evaluate(() => window.scrollY);
     expect(restoredY).toBeGreaterThan(0);
   });

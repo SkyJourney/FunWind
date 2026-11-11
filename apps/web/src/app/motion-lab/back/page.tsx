@@ -20,7 +20,7 @@ export default function LabBack() {
         从 two 点进本页后执行浏览器返回（E2E goBack），观察是否产生过渡（React 文档预期：popstate
         启动的过渡动画被跳过）。
       </p>
-      <Link className="text-primary underline" href="/design/motion/lab/two">
+      <Link className="text-primary underline" href="/motion-lab/two">
         去-two
       </Link>
     </main>
