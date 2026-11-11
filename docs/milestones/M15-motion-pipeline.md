@@ -1,7 +1,7 @@
 # M15 · 统一动效管线（声明式动效引擎）
 
 - 阶段：四·运营与演进 ｜ 依赖：无（与 M14 相互独立）；设计基准：[M10.5-S4-VISUAL-MOTION](../M10.5-S4-VISUAL-MOTION.md)（四级动效体系与令牌）、M10.7（页面切换与流式动效）、[M13 备忘](M13-launch.md)（立项来源）
-- 状态：🚧 执行中（2026-11-09 立项，站长批准编排与 D1–D4；2026-11-11 二次前置探查复核完成，**推进计划已获站长批准**——Step A 进行中）
+- 状态：🚧 执行中（2026-11-09 立项，站长批准编排与 D1–D4；Step A 文档定稿、Step 0 技术验证已完成——五项结论回写 §10，下一步 Step 1 引擎内核）
 - 来源：站长 2026-11-09 立项——动效收敛为「全局默认 + 统一管理管线」：动效规则不再散落在路由表、
   CSS 选择器与组件 className 三处；页面 / 元素接入动效应声明式完成；并建立**生命周期钩子**，
   未来页面或元素接入动效可快速挂接。M13 备忘「统一页面切换动效管线」并入本里程碑。
@@ -192,6 +192,21 @@ flowchart TD
 - [ ] Step 3 元素层接入与魔法数清账
 - [ ] Step 4 全站收敛（rank 表退役）
 - [ ] Step 5 收口
+
+## 10. Step 0 技术验证结论（2026-11-11，实验路由 /design/motion/lab + e2e/vt-lab.spec.ts 实测）
+
+| # | 验证项 | 结论 | 实测证据 |
+|---|---|---|---|
+| 1 | 双包裹（F2） | ✅ **官方路径成立**：同段兄弟切换与跨段进入都只有一次 startViewTransition、根组动画（vt-page-*）不出现 | vt-lab 验证 1a/1b（starts=1、animations 仅 vt-lab-*） |
+| 2 | 方向延迟解析 | ✅ **可行（超出预期，窗口比预想更宽）**：目标页声明的覆写窗口覆盖 **commit（useLayoutEffect）与 paint（useEffect）两阶段**——两版都实测生效（新层动画选目标页声明的方向，「Guard 先写 fade、目标页覆写」双写模式工作正常）；**页面声明可以只写在页面组件里，不需要构建期路由清单**。红线 = **覆写次数**：每次覆写重启动画（fade-in 首帧被覆盖；多次写会产生可见跳变）→ 引擎约定每次导航只允许一次方向定稿 | vt-lab 验证 2a（useLayoutEffect → in-right 出现）/ 2b（useEffect → in-right 出现且 fade-in 不出现） |
+| 3 | 返回键（F11） | ✅ 诚实降级成立：goBack 后 starts=[]（无任何过渡）。返回键无动画维持现状，规范写明；Navigation API 优化空间留未来 | vt-lab 验证 3（starts=[]） |
+| 4 | 流式互扰 | ⚠️ **新互扰实锤**：Suspense fallback→content resolve（约 400ms，晚于导航过渡结束与 data-nav 清理）会触发**第二次 startViewTransition**（starts=["fade", null]），lab 组按默认 fade 再动一次 = 流式页导航后内容到达时闪一下。此现象与 M15 无关、生产现状即存在（任何 RSC streaming 页）。处置候选进 Step 1/2 设计吸收：Suspense resolve 包 startTransition 抑制 / 引擎钩子抑制 / 接受轻微闪变 | vt-lab 验证 4（固化断言 ["fade", null]） |
+| 5 | 支持面 | webkit（Safari 27.2 引擎）实测三项全支持；Firefox 本机 Playwright 启动失败（juggler profile 环境问题），按 caniuse/MDN：VT 同文档 = Firefox 144+ / Safari 18.0+（全球 93.17%），view-transition-class = Chrome 125+ / Firefox 144+ / Safari 18.2+（90.32%），types 参数 = Baseline 2025 Newly available（2025-10；Firefox 精确版本未经真机复核）。**引擎红线成立**：不支持环境必须同步可用（探测红线断言过） | e2e/vt-support.spec.ts + caniuse |
+
+- [x] Step 0 技术验证（5 项结论如上；实验路由 lab/ 与 vt-lab/vt-support spec 保留至 Step 4 清账）
+      **实验教训**：VT 采样必须在上一段过渡真正播完后 reset（页面过渡 slow 400ms，URL 变更早于动画
+      结束——过早 reset 会让上一段的采样混入新观察，首轮 2a/2b 结论因此被污染反噬）；spec 已加
+      settleTransitions 辅助。
 
 ## 遗留事项
 

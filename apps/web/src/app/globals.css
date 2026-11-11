@@ -348,6 +348,36 @@
   }
 }
 
+/* ===== M15 Step 0 实验：段级 ViewTransition（/design/motion/lab 专用，Step 4 清账时随 lab 移除）=====
+   根 template 的 .fw-page 组保持静止时，段级 lab 组做简单淡入淡出——E2E 靠组名区分「哪一层触发了过渡」 */
+::view-transition-old(.fw-lab-out) {
+  animation: var(--fw-dur-fast) var(--fw-ease-exit) both vt-lab-fade-out;
+}
+::view-transition-new(.fw-lab-in) {
+  animation: var(--fw-dur-base) var(--fw-ease-out) both vt-lab-fade-in;
+}
+/* 验证 2 判据：若目标页在提交阶段（useLayoutEffect）声明的方向来得及生效，
+   新层动画会从上面的默认 fade 变成下面的自右切入（data-nav 被 one 页覆写为 push） */
+:root[data-nav="push"]::view-transition-new(.fw-lab-in) {
+  animation: var(--fw-dur-slow) var(--fw-ease-out) both vt-lab-in-right;
+}
+@keyframes vt-lab-in-right {
+  from {
+    translate: var(--fw-page-shift) 0;
+    opacity: 0.6;
+  }
+}
+@keyframes vt-lab-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes vt-lab-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
 /* expand 触点扩散：卡片 → 主题页。新页以点击点为圆心圆形展开，旧页静止垫底不动。
    圆心 --vt-x / --vt-y 与终点半径 --vt-r 由 nav-kind.ts 写在 <html> 上（相对 [data-fw-page] 包装盒子）。
    终点半径 = 触点到视口最远角的距离，缓动用对称的 ease-inout：之前用 150vmax 加 expo-out（前快后慢），
