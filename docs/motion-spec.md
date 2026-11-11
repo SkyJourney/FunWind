@@ -8,62 +8,62 @@
 
 ### 1.1 既有令牌（S4 §2 继续有效，落 `styles/tokens/primitives.css`）
 
-| 令牌 | 值 | 用途 |
-|---|---|---|
-| `--fw-dur-fast` | 150ms | L1 微交互、页面旧层退场 |
-| `--fw-dur-base` | 250ms | L2/L4 常规淡入位移、进场 |
-| `--fw-dur-slow` | 400ms | L2 页面级方向过渡新层进场 |
-| `--fw-dur-spring` | 500ms | L3 过冲回弹、扩散打开 |
-| `--fw-ease-out` | cubic-bezier(0.22,1,0.36,1) | 进场 |
-| `--fw-ease-inout` | cubic-bezier(0.65,0,0.35,1) | 对称位移、扩散 |
-| `--fw-ease-spring` | cubic-bezier(0.34,1.56,0.64,1) | 过冲回弹 |
-| `--fw-ease-exit` | cubic-bezier(0.4,0,1,1) | 退场 |
+| 令牌               | 值                             | 用途                      |
+| ------------------ | ------------------------------ | ------------------------- |
+| `--fw-dur-fast`    | 150ms                          | L1 微交互、页面旧层退场   |
+| `--fw-dur-base`    | 250ms                          | L2/L4 常规淡入位移、进场  |
+| `--fw-dur-slow`    | 400ms                          | L2 页面级方向过渡新层进场 |
+| `--fw-dur-spring`  | 500ms                          | L3 过冲回弹、扩散打开     |
+| `--fw-ease-out`    | cubic-bezier(0.22,1,0.36,1)    | 进场                      |
+| `--fw-ease-inout`  | cubic-bezier(0.65,0,0.35,1)    | 对称位移、扩散            |
+| `--fw-ease-spring` | cubic-bezier(0.34,1.56,0.64,1) | 过冲回弹                  |
+| `--fw-ease-exit`   | cubic-bezier(0.4,0,1,1)        | 退场                      |
 
 ### 1.2 已升格令牌（M15 Step 3 完成，统一定义于 primitives.css，含桌面断点覆写）
 
-| 原散落形态 | 令牌 | 说明 |
-|---|---|---|
-| `--fw-page-shift`（28px / 桌面 14px，曾在 globals.css `:root`） | `primitives.css` 令牌 | 页面级位移，断点降半 |
-| `--fw-tab-shift`（min(24vw,96px) / 56px，曾在 globals.css `:root`） | `primitives.css` 令牌 | Tab 切换位移 |
-| `fw-nav-grow 12s`（慢网进度条 keyframes 内联时长） | `--fw-dur-progress: 12s` | 唯一的长时进度动画 |
-| `fw-float-up` 内联 `×1.75` 时长放大 | `--fw-dur-float-up: calc(var(--fw-dur-slow) * 1.75)` | 点赞浮起专用（slow × 1.75，时长不变） |
-| L4 stagger 步长 `50ms`（曾 8 处内联） | `--fw-stagger-step: 50ms` + `--fw-stagger-max: 10` | 进场编排步长与封顶；`<MotionList>` 按步长计算延迟，封顶与引擎 `MOTION_DEFAULTS.maxStaggerItems` 由守卫钉住一致 |
+| 原散落形态                                                          | 令牌                                                 | 说明                                                                                                           |
+| ------------------------------------------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `--fw-page-shift`（28px / 桌面 14px，曾在 globals.css `:root`）     | `primitives.css` 令牌                                | 页面级位移，断点降半                                                                                           |
+| `--fw-tab-shift`（min(24vw,96px) / 56px，曾在 globals.css `:root`） | `primitives.css` 令牌                                | Tab 切换位移                                                                                                   |
+| `fw-nav-grow 12s`（慢网进度条 keyframes 内联时长）                  | `--fw-dur-progress: 12s`                             | 唯一的长时进度动画                                                                                             |
+| `fw-float-up` 内联 `×1.75` 时长放大                                 | `--fw-dur-float-up: calc(var(--fw-dur-slow) * 1.75)` | 点赞浮起专用（slow × 1.75，时长不变）                                                                          |
+| L4 stagger 步长 `50ms`（曾 8 处内联）                               | `--fw-stagger-step: 50ms` + `--fw-stagger-max: 10`   | 进场编排步长与封顶；`<MotionList>` 按步长计算延迟，封顶与引擎 `MOTION_DEFAULTS.maxStaggerItems` 由守卫钉住一致 |
 
 预设关键帧内部的小位移（fw-enter 8px、fw-float-up 20px、fw-pop scale 等）属预设实现细节，留在 globals.css 预设区（sanctioned），不在升格清单；裸写守卫只约束业务代码与非令牌 CSS。
 
 ## 2. 页面预设（方向语义，自现行 nav-kind 行为归纳）
 
-| 方向 | 触发 | 旧层退场 | 新层进场 | 备注 |
-|---|---|---|---|---|
-| `push` | 目标层级更深 | fast · ease-exit · 左移出（page-shift） | slow · ease-out · 自右切入（opacity 0.6→1） | 「左切进入」 |
-| `pop` | 目标层级更浅 | fast · ease-exit · 右移出 | slow · ease-out · 自左切入 | 「右切返回」 |
-| `fade` | 同层 / 未知 / admin 路由组默认 | fast · ease-exit 淡出 | base · ease-out 淡入 | 克制默认 |
-| `tab-next` / `tab-prev` | 两个 Tab 根之间（TAB_ORDER 左右序） | base · ease-exit · 反方向移出 | slow · ease-out · 错开 fast/2 自方向切入（全透明起） | 位移用 tab-shift，「滑出再滑入」 |
-| `expand` | 内容卡片点进详情（触点扩散） | 静止垫底 | spring · inout · clip-path 圆形展开 | L3，圆心由 `onBeforeTransition` 测量写入 |
-| `collapse` | 详情经站内链接返回来源列表 | slow · inout · clip-path 圆形收起，旧层抬高 | 静止垫底 | 复用展开上下文；不能将退场组与进场组互换 |
+| 方向                    | 触发                                | 旧层退场                                    | 新层进场                                             | 备注                                     |
+| ----------------------- | ----------------------------------- | ------------------------------------------- | ---------------------------------------------------- | ---------------------------------------- |
+| `push`                  | 目标层级更深                        | fast · ease-exit · 左移出（page-shift）     | slow · ease-out · 自右切入（opacity 0.6→1）          | 「左切进入」                             |
+| `pop`                   | 目标层级更浅                        | fast · ease-exit · 右移出                   | slow · ease-out · 自左切入                           | 「右切返回」                             |
+| `fade`                  | 同层 / 未知 / admin 路由组默认      | fast · ease-exit 淡出                       | base · ease-out 淡入                                 | 克制默认                                 |
+| `tab-next` / `tab-prev` | 两个 Tab 根之间（TAB_ORDER 左右序） | base · ease-exit · 反方向移出               | slow · ease-out · 错开 fast/2 自方向切入（全透明起） | 位移用 tab-shift，「滑出再滑入」         |
+| `expand`                | 内容卡片点进详情（触点扩散）        | 静止垫底                                    | spring · inout · clip-path 圆形展开                  | L3，圆心由 `onBeforeTransition` 测量写入 |
+| `collapse`              | 详情经站内链接返回来源列表          | slow · inout · clip-path 圆形收起，旧层抬高 | 静止垫底                                             | 复用展开上下文；不能将退场组与进场组互换 |
 
 规则：layout 内容（顶栏/底部 Tab/页脚）为独立过渡组且保持静止；页面包装 `[data-fw-page]` 必须自带不透明背景（`--page-bg`）；过渡期间 `::view-transition` 不拦截指针。
 
 ## 3. 元素预设（类名约定，M15 Step 3 已落地）
 
-| 预设 | 类名 | 参数 | 用途 |
-|---|---|---|---|
-| `list.enter` | `.fw-enter` | base · ease-out · stagger-step 50ms · 封顶 10 项（首屏） | 列表首屏错落切入：`<MotionList>` 声明式挂类并按令牌步长计算延迟（已替代 8 处 `index*50ms` 内联） |
-| `list.append` | `.fw-fade-in` | base · ease-out · 无位移无延迟 | 翻页 / 触底追加入场：stream-list 追加类改引 `MOTION_ELEMENT_PRESETS["list.append"]`（不再裸写类名，renderItem 契约不变） |
-| `pop` | `.fw-pop` | spring · ease-spring | 点赞 / 关注弹跳（现行 500ms，不按 L1 的通用 150ms 改短）；其他按压仍走 fast |
-| `float-up` | `.fw-float-up` | dur-float-up · ease-out | 点赞浮起 |
+| 预设          | 类名           | 参数                                                     | 用途                                                                                                                     |
+| ------------- | -------------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `list.enter`  | `.fw-enter`    | base · ease-out · stagger-step 50ms · 封顶 10 项（首屏） | 列表首屏错落切入：`<MotionList>` 声明式挂类并按令牌步长计算延迟（已替代 8 处 `index*50ms` 内联）                         |
+| `list.append` | `.fw-fade-in`  | base · ease-out · 无位移无延迟                           | 翻页 / 触底追加入场：stream-list 追加类改引 `MOTION_ELEMENT_PRESETS["list.append"]`（不再裸写类名，renderItem 契约不变） |
+| `pop`         | `.fw-pop`      | spring · ease-spring                                     | 点赞 / 关注弹跳（现行 500ms，不按 L1 的通用 150ms 改短）；其他按压仍走 fast                                              |
+| `float-up`    | `.fw-float-up` | dur-float-up · ease-out                                  | 点赞浮起                                                                                                                 |
 
 `<MotionList>`（`engine/list.tsx`）是共享组件（无 `"use client"`，RSC 首屏即可挂类与延迟）：`cloneElement` 把预设类与延迟合并进条目根元素，不新增包裹盒子，DOM/版式/`:last-child` 零变化；`animate=false` 原样渲染（翻页/直达深页不重播）。预设定义（类名/时长/曲线）是引擎单一事实源 `MOTION_ELEMENT_PRESETS`；微交互组件（like-toggle/follow-toggle）继续消费 fw-* 类，行为零变化。
 
 ## 4. 导航生命周期钩子（契约）
 
-| 钩子 | 时机 | 签名（Step 1 定稿，类型见公开入口） | 现行归化 |
-|---|---|---|---|
-| `onIntent` | 捕获导航意图（链接 / 编程式 / Tab / 返回键） | `(ctx: MotionContext) => MotionSelection \| false \| void`；可改方向/预设，false 只取消动效 | NavigationGuard + resolveNavKind |
-| `onBeforeTransition` | 动效定稿后、驱动开始前 | `(ctx: MotionContext) => void`；旧快照所需测量必须由宿主在此时已具备 | 触点扩散圆心计算 |
-| `onReady` | 过渡伪元素就绪 | `(ctx: MotionContext) => void` | 手动 VT 助手收编处 |
-| `onFinish` / `onSkip` | 过渡结束 / 被跳过 | `onFinish(ctx)` / `onSkip(ctx, reason: MotionSkipReason)`；错误/超时/取消均有独立原因 | releaseNavKind 等 finished |
-| 元素 `onEnter` / `onInView` / `onExit` / `onUpdate` | 挂载 / 滚入视口 / 退场（VT 快照语义）/ 布局更新 | `(ctx: MotionElementContext) => void`；包含 node 与作用域 | stream-list 哨兵 |
+| 钩子                                                | 时机                                            | 签名（Step 1 定稿，类型见公开入口）                                                         | 现行归化                         |
+| --------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------- |
+| `onIntent`                                          | 捕获导航意图（链接 / 编程式 / Tab / 返回键）    | `(ctx: MotionContext) => MotionSelection \| false \| void`；可改方向/预设，false 只取消动效 | NavigationGuard + resolveNavKind |
+| `onBeforeTransition`                                | 动效定稿后、驱动开始前                          | `(ctx: MotionContext) => void`；旧快照所需测量必须由宿主在此时已具备                        | 触点扩散圆心计算                 |
+| `onReady`                                           | 过渡伪元素就绪                                  | `(ctx: MotionContext) => void`                                                              | 手动 VT 助手收编处               |
+| `onFinish` / `onSkip`                               | 过渡结束 / 被跳过                               | `onFinish(ctx)` / `onSkip(ctx, reason: MotionSkipReason)`；错误/超时/取消均有独立原因       | releaseNavKind 等 finished       |
+| 元素 `onEnter` / `onInView` / `onExit` / `onUpdate` | 挂载 / 滚入视口 / 退场（VT 快照语义）/ 布局更新 | `(ctx: MotionElementContext) => void`；包含 node 与作用域                                   | stream-list 哨兵                 |
 
 硬性约束（Step 1 实现与守卫依据）：
 
@@ -89,6 +89,7 @@
 2. L4 进场编排（.fw-enter / append）：动画归零，内容直接呈现；
 3. L3 触点扩散：退化为普通切换；
 4. **L1 状态反馈保留，运动效果按现状禁用**：现行 reduce 规则取消 pop / roll / switch 动画并隐藏 float-up，按压/色变仍按既有 CSS 工作；不把“保留即时反馈”误读为重开位移/弹跳。
+5. **弹层全局兜底（M16）**：tw-animate-css 的 animate-in/out 类在 reduce 下由 globals.css 全局规则归零（Dialog/Sheet/DropdownMenu/Popover/Tooltip 及后续 HoverCard）——不换库、不改第三方 dist；sonner 自带 reduce 全禁、Lightbox 由库管理，兜底规则不得误伤；守卫断言钉住覆盖。
 
 ## 6.1 Step 1 内核边界与定稿契约
 
@@ -112,23 +113,35 @@
 - **流式边界**：`update="none" default="none"` 明确关闭持久页面边界的更新动画；pathname-key 变化形成进退场。同 key 的流式就绪不产生额外整页动画/导航会话；独立子 VT、空的原生 start 仍可能存在，不要求全局原生 start 次数永远等于一。
 - **测试宿主（Step 4 脱离 lab）**：`motion-lab` 与实验面板已删除。pilot E2E 改用 `motion-test-harness.tsx`——测试专用持久宿主，挂根 layout、provider 内、页面边界外（落全局作用域），仅 E2E 经 addInitScript 置 `window.__fwMotionTest` 激活，生产渲染 null 不注册钩子；以真实 MotionLink/useMotionRouter 跨页验证，生命周期 hook 写只含阶段与编号的诊断输出，不导出应用私有 router。
 
+## 6.3 M16 增补契约（动效补全与全站审计）
+
+- **状态级 VT 主题切换（M16-D2）**：主题包（`dataset.pack`）与明暗（next-themes data-mode）切换用引擎 `playStateTransition` 包住「属性写入 + setState」——整页快照约 250ms 交叉溶解，令牌驱动；与页面导航 VT（`html[data-motion-direction]`）互不干扰（`html[data-vt]` 机制，Step 3 已验证）。reduce/无 API 时引擎自动降级为直改，内容永不阻塞。与 next-themes `disableTransitionOnChange` 的配合以 Step 0 实验结论为准。
+- **图片显影（M16-D3）**：统一「占位背景 + onLoad 淡入」组件化方案——图片容器自带 muted 占位底色（防布局白块），加载完成挂类淡入（令牌时长）；`loading="lazy"` 延续。**首屏 LCP 元素豁免规则由 Step 0 实验定**（淡入可能推迟 LCP 计入）：豁免位不挂淡入类，直接渲染。应用到正文 content-md img、FeedCard 封面、Avatar、板块图、hero（视豁免）、上传预览；Lightbox 已有库动效不动。
+- **onInView 消费（M16）**：元素钩子 `onInView` 用于「滚入视口才显现」的场景——首屏直出、深层内容滚入淡入；实现基于 IntersectionObserver，与 stream-list 哨兵同源；reduce 下直接呈现（归零兜底覆盖）。首屏/深层的边界以 Step 0 实验结论为准。
+- **门控解锁 reveal（M16）**：解锁成功后隐藏内容的呈现走 reveal 过渡（方案按 Step 0 结论——VT expand 管线复用或进场淡入），reduce 降级为直接呈现；解锁失败路径反馈不变。
+- **横幅与 HoverCard（M16）**：公告横幅出现/关闭加 slide/fade 过渡（关注其推挤布局的跳动缓解）；UserHoverCard 进出场对齐 Popover 的 fade 口径（令牌时长）；两者 reduce 下均被兜底归零。
+- **锚点与回顶（M16-D4）**：锚点 #p{pid} 跳转平滑滚动 + 目标楼层短暂高亮；回顶按钮显隐复用 ReplyFab 同款可见性模式；两者均须 `motion-reduce` 安全（reduce 下瞬时跳转）。
+- **返回键（M16-D1）**：三路线实验先行（Navigation API 重驱动 / 手动 startViewTransition 包 popstate / 对照跳过），以「动画发生 + 滚动恢复正确 + 历史栈不被污染 + 生产构建可用」为准；任一不满足即维持诚实跳过，不伪装 push。
+
 ## 7. 守卫与验收
 
-| 守卫 | 内容 |
-|---|---|
+| 守卫                      | 内容                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 裸写禁令（Step 3 已上线） | `motion-bare-write-guard.test.ts`：业务 TS/TSX（app/**、components/**）禁裸写 `animationDelay/Duration`（纯令牌引用豁免）、`cubic-bezier(`、`animation` 简写裸时长；非令牌 CSS 禁裸写时长/曲线。白名单 = 令牌文件（styles/tokens/**）、引擎模块；globals.css 预设区已全量令牌化故全文件零命中。检测器纯函数 + fixture 自检 + 隔离副本变异验证。预设关键帧内部小位移属 sanctioned 预设区，不在禁令范围 |
-| 架构守卫 | 引擎（`lib/motion/`）不得 import 业务代码（`app/**`、`components/**` 业务域）；引擎不持有业务状态；`LEGACY_ENTRIES` 仅留 nav-guard.ts（Step 4 退役 nav-kind/view-transition） |
-| 注册表方向矩阵 | Step 4 一致性对比退役后，纯注册表方向/声明/query-hash 不变性矩阵承载（新增页面自动纳入） |
-| 静态零变 | visual 基线零更新（`animations: "disabled"`） |
-| 性能 | 页面/元素预设动画（keyframes）只动 `transform/opacity/clip-path`；`will-change` 仅限进行中过渡；LCP 不回退。S4 既有的 hover 过渡（box-shadow/border-color）按 S4 自身口径继续有效，不在本红线内 |
-| 依赖 | 不引入第三方动效库（零依赖栈延续，F8） |
+| 架构守卫                  | 引擎（`lib/motion/`）不得 import 业务代码（`app/**`、`components/**` 业务域）；引擎不持有业务状态；`LEGACY_ENTRIES` 仅留 nav-guard.ts（Step 4 退役 nav-kind/view-transition）                                                                                                                                                                                                                         |
+| 注册表方向矩阵            | Step 4 一致性对比退役后，纯注册表方向/声明/query-hash 不变性矩阵承载（新增页面自动纳入）                                                                                                                                                                                                                                                                                                              |
+| 静态零变                  | visual 基线零更新（`animations: "disabled"`）；M16 新增的图片占位背景类改动先定截图核对策略                                                                                                                                                                                                                                                                                                           |
+| reduce 覆盖断言（M16）    | reduce 块须覆盖 tw-animate 弹层类与全部元素预设类（语义级断言：规则体真归零）；sonner/Lightbox 排除核对                                                                                                                                                                                                                                                                                               |
+| 性能                      | 页面/元素预设动画（keyframes）只动 `transform/opacity/clip-path`；`will-change` 仅限进行中过渡；LCP 不回退。S4 既有的 hover 过渡（box-shadow/border-color）按 S4 自身口径继续有效，不在本红线内                                                                                                                                                                                                       |
+| 依赖                      | 不引入第三方动效库（零依赖栈延续，F8）                                                                                                                                                                                                                                                                                                                                                                |
 
 ## 8. Step 映射
 
-| 规范节 | 落地 Step |
-|---|---|
-| §1.2 令牌升格 + §3 元素预设（MotionList）+ §7 裸写守卫 | Step 3 ✅ |
-| §2 页面预设 + §4 导航钩子 + §5 注册表/全站收敛 | Step 1（内核）→ Step 2（试点）→ Step 4 ✅（全站接管） |
-| §4 元素钩子（onEnter/onInView 等） | 引擎已具备（`engine.element`/`useMotionLifecycle`）；业务挂点随 Step 3/4 按需接入 |
-| §6 reduced-motion 统一 | Step 3 ✅（CSS reduce 仍为稳健机制，引擎拥有预设定义，守卫钉住元素预设覆盖；页面导航 reduce 由引擎驱动） |
-| §5 退役（rank/data-nav/一致性测试） | Step 4 ✅（引擎自有方向属性 data-motion-direction，注册表单一事实源） |
+| 规范节                                                                                                       | 落地 Step                                                                                                |
+| ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| §1.2 令牌升格 + §3 元素预设（MotionList）+ §7 裸写守卫                                                       | Step 3 ✅                                                                                                |
+| §2 页面预设 + §4 导航钩子 + §5 注册表/全站收敛                                                               | Step 1（内核）→ Step 2（试点）→ Step 4 ✅（全站接管）                                                    |
+| §4 元素钩子（onEnter/onInView 等）                                                                           | 引擎已具备（`engine.element`/`useMotionLifecycle`）；业务挂点随 Step 3/4 按需接入                        |
+| §6 reduced-motion 统一                                                                                       | Step 3 ✅（CSS reduce 仍为稳健机制，引擎拥有预设定义，守卫钉住元素预设覆盖；页面导航 reduce 由引擎驱动） |
+| §5 退役（rank/data-nav/一致性测试）                                                                          | Step 4 ✅（引擎自有方向属性 data-motion-direction，注册表单一事实源）                                    |
+| §6 第 5 条（弹层 reduce 兜底）+ §6.3 增补契约（主题 VT/图片显影/onInView/reveal/横幅/HoverCard/锚点/返回键） | M16（Step 0 实验定豁免与方案 → Step 1 兜底 → Step 2/3 场景 → Step 4 覆盖）                               |
