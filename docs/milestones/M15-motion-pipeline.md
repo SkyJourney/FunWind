@@ -306,7 +306,8 @@ flowchart TD
 
 - **PR/CI**：[PR #13](https://github.com/SkyJourney/FunWind/pull/13)（feat/m15-motion-pipeline → main，
   8 提交）。CI 双作业全绿——verify 9m07s、e2e 15m55s（run 43074279104）；merge commit `5dcb724`
-  （merge commit 保留分步提交历史），main push CI 留档独立运行。
+  （merge commit 保留分步提交历史）；main push CI 留档：合并提交的运行被后续收口文档提交按
+  ci.yml `cancel-in-progress` 取代，当前 main HEAD `c1e8534` 留档 **success**（同代码 + 收口文档）。
 - **生产部署（仅 web，D4 公测口径）**：本机 `docker build --platform linux/amd64`（M14 架构防呆口径）→
   `docker save | ssh load` → 服务器 `inspect` 核对 arch=amd64 → 打版本戳 `funwind-web:20261112` →
   `cd /opt/funwind/app && docker compose up -d`。**无 schema 迁移、ops 管线未触碰**（M15 纯前端）；
