@@ -1,7 +1,7 @@
 # M15 · 统一动效管线（声明式动效引擎）
 
 - 阶段：四·运营与演进 ｜ 依赖：无（与 M14 相互独立）；设计基准：[M10.5-S4-VISUAL-MOTION](../M10.5-S4-VISUAL-MOTION.md)（四级动效体系与令牌）、M10.7（页面切换与流式动效）、[M13 备忘](M13-launch.md)（立项来源）
-- 状态：🚧 执行中（2026-11-09 立项，站长批准编排与 D1–D4；Step A / 0 / 1 / 2 / 3 / 4 已完成，全站收敛与 rank/data-nav 旧链退役已落地——引擎自有方向属性、注册表单一事实源；Step 4.5 独立审查尚未开始，未合并 main、未部署生产）
+- 状态：🚧 执行中（2026-11-09 立项，站长批准编排与 D1–D4；Step A / 0 / 1 / 2 / 3 / 4 / 4.5 已完成——全站收敛与旧链退役落地、收口前独立审查无 P0 且 P1 全部整改（含实测修复跨组退出瞬切缺陷）；仅剩 Step 5 收口（PR/CI/部署），未合并 main、未部署生产）
 - 来源：站长 2026-11-09 立项——动效收敛为「全局默认 + 统一管理管线」：动效规则不再散落在路由表、
   CSS 选择器与组件 className 三处；页面 / 元素接入动效应声明式完成；并建立**生命周期钩子**，
   未来页面或元素接入动效可快速挂接。M13 备忘「统一页面切换动效管线」并入本里程碑。
@@ -114,6 +114,10 @@ flowchart TD
 - **灰度并存（D3）**：注册表逐段接管；未接管路由由现 nav-kind 兜底。一致性测试 = 两套方向判定对全
   路由矩阵（现有 73 页清单）比对一致，收敛完成后 rank 表与 `data-nav` 选择器整体退役。
 
+> **终态指针（Step 4 已完成，见 §14）**：以上 §3.1/§3.3 的「试点 / 灰度并存 / data-nav 兜底」均为设计时点
+> 口径。终态为：全站接管（非共享路由 pathname-key、共享组壳内下沉 `PageMotionBoundary`）、方向桥改引擎
+> 自有属性 `html[data-motion-direction]`、rank 表与 `data-nav` 选择器与一致性矩阵已退役。
+
 ### 3.4 引擎形态与边界（D1）
 
 - 按**独立包的边界设计**：唯一公开入口（barrel），内部模块不对引擎外导出；架构守卫（F10 同级测试）
@@ -190,7 +194,7 @@ flowchart TD
 - [x] Step 2 页面层接入与共享段过渡（2026-11-11，范围、实验勘误、独立复核整改与门禁见 §12；本地灰度，未部署）
 - [x] Step 3 元素层接入与魔法数清账（2026-11-11，范围、裸写守卫与门禁见 §13；本地灰度，未部署）
 - [x] Step 4 全站收敛（rank 表退役）（2026-11-11，方向桥退役/全站接管/边界下沉/一致性退役/资产清理与门禁见 §14；本地灰度，未部署）
-- [ ] Step 4.5 独立审查与站长交互验收
+- [x] Step 4.5 独立审查与站长交互验收（2026-11-11，两路自查无 P0、4 项 P1 整改含实测修复跨组退出瞬切，报告见 [reviews](../reviews/2026-11-11-m15-code-review.md) 与 §15；站长交互目视验收随 Step 5 收口一并执行）
 - [ ] Step 5 收口
 
 ## 10. Step 0 技术验证结论（2026-11-11，实验路由 /motion-lab + e2e/vt-lab.spec.ts 实测）
@@ -264,8 +268,8 @@ flowchart TD
   - `components/site/nav-geometry.ts`：expand/collapse 几何（`resolveNavGeometry`/`coverRadius`/`ExpandRecord`/`currentViewport`/`resetExpandRecord`），base 方向改接注册表 `siteMotionDirection`（与旧 kindBetween 全矩阵一致，一致性测试退役前已验证），几何逻辑逐字保持。
   - `components/site/nav-direction.ts`：引擎自有属性 `setDirection`/`clearDirection`/`releaseDirection`，写 `html[data-motion-direction]` + `--vt-x/y/r`，保留 15s 保底超时 + directionRevision 代次校验。
   - 方向归注册表单一事实源；CSS 选择器 `:root[data-nav]` → `:root[data-motion-direction]`（**同名 keyframes 不动**，E2E 动画名断言零改动）；`transitionTypes` 仍透传作为原生类型层。抉择理由：保留「几百处链接无需逐个加类型」的原设计优点；expand/collapse 在点击拦截时定稿，引擎在导航 transition 之外写属性，不依赖 `addTransitionType`（它只能在 startTransition 回调内调用）。
-- **全站接管**：移除 `isMotionPilot` 灰度门，`page-motion` 对所有路由（除同 pathname 查询串变化）建引擎会话。根边界 `motion-boundary`：非共享路由 pathname-key 接管（组内/跨页都进退场）；共享路由（`hasSharedLayout`=admin/settings）根边界 key/pageKey=`root-shared`、enter/exit=`none`（不重挂共享壳、不认领会话、不播动画）。
-- **共享 layout 边界下沉**：新增 `page-motion-boundary.tsx`（pathname-key MotionPage）；`admin-shell.tsx` 与 `settings/layout.tsx` 把 children 包进该边界——组内切换 fade 微动，侧栏/头部/抽屉在边界外静止不重挂；每会话恰一个边界认领（根 root-shared 不匹配、内层 pathname 匹配）。`MotionPage` enter/exit 升为可配置 props。admin 注册表 preset 改 `"admin"`（引擎 `resolveMotionPlan` 层恒 fade，保持克制；`siteMotionDirection` 仍是纯层级/Tab 算法，preset 方向在 resolver 层生效）。
+- **全站接管**：移除 `isMotionPilot` 灰度门，`page-motion` 对所有路由（除同 pathname 查询串变化）建引擎会话。根边界 `motion-boundary`：非共享路由 pathname-key 接管（组内/跨页都进退场）；共享路由（`hasSharedLayout`=admin/settings）根边界 key/pageKey=`root-shared`、enter=`none`（跨组进入不与下沉边界双进场）、exit 默认（跨组退出旧页正常淡出；Step 4.5 边界 E2E 实测校准——嵌套 VT 在模板重挂卸载子树时不触发退场，根层是共享侧唯一可靠的退场载体）。
+- **共享 layout 边界下沉**：新增 `page-motion-boundary.tsx`（pathname-key MotionPage）；`admin-shell.tsx` 与 `settings/layout.tsx` 把 children 包进该边界——组内切换 fade 微动，侧栏/头部/抽屉在边界外静止不重挂；每会话恰一个边界认领（根 root-shared 不匹配、内层 pathname 匹配）。`MotionPage` enter/exit 升为可配置 props。admin 注册表 preset 改 `"admin"`（引擎 `resolveMotionPlan` 层默认 fade，显式 direction hint 仍可覆盖，保持克制；`siteMotionDirection` 仍是纯层级/Tab 算法，preset 方向在 resolver 层生效）。
 - **一致性退役**：`motion-routes.test` 删 kindBetween 全矩阵对比（82）+ isMotionPilot 试点块（20）+ lab 基线/枚举；`resolver.test` 删 49 对一致性矩阵；保留纯注册表方向/声明/query-hash 不变性断言。`nav-kind.test` 34 例：11 方向例删除（注册表矩阵已覆盖），23 例忠实迁 `nav-direction.test`（10：属性时序 7 + 圆心 3）+ `nav-geometry.test`（13：扩散/收起几何）。
 - **资产清理**：删 `motion-lab/*`（7 文件）、`motion-lab-panel`、`navigation-demo`、`vt-lab.spec`、`vt-support.spec`、`playwright.vt-support.config`、`view-transition` facade + 其测试（等价覆盖已在 `native.test`）；`globals.css` 删 lab 块（fw-lab-*/vt-lab-*）。架构守卫 `LEGACY_ENTRIES` 仅留 `nav-guard.ts`（点击/进度/失败兜底守卫，非方向）。
 - **pilot harness 解耦**：新增 `motion-test-harness.tsx`（测试专用持久宿主，挂根 layout、provider 内、页面边界外故落全局作用域；仅 E2E 经 addInitScript 置 `window.__fwMotionTest` 激活，生产渲染 null 不注册钩子），复刻面板契约用真实 MotionLink/useMotionRouter。pilot 11 例 `open()` 改 flag+goto 脱离 lab；流式用例改用真实异步页（/boards→主题）验证「单会话、流式就绪不伪造第二会话」不变量。
@@ -275,8 +279,33 @@ flowchart TD
 - **变异验证**：架构守卫 156 项（含各导入形态反向依赖/深导/唯一入口自检）与裸写守卫 25 项（含业务裸写必拦截/合法写法不误伤/令牌白名单自检）全绿，覆盖退役后守卫有效性。
 - **边界**：微交互组件行为零变化（15 例 E2E 零删减）；全站 pathname-key 收敛给原本无动画的组内导航新增 fade（收敛目标，非删减）；Step 4.5 独立审查、Step 5 PR/CI/部署未执行；未合并 main、未部署生产。
 
+## 15. Step 4.5 收口前独立审查（2026-11-11）
+
+- **方式**：两路独立只读自查（安全/架构路 + 评审规范/文档一致性路），覆盖 Step 1–4；报告与逐项整改见
+  [docs/reviews/2026-11-11-m15-code-review.md](../reviews/2026-11-11-m15-code-review.md)。结论**无 P0**，4 项 P1 全部整改。
+- **架构路 P1 → 实际发现并修复一个视觉缺陷**：共享 layout 边界下沉原为零自动化覆盖。补 4 条边界契约 E2E
+  （admin 组内 / settings 组内 / 跨组进 / 跨组出，标记壳内导航节点实证不重挂）后实测发现：跨组退出时旧页瞬切——
+  嵌套 VT 在模板重挂卸载子树时不触发退场，而根共享边界 `exit="none"` 抑制了根层退场。修复为根共享边界
+  `enter="none"`、exit 恢复默认：跨组退出旧页正常淡出，跨组进入不与下沉边界双进场（进入侧旧内容被出/进两侧
+  各捕获一次，同位置同动画，视觉为单次淡出——React VT 模板重挂特性，已钉进用例断言与文档）。4 条用例全绿。
+- **规范路 P1**：ROADMAP/S4「结果待回填」改为「已回填」；motion-spec §6.1 旧链陈述补时点标注（Step 4 已退役）；
+  「admin 恒 fade」5 处改为「默认 fade，显式 direction hint 仍可覆盖」。
+- **P2 整改**：过时注释/措辞同步（template/globals×2/native/motion-demo）；M15 设计节终态指针、遗留事项校准
+  （手动 VT 已完成、Radix reduce 属既有体系）；motion-spec §6.2 补共享壳层钩子作用域陷阱、§7 性能红线澄清适用范围；
+  裸写守卫加固（引号键/kebab-case/CSS delay + 3 条变异 fixture，25→28 项）与 reduce 语义断言升级；harness 措辞修正。
+  另有 4 项记录在案由收口裁量（见报告）。
+- **回归**：共享组边界 4 条 E2E 全绿；裸写守卫 28 项、架构守卫 156 项全绿；全量门禁见下。
+- **最终门禁**：`pnpm verify:all` 退出 0——web 4,586（+3 条守卫变异 fixture）/ db 124 / content 55 / migration 278，
+  脚本 18 项，类型/lint/格式/秘密扫描/构建均通过；jscpd 1,405 行 / 159 克隆与原基线持平。`pnpm test:e2e`
+  生产 503（499 + 4 条边界契约用例）+ dev 8 全过（微交互 15 例零删减）；`pnpm test:e2e:install` 4 全过；
+  `pnpm test:visual` 10 全过、**截图基线零更新**；四页 LCP 76 / 136 / 192 / 84ms 全部低于 2,500ms 本地预算
+  （开发迁移库，未重置/重种）。
+
 ## 遗留事项
 
 - （收口时回写）主题包动效槽（D2 预留接口）。
 - （收口时回写）FLIP 布局动画（`onUpdate`）是否立项。
-- （收口时回写）手动 VT 助手（`withViewTransition`）收编进度与 /design/motion 演示页更新。
+- ~~手动 VT 助手（`withViewTransition`）收编~~：已完成——Step 3 收编进引擎（`engine/native.ts` 的
+  `playStateTransition`，等价覆盖在 native.test），Step 4 删除 facade，/design/motion 演示页已改用引擎 API。
+- （Step 4.5 审查记录）Radix/tw-animate-css 弹层体系在 reduce 下仍按自身动画运行（tw-animate-css dist 无
+  prefers-reduced-motion 规则）——属 M15 §2 明确不动的既有体系，留作后续评估，不在本期整改。

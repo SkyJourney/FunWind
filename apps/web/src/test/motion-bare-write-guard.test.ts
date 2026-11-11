@@ -31,7 +31,12 @@ export function inlineMotionViolations(sources: Sources): string[] {
       const at = `${path}:${i + 1}`;
       if (CUBIC.test(line))
         violations.push(`${at} → 业务代码裸写 cubic-bezier 曲线（须用 --fw-ease-* 令牌）`);
-      if (/animation(?:Delay|Duration)\s*:/.test(line)) {
+      // 覆盖驼峰/引号键/kebab-case（style 字符串属性）三种写法，堵住文本匹配缝隙（Step 4.5 审查 P2）
+      if (
+        /["']?(?:animation(?:Delay|Duration)|animation-delay|animation-duration)["']?\s*:/.test(
+          line,
+        )
+      ) {
         const tokenOnly = /var\(--fw-/.test(line) && !TIME_LITERAL.test(line) && !/\$\{/.test(line);
         if (!tokenOnly)
           violations.push(
@@ -55,7 +60,7 @@ export function cssMotionViolations(css: Record<string, string>): string[] {
       const at = `${path}:${i + 1}`;
       if (CUBIC.test(line))
         violations.push(`${at} → CSS 裸写 cubic-bezier（须用 --fw-ease-* 令牌）`);
-      const decl = /(?:animation|transition)(?:-duration)?\s*:\s*([^;{}]+)/.exec(line);
+      const decl = /(?:animation|transition)(?:-duration|-delay)?\s*:\s*([^;{}]+)/.exec(line);
       if (decl && TIME_LITERAL.test(decl[1]!))
         violations.push(`${at} → CSS 裸写动画/过渡时长（须用 --fw-dur-* 令牌）`);
     });
@@ -138,6 +143,8 @@ describe("动效裸写守卫自身：检测器有效性（变异自检）", () =
     ['export const A = () => <div style={{ animationDuration: "2s" }} />;', "animationDuration"],
     ['export const A = () => <div style={{ animation: "x 200ms ease" }} />;', "animation"],
     ['export const ease = "cubic-bezier(0.1, 0.2, 0.3, 0.4)";', "cubic-bezier"],
+    ['export const A = () => <div style={{ "animationDelay": "120ms" }} />;', "引号键"],
+    ['export const A = () => <div style="animation-delay: 120ms" />;', "kebab-case 字符串属性"],
   ])("业务裸写必被拦截：%s", (body) => {
     expect(inlineMotionViolations({ "components/evil.tsx": body })).toHaveLength(1);
   });
@@ -168,6 +175,7 @@ describe("动效裸写守卫自身：检测器有效性（变异自检）", () =
     [".x { animation: foo 200ms ease; }", "裸时长"],
     [".x { transition: opacity 150ms; }", "裸过渡时长"],
     [".x { animation-timing-function: cubic-bezier(0.1, 0.2, 0.3, 0.4); }", "裸曲线"],
+    [".x { animation-delay: 200ms; }", "裸 delay"],
   ])("非令牌 CSS 裸写必被拦截：%s", (body) => {
     expect(cssMotionViolations({ "app/evil.css": body })).toHaveLength(1);
   });
@@ -199,8 +207,16 @@ describe("M15 Step 3 reduced-motion 收编核对", () => {
       .map((m) => m[1])
       .join("\n");
     expect(reduceBlocks.length).toBeGreaterThan(0);
+    // 语义断言（Step 4.5 审查 P2-8）：类名所在规则体必须真的归零，而非仅「出现」在 reduce 块内
     for (const preset of Object.values(MOTION_ELEMENT_PRESETS)) {
-      expect(reduceBlocks, `reduce 须覆盖 ${preset.className}`).toContain(preset.className);
+      const at = reduceBlocks.indexOf(`.${preset.className}`);
+      expect(at, `reduce 块须包含 ${preset.className}`).toBeGreaterThanOrEqual(0);
+      const body = reduceBlocks
+        .slice(reduceBlocks.indexOf("{", at) + 1, reduceBlocks.indexOf("}", at))
+        .trim();
+      expect(body, `reduce 须归零 ${preset.className}`).toMatch(
+        /^(?:animation|display)\s*:\s*none;?$/,
+      );
     }
     expect(reduceBlocks).toContain("animation: none");
     expect(reduceBlocks).toContain("display: none");

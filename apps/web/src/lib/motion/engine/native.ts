@@ -3,7 +3,7 @@
  *
  * 浏览器适配层：document / window 只在函数体内访问，模块顶层无浏览器依赖，SSR 安全。
  * 引擎核心仍是纯逻辑；本模块为「非路由」的状态切换（如演示页卡片扩散打开）提供原生驱动，
- * 与路由级过渡（html[data-nav]）互不干扰。reduce / 无 API 时直接执行 update，绝不阻塞操作。
+ * 与路由级过渡（html[data-motion-direction]）互不干扰。reduce / 无 API 时直接执行 update，绝不阻塞操作。
  * 类型语义：fade=默认淡入；expand=触点扩散（圆心写入 --vt-x/--vt-y 供 vt-expand 关键帧消费）。
  */
 

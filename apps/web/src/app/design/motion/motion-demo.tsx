@@ -112,7 +112,7 @@ function DirectionalDemo() {
           返回 pop（自左切入）
         </Button>
         <p className="text-xs text-muted-foreground">
-          方向预设与令牌由引擎提供；真实路由切换见页面管线（/t、/a 试点）。
+          方向预设与令牌由引擎提供；真实路由切换见全站页面管线（motion-spec §6.2）。
         </p>
       </div>
     </div>

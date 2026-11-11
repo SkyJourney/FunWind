@@ -17,12 +17,13 @@
   （它只能在 startTransition 回调内调用）。
 - **全站接管**：移除 `isMotionPilot` 灰度门，`page-motion` 对所有路由（除同 pathname 查询串变化）建引擎会话。
   根边界 `motion-boundary`：非共享路由 pathname-key 接管（组内/跨页都进退场）；共享路由
-  （`hasSharedLayout`=admin/settings）根边界 key/pageKey=`root-shared`、enter/exit=`none`
-  （不重挂共享壳、不认领会话、不播动画）。
+  （`hasSharedLayout`=admin/settings）根边界 key/pageKey=`root-shared`、enter=`none`（跨组进入不双进场）、
+  exit 默认（跨组退出旧页正常淡出；不重挂共享壳、不认领会话）。
 - **共享 layout 边界下沉**：新增 `page-motion-boundary.tsx`（pathname-key MotionPage）；`admin-shell.tsx` 与
   `settings/layout.tsx` 把 children 包进该边界——组内切换 fade 微动，侧栏/头部/抽屉在边界外静止不重挂，
   每会话恰一个边界认领（根 root-shared 不匹配、内层 pathname 匹配）。`MotionPage` enter/exit 升为可配置 props。
-  admin 注册表 preset 改 `"admin"`（引擎 `resolveMotionPlan` 层恒 fade，保持克制）。
+  admin 注册表 preset 改 `"admin"`（引擎 `resolveMotionPlan` 层默认 fade，显式 direction hint 仍可覆盖，
+  保持克制）。
 - **一致性退役**：`motion-routes.test` 删 kindBetween 全矩阵对比 + isMotionPilot 试点块 + lab 基线；`resolver.test`
   删 49 对一致性矩阵；保留纯注册表方向/声明/query-hash 不变性断言。`nav-kind.test` 34 例：11 方向例删除
   （注册表矩阵已覆盖），23 例忠实迁 `nav-direction.test`（10）+ `nav-geometry.test`（13）。

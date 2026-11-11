@@ -12,7 +12,8 @@ const readTestFlag = () =>
 /**
  * 测试专用持久导航 harness（M15 Step 4 脱离 motion-lab）：挂在根 layout、provider 内、页面边界外，
  * 故 useMotionLifecycle 落全局作用域，跨页导航持续记录生命周期。仅当 E2E 经 addInitScript 置
- * window.__fwMotionTest 时渲染并注册钩子；生产无 flag 时渲染 null、不注册——不是 lab 实验资产。
+ * window.__fwMotionTest 时渲染并注册带回调的生命周期钩子；生产无 flag 时渲染 null 且钩子对象为空
+ * （不含任何回调，无可观察效果）——不是 lab 实验资产。
  * 用真实 MotionLink / useMotionRouter 验证兄弟页与跨根导航，契约与旧实验面板一致供 pilot 用例复用。
  */
 export function MotionTestHarness() {

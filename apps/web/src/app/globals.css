@@ -249,7 +249,7 @@
 }
 
 /* ===== 页面级过渡（M10.7 Step 4b）=====
-   template.tsx 用 React <ViewTransition> 给页面内容打 `.fw-page` 类；浏览器同时持有新旧两张快照，进退场都能动。
+   template.tsx 经 SiteMotionBoundary → MotionPage 给页面内容挂 `fw-page-in/fw-page-out` 类；浏览器同时持有新旧两张快照，进退场都能动。
    方向由 <html data-motion-direction> 决定（注册表解析，components/site/nav-direction.ts 写入）：push 前进 / pop 返回 / 其余（fade 或缺省）淡入淡出。 */
 
 /* 位移令牌 --fw-page-shift / --fw-tab-shift 已升格至 primitives.css（M15 Step 3，含桌面断点覆写） */
@@ -430,7 +430,7 @@
   animation: none;
 }
 
-/* 同文档状态过渡（lib/motion/view-transition 的 withViewTransition，/design/motion 演示）：由 html[data-vt] 选型，
+/* 同文档状态过渡（lib/motion/engine/native.ts 的 playStateTransition，/design/motion 演示）：由 html[data-vt] 选型，
    与上面的路由过渡（html[data-motion-direction]）互不干扰 */
 html[data-vt]::view-transition-old(root) {
   animation: vt-fade-out var(--fw-dur-base) var(--fw-ease-exit) both;

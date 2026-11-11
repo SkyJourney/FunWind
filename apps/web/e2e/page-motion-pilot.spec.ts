@@ -1,6 +1,7 @@
 import { expect, test, type Page, type Request as PlaywrightRequest } from "@playwright/test";
 import { FIX } from "./support/fixtures";
 import { failOnPageErrors } from "./support/page-errors";
+import { loginAs, USERS } from "./support/session";
 import { installTransitionProbe, readTransitions, resetTransitions } from "./support/vt";
 
 failOnPageErrors();
@@ -287,4 +288,87 @@ test("试点跨根段进入与退出都只有一对页面动画，没有内外�
   await clear(page);
   await go(page, "/boards");
   await oneNavigation(page, "vt-page-out-right", "vt-page-in-left");
+});
+
+/** 单会话 + 旧新页面快照组各一个（共享组下沉边界不得产生内外重复边界）。 */
+async function expectSinglePageTransition(page: Page) {
+  await idle(page);
+  const lifecycle = await events(page);
+  expect(new Set(lifecycle.map((event) => event.id)).size).toBe(1);
+  expect(lifecycle.map((event) => event.phase)).toEqual(["intent", "before", "ready", "finish"]);
+  const reading = await readTransitions(page);
+  for (const phase of ["old", "new"]) {
+    const entries = reading.rawAnimations.filter(
+      (entry) => entry.startsWith(`::view-transition-${phase}(`) && entry.includes("|vt-page-"),
+    );
+    const groups = new Set(entries.map((entry) => entry.split("|")[0]));
+    expect(
+      groups.size,
+      `${phase} 页面快照组数（实际：${entries.join(" ; ") || "无 vt-page 动画"}）`,
+    ).toBe(1);
+  }
+}
+
+test.describe("共享 layout 组边界下沉（M15 Step 4 核心契约回归）", () => {
+  test("admin 组内导航：单会话单快照组、fade 微动，AdminShell 不重挂", async ({
+    page,
+    context,
+  }) => {
+    await loginAs(context, USERS.admin);
+    await open(page, "/admin");
+    // 标记侧栏导航节点：AdminShell 若重挂则该节点重建、标记消失（实证 Next 根模板组内不重挂）
+    await page.evaluate(() => {
+      document.querySelector('nav[aria-label="后台导航"]')?.setAttribute("data-shell-mark", "1");
+    });
+    await go(page, "/admin/users");
+    await oneNavigation(page, "vt-page-fade-out", "vt-page-fade-in");
+    expect(await page.evaluate(() => !!document.querySelector('[data-shell-mark="1"]'))).toBe(true);
+  });
+
+  test("settings 组内导航：单会话单快照组，设置壳不重挂", async ({ page, context }) => {
+    await loginAs(context, USERS.member);
+    await open(page, "/settings/profile");
+    await page.evaluate(() => {
+      document.querySelector('nav[aria-label="设置导航"]')?.setAttribute("data-shell-mark", "1");
+    });
+    await go(page, "/settings/email");
+    await expectSinglePageTransition(page);
+    expect(await page.evaluate(() => !!document.querySelector('[data-shell-mark="1"]'))).toBe(true);
+  });
+
+  test("跨组进入 admin：单会话、单一进场边界；旧页淡出（旧内容被出/进两侧各捕获一次，同位置同动画，视觉为单次淡出）", async ({
+    page,
+    context,
+  }) => {
+    await loginAs(context, USERS.admin);
+    await open(page, "/boards");
+    await go(page, "/admin");
+    await idle(page);
+    const lifecycle = await events(page);
+    expect(new Set(lifecycle.map((event) => event.id)).size).toBe(1);
+    expect(lifecycle.map((event) => event.phase)).toEqual(["intent", "before", "ready", "finish"]);
+    const reading = await readTransitions(page);
+    const newGroups = new Set(
+      reading.rawAnimations
+        .filter(
+          (entry) => entry.startsWith("::view-transition-new(") && entry.includes("|vt-page-"),
+        )
+        .map((entry) => entry.split("|")[0]),
+    );
+    expect(newGroups.size, "new 页面快照组数").toBe(1);
+    const oldEntries = reading.rawAnimations.filter(
+      (entry) => entry.startsWith("::view-transition-old(") && entry.includes("|vt-page-"),
+    );
+    expect(oldEntries.length, "旧页淡出至少播一次").toBeGreaterThan(0);
+    // 进入共享组时，旧页内容被「出边界退场」与「进边界组的旧快照（继承出边界 fw-page-out 类）」
+    // 各捕获一次；两者同位置、同动画、同计时，像素级重叠，视觉等价于单次淡出（React VT 模板重挂特性）。
+    expect(new Set(oldEntries.map((entry) => entry.split("|")[1])).size, "旧侧动画名唯一").toBe(1);
+  });
+
+  test("跨组退出 admin 回社区：单会话单快照组，旧页淡出", async ({ page, context }) => {
+    await loginAs(context, USERS.admin);
+    await open(page, "/admin");
+    await go(page, "/boards");
+    await expectSinglePageTransition(page);
+  });
 });

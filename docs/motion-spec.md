@@ -75,7 +75,7 @@
 
 ## 5. 方向解析与全站收敛（D3，Step 4 退役完成）
 
-- **注册表单一事实源**：`components/site/motion-routes.ts` 路由段/页面 → 预设与层级；rank 层级语义已迁入，旧 `nav-kind.ts` rank 表/TAB_ORDER/kindBetween 已删除。admin 路由组 preset=`admin`（resolver 层恒 fade，克制）。
+- **注册表单一事实源**：`components/site/motion-routes.ts` 路由段/页面 → 预设与层级；rank 层级语义已迁入，旧 `nav-kind.ts` rank 表/TAB_ORDER/kindBetween 已删除。admin 路由组 preset=`admin`（resolver 层默认 fade，显式 direction hint 仍可覆盖，克制）。
 - **方向→CSS 桥（引擎自有属性）**：引擎定稿后写 `html[data-motion-direction]`（`nav-direction.ts`），CSS `:root[data-motion-direction="…"]::view-transition-*(.fw-page-*)` 选动画，沿用同名 keyframes。保留「几百处链接无需逐个加类型」的原设计优点；expand/collapse 在点击拦截时由 `nav-geometry.ts` 定稿，引擎在导航 transition 之外写属性，不依赖 `addTransitionType`（仅限 startTransition 内）。
 - **transitionTypes**：主动 Link / push / replace 经 `MotionLink` / `useMotionRouter` 透传 `fw-*` 原生类型（pilot E2E 断言）；浏览器 back/forward 没有该选项，按 history 诚实跳过，不以主动 push 冒充历史恢复。
 - **全站接管**：移除 isMotionPilot 灰度门，所有路由（除同 pathname）建引擎会话；根边界非共享路由 pathname-key，共享路由（admin/settings）根边界 root-shared/enter-exit none，动画与生命周期交壳内下沉的 `PageMotionBoundary`（每会话恰一个边界认领）。
@@ -92,7 +92,7 @@
 
 ## 6.1 Step 1 内核边界与定稿契约
 
-- 新内核放 `lib/motion/engine/`，只由 `lib/motion/index.ts` 对外导出；旧 nav-kind / nav-guard / 手动 VT 助手保留独立兼容链，不由新内核引用。本步不修改现有宿主、CSS 或模板。
+- 新内核放 `lib/motion/engine/`，只由 `lib/motion/index.ts` 对外导出；旧 nav-kind / nav-guard / 手动 VT 助手在 Step 1 时保留独立兼容链，不由新内核引用（**Step 4 已退役**：nav-kind 与手动 VT facade 已删除，仅 nav-guard 点击/进度守卫保留，见 §5/§7）。本步不修改现有宿主、CSS 或模板。
 - 页面注册表接收显式规则（正则 + 页面声明），匹配不到时继承全局 fade；页面声明可在定稿时传入并覆盖注册表。层级比较与 Tab 顺序算法迁入纯解析器，业务路由清单留 Step 2 接入时注入，内核不引用业务模块。
 - `onIntent` 从全局 → 匹配页面 → 匹配元素级联调用，同层按注册序；返回的 direction / preset 覆写由近者优先，返回 `false` 只取消本次动效（终止该阶段级联），不取消导航与业务更新。其他通知钩子全部调用，返回值忽略；错误独立上报且不阻塞后续回调。
 - 每个实例持有自己的导航编号与状态；`begin → commit → ready → finish/skip`。`commit` 是驱动开始前的唯一动效定稿点，不等同 React 的 DOM 提交；重复定稿、过期 ready/finish 与已结束任务的安全计时器全部忽略。新意图使前一笔 `skip(interrupted)`，终态至多发出一次。
@@ -102,8 +102,8 @@
 
 ## 6.2 页面宿主与全站收敛契约（Step 2 试点 → Step 4 收敛）
 
-- **边界（Step 4 全站接管）**：根 template 使用 `SiteMotionBoundary → MotionPage`，不外套另一层 VT。非共享路由 VT 本体 key 取 pathname（全站进退场）；共享 layout 组（admin/settings）根边界 key/pageKey=`root-shared`、enter/exit=`none`（不重挂共享壳、不认领、不播动画），动画与生命周期交壳内下沉的 `PageMotionBoundary`（pathname-key），每会话恰一个边界认领。query/hash 不入 key。不为所有页面设置同一个显式 name（否则会走 share 而非进退场）。
-- **不重写 RSC**：异步页面仍作为 children 插槽，数据库读取不迁到客户端；引擎/provider 位于 layout 稳定层。业务页面不要在根宿主内再套一层 `MotionPage`；页面级 hook 放在客户端岛中即可。
+- **边界（Step 4 全站接管）**：根 template 使用 `SiteMotionBoundary → MotionPage`，不外套另一层 VT。非共享路由 VT 本体 key 取 pathname（全站进退场）；共享 layout 组（admin/settings）根边界 key/pageKey=`root-shared`、enter=`none`（跨组进入不与壳内下沉边界双进场）、exit 默认（跨组退出由根层播旧页淡出——嵌套 VT 在模板重挂卸载子树时不触发退场，根层是共享侧唯一可靠的退场载体；Step 4.5 E2E 实测），动画与生命周期交壳内下沉的 `PageMotionBoundary`（pathname-key），每会话恰一个边界认领。进入共享组时旧页内容会被出边界退场与进边界组的旧快照各捕获一次（同位置同动画，视觉为单次淡出）。query/hash 不入 key。不为所有页面设置同一个显式 name（否则会走 share 而非进退场）。
+- **不重写 RSC**：异步页面仍作为 children 插槽，数据库读取不迁到客户端；引擎/provider 位于 layout 稳定层。业务页面不要在根宿主内再套一层 `MotionPage`；页面级 hook 放在客户端岛中即可。**钩子作用域陷阱（Step 4）**：共享壳层（下沉边界之外，如 `admin-shell`/`settings` 壳内组件）的 `useMotionLifecycle` 默认落 `page:"root-shared"` 作用域，永不匹配导航会话而静默不触发——壳层钩子须显式 `scope={level:"global"}`，页面级钩子须位于下沉边界内的页面岛（默认 page 作用域即正确）。
 - **职责分离**：`MotionPage` 负责快照与页面作用域，`preset` 标记当前角色；层级、Tab 顺序和目标预设由宿主注册表在意图阶段提供。组件不接受尚未实现的 level/tabOrder 覆写，也不在目标页 effect 中重写已经定稿的整次导航。
 - **方向桥（Step 4 退役 data-nav）**：方向由注册表单一事实源解析，引擎定稿后写 `html[data-motion-direction]`（`nav-direction.ts`），CSS 按该属性选动画（同名 keyframes）。触点展开/收起几何在 `nav-geometry.ts`，只调用一次（显式普通方向不创建展开记录）。自动方向不冒充显式 hint，以便全局 preset 仍能生效；显式 Link/router hint 或 expand/collapse 才传入 intent.direction。旧 rank 表与 `data-nav` 选择器已删除。
 - **两类编号**：宿主请求 epoch 保护 URL 提交、进度条和旧 effect，内核导航 id 保护动效 ready/finish。不可变请求快照在会话与桥接状态准备完整后才发布，通过 `useSyncExternalStore` 订阅；提交通知必须携带渲染时的 epoch，旧提交和更早目标的晚到 RSC 不能结束新请求。守卫 `complete(url)` 再核对在途比较键。hash-only/原地址程序化调用仍交给 router，但不登记新 pending；history 在 capture 阶段保留来源完整 key。
@@ -120,7 +120,7 @@
 | 架构守卫 | 引擎（`lib/motion/`）不得 import 业务代码（`app/**`、`components/**` 业务域）；引擎不持有业务状态；`LEGACY_ENTRIES` 仅留 nav-guard.ts（Step 4 退役 nav-kind/view-transition） |
 | 注册表方向矩阵 | Step 4 一致性对比退役后，纯注册表方向/声明/query-hash 不变性矩阵承载（新增页面自动纳入） |
 | 静态零变 | visual 基线零更新（`animations: "disabled"`） |
-| 性能 | 只动 `transform/opacity/clip-path`；`will-change` 仅限进行中过渡；LCP 不回退 |
+| 性能 | 页面/元素预设动画（keyframes）只动 `transform/opacity/clip-path`；`will-change` 仅限进行中过渡；LCP 不回退。S4 既有的 hover 过渡（box-shadow/border-color）按 S4 自身口径继续有效，不在本红线内 |
 | 依赖 | 不引入第三方动效库（零依赖栈延续，F8） |
 
 ## 8. Step 映射
