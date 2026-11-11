@@ -26,7 +26,7 @@
 | `--fw-page-shift`（28px / 桌面 14px，`:root` 内联） | `primitives.css` 令牌 | 页面级位移，断点降半 |
 | `--fw-tab-shift`（min(24vw,96px) / 56px，`:root` 内联） | `primitives.css` 令牌 | Tab 切换位移 |
 | `fw-nav-grow 12s`（慢网进度条 keyframes 内联时长） | `--fw-dur-progress: 12s` | 唯一的长时进度动画 |
-| `fw-float-up` 内联 `×1.75` 时长放大 | `--fw-dur-float-up: calc(var(--fw-dur-base) * 1.75)` | 点赞浮起专用 |
+| `fw-float-up` 内联 `×1.75` 时长放大 | `--fw-dur-float-up: calc(var(--fw-dur-slow) * 1.75)` | 点赞浮起专用（以现行 slow × 1.75 为准，不改变时长） |
 | L4 stagger 步长 `50ms`（8 处内联） | `--fw-stagger-step: 50ms` + `--fw-stagger-max: 10` | 进场编排步长与封顶 |
 
 ## 2. 页面预设（方向语义，自现行 nav-kind 行为归纳）
@@ -37,7 +37,8 @@
 | `pop` | 目标层级更浅 | fast · ease-exit · 右移出 | slow · ease-out · 自左切入 | 「右切返回」 |
 | `fade` | 同层 / 未知 / admin 路由组默认 | fast · ease-exit 淡出 | base · ease-out 淡入 | 克制默认 |
 | `tab-next` / `tab-prev` | 两个 Tab 根之间（TAB_ORDER 左右序） | base · ease-exit · 反方向移出 | slow · ease-out · 错开 fast/2 自方向切入（全透明起） | 位移用 tab-shift，「滑出再滑入」 |
-| `expand` / `collapse` | 内容卡片点进详情 / 站内返回（触点扩散） | 静止垫底 | clip-path 圆形展开（spring/inout，圆心 `--vt-x/y`、半径 `--vt-r`） | L3，圆心由 `onBeforeTransition` 测量写入 |
+| `expand` | 内容卡片点进详情（触点扩散） | 静止垫底 | spring · inout · clip-path 圆形展开 | L3，圆心由 `onBeforeTransition` 测量写入 |
+| `collapse` | 详情经站内链接返回来源列表 | slow · inout · clip-path 圆形收起，旧层抬高 | 静止垫底 | 复用展开上下文；不能将退场组与进场组互换 |
 
 规则：layout 内容（顶栏/底部 Tab/页脚）为独立过渡组且保持静止；页面包装 `[data-fw-page]` 必须自带不透明背景（`--page-bg`）；过渡期间 `::view-transition` 不拦截指针。
 
@@ -47,18 +48,18 @@
 |---|---|---|---|
 | `list.enter` | `.fw-enter` | base · ease-out · stagger-step 50ms · 封顶 10 项（首屏） | 列表首屏错落切入（替代 8 处 `index*50ms` 内联 → `<MotionList>`） |
 | `list.append` | `.fw-fade-in` | base · ease-out · 无位移无延迟 | 翻页 / 触底追加入场（stream-list 哨兵收编进 `<MotionList>`） |
-| `pop` | 微交互组件内 | fast · ease-spring | 点赞 / 开关 / 勾选弹跳（本期只收口到预设，不改行为） |
+| `pop` | `.fw-pop` | spring · ease-spring | 点赞 / 关注弹跳（现行 500ms，不按 L1 的通用 150ms 改短）；其他按压仍走 fast |
 | `float-up` | `.fw-float-up` | dur-float-up · ease-out | 点赞浮起 |
 
 ## 4. 导航生命周期钩子（契约）
 
-| 钩子 | 时机 | 签名（草案，Step 1 实现定稿） | 现行归化 |
+| 钩子 | 时机 | 签名（Step 1 定稿，类型见公开入口） | 现行归化 |
 |---|---|---|---|
-| `onIntent` | 捕获导航意图（链接 / 编程式 / Tab / 返回键） | `(intent: NavIntent) => NavIntent \| void`——可改写本次预设 | NavigationGuard + resolveNavKind |
-| `onBeforeTransition` | 旧页快照前 | `(ctx: { intent; origin: OriginMeasure }) => void`——测触点、写 CSS 变量 | 触点扩散圆心计算 |
-| `onReady` | 过渡伪元素就绪 | `(ctx) => void`——CSS 写不出的用 Web Animations API 兜 | 手动 VT 助手收编处 |
-| `onFinish` / `onSkip` | 过渡结束 / 被跳过 | `(ctx, reason?: "reduced-motion" \| "no-api" \| "interrupted") => void`——收尾（焦点/滚动/清理） | releaseNavKind 等 finished |
-| 元素 `onEnter` / `onInView` / `onExit` / `onUpdate` | 挂载 / 滚入视口 / 退场（VT 快照语义）/ 布局更新 | `(el: Element) => void` | stream-list 哨兵 |
+| `onIntent` | 捕获导航意图（链接 / 编程式 / Tab / 返回键） | `(ctx: MotionContext) => MotionSelection \| false \| void`；可改方向/预设，false 只取消动效 | NavigationGuard + resolveNavKind |
+| `onBeforeTransition` | 动效定稿后、驱动开始前 | `(ctx: MotionContext) => void`；旧快照所需测量必须由宿主在此时已具备 | 触点扩散圆心计算 |
+| `onReady` | 过渡伪元素就绪 | `(ctx: MotionContext) => void` | 手动 VT 助手收编处 |
+| `onFinish` / `onSkip` | 过渡结束 / 被跳过 | `onFinish(ctx)` / `onSkip(ctx, reason: MotionSkipReason)`；错误/超时/取消均有独立原因 | releaseNavKind 等 finished |
+| 元素 `onEnter` / `onInView` / `onExit` / `onUpdate` | 挂载 / 滚入视口 / 退场（VT 快照语义）/ 布局更新 | `(ctx: MotionElementContext) => void`；包含 node 与作用域 | stream-list 哨兵 |
 
 硬性约束（Step 1 实现与守卫依据）：
 
@@ -82,7 +83,17 @@
 1. 页面过渡（VT 全部方向）：动画归零，直接切换（钩子 `onSkip("reduced-motion")` 仍触发）；
 2. L4 进场编排（.fw-enter / append）：动画归零，内容直接呈现；
 3. L3 触点扩散：退化为普通切换；
-4. **L1 微交互保留**（按压/色变——不涉及位移，反馈即时性不牺牲）。
+4. **L1 状态反馈保留，运动效果按现状禁用**：现行 reduce 规则取消 pop / roll / switch 动画并隐藏 float-up，按压/色变仍按既有 CSS 工作；不把“保留即时反馈”误读为重开位移/弹跳。
+
+## 6.1 Step 1 内核边界与定稿契约
+
+- 新内核放 `lib/motion/engine/`，只由 `lib/motion/index.ts` 对外导出；旧 nav-kind / nav-guard / 手动 VT 助手保留独立兼容链，不由新内核引用。本步不修改现有宿主、CSS 或模板。
+- 页面注册表接收显式规则（正则 + 页面声明），匹配不到时继承全局 fade；页面声明可在定稿时传入并覆盖注册表。层级比较与 Tab 顺序算法迁入纯解析器，业务路由清单留 Step 2 接入时注入，内核不引用业务模块。
+- `onIntent` 从全局 → 匹配页面 → 匹配元素级联调用，同层按注册序；返回的 direction / preset 覆写由近者优先，返回 `false` 只取消本次动效（终止该阶段级联），不取消导航与业务更新。其他通知钩子全部调用，返回值忽略；错误独立上报且不阻塞后续回调。
+- 每个实例持有自己的导航编号与状态；`begin → commit → ready → finish/skip`。`commit` 是驱动开始前的唯一动效定稿点，不等同 React 的 DOM 提交；重复定稿、过期 ready/finish 与已结束任务的安全计时器全部忽略。新意图使前一笔 `skip(interrupted)`，终态至多发出一次。
+- `play` 接收显式驱动适配器，不直接安装浏览器监听或调用原生 VT。无驱动、reduce、显式取消、history 或同 pathname（含查询串变化）的导航只运行更新并发出 skip；驱动失败也须确保更新至多执行一次，业务更新本身失败继续向调用方抛出。更新按调用顺序预留并入队，不串行等待业务 Promise，异步业务自己的结果失效仍由调用方负责；开始/定稿异常须丢弃尚未入队的预约，后续导航不能复活已经拒绝的业务操作。
+- Step 0 的目标页覆写实验只证明新层动画可变化，尚未证明旧快照测量、目标页未挂载的钩子与流式晚到都可延迟：这些仍须提前捕获或在 Step 2 验证。流式内容就绪不新建导航会话（无在途编号不允许 commit/ready），但 React 自发的二次 VT 能否抑制仍归 Step 2 实测，不在本步宣称解决。
+- `MotionPageProps` / `MotionListProps` 为声明式接入的类型骨架；实际 React 宿主、组件与 hook 分别在 Step 2/3 接入，不导出无效果的占位组件。安全超时测试使用注入的调度器，只测状态与清理，不用假时钟推断浏览器动画。
 
 ## 7. 守卫与验收
 
