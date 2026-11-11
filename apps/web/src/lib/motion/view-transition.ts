@@ -1,62 +1,29 @@
 /**
- * View Transitions 助手（S4，docs/M10.5-S4-VISUAL-MOTION.md §3）：
- * - withViewTransition(update, kind)：包住一次「状态/路由更新」，浏览器支持时播放对应过渡；
- *   不支持或用户偏好减少动效时直接执行 update——优雅降级，绝不阻塞操作。
- * - captureTransitionOrigin(x, y)：触发处先记录指针位置，作为 expand 的扩散圆心
- *   （写入 --vt-x/--vt-y 供 globals.css 的 vt-expand 关键帧消费）。
- * 类型语义：fade=默认淡入；push=前进（自右切入）；pop=返回（自左切入）；expand=触点扩散。
- * 路由级过渡在 S5 接线（导航前调用本助手包裹 router.push）；React <ViewTransition> 待 Next
- * 稳定暴露后再评估迁移。
+ * View Transitions 助手（S4 → M15 Step 3 已收编进引擎）：
+ * 本文件现为引擎公开入口的薄兼容 facade——实现（reduce / 无 API 降级、data-vt 选型、
+ * 扩散圆心写入/清理、并发守卫）全部在 lib/motion/engine/native.ts，经 barrel 导出。
+ * 保留旧签名与 captureTransitionOrigin 的一次性指针捕获便利，供旧消费者与单测使用；
+ * 新代码请直接用 `@/lib/motion` 的 playStateTransition。facade 随 Step 4 旧链清账一并移除。
+ * 类型语义：fade=默认淡入；expand=触点扩散（push/pop 状态级选型为演示遗留，已随死代码清理）。
  */
+import { playStateTransition, type StateTransitionKind } from "./index";
 
-export type VtKind = "fade" | "push" | "pop" | "expand";
+export { prefersReducedMotion } from "./index";
+
+export type VtKind = StateTransitionKind;
 
 let pendingOrigin: { x: number; y: number } | null = null;
-let activeTransition = 0;
 
 export function captureTransitionOrigin(x: number, y: number): void {
   pendingOrigin = { x, y };
 }
-
-export function prefersReducedMotion(): boolean {
-  return (
-    typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
-}
-
-type DocumentWithVT = Document & {
-  startViewTransition?: (cb: () => Promise<void> | void) => { finished: Promise<void> };
-};
 
 export async function withViewTransition(
   update: () => void | Promise<void>,
   kind: VtKind = "fade",
   origin?: { x: number; y: number } | null,
 ): Promise<void> {
-  const doc = document as DocumentWithVT;
   const o = origin ?? pendingOrigin;
   pendingOrigin = null;
-  if (!doc.startViewTransition || prefersReducedMotion()) {
-    await update();
-    return;
-  }
-  const transition = ++activeTransition;
-  const root = doc.documentElement;
-  root.style.removeProperty("--vt-x");
-  root.style.removeProperty("--vt-y");
-  if (kind === "expand" && o) {
-    root.style.setProperty("--vt-x", `${o.x}px`);
-    root.style.setProperty("--vt-y", `${o.y}px`);
-  }
-  root.dataset.vt = kind;
-  try {
-    const vt = doc.startViewTransition(() => Promise.resolve(update()));
-    await vt.finished.catch(() => {});
-  } finally {
-    if (transition === activeTransition) {
-      delete root.dataset.vt;
-      root.style.removeProperty("--vt-x");
-      root.style.removeProperty("--vt-y");
-    }
-  }
+  await playStateTransition(update, { kind, origin: o });
 }

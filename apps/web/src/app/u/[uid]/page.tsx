@@ -10,6 +10,7 @@ import { SegmentedNav } from "@/components/ui/segmented-nav";
 import { ThreadStream } from "@/components/content/thread-stream";
 import { UserReplyRow } from "@/components/content/user-reply-row";
 import { UserReplyStream } from "@/components/content/user-reply-stream";
+import { MotionList } from "@/lib/motion";
 import { ImageLightbox } from "@/components/content/image-lightbox";
 import { EmptyState } from "@/components/empty-state";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -212,19 +213,11 @@ export default async function ProfilePage({
             seedIds={threads.items.map((t) => t.id)}
             listClassName="divide-y rounded-xl border bg-card"
           >
-            {threads.items.map((t, index) => (
-              <ThreadRow
-                key={t.id}
-                thread={t}
-                showForum
-                className={threads.page === 1 && index < 10 ? "fw-enter" : undefined}
-                style={
-                  threads.page === 1 && index < 10
-                    ? { animationDelay: `${index * 50}ms` }
-                    : undefined
-                }
-              />
-            ))}
+            <MotionList animate={threads.page === 1}>
+              {threads.items.map((t) => (
+                <ThreadRow key={t.id} thread={t} showForum />
+              ))}
+            </MotionList>
           </ThreadStream>
         )
       ) : null}
@@ -245,18 +238,11 @@ export default async function ProfilePage({
             seedIds={replies.items.map((r) => r.postId)}
             listClassName="divide-y rounded-xl border bg-card"
           >
-            {replies.items.map((r, index) => (
-              <UserReplyRow
-                key={r.postId}
-                reply={r}
-                className={replies.page === 1 && index < 10 ? "fw-enter" : undefined}
-                style={
-                  replies.page === 1 && index < 10
-                    ? { animationDelay: `${index * 50}ms` }
-                    : undefined
-                }
-              />
-            ))}
+            <MotionList animate={replies.page === 1}>
+              {replies.items.map((r) => (
+                <UserReplyRow key={r.postId} reply={r} />
+              ))}
+            </MotionList>
           </UserReplyStream>
         )
       ) : null}

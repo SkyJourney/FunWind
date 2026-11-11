@@ -114,4 +114,9 @@ export interface MotionPageProps {
 export interface MotionListProps {
   readonly children: ReactNode;
   readonly preset?: Extract<MotionElementPreset, "list.enter" | "list.append">;
+  /**
+   * 是否播放进场（缺省 true）。首屏错落通常只在第 1 页开启（`animate={page === 1}`）；
+   * 为 false 时原样渲染 children，不挂类也不写延迟——翻页 / 直达深页不重复播。
+   */
+  readonly animate?: boolean;
 }

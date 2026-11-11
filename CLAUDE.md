@@ -5,7 +5,7 @@
 
 ## 当前阶段
 
-- **阶段四·运营与演进（2026-11-09 立项）**：M13 已收口（2026-11-08 正式切换成功，站长 2026-11-09 拍板关闭；剩余站长执行项转长线运营，见 M13 遗留事项 §转长线运营）。M14 运维任务管线（`docs/milestones/M14-ops-pipeline.md`，**已收口 2026-11-11**：管线 + 任务中心上线公测，24h 核对通过）与 M15 统一动效管线（`docs/milestones/M15-motion-pipeline.md`，**执行中**：Step A / 0 / 1 / 2 已完成，页面接入与共享段试点处于本地灰度；业务注册表与旧 rank / `data-nav` 灰度并存）；M14 已先行完成。M15 的 Step 3 元素/stagger/手动助手收编、Step 4 旧链退役、Step 4.5 独立审查与 Step 5 PR/CI/部署均未执行，尚未合并 main 或部署生产。发布口径仍为本地灰度 + 门禁全绿即上线公测，不代表 M15 已完成或上线。里程碑全貌以 `docs/ROADMAP.md` 为准。
+- **阶段四·运营与演进（2026-11-09 立项）**：M13 已收口（2026-11-08 正式切换成功，站长 2026-11-09 拍板关闭；剩余站长执行项转长线运营，见 M13 遗留事项 §转长线运营）。M14 运维任务管线（`docs/milestones/M14-ops-pipeline.md`，**已收口 2026-11-11**：管线 + 任务中心上线公测，24h 核对通过）与 M15 统一动效管线（`docs/milestones/M15-motion-pipeline.md`，**执行中**：Step A / 0 / 1 / 2 / 3 已完成，页面接入、共享段试点与元素层接入（MotionList）/魔法数令牌清账/手动助手收编处于本地灰度；业务注册表与旧 rank / `data-nav` 灰度并存）；M14 已先行完成。M15 的 Step 4 旧链退役与全站收敛、Step 4.5 独立审查与 Step 5 PR/CI/部署均未执行，尚未合并 main 或部署生产。发布口径仍为本地灰度 + 门禁全绿即上线公测，不代表 M15 已完成或上线。里程碑全貌以 `docs/ROADMAP.md` 为准。
 - 阶段一·骨架 M1–M5 已交付，但 2026-10-23 审查发现其数据模型与多项门禁勾选需重做/更正。
   **M5.5 重构（设计先行）已完成，已合并 `main`**。站长思路：**先定目标模型（`docs/DESIGN-MODEL.md`，schema v2.1 共 43 表，含通知中心），旧数据向它靠拢，迁移只是适配层**。
   进度：R1 文档 ✅ → R2 `packages/db` 与 `packages/content` 重做 ✅ → R3 迁移适配层重做并重建开发库 ✅ → S4 应用适配 ✅ → **S5 E2E 与全量门禁 ✅（2026-10-24）**；之后进入 M6 发帖。
@@ -90,11 +90,15 @@ pnpm layout:summary            # 汇总布局审计 JSON，有问题退出码 1�
 - **依赖边界**：`src/test/architecture-guard.test.ts` 固定禁止 `authz→queries`、`uploads→posting`、根级 lib→业务域、lib→components、modules→app；静态、转发及字面量动态 import 均检查。app 直接值导入数据库按显式文件白名单管理；outbox 生产方须声明本次事件快路径。
 - **服务端模块**：数据库、会话、文件、凭据等明确服务入口加 `import "server-only"`，`src/test/server-only-guard.test.ts` 锁定服务清单并检查客户端运行时依赖闭包。分页、SQL 表达式、配额、主题渲染及共享编辑器扩展不按目录盲标；Vitest alias 与 Node CLI loader 只兼容 marker，不切换 React 条件。
 - **模块内核**（`src/modules/kernel`）：编译期注册（无热插拔）+ 同步事件总线（逐消费者隔离、落 `event_log`）+ UI 槽位；启停状态在 `module_state`。
-- **统一动效管线（M15 Step 2 灰度）**：实现口径见 `docs/milestones/M15-motion-pipeline.md` §12 与 `docs/motion-spec.md` §6.2。
+- **统一动效管线（M15 Step 3 灰度）**：实现口径见 `docs/milestones/M15-motion-pipeline.md` §12/§13 与 `docs/motion-spec.md` §6.2（页面宿主）、§1.2/§3/§7（元素层与守卫）。
   - 根 `template.tsx` 只走 `SiteMotionBoundary → MotionPage`，不再外套 VT；`MotionPage` 提供唯一全宽 `[data-fw-page]` 盒子。`/t/*`、`/a`、`/a/*` 的 VT 本体按 pathname 换 key，其他路径 key 固定、由原根模板重挂兜底；query/hash 不入 key。业务页不可再套一层 `MotionPage`，RSC 仍作为 children 插槽，provider/引擎实例留在稳定 layout。
   - `MotionLink` / `useMotionRouter` 透传主动导航的 `transitionTypes`；`useMotionLifecycle` 已落地。方向与目标预设在意图阶段由宿主注册表/显式 hint 提供，不能依靠目标页晚 effect 保证首帧或改写旧快照。浏览器 back/forward 诚实按 history 跳过，不伪装成 push。
   - 宿主请求 epoch 隔离 URL 提交、进度条和旧 effect，内核导航 id 隔离 ready/finish；提交通知绑定渲染时的 epoch，参与者回调和 cleanup 绑定原 id。旧提交、晚到 RSC 与旧 cleanup 不得结清新请求；hash-only/原地址程序化调用仍交给 router，但不登记新 pending。
   - 页面边界显式 `update="none" default="none"`，验收不重复整页动画/导航会话，不承诺所有原生 start 次数恒为一。reduce/无 API/history 不影响内容可用，原慢网与失败重试守卫继续负责业务兜底。`/motion-lab` 只在本地生产构建中验证可达，当前分支未部署；实验入口/面板/lab 须在 Step 4、部署前移除。
+  - **元素层接入（Step 3）**：列表首屏错落一律用 `MotionList`（`lib/motion/engine/list.tsx`，共享组件无 `"use client"`，RSC 首屏即可挂类与延迟），**不再裸写 `animationDelay`**——`cloneElement` 把预设类与延迟合并进条目根元素，不新增包裹盒子，DOM/版式/`:last-child` 零变化；`list.enter` 前 10 项错落（步长 `--fw-stagger-step`）、`list.append` 无延迟淡入、`animate=false` 原样渲染（翻页/直达深页不重播）。`stream-list` 追加类改引 `MOTION_ELEMENT_PRESETS["list.append"]`（renderItem 契约不变）。微交互组件（like-toggle/follow-toggle）仍消费 fw-* 预设类，行为零变化。
+  - **魔法数升格令牌（Step 3）**：`--fw-dur-progress`(12s)、`--fw-dur-float-up`(slow×1.75)、`--fw-stagger-step`(50ms)、`--fw-stagger-max`(10)、`--fw-page-shift`(28/14px)、`--fw-tab-shift`(min(24vw,96px)/56px) 统一定义于 `primitives.css`（含桌面断点覆写），`globals.css` 改引令牌；预设关键帧内部小位移属 sanctioned 预设区，不在升格清单。
+  - **手动 VT 助手收编（Step 3）**：状态级驱动走引擎 `playStateTransition`（`engine/native.ts`，SSR 安全）；`view-transition.ts` 降为薄兼容 facade（保留旧签名与单测），Step 4 随旧链移除。状态级选型收敛 fade/expand。
+  - **裸写守卫（Step 3）**：`motion-bare-write-guard.test.ts` 拦截业务 TS/TSX 裸写 `animationDelay/Duration`（纯令牌引用豁免）、`cubic-bezier`、`animation` 简写裸时长；非令牌 CSS 禁裸写时长/曲线；令牌收敛与元素预设 reduce 覆盖由断言钉住。reduced-motion 的 CSS reduce 仍是稳健机制（无 JS 也生效），未迁成 JS；页面导航 reduce 由引擎驱动。
   - 项目声明 React/React DOM 19.3.1、Next 16.4.2；Next 浏览器别名实际使用 bundled React `19.3.0-canary-278794d7-20261002`。公开 `ViewTransition` 已可用且无需 experimental 开关，但不能据声明版本保证运行时是纯 stable；能力以框架内置实现与生产构建实测为准。
 - **认证**（`lib/auth`）：不透明令牌 cookie，库内只存 SHA-256；argon2id；登录签发新会话 cookie（**旧会话行不会被销毁**，到期前一直有效，见 M5.6 遗留事项）；邮件令牌 reset/verify/claim 单次原子消费；`register.mode = invite|open`。
 - **权限**（`lib/authz` + `packages/db/src/authz-vocab.ts`）：`roles` / `permissions` / `role_grants` / `user_roles` 四表；
@@ -167,7 +171,7 @@ pnpm layout:summary            # 汇总布局审计 JSON，有问题退出码 1�
 - `TRUSTED_PROXY_HOPS`：生产环境必须显式设置（直连填 0，nginx 之后填层数），漏配会在首次取 IP 时报错；取不到可信 IP 时跳过 IP 级限额，只留账号/邮箱级。
 - server-only 服务对应的 Node/tsx CLI 脚本须由 package script 预加载 `scripts/server-only-register.mjs`；直接 `pnpm exec tsx <服务脚本>` 可能绕过兼容钩子，生产/运维命令以 package script 为准。
 - **跑 E2E 会重建包的 `dist`，与正在运行的 3100 开发服务器冲突**：`test:e2e:run` 开头会执行 `db:build`（重新 `tsc` 编译 `packages/db`、`packages/content` 的 `dist/`）。此时若 3100 正在编译，会读到写了一半或旧的 `dist`，报 `Export xxx doesn't exist in target module`（例如给 `@funwind/content` 新增导出后），页面一直 500 / 「阻断性错误」遮罩，**这是缓存了过期状态而不是代码有问题**。处理：E2E 跑完后重启 3100（`pnpm dev` 会先重建 `dist` 再启动）。改了 `packages/*` 的导出后同理——先重建再重启，别指望热更新。
-- **新增页面在动效灰度期要同步两套登记**：更新业务注册表 `components/site/motion-routes.ts` 与旧 `lib/motion/nav-kind.ts` 的 rank/Tab 语义，并通过自动扫描页面的全路由一致性矩阵；未知路由虽可回落 fade，也不能据此遗漏登记。`/t/*`、`/a`、`/a/*` 共享段试点已接入单根 keyed VT，**其余共享段仍待后续收敛**，不能再笼统声称「共享段一律无过渡」或归因于 React stable。不要粗暴给全站根边界统一 pathname-key；新增共享状态 layout 时须重审边界下沉。旧 rank 与 `data-nav` CSS 在 Step 4 达到退役条件前继续保留。
+- **新增页面在动效灰度期要同步两套登记**：更新业务注册表 `components/site/motion-routes.ts` 与旧 `lib/motion/nav-kind.ts` 的 rank/Tab 语义，并通过自动扫描页面的全路由一致性矩阵；未知路由虽可回落 fade，也不能据此遗漏登记。`/t/*`、`/a`、`/a/*` 共享段试点已接入单根 keyed VT，**其余共享段仍待后续收敛**，不能再笼统声称「共享段一律无过渡」或归因于 React stable。不要粗暴给全站根边界统一 pathname-key；新增共享状态 layout 时须重审边界下沉。旧 rank 与 `data-nav` CSS 在 Step 4 达到退役条件前继续保留。新增页面首屏错落用 `MotionList` 声明式挂类，不再裸写 `animationDelay`；业务代码裸写时长/曲线会被 `motion-bare-write-guard.test.ts` 拦截（口径见架构要点·统一动效管线）。
 - **公告展示页**：`/a`（归档）与 `/a/{id}`（详情，M13 追加）——游客只看 audience=all；登录用户访问详情即标记已读；横幅（show_banner）是公告的属性而非独立实体，同一时刻只显最新一条带横幅的公告，点击进详情页。后台「公告」页勾选/取消「顶部横幅」即上线/下线横幅。
 
 - **编辑器的 `focus()` 会让页面一步跳过去，`preventScroll: true` 拦不住**：「平滑滚到某处再聚焦编辑器」做不出来——滚动开始前 / 进行中聚焦都会取消平滑滚动（第二次点击看起来平滑只是因为编辑器已有焦点）。要平滑只能等 `scrollend` 之后再聚焦，但那样聚焦不在用户手势内，iOS 唤不起软键盘。回复悬浮按钮（`components/posting/reply-fab.tsx`）取舍为「瞬时跳转 + 立即聚焦」（站长拍板）。

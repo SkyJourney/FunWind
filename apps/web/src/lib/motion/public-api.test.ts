@@ -17,8 +17,12 @@ it("公开入口精确暴露内核与 React 接入，不泄露旧兼容链或内
       "MOTION_ELEMENT_PRESETS",
       "MOTION_PAGE_PRESETS",
       "MOTION_TOKENS",
+      "MotionList",
       "MotionPage",
       "MotionProvider",
+      "playStateTransition",
+      "prefersReducedMotion",
+      "supportsViewTransition",
       "useMotion",
       "useMotionLifecycle",
       "createMotionConfig",
@@ -39,6 +43,9 @@ it("接入 API 类型骨架不包含假组件；取消表示跳过动效而非�
   expectTypeOf<MotionListProps["preset"]>().toEqualTypeOf<
     "list.enter" | "list.append" | undefined
   >();
+  expectTypeOf<MotionListProps["animate"]>().toEqualTypeOf<boolean | undefined>();
+  expectTypeOf(motion.MotionList).toBeFunction();
+  expectTypeOf(motion.playStateTransition).toBeFunction();
   expectTypeOf<ReturnType<MotionEngine["play"]>>().toEqualTypeOf<Promise<MotionPlayResult>>();
   expectTypeOf<ReturnType<NonNullable<MotionLifecycle["onIntent"]>>>().toEqualTypeOf<
     | { readonly direction?: motion.MotionDirection; readonly preset?: motion.MotionPagePreset }

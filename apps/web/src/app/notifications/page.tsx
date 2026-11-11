@@ -6,6 +6,7 @@ import { listFeed, unreadSummary, type FeedCategory } from "@/lib/notifications/
 import { toNotificationRow } from "@/lib/notifications/row";
 import { NotificationRow } from "@/components/notifications/notification-row";
 import { NotificationStream } from "@/components/notifications/notification-stream";
+import { MotionList } from "@/lib/motion";
 import { markAllReadAction } from "@/app/actions/notifications";
 import { EmptyState } from "@/components/empty-state";
 import { BellOff } from "lucide-react";
@@ -110,15 +111,11 @@ export default async function NotificationsPage({
           seedKeys={rows.map((r) => r.key)}
           backHref={backHref}
         >
-          {rows.map((row, index) => (
-            <NotificationRow
-              key={row.key}
-              row={row}
-              backHref={backHref}
-              className={!before && index < 10 ? "fw-enter" : undefined}
-              style={!before && index < 10 ? { animationDelay: `${index * 50}ms` } : undefined}
-            />
-          ))}
+          <MotionList animate={!before}>
+            {rows.map((row) => (
+              <NotificationRow key={row.key} row={row} backHref={backHref} />
+            ))}
+          </MotionList>
         </NotificationStream>
       )}
 

@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { ConversationRow } from "@/components/messages/conversation-row";
 import { ConversationStream } from "@/components/messages/conversation-stream";
+import { MotionList } from "@/lib/motion";
 import { EmptyState } from "@/components/empty-state";
 
 export const dynamic = "force-dynamic";
@@ -138,14 +139,11 @@ export default async function MessagesPage({
             hasMore={hasMore}
             seedIds={list.map((c) => c.conversationId)}
           >
-            {list.map((c, index) => (
-              <ConversationRow
-                key={c.conversationId}
-                conversation={c}
-                className={page === 1 && index < 10 ? "fw-enter" : undefined}
-                style={page === 1 && index < 10 ? { animationDelay: `${index * 50}ms` } : undefined}
-              />
-            ))}
+            <MotionList animate={page === 1}>
+              {list.map((c) => (
+                <ConversationRow key={c.conversationId} conversation={c} />
+              ))}
+            </MotionList>
           </ConversationStream>
         </>
       )}

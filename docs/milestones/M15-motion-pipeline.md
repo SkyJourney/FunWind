@@ -1,7 +1,7 @@
 # M15 · 统一动效管线（声明式动效引擎）
 
 - 阶段：四·运营与演进 ｜ 依赖：无（与 M14 相互独立）；设计基准：[M10.5-S4-VISUAL-MOTION](../M10.5-S4-VISUAL-MOTION.md)（四级动效体系与令牌）、M10.7（页面切换与流式动效）、[M13 备忘](M13-launch.md)（立项来源）
-- 状态：🚧 执行中（2026-11-09 立项，站长批准编排与 D1–D4；Step A / 0 / 1 / 2 已完成，页面宿主与共享段试点已接入，旧 rank/data-nav 灰度并存；Step 3 尚未开始，未合并 main、未部署生产）
+- 状态：🚧 执行中（2026-11-09 立项，站长批准编排与 D1–D4；Step A / 0 / 1 / 2 / 3 已完成，元素层 MotionList 与魔法数令牌清账已落地，旧 rank/data-nav 灰度并存；Step 4 尚未开始，未合并 main、未部署生产）
 - 来源：站长 2026-11-09 立项——动效收敛为「全局默认 + 统一管理管线」：动效规则不再散落在路由表、
   CSS 选择器与组件 className 三处；页面 / 元素接入动效应声明式完成；并建立**生命周期钩子**，
   未来页面或元素接入动效可快速挂接。M13 备忘「统一页面切换动效管线」并入本里程碑。
@@ -188,7 +188,7 @@ flowchart TD
 - [x] Step 0 技术验证（实验代码与 5 项结论见 §10；267d402 已推送）
 - [x] Step 1 引擎内核（2026-11-11，范围、复核整改与门禁见 §11；不接管现有导航）
 - [x] Step 2 页面层接入与共享段过渡（2026-11-11，范围、实验勘误、独立复核整改与门禁见 §12；本地灰度，未部署）
-- [ ] Step 3 元素层接入与魔法数清账
+- [x] Step 3 元素层接入与魔法数清账（2026-11-11，范围、裸写守卫与门禁见 §13；本地灰度，未部署）
 - [ ] Step 4 全站收敛（rank 表退役）
 - [ ] Step 4.5 独立审查与站长交互验收
 - [ ] Step 5 收口
@@ -242,6 +242,21 @@ flowchart TD
 - **性能**：最新生产构建对开发迁移库既有四页实测 LCP：首页 116ms、版块 `/f/109` 152ms、主题 `/t/6621` 176ms、搜索 88ms，均为成功 HTTP/匹配路径且低于 2,500ms 本地预算；未重置、重种或迁移开发库。性能脚本增加成功响应/路径校验并在异常时关闭浏览器与服务；以 E2E 库缺少迁移实体的 `/f/109` 做负例，明确 HTTP 404 并退出 1，防止错误页假绿。这是本地预算达标，不等同生产现场性能结论。
 - **边界**：独立 lab 的流式 update-auto 可以额外启动 VT；生产页面边界 update/default=none，验收不重复整页动画和导航会话，不承诺所有场景 native start 次数恒为一。元素 MotionList、8 处 stagger/魔法数和 rank/data-nav 退役仍留 Step3/4。静态 Link 类型不是全局 hooks 定稿结果的完整替代；Step4 退役 CSS 桥前必须处理动态定稿传递及共享 layout 的边界下沉，不能粗暴给全站根边界统一 pathname-key。
 - **实验资产**：只从 motion-lab 显式开启持久导航面板，以真实 Next Link/router 跨主题兄弟页验证，不用 goto/注入普通 anchor 冒充软导航。诊断只记录阶段/id，不暴露私有 router；面板和 lab 在 Step4 一并清理。未合并 main、未部署生产。
+
+## 13. Step 3 元素层接入与魔法数清账（2026-11-11）
+
+- **令牌升格**：`--fw-dur-progress`(12s)、`--fw-dur-float-up`(slow×1.75)、`--fw-stagger-step`(50ms)、`--fw-stagger-max`(10)、`--fw-page-shift`(28/14px)、`--fw-tab-shift`(min(24vw,96px)/56px) 全部入 `primitives.css`（含桌面断点覆写）；`globals.css` 改引令牌，删除 `:root` 位移定义、`fw-nav-grow 12s` 裸值、float-up `×1.75` 内联。预设关键帧内部的小位移（fw-enter 8px、float-up 20px 等）属预设实现细节，留在 sanctioned 预设区，不在升格清单。
+- **MotionList**：新增 `engine/list.tsx` 共享组件（无 `"use client"`，只用 React 同构 API，RSC 首屏即可挂类与延迟）；`cloneElement` 把预设类与延迟合并进条目根元素（条目须接受 className/style），**不新增包裹盒子**，DOM/版式/`:last-child` 零变化。`list.enter` 前 `maxStaggerItems` 项挂 `fw-enter` + `calc(var(--fw-stagger-step) * 序号)`，其余项不挂；`list.append` 每项 `fw-fade-in` 无延迟无封顶；`animate=false` 原样渲染（翻页/直达深页不重播）。8 处首屏 stagger（首页/关注/版块/通知/私信/用户主页主题+回复/积分）全部迁移；`stream-list` 追加淡入类改引 `MOTION_ELEMENT_PRESETS["list.append"].className`（不再裸写类名，`renderItem` 契约与 DOM 不变）。
+- **手动 VT 收编**：状态级驱动实现移入 `engine/native.ts`（`playStateTransition`/`prefersReducedMotion`/`supportsViewTransition`，经 barrel 导出；document/window 只在函数体内访问，SSR 安全）；`view-transition.ts` 降为薄兼容 facade（保留 `withViewTransition`/`captureTransitionOrigin` 旧签名与 7 项单测，Step 4 随旧链移除）。状态级选型收敛为 `fade`/`expand`（push/pop 为演示遗留，已删；facade 单测原 push 用例改 fade，行为覆盖零删减）。
+- **演示页更新**：`/design/motion` StaggerDemo 用 `MotionList`、DirectionalDemo 用 `MOTION_DIRECTIONS` 方向预设（关键帧名 + 令牌时长/曲线，reduce 经 `prefersReducedMotion` 降级）、ExpandDemo 用 `playStateTransition` 显式圆心，不再依赖旧 facade 与裸写魔法数。
+- **死代码清理**：删除 `vt-push-in`/`vt-pop-in` 关键帧、`html[data-vt="push"/"pop"]` 规则、reduce 块死选择器 `[style*="vt-push-in"]`/`[style*="vt-pop-in"]`。
+- **裸写守卫**：`src/test/motion-bare-write-guard.test.ts` 上线——业务 TS/TSX 禁裸写 `animationDelay/Duration`（纯令牌引用豁免）、`cubic-bezier`、`animation` 简写裸时长；非令牌 CSS 禁裸写时长/曲线（globals.css 预设区已全量令牌化，全文件扫描零命中）；令牌收敛断言（primitives 定义升格令牌、globals 无残留魔法数/死代码、引擎 `maxStaggerItems` 与 `--fw-stagger-max` 钉住一致）；reduce 收编核对（元素预设类全部在 reduce 媒体查询内归零）。检测器为纯函数 + fixture 自检（合法写法不误伤：令牌引用/变量驱动/散文注释/令牌展示表；引擎与 lib 不在业务扫描范围）。
+- **变异验证**：隔离副本基线退出 0；注入内联 `animationDelay` 裸值、`cubic-bezier`、CSS 裸时长三类变异均退出 1 被拦截；未改写真实工作区。
+- **reduced-motion 口径**：CSS `@media (prefers-reduced-motion: reduce)` 仍是稳健机制（无 JS 也生效），引擎拥有预设定义；页面导航 reduce 由引擎驱动（Step 2），元素 reduce 由 globals.css 统一归零并由守卫钉住覆盖。本步不把 CSS reduce 迁成 JS（避免无 JS 退化与视觉漂移），属「收编为引擎对齐的单一策略 + 守卫」而非重写。
+- **测试**：新增 MotionList 7 / native 驱动 6 / 裸写守卫 25，共 38 项；动效定向（含架构守卫 158、路由矩阵 268）429 项通过。E2E 断言的 computed `animationDelay`（`["0s","0.05s","0.1s"]`）与 `calc(var(--fw-stagger-step)*i)` 解析结果一致，stream 用例零改动通过。
+- **最终门禁**：`pnpm verify:all` 退出 0——web 4,769（360 文件）/ db 124 / content 55 / migration 278，脚本 18 项，类型/lint/格式/秘密扫描/构建均通过；jscpd 1,405 行 / 159 克隆与原基线持平。`pnpm test:e2e` 生产 506 + dev 8 全过（**微交互 15 例零删减**，含点赞/关注/开关/Tab/hover 与各自 reduce 用例）；`pnpm test:e2e:install` 4 全过；`pnpm test:visual` 10 全过、**截图基线零更新**（DOM 结构经 cloneElement 保持原样）。
+- **性能**：最新生产构建对开发迁移库四页实测 LCP——首页 84ms、版块 `/f/109` 168ms、主题 `/t/6621` 176ms、搜索 80ms，均成功 HTTP/匹配路径且低于 2,500ms 本地预算；未重置/重种/迁移开发库。本地预算达标，不等同生产现场结论。
+- **边界**：微交互组件（like-toggle/follow-toggle）仍用 fw-* 预设类，行为零变化；rank/data-nav 旧链未退役（Step 4）；view-transition facade 与 lab/实验面板 Step 4 清理；Firefox 站长本步明确暂缓（仍未本机实测）；未合并 main、未部署生产。
 
 ## 遗留事项
 

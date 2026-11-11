@@ -47,7 +47,7 @@ describe("withViewTransition", () => {
   it("无 startViewTransition：直接执行 update（降级不阻塞，不设 data-vt）", async () => {
     setReduced(false);
     const update = vi.fn();
-    await withViewTransition(update, "push");
+    await withViewTransition(update, "fade");
     expect(update).toHaveBeenCalledTimes(1);
     expect(document.documentElement.dataset.vt).toBeUndefined();
   });
@@ -61,15 +61,15 @@ describe("withViewTransition", () => {
     expect(document.documentElement.dataset.vt).toBeUndefined();
   });
 
-  it("支持 VT：快照回调期间 data-vt=push 且 update 已执行；结束后 data-vt 清除", async () => {
+  it("支持 VT：快照回调期间 data-vt=fade 且 update 已执行；结束后 data-vt 清除", async () => {
     setReduced(false);
     const stub = installVT();
     let ran = false;
     await withViewTransition(() => {
       ran = true;
-    }, "push");
+    }, "fade");
     expect(ran).toBe(true);
-    expect(stub.during).toEqual([{ vt: "push", x: "", y: "" }]);
+    expect(stub.during).toEqual([{ vt: "fade", x: "", y: "" }]);
     expect(document.documentElement.dataset.vt).toBeUndefined();
   });
 
@@ -100,7 +100,7 @@ describe("withViewTransition", () => {
       cb();
       return { finished: new Promise<void>((resolve) => finish.push(resolve)) };
     };
-    const first = withViewTransition(() => {}, "push");
+    const first = withViewTransition(() => {}, "fade");
     const second = withViewTransition(() => {}, "expand", { x: 5, y: 6 });
     finish[0]!();
     await first;

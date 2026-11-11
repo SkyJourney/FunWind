@@ -19,15 +19,17 @@
 | `--fw-ease-spring` | cubic-bezier(0.34,1.56,0.64,1) | 过冲回弹 |
 | `--fw-ease-exit` | cubic-bezier(0.4,0,1,1) | 退场 |
 
-### 1.2 待升格令牌（M15 Step 3 清账，现状散落在 globals.css）
+### 1.2 已升格令牌（M15 Step 3 完成，统一定义于 primitives.css，含桌面断点覆写）
 
-| 现状 | 升格为 | 说明 |
+| 原散落形态 | 令牌 | 说明 |
 |---|---|---|
-| `--fw-page-shift`（28px / 桌面 14px，`:root` 内联） | `primitives.css` 令牌 | 页面级位移，断点降半 |
-| `--fw-tab-shift`（min(24vw,96px) / 56px，`:root` 内联） | `primitives.css` 令牌 | Tab 切换位移 |
+| `--fw-page-shift`（28px / 桌面 14px，曾在 globals.css `:root`） | `primitives.css` 令牌 | 页面级位移，断点降半 |
+| `--fw-tab-shift`（min(24vw,96px) / 56px，曾在 globals.css `:root`） | `primitives.css` 令牌 | Tab 切换位移 |
 | `fw-nav-grow 12s`（慢网进度条 keyframes 内联时长） | `--fw-dur-progress: 12s` | 唯一的长时进度动画 |
-| `fw-float-up` 内联 `×1.75` 时长放大 | `--fw-dur-float-up: calc(var(--fw-dur-slow) * 1.75)` | 点赞浮起专用（以现行 slow × 1.75 为准，不改变时长） |
-| L4 stagger 步长 `50ms`（8 处内联） | `--fw-stagger-step: 50ms` + `--fw-stagger-max: 10` | 进场编排步长与封顶 |
+| `fw-float-up` 内联 `×1.75` 时长放大 | `--fw-dur-float-up: calc(var(--fw-dur-slow) * 1.75)` | 点赞浮起专用（slow × 1.75，时长不变） |
+| L4 stagger 步长 `50ms`（曾 8 处内联） | `--fw-stagger-step: 50ms` + `--fw-stagger-max: 10` | 进场编排步长与封顶；`<MotionList>` 按步长计算延迟，封顶与引擎 `MOTION_DEFAULTS.maxStaggerItems` 由守卫钉住一致 |
+
+预设关键帧内部的小位移（fw-enter 8px、fw-float-up 20px、fw-pop scale 等）属预设实现细节，留在 globals.css 预设区（sanctioned），不在升格清单；裸写守卫只约束业务代码与非令牌 CSS。
 
 ## 2. 页面预设（方向语义，自现行 nav-kind 行为归纳）
 
@@ -42,14 +44,16 @@
 
 规则：layout 内容（顶栏/底部 Tab/页脚）为独立过渡组且保持静止；页面包装 `[data-fw-page]` 必须自带不透明背景（`--page-bg`）；过渡期间 `::view-transition` 不拦截指针。
 
-## 3. 元素预设（类名约定，Step 3 落地）
+## 3. 元素预设（类名约定，M15 Step 3 已落地）
 
 | 预设 | 类名 | 参数 | 用途 |
 |---|---|---|---|
-| `list.enter` | `.fw-enter` | base · ease-out · stagger-step 50ms · 封顶 10 项（首屏） | 列表首屏错落切入（替代 8 处 `index*50ms` 内联 → `<MotionList>`） |
-| `list.append` | `.fw-fade-in` | base · ease-out · 无位移无延迟 | 翻页 / 触底追加入场（stream-list 哨兵收编进 `<MotionList>`） |
+| `list.enter` | `.fw-enter` | base · ease-out · stagger-step 50ms · 封顶 10 项（首屏） | 列表首屏错落切入：`<MotionList>` 声明式挂类并按令牌步长计算延迟（已替代 8 处 `index*50ms` 内联） |
+| `list.append` | `.fw-fade-in` | base · ease-out · 无位移无延迟 | 翻页 / 触底追加入场：stream-list 追加类改引 `MOTION_ELEMENT_PRESETS["list.append"]`（不再裸写类名，renderItem 契约不变） |
 | `pop` | `.fw-pop` | spring · ease-spring | 点赞 / 关注弹跳（现行 500ms，不按 L1 的通用 150ms 改短）；其他按压仍走 fast |
 | `float-up` | `.fw-float-up` | dur-float-up · ease-out | 点赞浮起 |
+
+`<MotionList>`（`engine/list.tsx`）是共享组件（无 `"use client"`，RSC 首屏即可挂类与延迟）：`cloneElement` 把预设类与延迟合并进条目根元素，不新增包裹盒子，DOM/版式/`:last-child` 零变化；`animate=false` 原样渲染（翻页/直达深页不重播）。预设定义（类名/时长/曲线）是引擎单一事实源 `MOTION_ELEMENT_PRESETS`；微交互组件（like-toggle/follow-toggle）继续消费 fw-* 类，行为零变化。
 
 ## 4. 导航生命周期钩子（契约）
 
@@ -111,7 +115,7 @@
 
 | 守卫 | 内容 |
 |---|---|
-| 裸写禁令 | 引擎外（globals.css 预设区与引擎模块之外）出现 `cubic-bezier(`、裸 `ms` 动画时长、裸位移 px 即测试红；白名单 = 令牌文件、tw-animate 内部 |
+| 裸写禁令（Step 3 已上线） | `motion-bare-write-guard.test.ts`：业务 TS/TSX（app/**、components/**）禁裸写 `animationDelay/Duration`（纯令牌引用豁免）、`cubic-bezier(`、`animation` 简写裸时长；非令牌 CSS 禁裸写时长/曲线。白名单 = 令牌文件（styles/tokens/**）、引擎模块；globals.css 预设区已全量令牌化故全文件零命中。检测器纯函数 + fixture 自检 + 隔离副本变异验证。预设关键帧内部小位移属 sanctioned 预设区，不在禁令范围 |
 | 架构守卫 | 引擎（`lib/motion/`）不得 import 业务代码（`app/**`、`components/**` 业务域）；引擎不持有业务状态 |
 | 一致性 | 灰度期两套方向判定全路由矩阵一致（Step 2 起） |
 | 静态零变 | visual 基线零更新（`animations: "disabled"`） |
@@ -122,8 +126,8 @@
 
 | 规范节 | 落地 Step |
 |---|---|
-| §1.2 待升格令牌 + §3 元素预设 + §7 守卫 | Step 3 |
+| §1.2 令牌升格 + §3 元素预设（MotionList）+ §7 裸写守卫 | Step 3 ✅ |
 | §2 页面预设 + §4 导航钩子 + §5 注册表/灰度 | Step 1（内核）→ Step 2（试点）→ Step 4（全站收敛） |
-| §4 元素钩子 | Step 3 |
-| §6 reduced-motion 统一 | Step 3（收编现行三处） |
-| §5 退役标准 | Step 4 |
+| §4 元素钩子（onEnter/onInView 等） | 引擎已具备（`engine.element`/`useMotionLifecycle`）；业务挂点随 Step 3/4 按需接入 |
+| §6 reduced-motion 统一 | Step 3 ✅（CSS reduce 仍为稳健机制，引擎拥有预设定义，守卫钉住元素预设覆盖；页面导航 reduce 由引擎驱动） |
+| §5 退役标准（rank/data-nav/一致性测试） | Step 4 |

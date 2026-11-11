@@ -5,6 +5,43 @@
 
 ## [Unreleased]
 
+### Added（M15 · Step 3 元素层接入与魔法数清账，2026-11-11）
+
+- **令牌升格入 primitives.css**：`--fw-dur-progress`(12s)、`--fw-dur-float-up`(slow×1.75)、
+  `--fw-stagger-step`(50ms)、`--fw-stagger-max`(10)、`--fw-page-shift`(28/14px)、
+  `--fw-tab-shift`(min(24vw,96px)/56px) 统一定义（含桌面断点覆写）；`globals.css` 改引令牌，
+  删除 `:root` 位移定义、`fw-nav-grow 12s` 裸值与 float-up `×1.75` 内联。预设关键帧内部的小位移
+  （fw-enter 8px、float-up 20px 等）属预设实现细节，留在 sanctioned 预设区，不在升格清单。
+- **MotionList 元素层接入**：新增 `engine/list.tsx` 共享组件（无 `"use client"`，RSC 首屏即可挂类与延迟）；
+  `cloneElement` 把预设类与延迟合并进条目根元素，不新增包裹盒子，DOM/版式/`:last-child` 零变化。
+  `list.enter` 前 10 项挂 `fw-enter` + `calc(var(--fw-stagger-step) * 序号)`，`list.append` 每项
+  `fw-fade-in` 无延迟，`animate=false` 原样渲染（翻页/直达深页不重播）。8 处首屏 stagger
+  （首页/关注/版块/通知/私信/用户主页主题+回复/积分）全部迁移；`stream-list` 追加淡入类改引
+  `MOTION_ELEMENT_PRESETS["list.append"]`（不再裸写类名，renderItem 契约与 DOM 不变）。
+- **手动 VT 助手收编**：状态级驱动实现移入 `engine/native.ts`（`playStateTransition` /
+  `prefersReducedMotion` / `supportsViewTransition`，经 barrel 导出，SSR 安全）；`view-transition.ts`
+  降为薄兼容 facade（保留旧签名与 7 项单测，Step 4 随旧链移除）。状态级选型收敛 fade/expand
+  （push/pop 为演示遗留，已删；facade 单测原 push 用例改 fade，行为覆盖零删减）。
+- **演示页更新与死代码清理**：`/design/motion` StaggerDemo 用 `MotionList`、DirectionalDemo 用
+  `MOTION_DIRECTIONS` 方向预设、ExpandDemo 用 `playStateTransition` 显式圆心，不再依赖旧 facade
+  与裸写魔法数；删除 `vt-push-in`/`vt-pop-in` 关键帧、`html[data-vt="push"/"pop"]` 规则与
+  reduce 块死选择器 `[style*="vt-push-in"]`/`[style*="vt-pop-in"]`。
+- **裸写守卫上线**：`motion-bare-write-guard.test.ts`——业务 TS/TSX 禁裸写 `animationDelay/Duration`
+  （纯令牌引用豁免）、`cubic-bezier`、`animation` 简写裸时长；非令牌 CSS 禁裸写时长/曲线
+  （globals.css 预设区已全量令牌化，全文件扫描零命中）；令牌收敛断言（primitives 定义升格令牌、
+  globals 无残留魔法数/死代码、引擎 `maxStaggerItems` 与 `--fw-stagger-max` 钉住一致）与 reduce
+  收编核对（元素预设类全部在 reduce 媒体查询内归零）。检测器纯函数 + fixture 自检，隔离副本三类
+  变异（内联 animationDelay 裸值 / cubic-bezier / CSS 裸时长）均被拦截。
+- **reduced-motion 口径**：CSS reduce 仍是稳健机制（无 JS 也生效），引擎拥有预设定义，守卫钉住
+  元素预设覆盖；页面导航 reduce 由引擎驱动（Step 2）。本步不把 CSS reduce 迁成 JS，属「收编为
+  引擎对齐的单一策略 + 守卫」而非重写。
+- **验证与后续边界**：微交互组件（like-toggle/follow-toggle）仍用 fw-* 预设类，行为零变化
+  （微交互 E2E 用例零删减）；rank/data-nav 旧链未退役（Step 4），view-transition facade 与
+  motion-lab/实验面板 Step 4 清理。Step 4 全站收敛、Step 4.5 独立审查及 Step 5 PR/CI/部署均未执行，
+  M15 未收口、未合并 main、未部署生产；Firefox 仍未本机实测（站长本步明确暂缓）。最终
+  `verify:all` / 全量 E2E / 安装 / 视觉回归 / LCP 门禁与视觉零更新以
+  [M15 执行记录](docs/milestones/M15-motion-pipeline.md) §13 实测为准。
+
 ### Added（M15 · Step 2 页面接入与共享段试点，2026-11-11）
 
 - **单根页面宿主**：根 template 改为 `SiteMotionBoundary → MotionPage`，不叠根/段级双 VT；

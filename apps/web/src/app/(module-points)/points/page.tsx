@@ -7,6 +7,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { getLedgerPage } from "@/lib/points/ledger";
 import { LedgerRow } from "./ledger-row";
 import { LedgerStream } from "./ledger-stream";
+import { MotionList } from "@/lib/motion";
 import { getPointRewardConfig, getPunchRewardConfig } from "@/lib/points/reward-load";
 
 export const dynamic = "force-dynamic";
@@ -88,18 +89,11 @@ export default async function PointsPage({
               hasMore={ledger.page < ledger.totalPages}
               seedIds={ledger.items.map((it) => it.id)}
             >
-              {ledger.items.map((it, index) => (
-                <LedgerRow
-                  key={it.id}
-                  item={it}
-                  className={ledger.page === 1 && index < 10 ? "fw-enter" : undefined}
-                  style={
-                    ledger.page === 1 && index < 10
-                      ? { animationDelay: `${index * 50}ms` }
-                      : undefined
-                  }
-                />
-              ))}
+              <MotionList animate={ledger.page === 1}>
+                {ledger.items.map((it) => (
+                  <LedgerRow key={it.id} item={it} />
+                ))}
+              </MotionList>
             </LedgerStream>
           )}
         </CardContent>

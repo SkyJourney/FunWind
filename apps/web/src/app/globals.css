@@ -96,7 +96,7 @@
 
 /* ===== S4 动效基线（docs/M10.5-S4-VISUAL-MOTION.md）：只动 transform/opacity ===== */
 
-/* 进场（列表/卡片首屏）：配合 style={{ animationDelay }} 做 stagger 错落 */
+/* 进场（列表/卡片首屏）：由 <MotionList> 声明式挂类并按 --fw-stagger-step 计算错落延迟（M15 Step 3） */
 @keyframes fw-enter {
   from {
     opacity: 0;
@@ -187,7 +187,7 @@
   }
 }
 .fw-float-up {
-  animation: fw-float-up calc(var(--fw-dur-slow) * 1.75) var(--fw-ease-out) both;
+  animation: fw-float-up var(--fw-dur-float-up) var(--fw-ease-out) both;
 }
 
 /* 导航进度条（M10.7 Step 4a）：点击后 80ms 出现，只动 transform；组件只在在途时渲染，每次导航动画从头开始 */
@@ -206,7 +206,7 @@
   background: var(--primary);
   transform-origin: left;
   transform: scaleX(0.08);
-  animation: fw-nav-grow 12s var(--fw-ease-out) forwards;
+  animation: fw-nav-grow var(--fw-dur-progress) var(--fw-ease-out) forwards;
 }
 @keyframes fw-nav-grow {
   to {
@@ -246,29 +246,13 @@
   .fw-fade-in {
     animation: none;
   }
-  /* template.tsx 的方向性进场在 reduce 下关闭 */
-  [style*="vt-push-in"],
-  [style*="vt-pop-in"] {
-    animation: none !important;
-  }
 }
 
 /* ===== 页面级过渡（M10.7 Step 4b）=====
    template.tsx 用 React <ViewTransition> 给页面内容打 `.fw-page` 类；浏览器同时持有新旧两张快照，进退场都能动。
    方向由 <html data-nav> 决定（lib/motion/nav-kind.ts）：push 前进 / pop 返回 / 其余（fade 或缺省）淡入淡出。 */
 
-/* 位移令牌：移动端 28px，桌面减半（S4 §3.2「桌面克制」）。
-   Tab 切换（底部导航 / 顶栏同级）要让人看得清「滑出再滑入」，幅度更大：移动端 min(24vw, 96px)，桌面 56px */
-:root {
-  --fw-page-shift: 28px;
-  --fw-tab-shift: min(24vw, 96px);
-}
-@media (min-width: 768px) {
-  :root {
-    --fw-page-shift: 14px;
-    --fw-tab-shift: 56px;
-  }
-}
+/* 位移令牌 --fw-page-shift / --fw-tab-shift 已升格至 primitives.css（M15 Step 3，含桌面断点覆写） */
 
 /* 过渡期间覆盖层不拦截指针事件：用户在动画中的点击仍落到真实页面上 */
 ::view-transition {
@@ -484,12 +468,6 @@ html[data-vt]::view-transition-old(root) {
 html[data-vt]::view-transition-new(root) {
   animation: vt-fade-in var(--fw-dur-base) var(--fw-ease-out) both;
 }
-html[data-vt="push"]::view-transition-new(root) {
-  animation: vt-push-in var(--fw-dur-slow) var(--fw-ease-out) both;
-}
-html[data-vt="pop"]::view-transition-new(root) {
-  animation: vt-pop-in var(--fw-dur-slow) var(--fw-ease-out) both;
-}
 html[data-vt="expand"]::view-transition-new(root) {
   animation: vt-expand var(--fw-dur-spring) var(--fw-ease-out) both;
 }
@@ -502,18 +480,6 @@ html[data-vt="expand"]::view-transition-new(root) {
   from {
     opacity: 0;
     transform: translateY(6px);
-  }
-}
-@keyframes vt-push-in {
-  from {
-    opacity: 0.6;
-    transform: translateX(28px);
-  }
-}
-@keyframes vt-pop-in {
-  from {
-    opacity: 0.6;
-    transform: translateX(-28px);
   }
 }
 @keyframes vt-expand {

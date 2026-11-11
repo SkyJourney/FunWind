@@ -11,6 +11,9 @@ export { createMotionRegistry, directionBetween, resolveMotionPlan } from "./eng
 export { createMotionEngine } from "./engine/runtime";
 export { MotionPage, MotionProvider, useMotion, useMotionLifecycle } from "./engine/react";
 export type { MotionProviderProps } from "./engine/react";
+export { MotionList } from "./engine/list";
+export { playStateTransition, prefersReducedMotion, supportsViewTransition } from "./engine/native";
+export type { StateTransitionKind, StateTransitionOptions } from "./engine/native";
 export type { MotionEngine, MotionEngineOptions, MotionSession } from "./engine/runtime";
 export type { MotionPlayOptions, MotionPlayResult } from "./engine/play";
 export type {
