@@ -2,7 +2,7 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import { useLayoutEffect, type ViewTransitionInstance } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NavGuardHandlers } from "@/lib/motion/nav-guard";
-import { resetExpandRecord } from "@/lib/motion/nav-kind";
+import { resetExpandRecord } from "./nav-geometry";
 import { NavigationGuard } from "./navigation-guard";
 import { createPageMotion, type PageMotion, type PageNavigation } from "./page-motion";
 
@@ -18,18 +18,18 @@ let pathname = "/";
 let search = "";
 let motion: PageMotion;
 
-const navKind = vi.hoisted(() => ({
-  setNavKind: vi.fn(),
-  clearNavKind: vi.fn(),
-  releaseNavKind: vi.fn(),
+const navDirection = vi.hoisted(() => ({
+  setDirection: vi.fn(),
+  clearDirection: vi.fn(),
+  releaseDirection: vi.fn(),
 }));
-vi.mock("@/lib/motion/nav-kind", async (orig) => {
-  const actual = await orig<typeof import("@/lib/motion/nav-kind")>();
+vi.mock("./nav-direction", async (orig) => {
+  const actual = await orig<typeof import("./nav-direction")>();
   return {
     ...actual,
-    setNavKind: navKind.setNavKind.mockImplementation(actual.setNavKind),
-    clearNavKind: navKind.clearNavKind.mockImplementation(actual.clearNavKind),
-    releaseNavKind: navKind.releaseNavKind.mockImplementation(actual.releaseNavKind),
+    setDirection: navDirection.setDirection.mockImplementation(actual.setDirection),
+    clearDirection: navDirection.clearDirection.mockImplementation(actual.clearDirection),
+    releaseDirection: navDirection.releaseDirection.mockImplementation(actual.releaseDirection),
   };
 });
 
@@ -161,22 +161,23 @@ describe("NavigationGuard", () => {
     expect(toast.dismiss).toHaveBeenCalledWith("nav-slow");
   });
 
-  it("导航按层级写方向；试点 plan 的无圆心是 undefined，兼容链是 null", () => {
+  it("导航按注册表写方向；全站建会话，plan 无圆心统一为 undefined", () => {
     render(<NavigationGuard />);
-    for (const [from, to, direction, origin] of [
-      ["/f/3?page=2", "/t/9", "push", undefined],
-      ["/t/9", "/f/3?page=2", "pop", undefined],
-      ["/f/3", "/u/9?x=1", "fade", null],
-      ["/boards", "/search?q=x", "tab-next", null],
+    for (const [from, to, direction] of [
+      ["/f/3?page=2", "/t/9", "push"],
+      ["/t/9", "/f/3?page=2", "pop"],
+      ["/f/3", "/u/9?x=1", "fade"],
+      ["/boards", "/search?q=x", "tab-next"],
     ] as const) {
       showUrl(from);
       start(to);
-      expect(navKind.setNavKind).toHaveBeenLastCalledWith(
+      // 全站收敛后非试点也走引擎 plan，无圆心时 origin 为 undefined（不再是兼容链的 null）
+      expect(navDirection.setDirection).toHaveBeenLastCalledWith(
         direction,
-        origin,
+        undefined,
         document.documentElement,
       );
-      expect(document.documentElement).toHaveAttribute("data-nav", direction);
+      expect(document.documentElement).toHaveAttribute("data-motion-direction", direction);
       expect(motion.getSnapshot()).toMatchObject({ from, to });
       expect(guard.complete).not.toHaveBeenCalled();
     }
@@ -193,7 +194,7 @@ describe("NavigationGuard", () => {
         point: { x: 321, y: 123 },
       }),
     );
-    expect(navKind.setNavKind).toHaveBeenLastCalledWith(
+    expect(navDirection.setDirection).toHaveBeenLastCalledWith(
       "expand",
       expect.objectContaining({ x: 321, y: 123 }), // jsdom 无包装盒子：pageTop = 0
       document.documentElement,
@@ -224,10 +225,10 @@ describe("NavigationGuard", () => {
   it("导航失败：清掉已写的方向，避免残留到下一次导航", () => {
     render(<NavigationGuard />);
     start("/t/9");
-    expect(document.documentElement).toHaveAttribute("data-nav", "push");
+    expect(document.documentElement).toHaveAttribute("data-motion-direction", "push");
     act(() => h().onFailure({ url: "/t/9", viaClick: true }));
-    expect(navKind.clearNavKind).toHaveBeenCalledExactlyOnceWith(document.documentElement);
-    expect(document.documentElement).not.toHaveAttribute("data-nav");
+    expect(navDirection.clearDirection).toHaveBeenCalledExactlyOnceWith(document.documentElement);
+    expect(document.documentElement).not.toHaveAttribute("data-motion-direction");
     expect(motion.engine.current).toBeUndefined();
     expect(motion.getSnapshot()).toBeUndefined();
   });
@@ -279,12 +280,12 @@ describe("NavigationGuard", () => {
     expect(guard.begin).not.toHaveBeenCalled();
   });
 
-  it("真实在途请求按捕获 epoch 提交目标 key；试点等参与者 cleanup 才清方向，query 也须先有请求", () => {
+  it("真实在途请求按捕获 epoch 提交目标 key；等参与者 cleanup 才清方向，query 也须先有请求", () => {
     showUrl("/f/3?page=2");
     const committed = vi.spyOn(motion, "committed");
     const { rerender } = render(<NavigationGuard />);
     expect(guard.complete).not.toHaveBeenCalled();
-    expect(navKind.releaseNavKind).not.toHaveBeenCalled();
+    expect(navDirection.releaseDirection).not.toHaveBeenCalled();
     expect(committed).not.toHaveBeenCalled();
 
     start("/t/9");
@@ -305,18 +306,18 @@ describe("NavigationGuard", () => {
     expect(committed).toHaveBeenLastCalledWith("/t/9", request.epoch);
     expect(guard.complete).toHaveBeenCalledExactlyOnceWith(request.to);
     expect(motion.getSnapshot()).toBeUndefined();
-    expect(navKind.releaseNavKind).not.toHaveBeenCalled();
-    expect(navKind.clearNavKind).not.toHaveBeenCalled();
-    expect(document.documentElement).toHaveAttribute("data-nav", "push");
+    expect(navDirection.releaseDirection).not.toHaveBeenCalled();
+    expect(navDirection.clearDirection).not.toHaveBeenCalled();
+    expect(document.documentElement).toHaveAttribute("data-motion-direction", "push");
     expect(document.documentElement).toHaveAttribute("data-motion-nav", String(id));
     const remove = motion.participate(id, instance, []);
     expect(remove).toBeTypeOf("function");
     expect(motion.engine.current).toMatchObject({ id, phase: "ready" });
-    expect(document.documentElement).toHaveAttribute("data-nav", "push");
+    expect(document.documentElement).toHaveAttribute("data-motion-direction", "push");
     if (typeof remove === "function") act(remove);
-    expect(document.documentElement).not.toHaveAttribute("data-nav");
+    expect(document.documentElement).not.toHaveAttribute("data-motion-direction");
     expect(document.documentElement).not.toHaveAttribute("data-motion-nav");
-    expect(navKind.releaseNavKind).not.toHaveBeenCalled();
+    expect(navDirection.releaseDirection).not.toHaveBeenCalled();
 
     start("/t/9?page=2");
     const query = motion.getSnapshot()!;
@@ -335,7 +336,7 @@ describe("NavigationGuard", () => {
     expect(committed).toHaveBeenLastCalledWith("/t/9?page=2", query.epoch);
     expect(guard.complete.mock.calls).toEqual([[request.to], [query.to]]);
     expect(motion.getSnapshot()).toBeUndefined();
-    expect(document.documentElement).not.toHaveAttribute("data-nav");
+    expect(document.documentElement).not.toHaveAttribute("data-motion-direction");
     expect(guard.install).toHaveBeenCalledOnce();
   });
 
@@ -376,9 +377,9 @@ describe("NavigationGuard", () => {
     expect(committed).toHaveBeenLastCalledWith(latest.to, latest.epoch);
     expect(guard.complete).toHaveBeenCalledExactlyOnceWith(latest.to);
     expect(motion.getSnapshot()).toBeUndefined();
-    expect(document.documentElement).toHaveAttribute("data-nav", "fade");
+    expect(document.documentElement).toHaveAttribute("data-motion-direction", "fade");
     finishTransition(id);
-    expect(document.documentElement).not.toHaveAttribute("data-nav");
+    expect(document.documentElement).not.toHaveAttribute("data-motion-direction");
   });
 
   it("旧目标 URL 晚到不能认领更新请求，只有最新目标提交才能 complete", () => {
@@ -398,15 +399,15 @@ describe("NavigationGuard", () => {
     expect(motion.getSnapshot()).toBe(latest);
     expect(motion.engine.current?.id).toBe(id);
     expect(guard.complete).not.toHaveBeenCalled();
-    expect(navKind.releaseNavKind).not.toHaveBeenCalled();
+    expect(navDirection.releaseDirection).not.toHaveBeenCalled();
 
     showUrl(latest.to);
     rerender(<NavigationGuard />);
     expect(committed).toHaveBeenLastCalledWith(latest.to, latest.epoch);
     expect(guard.complete).toHaveBeenCalledExactlyOnceWith(latest.to);
     expect(motion.getSnapshot()).toBeUndefined();
-    expect(document.documentElement).toHaveAttribute("data-nav", "push");
+    expect(document.documentElement).toHaveAttribute("data-motion-direction", "push");
     finishTransition(id);
-    expect(document.documentElement).not.toHaveAttribute("data-nav");
+    expect(document.documentElement).not.toHaveAttribute("data-motion-direction");
   });
 });

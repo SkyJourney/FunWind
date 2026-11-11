@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import { PageMotionBoundary } from "@/components/site/page-motion-boundary";
 import { cn } from "@/lib/utils";
 
 export interface AdminNavItem {
@@ -148,7 +149,8 @@ export function AdminShell({
               返回社区
             </Link>
           </header>
-          {children}
+          {/* 页面层 keyed VT 边界：组内切换 fade 微动，侧栏/头部/抽屉在边界外静止不重挂（M15 Step 4） */}
+          <PageMotionBoundary>{children}</PageMotionBoundary>
         </div>
       </div>
     </>

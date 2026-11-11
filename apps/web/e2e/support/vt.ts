@@ -26,7 +26,7 @@ export async function installTransitionProbe(page: Page): Promise<void> {
         arg?: Parameters<typeof original>[0],
       ) => {
         const root = document.documentElement;
-        w.__vtStarts!.push(root.dataset.nav ?? null);
+        w.__vtStarts!.push(root.dataset.motionDirection ?? null);
         const typeIndex = w.__vtTypes!.length;
         w.__vtTypes!.push(
           typeof arg === "object" && arg !== null ? Array.from(arg.types ?? []) : [],

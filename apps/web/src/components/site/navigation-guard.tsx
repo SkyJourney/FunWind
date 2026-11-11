@@ -53,8 +53,8 @@ export function NavigationGuard() {
   useEffect(() => {
     const guard = installNavGuard({
       onStatus: setStatus,
-      // 页面过渡方向：确认发起导航时写到 <html data-nav>（popstate 的方向由 NavKindCapture 写）。
-      // 含触点扩散 / 收起：内容卡片 → 详情扩散，随后站内链接回到该列表则收起（见 nav-kind.ts）
+      // 页面过渡方向：确认发起导航时写到 <html data-motion-direction>（popstate 的方向由 NavKindCapture 写）。
+      // 含触点扩散 / 收起：内容卡片 → 详情扩散，随后站内链接回到该列表则收起（见 nav-geometry.ts）
       onStart: (nav) => {
         if (needsReset.current) {
           needsReset.current = false;

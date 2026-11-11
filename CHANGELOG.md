@@ -5,6 +5,39 @@
 
 ## [Unreleased]
 
+### Added（M15 · Step 4 全站收敛与 rank/data-nav 退役，2026-11-11）
+
+- **方向桥退役（机制：引擎自有方向属性）**：删除 `lib/motion/nav-kind.ts`（rank 表 + TAB_ORDER + kindBetween +
+  data-nav 属性时序 + resolveNavKind 几何），拆为 `components/site/nav-geometry.ts`（expand/collapse 几何，
+  base 方向改接注册表 `siteMotionDirection`）与 `nav-direction.ts`（`setDirection`/`clearDirection`/`releaseDirection`
+  写 `html[data-motion-direction]` + `--vt-x/y/r`，保留 15s 保底超时 + 代次校验）。方向归注册表单一事实源；
+  CSS 选择器 `:root[data-nav]` → `:root[data-motion-direction]`（**同名 keyframes 不动**，E2E 动画名断言零改动）；
+  `transitionTypes` 仍透传作为原生类型层。抉择理由：保留「几百处链接无需逐个加类型」的原设计优点；
+  expand/collapse 在点击拦截时定稿，引擎在导航 transition 之外写属性，不依赖 `addTransitionType`
+  （它只能在 startTransition 回调内调用）。
+- **全站接管**：移除 `isMotionPilot` 灰度门，`page-motion` 对所有路由（除同 pathname 查询串变化）建引擎会话。
+  根边界 `motion-boundary`：非共享路由 pathname-key 接管（组内/跨页都进退场）；共享路由
+  （`hasSharedLayout`=admin/settings）根边界 key/pageKey=`root-shared`、enter/exit=`none`
+  （不重挂共享壳、不认领会话、不播动画）。
+- **共享 layout 边界下沉**：新增 `page-motion-boundary.tsx`（pathname-key MotionPage）；`admin-shell.tsx` 与
+  `settings/layout.tsx` 把 children 包进该边界——组内切换 fade 微动，侧栏/头部/抽屉在边界外静止不重挂，
+  每会话恰一个边界认领（根 root-shared 不匹配、内层 pathname 匹配）。`MotionPage` enter/exit 升为可配置 props。
+  admin 注册表 preset 改 `"admin"`（引擎 `resolveMotionPlan` 层恒 fade，保持克制）。
+- **一致性退役**：`motion-routes.test` 删 kindBetween 全矩阵对比 + isMotionPilot 试点块 + lab 基线；`resolver.test`
+  删 49 对一致性矩阵；保留纯注册表方向/声明/query-hash 不变性断言。`nav-kind.test` 34 例：11 方向例删除
+  （注册表矩阵已覆盖），23 例忠实迁 `nav-direction.test`（10）+ `nav-geometry.test`（13）。
+- **资产清理**：删 `motion-lab/*`（7 文件）、`motion-lab-panel`、`navigation-demo`、`vt-lab.spec`、`vt-support.spec`、
+  `playwright.vt-support.config`、`view-transition` facade + 其测试（等价覆盖已在 `native.test`）；`globals.css`
+  删 lab 块。架构守卫 `LEGACY_ENTRIES` 仅留 `nav-guard.ts`（点击/进度/失败兜底守卫，非方向）。
+- **pilot harness 解耦**：新增 `motion-test-harness.tsx`（测试专用持久宿主，挂根 layout、provider 内、页面边界外
+  故落全局作用域；仅 E2E 经 addInitScript 置 `window.__fwMotionTest` 激活，生产渲染 null 不注册钩子），
+  复刻面板契约用真实 MotionLink/useMotionRouter。pilot 11 例脱离 lab（`open()` 改 flag+goto）；流式用例改用
+  真实异步页（/boards→主题）验证「单会话、流式就绪不伪造第二会话」不变量。
+- **验证与后续边界**：微交互组件行为零变化（15 例 E2E 零删减）；全站 pathname-key 收敛给原本无动画的组内导航
+  新增 fade（收敛目标，非删减）。Step 4.5 独立审查及 Step 5 PR/CI/部署均未执行，M15 未收口、未合并 main、
+  未部署生产；Firefox 仍未本机实测（站长暂缓）。最终 `verify:all` / 全量 E2E / 安装 / 视觉回归 / LCP 门禁与
+  视觉零更新以 [M15 执行记录](docs/milestones/M15-motion-pipeline.md) §14 实测为准。
+
 ### Added（M15 · Step 3 元素层接入与魔法数清账，2026-11-11）
 
 - **令牌升格入 primitives.css**：`--fw-dur-progress`(12s)、`--fw-dur-float-up`(slow×1.75)、

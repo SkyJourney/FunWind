@@ -73,12 +73,13 @@
 4. **可重入**：StrictMode 双执行安全——effect 注册/清理对称；页面 hook 用 useLayoutEffect 注册并返回清理函数。
 5. **兜底清理**：导航未提交时由运行时安全计时器（现行 SAFETY_CLEAR 15s 语义）保证方向属性不残留。
 
-## 5. 方向解析与灰度并存（D3）
+## 5. 方向解析与全站收敛（D3，Step 4 退役完成）
 
-- **注册表**（Step 1 起）：路由段/页面 → 预设与层级的单一事实源；rank 层级语义迁入。
-- **transitionTypes**：主动 Link / push / replace 可显式声明方向；宿主 `MotionLink` / `useMotionRouter` 在 Next 的 transition 中透传类型。浏览器 back/forward 没有该选项，本期按 history 诚实跳过，不以主动 push 冒充历史恢复。
-- **灰度**：未接管路由由现行 nav-kind（rank 表 + `html[data-nav]` 选择器）兜底；一致性测试参数化比对两套判定对全路由矩阵一致，新增路由自动纳入。
-- **退役标准**：73 页全部接管且一致性测试连续一个 Step 全绿 → rank 表、`data-nav` 选择器、一致性测试整体退役（Step 4）。
+- **注册表单一事实源**：`components/site/motion-routes.ts` 路由段/页面 → 预设与层级；rank 层级语义已迁入，旧 `nav-kind.ts` rank 表/TAB_ORDER/kindBetween 已删除。admin 路由组 preset=`admin`（resolver 层恒 fade，克制）。
+- **方向→CSS 桥（引擎自有属性）**：引擎定稿后写 `html[data-motion-direction]`（`nav-direction.ts`），CSS `:root[data-motion-direction="…"]::view-transition-*(.fw-page-*)` 选动画，沿用同名 keyframes。保留「几百处链接无需逐个加类型」的原设计优点；expand/collapse 在点击拦截时由 `nav-geometry.ts` 定稿，引擎在导航 transition 之外写属性，不依赖 `addTransitionType`（仅限 startTransition 内）。
+- **transitionTypes**：主动 Link / push / replace 经 `MotionLink` / `useMotionRouter` 透传 `fw-*` 原生类型（pilot E2E 断言）；浏览器 back/forward 没有该选项，按 history 诚实跳过，不以主动 push 冒充历史恢复。
+- **全站接管**：移除 isMotionPilot 灰度门，所有路由（除同 pathname）建引擎会话；根边界非共享路由 pathname-key，共享路由（admin/settings）根边界 root-shared/enter-exit none，动画与生命周期交壳内下沉的 `PageMotionBoundary`（每会话恰一个边界认领）。
+- **退役完成（Step 4）**：rank 表、`html[data-nav]` 选择器、新旧一致性矩阵（motion-routes/resolver）整体退役；nav-kind 几何/属性时序 23 例迁 `nav-geometry.test`/`nav-direction.test`，方向判定由纯注册表矩阵承载。新增页面只需登记注册表（自动纳入方向矩阵），不再维护两套。
 
 ## 6. reduced-motion 统一策略
 
@@ -99,25 +100,25 @@
 - Step 0 的目标页覆写实验只证明新层动画可变化，尚未证明旧快照测量、目标页未挂载的钩子与流式晚到都可延迟：这些仍须提前捕获或在 Step 2 验证。流式内容就绪不新建导航会话（无在途编号不允许 commit/ready），但 React 自发的二次 VT 能否抑制仍归 Step 2 实测，不在本步宣称解决。
 - Step 1 只交付接入类型；`MotionPage/MotionProvider/useMotion/useMotionLifecycle` 已在 Step 2 实现，`MotionList` 仍归 Step 3。安全超时测试使用注入的调度器，只测状态与清理，不用假时钟推断浏览器动画。
 
-## 6.2 Step 2 页面宿主与灰度契约
+## 6.2 页面宿主与全站收敛契约（Step 2 试点 → Step 4 收敛）
 
-- **唯一边界**：根 template 使用 `SiteMotionBoundary → MotionPage`，不再外套另一层 VT；唯一 `[data-fw-page]` 全宽盒子不变。试点 `/t/*`、`/a` 和 `/a/*` 的 VT 本体 key 取 pathname，其他路由 key 固定，由 Next 原有根模板重挂兜底；query/hash 不入 key。不为所有页面设置同一个显式 name（否则会走 share 而非进退场）。
+- **边界（Step 4 全站接管）**：根 template 使用 `SiteMotionBoundary → MotionPage`，不外套另一层 VT。非共享路由 VT 本体 key 取 pathname（全站进退场）；共享 layout 组（admin/settings）根边界 key/pageKey=`root-shared`、enter/exit=`none`（不重挂共享壳、不认领、不播动画），动画与生命周期交壳内下沉的 `PageMotionBoundary`（pathname-key），每会话恰一个边界认领。query/hash 不入 key。不为所有页面设置同一个显式 name（否则会走 share 而非进退场）。
 - **不重写 RSC**：异步页面仍作为 children 插槽，数据库读取不迁到客户端；引擎/provider 位于 layout 稳定层。业务页面不要在根宿主内再套一层 `MotionPage`；页面级 hook 放在客户端岛中即可。
 - **职责分离**：`MotionPage` 负责快照与页面作用域，`preset` 标记当前角色；层级、Tab 顺序和目标预设由宿主注册表在意图阶段提供。组件不接受尚未实现的 level/tabOrder 覆写，也不在目标页 effect 中重写已经定稿的整次导航。
-- **灰度桥**：默认方向解析迁到宿主注册表并全路由对照旧 rank。触点展开/收起仍只调用一次旧几何助手（显式普通方向不创建展开记录），旧 CSS `data-nav` 保留至 Step 4。自动方向不冒充显式 hint，以便全局 preset 仍能生效；显式 Link/router hint 或 expand/collapse 才传入 intent.direction。
+- **方向桥（Step 4 退役 data-nav）**：方向由注册表单一事实源解析，引擎定稿后写 `html[data-motion-direction]`（`nav-direction.ts`），CSS 按该属性选动画（同名 keyframes）。触点展开/收起几何在 `nav-geometry.ts`，只调用一次（显式普通方向不创建展开记录）。自动方向不冒充显式 hint，以便全局 preset 仍能生效；显式 Link/router hint 或 expand/collapse 才传入 intent.direction。旧 rank 表与 `data-nav` 选择器已删除。
 - **两类编号**：宿主请求 epoch 保护 URL 提交、进度条和旧 effect，内核导航 id 保护动效 ready/finish。不可变请求快照在会话与桥接状态准备完整后才发布，通过 `useSyncExternalStore` 订阅；提交通知必须携带渲染时的 epoch，旧提交和更早目标的晚到 RSC 不能结束新请求。守卫 `complete(url)` 再核对在途比较键。hash-only/原地址程序化调用仍交给 router，但不登记新 pending；history 在 capture 阶段保留来源完整 key。
 - **React 收尾**：参与者回调绑定渲染时捕获的 id，而非晚到时读取 current 来认领新导航；回调返回的 cleanup 由 React 绑定原生 finished，幂等归并为一次终态。`ViewTransitionInstance` 不是原生 VT，不从它读取 ready/finished；公共 `activeViewTransition` 仅可选补充，存在时校验 ready 的失败分支，缺失时使用 React 参与者的逻辑就绪/清理契约，不冒称物理动画已成功启动。
 - **取消与降级**：reduce/no API/history 不影响内容可用；cancel/disabled 的 CSS 抑制标记持有至对应 React cleanup，旧 cleanup 不得删新标记。加载期间偏好变化在参与者就绪时再次检查。现有慢网、重复点击去重、生产失败重置与重试继续由原守卫负责。
-- **流式边界**：`update="none" default="none"` 明确关闭持久页面边界的更新动画；试点按 pathname-key 变化形成进退场，非试点沿用根模板重挂。同 key 的流式就绪不产生额外整页动画/导航会话；独立子 VT、空的原生 start 仍可能存在，不要求全局原生 start 次数永远等于一。
-- **实验宿主**：导航实验面板只从 `/motion-lab` 显式开启，挂在稳定 layout 中，以真实 Link/router 跨 `/t`、`/a` 验证；关闭时无 DOM。日志通过真实生命周期 hook 写入只含阶段与编号的诊断输出，不导出应用私有 router。面板、入口及 lab 在 Step 4 一并删除。
+- **流式边界**：`update="none" default="none"` 明确关闭持久页面边界的更新动画；pathname-key 变化形成进退场。同 key 的流式就绪不产生额外整页动画/导航会话；独立子 VT、空的原生 start 仍可能存在，不要求全局原生 start 次数永远等于一。
+- **测试宿主（Step 4 脱离 lab）**：`motion-lab` 与实验面板已删除。pilot E2E 改用 `motion-test-harness.tsx`——测试专用持久宿主，挂根 layout、provider 内、页面边界外（落全局作用域），仅 E2E 经 addInitScript 置 `window.__fwMotionTest` 激活，生产渲染 null 不注册钩子；以真实 MotionLink/useMotionRouter 跨页验证，生命周期 hook 写只含阶段与编号的诊断输出，不导出应用私有 router。
 
 ## 7. 守卫与验收
 
 | 守卫 | 内容 |
 |---|---|
 | 裸写禁令（Step 3 已上线） | `motion-bare-write-guard.test.ts`：业务 TS/TSX（app/**、components/**）禁裸写 `animationDelay/Duration`（纯令牌引用豁免）、`cubic-bezier(`、`animation` 简写裸时长；非令牌 CSS 禁裸写时长/曲线。白名单 = 令牌文件（styles/tokens/**）、引擎模块；globals.css 预设区已全量令牌化故全文件零命中。检测器纯函数 + fixture 自检 + 隔离副本变异验证。预设关键帧内部小位移属 sanctioned 预设区，不在禁令范围 |
-| 架构守卫 | 引擎（`lib/motion/`）不得 import 业务代码（`app/**`、`components/**` 业务域）；引擎不持有业务状态 |
-| 一致性 | 灰度期两套方向判定全路由矩阵一致（Step 2 起） |
+| 架构守卫 | 引擎（`lib/motion/`）不得 import 业务代码（`app/**`、`components/**` 业务域）；引擎不持有业务状态；`LEGACY_ENTRIES` 仅留 nav-guard.ts（Step 4 退役 nav-kind/view-transition） |
+| 注册表方向矩阵 | Step 4 一致性对比退役后，纯注册表方向/声明/query-hash 不变性矩阵承载（新增页面自动纳入） |
 | 静态零变 | visual 基线零更新（`animations: "disabled"`） |
 | 性能 | 只动 `transform/opacity/clip-path`；`will-change` 仅限进行中过渡；LCP 不回退 |
 | 依赖 | 不引入第三方动效库（零依赖栈延续，F8） |
@@ -127,7 +128,7 @@
 | 规范节 | 落地 Step |
 |---|---|
 | §1.2 令牌升格 + §3 元素预设（MotionList）+ §7 裸写守卫 | Step 3 ✅ |
-| §2 页面预设 + §4 导航钩子 + §5 注册表/灰度 | Step 1（内核）→ Step 2（试点）→ Step 4（全站收敛） |
+| §2 页面预设 + §4 导航钩子 + §5 注册表/全站收敛 | Step 1（内核）→ Step 2（试点）→ Step 4 ✅（全站接管） |
 | §4 元素钩子（onEnter/onInView 等） | 引擎已具备（`engine.element`/`useMotionLifecycle`）；业务挂点随 Step 3/4 按需接入 |
 | §6 reduced-motion 统一 | Step 3 ✅（CSS reduce 仍为稳健机制，引擎拥有预设定义，守卫钉住元素预设覆盖；页面导航 reduce 由引擎驱动） |
-| §5 退役标准（rank/data-nav/一致性测试） | Step 4 |
+| §5 退役（rank/data-nav/一致性测试） | Step 4 ✅（引擎自有方向属性 data-motion-direction，注册表单一事实源） |

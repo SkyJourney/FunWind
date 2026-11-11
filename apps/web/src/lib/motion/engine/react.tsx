@@ -51,7 +51,14 @@ export function useMotionLifecycle(hooks: MotionLifecycle, scope?: MotionScope):
 }
 
 /** key 只挂在 VT 本体上；不增加第二层快照盒子，SSR children 仍由服务端渲染。 */
-export function MotionPage({ children, motionKey, pageKey, preset }: MotionPageProps) {
+export function MotionPage({
+  children,
+  motionKey,
+  pageKey,
+  preset,
+  enter = "fw-page-in",
+  exit = "fw-page-out",
+}: MotionPageProps) {
   const { engine, onPageTransition } = useMotionHost();
   const page = pageKey ?? String(motionKey);
   const session = engine.current;
@@ -74,8 +81,8 @@ export function MotionPage({ children, motionKey, pageKey, preset }: MotionPageP
     <PageContext.Provider value={page}>
       <ViewTransition
         key={motionKey}
-        enter="fw-page-in"
-        exit="fw-page-out"
+        enter={enter}
+        exit={exit}
         update="none"
         default="none"
         onEnter={participate}

@@ -13,7 +13,7 @@ async function idle(page: Page) {
       () =>
         page.evaluate(() => ({
           owner: document.documentElement.dataset.motionNav ?? null,
-          direction: document.documentElement.dataset.nav ?? null,
+          direction: document.documentElement.dataset.motionDirection ?? null,
           active: document
             .getAnimations()
             .some(
@@ -43,12 +43,16 @@ async function go(page: Page, href: string, method: "link" | "push" = "link") {
 }
 async function open(page: Page, href: string) {
   await installTransitionProbe(page);
-  await page.goto("/motion-lab");
-  await page.getByRole("button", { name: "开启持久导航实验面板" }).click();
+  // 测试专用 harness 经 addInitScript flag 激活（持久挂在根 layout，脱离 lab）；
+  // __m15Document 只在首次加载后置一次，整页重载会清掉它，oneNavigation 据此证明软导航。
+  await page.addInitScript(() => {
+    (window as unknown as { __fwMotionTest: boolean }).__fwMotionTest = true;
+  });
+  await page.goto(href);
   await page.evaluate(() => {
     (window as unknown as { __m15Document: string }).__m15Document = "same-document";
   });
-  await go(page, href);
+  await expect(page.getByRole("complementary", { name: "导航实验面板" })).toBeVisible();
   await clear(page);
 }
 async function oneNavigation(page: Page, oldAnimation: string, newAnimation: string) {
@@ -255,15 +259,25 @@ test("不同目标快速切换只提交最新页面，旧RSC晚到不覆盖内�
   expect(await page.evaluate(() => document.documentElement.dataset.motionNav ?? null)).toBeNull();
 });
 
-test("同key Suspense内容就绪不播放额外整页动画，也不伪造第二个导航会话", async ({ page }) => {
-  await open(page, "/motion-lab/one");
-  await go(page, "/motion-lab/stream");
-  await expect(page.getByText("流式内容已就绪（400ms 延迟）", { exact: false })).toBeVisible();
+test("真实异步页流式就绪不播放额外整页动画，也不伪造第二个导航会话", async ({ page }) => {
+  await open(page, "/boards");
+  await go(page, A);
   await idle(page);
+  const lifecycle = await events(page);
+  // 导航恰一个会话；RSC 流式就绪是更新而非新导航，不伪造第二个会话（M15 Step 4 用真实业务页替代 lab 流式页）
+  expect(new Set(lifecycle.map((event) => event.id)).size).toBe(1);
+  expect(lifecycle.map((event) => event.phase)).toEqual(["intent", "before", "ready", "finish"]);
   const reading = await readTransitions(page);
-  // lab内部有独立VT，允许它的内容动画和额外原生start；不能将其外推为生产整页重复动画。
-  expect(reading.rawAnimations.filter((entry) => entry.includes("|vt-page-"))).toEqual([]);
-  expect(await events(page)).toEqual([]);
+  for (const phase of ["old", "new"]) {
+    const groups = new Set(
+      reading.rawAnimations
+        .filter(
+          (entry) => entry.startsWith(`::view-transition-${phase}(`) && entry.includes("|vt-page-"),
+        )
+        .map((entry) => entry.split("|")[0]),
+    );
+    expect(groups.size, `${phase} 页面快照组数`).toBe(1);
+  }
 });
 
 test("试点跨根段进入与退出都只有一对页面动画，没有内外重复边界", async ({ page }) => {

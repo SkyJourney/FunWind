@@ -6,15 +6,9 @@ import {
   type MotionSkipReason,
 } from "@/lib/motion";
 import { navKeyOf } from "@/lib/motion/nav-guard";
-import {
-  clearNavKind,
-  releaseNavKind,
-  resetExpandRecord,
-  resolveNavKind,
-  setNavKind,
-  type NavStartInfo,
-} from "@/lib/motion/nav-kind";
-import { isMotionPilot, siteMotionDirection, siteMotionRegistry } from "./motion-routes";
+import { clearDirection, releaseDirection, setDirection } from "./nav-direction";
+import { resetExpandRecord, resolveNavGeometry, type NavStartInfo } from "./nav-geometry";
+import { siteMotionDirection, siteMotionRegistry } from "./motion-routes";
 
 export type MotionNavigationDirection = Exclude<MotionDirection, "expand" | "collapse">;
 const DIRECTIONS: readonly MotionNavigationDirection[] = [
@@ -51,7 +45,8 @@ export interface PageNavigation {
 }
 const pathname = (url: string) => url.split(/[?#]/, 1)[0] ?? "/";
 
-/** Next 宿主灰度桥：生命周期归新内核，圆心几何和 data-nav CSS 暂留旧链。 */
+/** Next 宿主桥：生命周期归新内核，方向由注册表定稿后写引擎自有属性 data-motion-direction，
+    圆心几何见 nav-geometry，属性时序见 nav-direction（M15 Step 4 退役旧 nav-kind/data-nav）。 */
 export function createPageMotion(options: Options = {}) {
   const root = options.root ?? (() => document.documentElement);
   const location =
@@ -77,7 +72,7 @@ export function createPageMotion(options: Options = {}) {
 
   function release(id: number) {
     if (owner?.id !== id) return;
-    clearNavKind(root());
+    clearDirection(root());
     delete root().dataset.motionNav;
     delete root().dataset.motionSkipped;
     owner = undefined;
@@ -91,7 +86,7 @@ export function createPageMotion(options: Options = {}) {
       onSkip(ctx, reason) {
         if (owner?.id !== ctx.id) return;
         if (reason === "cancelled" || reason === "disabled") {
-          clearNavKind(root());
+          clearDirection(root());
           root().dataset.motionSkipped = String(ctx.id);
         } else release(ctx.id);
       },
@@ -105,7 +100,7 @@ export function createPageMotion(options: Options = {}) {
     if (current) engine.skip(current.id, reason);
     if (generation !== epoch) return;
     if (owned !== undefined) release(owned);
-    else clearNavKind(root());
+    else clearDirection(root());
     request = undefined;
     emit();
   }
@@ -126,7 +121,7 @@ export function createPageMotion(options: Options = {}) {
     const legacy =
       explicit || source === "history"
         ? { kind: explicit ?? siteMotionDirection(nav.from, nav.to), origin: null }
-        : resolveNavKind(nav);
+        : resolveNavGeometry(nav);
     const kind =
       explicit ??
       (legacy.kind === "expand" || legacy.kind === "collapse" ? legacy.kind : undefined);
@@ -144,13 +139,10 @@ export function createPageMotion(options: Options = {}) {
       });
       emit();
     };
-    if (!isMotionPilot(nav.from) && !isMotionPilot(nav.to)) {
-      setNavKind(legacy.kind, legacy.origin, root());
-      publish();
-      return;
-    }
+    // 全站收敛（M15 Step 4）：除同 pathname（查询串变化）外，所有路由都建引擎会话，
+    // 方向由注册表定稿；共享 layout 组的动画由壳内下沉边界播放，根边界不认领。
     if (pathname(nav.from) === pathname(nav.to)) {
-      clearNavKind(root());
+      clearDirection(root());
       publish();
       return;
     }
@@ -183,7 +175,7 @@ export function createPageMotion(options: Options = {}) {
     }
     const plan = engine.commit(id);
     if (plan && owner?.id === id && generation === epoch)
-      setNavKind(plan.direction, plan.origin, root());
+      setDirection(plan.direction, plan.origin, root());
     publish();
   }
 
@@ -251,7 +243,7 @@ export function createPageMotion(options: Options = {}) {
       if (owned) {
         if (owned.to !== pathname(url)) engine.skip(owned.id, "interrupted");
         else if (owned.source === "history") engine.skip(owned.id, "history");
-      } else releaseNavKind(root());
+      } else releaseDirection(root());
       emit();
       return true;
     },

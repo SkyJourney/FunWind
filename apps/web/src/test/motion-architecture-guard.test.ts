@@ -8,11 +8,9 @@ const SRC = join(import.meta.dirname, "..");
 const MOTION = "lib/motion";
 const ENGINE = `${MOTION}/engine`;
 const ENTRY = `${MOTION}/index.ts`;
-const LEGACY_ENTRIES = new Set([
-  `${MOTION}/nav-kind.ts`,
-  `${MOTION}/nav-guard.ts`,
-  `${MOTION}/view-transition.ts`,
-]);
+// M15 Step 4：nav-kind.ts（rank/data-nav）与 view-transition.ts（手动 VT facade）已退役删除；
+// 仅 nav-guard.ts（点击/进度/失败兜底守卫，非方向）保留为兼容入口。
+const LEGACY_ENTRIES = new Set([`${MOTION}/nav-guard.ts`]);
 
 function within(path: string, directory: string): boolean {
   return path === directory || path.startsWith(`${directory}/`);
@@ -124,9 +122,7 @@ function fixture(overrides: Sources = {}): Sources {
     [ENTRY]: 'export { value } from "./engine/core";',
     [CORE]: EXPORTS,
     [HELPER]: EXPORTS,
-    [`${MOTION}/nav-kind.ts`]: EXPORTS,
-    [`${MOTION}/nav-guard.ts`]: 'import "./nav-kind";',
-    [`${MOTION}/view-transition.ts`]: EXPORTS,
+    [`${MOTION}/nav-guard.ts`]: EXPORTS,
     ...overrides,
   };
 }
@@ -358,9 +354,8 @@ describe("动效架构守卫自身：唯一公开入口与旧链豁免", () => {
     expect(
       motionViolations(
         fixture({
-          [`${MOTION}/nav-kind.ts`]: 'import type { Value } from "@/lib/business";',
-          [`${MOTION}/nav-guard.ts`]: 'import "./nav-kind"; import "next/navigation";',
-          [`${MOTION}/view-transition.ts`]: 'import "@funwind/db";',
+          [`${MOTION}/nav-guard.ts`]:
+            'import type { Value } from "@/lib/business"; import "next/navigation";',
           "lib/business.ts": EXPORTS,
           [CONSUMER]: 'import "@/lib/motion/nav-guard";',
         }),

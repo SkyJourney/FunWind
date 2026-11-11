@@ -1,12 +1,22 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import { useMotionLifecycle } from "@/lib/motion";
 import { MotionLink, useMotionRouter } from "./motion-navigation";
 
-/** 仅从实验室显式开启的持久宿主，用真实 Link/router 验证兄弟页导航；随实验室在 Step4 删除。 */
-export function MotionLabPanel() {
-  const [open, setOpen] = useState(false);
+/** flag 由 E2E addInitScript 在加载前置入、页面生命周期内不变，无需订阅；服务端快照恒 false（SSR 安全）。 */
+const noopSubscribe = () => () => {};
+const readTestFlag = () =>
+  Boolean((window as unknown as { __fwMotionTest?: boolean }).__fwMotionTest);
+
+/**
+ * 测试专用持久导航 harness（M15 Step 4 脱离 motion-lab）：挂在根 layout、provider 内、页面边界外，
+ * 故 useMotionLifecycle 落全局作用域，跨页导航持续记录生命周期。仅当 E2E 经 addInitScript 置
+ * window.__fwMotionTest 时渲染并注册钩子；生产无 flag 时渲染 null、不注册——不是 lab 实验资产。
+ * 用真实 MotionLink / useMotionRouter 验证兄弟页与跨根导航，契约与旧实验面板一致供 pilot 用例复用。
+ */
+export function MotionTestHarness() {
+  const active = useSyncExternalStore(noopSubscribe, readTestFlag, () => false);
   const [href, setHref] = useState("/a");
   const router = useMotionRouter();
   const output = useRef<HTMLOutputElement>(null);
@@ -16,19 +26,18 @@ export function MotionLabPanel() {
     events.current = [...events.current, { phase, id, ...(reason ? { reason } : {}) }].slice(-50);
     output.current.dataset.events = JSON.stringify(events.current);
   };
-  useMotionLifecycle({
-    onIntent: (ctx) => record("intent", ctx.id),
-    onBeforeTransition: (ctx) => record("before", ctx.id),
-    onReady: (ctx) => record("ready", ctx.id),
-    onFinish: (ctx) => record("finish", ctx.id),
-    onSkip: (ctx, reason) => record("skip", ctx.id, reason),
-  });
-  useEffect(() => {
-    const enable = () => setOpen(true);
-    window.addEventListener("funwind:motion-lab", enable);
-    return () => window.removeEventListener("funwind:motion-lab", enable);
-  }, []);
-  if (!open) return null;
+  useMotionLifecycle(
+    active
+      ? {
+          onIntent: (ctx) => record("intent", ctx.id),
+          onBeforeTransition: (ctx) => record("before", ctx.id),
+          onReady: (ctx) => record("ready", ctx.id),
+          onFinish: (ctx) => record("finish", ctx.id),
+          onSkip: (ctx, reason) => record("skip", ctx.id, reason),
+        }
+      : {},
+  );
+  if (!active) return null;
   const safeHref = href.startsWith("/") && !href.startsWith("//") ? href : "/a";
   return (
     <aside
@@ -63,9 +72,6 @@ export function MotionLabPanel() {
         }}
       >
         清空动效记录
-      </button>
-      <button type="button" className="rounded border px-2 py-1" onClick={() => setOpen(false)}>
-        关闭实验面板
       </button>
     </aside>
   );

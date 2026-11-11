@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it } from "vitest";
+import { expect, it } from "vitest";
 import {
   createMotionConfig,
   createMotionRegistry,
@@ -12,7 +12,6 @@ import {
   type MotionIntent,
   type MotionPageDeclaration,
 } from "..";
-import { kindBetween } from "../nav-kind";
 
 const registry = createMotionRegistry([
   { pattern: /^\/$/, page: { preset: "list", level: 0, tabOrder: 0 } },
@@ -93,14 +92,6 @@ it("重叠规则先具体后分组；声明无匹配时回全局默认", () => {
   ).toBe("form");
 });
 
-const paths = ["/", "/boards", "/f/3", "/t/1", "/a", "/a/1", "/unknown"];
-describe("纯方向算法承接旧层级与 Tab 语义（不接管旧宿主）", () => {
-  it.each(paths.flatMap((from) => paths.map((to) => [from, to])))("%s → %s", (from, to) => {
-    expect(resolveMotionPlan(intent(from!, to!), registry, config).direction).toBe(
-      kindBetween(from!, to!),
-    );
-  });
-});
 it.each([
   [undefined, undefined, "fade"],
   [{ preset: "list" }, { preset: "detail", level: 3 }, "fade"],

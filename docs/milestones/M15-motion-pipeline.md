@@ -1,7 +1,7 @@
 # M15 · 统一动效管线（声明式动效引擎）
 
 - 阶段：四·运营与演进 ｜ 依赖：无（与 M14 相互独立）；设计基准：[M10.5-S4-VISUAL-MOTION](../M10.5-S4-VISUAL-MOTION.md)（四级动效体系与令牌）、M10.7（页面切换与流式动效）、[M13 备忘](M13-launch.md)（立项来源）
-- 状态：🚧 执行中（2026-11-09 立项，站长批准编排与 D1–D4；Step A / 0 / 1 / 2 / 3 已完成，元素层 MotionList 与魔法数令牌清账已落地，旧 rank/data-nav 灰度并存；Step 4 尚未开始，未合并 main、未部署生产）
+- 状态：🚧 执行中（2026-11-09 立项，站长批准编排与 D1–D4；Step A / 0 / 1 / 2 / 3 / 4 已完成，全站收敛与 rank/data-nav 旧链退役已落地——引擎自有方向属性、注册表单一事实源；Step 4.5 独立审查尚未开始，未合并 main、未部署生产）
 - 来源：站长 2026-11-09 立项——动效收敛为「全局默认 + 统一管理管线」：动效规则不再散落在路由表、
   CSS 选择器与组件 className 三处；页面 / 元素接入动效应声明式完成；并建立**生命周期钩子**，
   未来页面或元素接入动效可快速挂接。M13 备忘「统一页面切换动效管线」并入本里程碑。
@@ -189,7 +189,7 @@ flowchart TD
 - [x] Step 1 引擎内核（2026-11-11，范围、复核整改与门禁见 §11；不接管现有导航）
 - [x] Step 2 页面层接入与共享段过渡（2026-11-11，范围、实验勘误、独立复核整改与门禁见 §12；本地灰度，未部署）
 - [x] Step 3 元素层接入与魔法数清账（2026-11-11，范围、裸写守卫与门禁见 §13；本地灰度，未部署）
-- [ ] Step 4 全站收敛（rank 表退役）
+- [x] Step 4 全站收敛（rank 表退役）（2026-11-11，方向桥退役/全站接管/边界下沉/一致性退役/资产清理与门禁见 §14；本地灰度，未部署）
 - [ ] Step 4.5 独立审查与站长交互验收
 - [ ] Step 5 收口
 
@@ -257,6 +257,23 @@ flowchart TD
 - **最终门禁**：`pnpm verify:all` 退出 0——web 4,769（360 文件）/ db 124 / content 55 / migration 278，脚本 18 项，类型/lint/格式/秘密扫描/构建均通过；jscpd 1,405 行 / 159 克隆与原基线持平。`pnpm test:e2e` 生产 506 + dev 8 全过（**微交互 15 例零删减**，含点赞/关注/开关/Tab/hover 与各自 reduce 用例）；`pnpm test:e2e:install` 4 全过；`pnpm test:visual` 10 全过、**截图基线零更新**（DOM 结构经 cloneElement 保持原样）。
 - **性能**：最新生产构建对开发迁移库四页实测 LCP——首页 84ms、版块 `/f/109` 168ms、主题 `/t/6621` 176ms、搜索 80ms，均成功 HTTP/匹配路径且低于 2,500ms 本地预算；未重置/重种/迁移开发库。本地预算达标，不等同生产现场结论。
 - **边界**：微交互组件（like-toggle/follow-toggle）仍用 fw-* 预设类，行为零变化；rank/data-nav 旧链未退役（Step 4）；view-transition facade 与 lab/实验面板 Step 4 清理；Firefox 站长本步明确暂缓（仍未本机实测）；未合并 main、未部署生产。
+
+## 14. Step 4 全站收敛与 rank/data-nav 退役（2026-11-11）
+
+- **方向桥退役（机制拍板：引擎自有方向属性）**：删除 `nav-kind.ts`（rank 表 + TAB_ORDER + kindBetween + data-nav 属性时序 + resolveNavKind 几何），拆为两个模块：
+  - `components/site/nav-geometry.ts`：expand/collapse 几何（`resolveNavGeometry`/`coverRadius`/`ExpandRecord`/`currentViewport`/`resetExpandRecord`），base 方向改接注册表 `siteMotionDirection`（与旧 kindBetween 全矩阵一致，一致性测试退役前已验证），几何逻辑逐字保持。
+  - `components/site/nav-direction.ts`：引擎自有属性 `setDirection`/`clearDirection`/`releaseDirection`，写 `html[data-motion-direction]` + `--vt-x/y/r`，保留 15s 保底超时 + directionRevision 代次校验。
+  - 方向归注册表单一事实源；CSS 选择器 `:root[data-nav]` → `:root[data-motion-direction]`（**同名 keyframes 不动**，E2E 动画名断言零改动）；`transitionTypes` 仍透传作为原生类型层。抉择理由：保留「几百处链接无需逐个加类型」的原设计优点；expand/collapse 在点击拦截时定稿，引擎在导航 transition 之外写属性，不依赖 `addTransitionType`（它只能在 startTransition 回调内调用）。
+- **全站接管**：移除 `isMotionPilot` 灰度门，`page-motion` 对所有路由（除同 pathname 查询串变化）建引擎会话。根边界 `motion-boundary`：非共享路由 pathname-key 接管（组内/跨页都进退场）；共享路由（`hasSharedLayout`=admin/settings）根边界 key/pageKey=`root-shared`、enter/exit=`none`（不重挂共享壳、不认领会话、不播动画）。
+- **共享 layout 边界下沉**：新增 `page-motion-boundary.tsx`（pathname-key MotionPage）；`admin-shell.tsx` 与 `settings/layout.tsx` 把 children 包进该边界——组内切换 fade 微动，侧栏/头部/抽屉在边界外静止不重挂；每会话恰一个边界认领（根 root-shared 不匹配、内层 pathname 匹配）。`MotionPage` enter/exit 升为可配置 props。admin 注册表 preset 改 `"admin"`（引擎 `resolveMotionPlan` 层恒 fade，保持克制；`siteMotionDirection` 仍是纯层级/Tab 算法，preset 方向在 resolver 层生效）。
+- **一致性退役**：`motion-routes.test` 删 kindBetween 全矩阵对比（82）+ isMotionPilot 试点块（20）+ lab 基线/枚举；`resolver.test` 删 49 对一致性矩阵；保留纯注册表方向/声明/query-hash 不变性断言。`nav-kind.test` 34 例：11 方向例删除（注册表矩阵已覆盖），23 例忠实迁 `nav-direction.test`（10：属性时序 7 + 圆心 3）+ `nav-geometry.test`（13：扩散/收起几何）。
+- **资产清理**：删 `motion-lab/*`（7 文件）、`motion-lab-panel`、`navigation-demo`、`vt-lab.spec`、`vt-support.spec`、`playwright.vt-support.config`、`view-transition` facade + 其测试（等价覆盖已在 `native.test`）；`globals.css` 删 lab 块（fw-lab-*/vt-lab-*）。架构守卫 `LEGACY_ENTRIES` 仅留 `nav-guard.ts`（点击/进度/失败兜底守卫，非方向）。
+- **pilot harness 解耦**：新增 `motion-test-harness.tsx`（测试专用持久宿主，挂根 layout、provider 内、页面边界外故落全局作用域；仅 E2E 经 addInitScript 置 `window.__fwMotionTest` 激活，生产渲染 null 不注册钩子），复刻面板契约用真实 MotionLink/useMotionRouter。pilot 11 例 `open()` 改 flag+goto 脱离 lab；流式用例改用真实异步页（/boards→主题）验证「单会话、流式就绪不伪造第二会话」不变量。
+- **测试**：动效定向 21 文件 560 项通过（含架构守卫 156、裸写守卫 25、nav-direction 10、nav-geometry 13、motion-routes 151、resolver 19、page-motion 15+10、navigation-guard 14）。
+- **最终门禁**：`pnpm verify:all` 退出 0——web 4,583（360 文件，退役一致性矩阵/方向冗余例后净减）/ db 124 / content 55 / migration 278，脚本 18 项，类型/lint/格式/秘密扫描/构建均通过；jscpd 1,405 行 / 159 克隆与原基线持平。`pnpm test:e2e` 生产 499 + dev 8 全过（删除 vt-lab 6 + vt-support 1 后由 506 降至 499；**微交互 15 例零删减**，**pilot 11 例解耦后全过**）；`pnpm test:e2e:install` 4 全过；`pnpm test:visual` 10 全过、**截图基线零更新**（共享 layout 下沉边界与全站 pathname-key 未改变静态渲染）。
+- **性能**：最新生产构建对开发迁移库四页实测 LCP——首页 76ms、版块 `/f/109` 124ms、主题 `/t/6621` 228ms、搜索 64ms，均成功 HTTP/匹配路径且低于 2,500ms 本地预算；未重置/重种/迁移开发库。本地预算达标，不等同生产现场结论。
+- **变异验证**：架构守卫 156 项（含各导入形态反向依赖/深导/唯一入口自检）与裸写守卫 25 项（含业务裸写必拦截/合法写法不误伤/令牌白名单自检）全绿，覆盖退役后守卫有效性。
+- **边界**：微交互组件行为零变化（15 例 E2E 零删减）；全站 pathname-key 收敛给原本无动画的组内导航新增 fade（收敛目标，非删减）；Step 4.5 独立审查、Step 5 PR/CI/部署未执行；未合并 main、未部署生产。
 
 ## 遗留事项
 

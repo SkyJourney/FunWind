@@ -3,8 +3,7 @@ import { readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import { type MotionPageDeclaration } from "@/lib/motion";
-import { kindBetween } from "@/lib/motion/nav-kind";
-import { isMotionPilot, siteMotionDirection, siteMotionRegistry } from "./motion-routes";
+import { siteMotionDirection, siteMotionRegistry } from "./motion-routes";
 
 const APP = join(import.meta.dirname, "../../app");
 const PARAM_SAMPLES: Readonly<Record<string, string>> = {
@@ -68,10 +67,6 @@ const pageFiles = scanPages(APP)
   .map((file) => relative(APP, file).split(sep).join("/"))
   .sort();
 const pageSamples = pageFiles.map((file) => ({ file, path: pagePathname(file) }));
-const labPages = pageSamples.filter(
-  ({ path }) => path === "/motion-lab" || path.startsWith("/motion-lab/"),
-);
-const businessPages = pageSamples.filter((page) => !labPages.includes(page));
 const additionalPaths = [
   "/t/202",
   "/a/602",
@@ -88,37 +83,15 @@ const matrixSamples = [
   ...additionalPaths.map((path) => ({ file: "补充样本", path })),
 ];
 
-/** 旧判定只接受 pathname，不能把新入口的查询串与 hash 直接传给旧判定。 */
-function legacyPathname(path: string): string {
-  return new URL(path, "https://motion.test").pathname;
-}
-
-function assertLegacyDirection(from: string, to: string): void {
-  expect(siteMotionDirection(from, to), `${from} → ${to}`).toBe(
-    kindBetween(legacyPathname(from), legacyPathname(to)),
-  );
-}
-
 describe("页面扫描与样本生成自身", () => {
-  it(`当前业务 ${businessPages.length} 页与 motion-lab ${labPages.length} 页分别统计，全部参与矩阵`, () => {
+  it(`当前业务 ${pageSamples.length} 页全部参与矩阵`, () => {
     // 下限守住当前基线，但不把未来新增页面排除在矩阵之外。
-    expect(businessPages.length).toBeGreaterThanOrEqual(73);
-    expect(labPages.length).toBeGreaterThanOrEqual(5);
-    expect(businessPages.length + labPages.length).toBe(pageFiles.length);
+    expect(pageSamples.length).toBeGreaterThanOrEqual(73);
     expect(pageSamples).toHaveLength(pageFiles.length);
     expect(new Set(pageSamples.map(({ path }) => path)).size).toBe(pageFiles.length);
     expect(new Set(matrixSamples.map(({ path }) => path)).size).toBe(matrixSamples.length);
     expect(matrixSamples.slice(0, pageSamples.length)).toEqual(pageSamples);
     expect(pageSamples.every(({ path }) => !/[\[\]()]/.test(path))).toBe(true);
-    expect(labPages.map(({ path }) => path)).toEqual(
-      expect.arrayContaining([
-        "/motion-lab",
-        "/motion-lab/back",
-        "/motion-lab/one",
-        "/motion-lab/stream",
-        "/motion-lab/two",
-      ]),
-    );
     for (const path of TAB_PATHS)
       expect(
         pageSamples.some((page) => page.path === path),
@@ -158,11 +131,7 @@ describe("页面扫描与样本生成自身", () => {
   });
 });
 
-describe(`新旧方向全有向矩阵：${matrixSamples.length} 个样本，${matrixSamples.length ** 2} 个 from/to 对`, () => {
-  it.each(matrixSamples)("起点 $path（$file），覆盖所有终点与自身", ({ path: from }) => {
-    for (const { path: to } of matrixSamples) assertLegacyDirection(from, to);
-  });
-
+describe(`查询串 / hash 不变性矩阵：${matrixSamples.length} 个样本，${matrixSamples.length ** 2} 个 from/to 对`, () => {
   it.each(matrixSamples)(
     "起点 $path，查询串和 hash 不改变任意终点的方向或声明",
     ({ path: from }) => {
@@ -171,9 +140,16 @@ describe(`新旧方向全有向矩阵：${matrixSamples.length} 个样本，${ma
           siteMotionRegistry.resolve(from),
         );
         for (const { path: to } of matrixSamples) {
-          assertLegacyDirection(`${from}${suffix}`, to);
-          assertLegacyDirection(from, `${to}${suffix}`);
-          assertLegacyDirection(`${from}${suffix}`, `${to}${suffix}`);
+          expect(siteMotionDirection(`${from}${suffix}`, to), `${from}${suffix} → ${to}`).toBe(
+            siteMotionDirection(from, to),
+          );
+          expect(siteMotionDirection(from, `${to}${suffix}`), `${from} → ${to}${suffix}`).toBe(
+            siteMotionDirection(from, to),
+          );
+          expect(
+            siteMotionDirection(`${from}${suffix}`, `${to}${suffix}`),
+            `${from}${suffix} → ${to}${suffix}`,
+          ).toBe(siteMotionDirection(from, to));
         }
       }
     },
@@ -193,7 +169,6 @@ describe("站点动效声明与匹配优先级", () => {
         const expected =
           tabOrder === toOrder ? "fade" : toOrder > tabOrder ? "tab-next" : "tab-prev";
         expect(siteMotionDirection(path, to), `${path} → ${to}`).toBe(expected);
-        expect(kindBetween(path, to), `${path} → ${to}`).toBe(expected);
       }
     },
   );
@@ -212,15 +187,14 @@ describe("站点动效声明与匹配优先级", () => {
     { path: "/settings", page: { preset: "list", level: 1 } },
     { path: "/settings/profile", page: { preset: "list", level: 2 } },
     { path: "/messages/501", page: { preset: "list", level: 2 } },
-    { path: "/admin", page: { preset: "list", level: 1 } },
-    { path: "/admin/themes/default", page: { preset: "list", level: 2 } },
-    { path: "/admin/authz/forum/401", page: { preset: "list", level: 2 } },
+    { path: "/admin", page: { preset: "admin", level: 1 } },
+    { path: "/admin/themes/default", page: { preset: "admin", level: 2 } },
+    { path: "/admin/authz/forum/401", page: { preset: "admin", level: 2 } },
   ])("$path 的预设、层级及非 Tab 身份完整匹配", ({ path, page }) => {
     expect(siteMotionRegistry.resolve(path)).toEqual(page);
   });
 
   it.each([
-    ...labPages.map(({ path }) => path),
     "/unknown-motion-route",
     "/unknown-motion-route/child",
     "/t",
@@ -230,7 +204,7 @@ describe("站点动效声明与匹配优先级", () => {
     "/forgot",
     "/register",
     "/p/101/edit",
-  ])("未登记路径 %s 不被根或前缀规则误认，来回均保留旧 fade", (path) => {
+  ])("未登记路径 %s 不被根或前缀规则误认，来回均为 fade", (path) => {
     expect(siteMotionRegistry.resolve(path)).toBeUndefined();
     for (const other of ["/", "/login", "/t/201", "/a/601"]) {
       expect(siteMotionDirection(path, other)).toBe("fade");
@@ -254,44 +228,5 @@ describe("站点动效声明与匹配优先级", () => {
     ["/login", "/t/201", "fade"],
   ])("%s → %s 不误用 Tab 方向，保持 %s", (from, to, expected) => {
     expect(siteMotionDirection(from, to)).toBe(expected);
-    expect(kindBetween(from, to)).toBe(expected);
-  });
-});
-
-describe("M15 Step 2 试点边界", () => {
-  it("真实页面中仅主题详情、公告归档与公告详情参与试点，实验页面不混入", () => {
-    expect(pageSamples.filter(({ path }) => isMotionPilot(path)).map(({ path }) => path)).toEqual([
-      "/a/601",
-      "/a",
-      "/t/201",
-    ]);
-    for (const { path } of labPages) expect(isMotionPilot(path), path).toBe(false);
-  });
-
-  it.each(["/t/201", "/t/202", "/a", "/a/601", "/a/602"])(
-    "%s 在查询串和 hash 变化时仍是试点",
-    (path) => {
-      for (const suffix of SUFFIXES) expect(isMotionPilot(`${path}${suffix}`)).toBe(true);
-    },
-  );
-
-  it.each([
-    "/",
-    "/t",
-    "/t/",
-    "/thread/201",
-    "/t-extra/201",
-    "/a/",
-    "/a/601/extra",
-    "/a-extra",
-    "/admin/announcements",
-    "/admin/themes/default",
-    "/f/401",
-    "/u/301",
-    "/p/101/edit",
-    "/unknown-motion-route",
-  ])("%s 不扩大灰度试点，查询串与 hash 也不能伪装路径", (path) => {
-    for (const suffix of [...SUFFIXES, "?next=/t/201", "#next=/a/601"])
-      expect(isMotionPilot(`${path}${suffix}`), `${path}${suffix}`).toBe(false);
   });
 });

@@ -159,7 +159,7 @@ describe("动效裸写守卫自身：检测器有效性（变异自检）", () =
     expect(
       inlineMotionViolations({
         "lib/motion/engine/list.tsx": "style.animationDelay = `calc(${t} * ${i})`;",
-        "lib/motion/nav-kind.ts": 'const x = "animationDelay: 99ms";',
+        "lib/motion/nav-guard.ts": 'const x = "animationDelay: 99ms";',
       }),
     ).toEqual([]);
   });

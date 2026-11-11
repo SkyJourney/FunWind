@@ -110,6 +110,9 @@ export interface MotionPageProps {
   readonly motionKey: string | number;
   readonly pageKey?: string;
   readonly preset?: MotionPagePreset;
+  /** 进/退场类名（缺省 fw-page-in/fw-page-out）。共享 layout 组的根边界传 "none"，把动画交给下沉的页面层边界。 */
+  readonly enter?: string;
+  readonly exit?: string;
 }
 export interface MotionListProps {
   readonly children: ReactNode;

@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import type { ViewTransitionInstance } from "react";
-import { clearNavKind, resetExpandRecord } from "@/lib/motion/nav-kind";
+import { clearDirection } from "./nav-direction";
+import { resetExpandRecord } from "./nav-geometry";
 import { createPageMotion, type PageMotion } from "./page-motion";
 
 const all: PageMotion[] = [];
@@ -26,7 +27,7 @@ afterEach(() => {
     motion.cancel("disposed");
     motion.engine.dispose();
   });
-  clearNavKind();
+  clearDirection();
   resetExpandRecord();
   delete document.documentElement.dataset.motionNav;
   delete document.documentElement.dataset.motionSkipped;
@@ -147,9 +148,9 @@ it("显式普通方向覆盖圆形展开时，不能留下一个未实际展开�
   anchor.setAttribute("data-motion-direction", "push");
   card.append(anchor);
   motion.start({ from: "/f/3", to: "/t/1", anchor, point: { x: 100, y: 120 } });
-  expect(document.documentElement.dataset.nav).toBe("push");
+  expect(document.documentElement.dataset.motionDirection).toBe("push");
   motion.start(nav("/f/3", "/t/1"));
-  expect(document.documentElement.dataset.nav).toBe("pop");
+  expect(document.documentElement.dataset.motionDirection).toBe("pop");
 });
 it("等待加载期间用户打开减少动态效果，参与者就绪时重新检查并skip", () => {
   let reduced = false;

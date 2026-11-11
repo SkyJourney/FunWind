@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import type { ViewTransitionInstance } from "react";
-import { clearNavKind, resetExpandRecord } from "@/lib/motion/nav-kind";
+import { clearDirection } from "./nav-direction";
+import { resetExpandRecord } from "./nav-geometry";
 import { createPageMotion, type PageMotion } from "./page-motion";
 
 const controllers: PageMotion[] = [];
@@ -42,14 +43,14 @@ afterEach(() => {
     motion.cancel("disposed");
     motion.engine.dispose();
   });
-  clearNavKind();
+  clearDirection();
   resetExpandRecord();
   delete root().dataset.motionNav;
   delete root().dataset.motionSkipped;
   vi.restoreAllMocks();
 });
 
-it("试点按新注册表开始并定稿，React事件拥有ready与finished；提交URL本身不提前清方向", () => {
+it("导航按新注册表开始并定稿，React事件拥有ready与finished；提交URL本身不提前清方向", () => {
   const { motion } = setup();
   const ready = vi.fn();
   const finished = vi.fn();
@@ -58,9 +59,9 @@ it("试点按新注册表开始并定稿，React事件拥有ready与finished；�
   const id = motion.engine.current!.id;
   expect(motion.engine.current).toMatchObject({ phase: "committed", plan: { direction: "push" } });
   expect(root().dataset.motionNav).toBe(String(id));
-  expect(root().dataset.nav).toBe("push");
+  expect(root().dataset.motionDirection).toBe("push");
   motion.committed("/a/901");
-  expect(root().dataset.nav).toBe("push");
+  expect(root().dataset.motionDirection).toBe("push");
   const cleanup = motion.participate(id, instance, []);
   motion.participate(id, instance, []);
   expect(ready).toHaveBeenCalledOnce();
@@ -68,23 +69,27 @@ it("试点按新注册表开始并定稿，React事件拥有ready与finished；�
   cleanup!();
   expect(finished).toHaveBeenCalledOnce();
   expect(motion.engine.current).toBeUndefined();
-  expect(root().dataset.nav).toBeUndefined();
+  expect(root().dataset.motionDirection).toBeUndefined();
   expect(root().dataset.motionNav).toBeUndefined();
 });
-it("非试点保持旧链，进入/离开试点都由新生命周期收尾", () => {
+it("全站收敛：非试点路由也建会话，方向由注册表定稿并经新生命周期收尾", () => {
   const { motion } = setup();
   motion.start(nav("/", "/boards"));
-  expect(motion.engine.current).toBeUndefined();
-  expect(root().dataset.nav).toBe("tab-next");
+  // 移除试点门后，Tab 切换同样建立引擎会话（不再只写属性）
+  expect(motion.engine.current?.plan.direction).toBe("tab-next");
+  expect(root().dataset.motionDirection).toBe("tab-next");
   motion.committed("/boards");
-  expect(root().dataset.nav).toBeUndefined();
+  // 会话持有方向到参与者收尾，提交本身不提前清属性
+  expect(root().dataset.motionDirection).toBe("tab-next");
+  motion.participate(motion.engine.current!.id, instance, [])!();
+  expect(root().dataset.motionDirection).toBeUndefined();
   motion.start(nav("/boards", "/t/1"));
   expect(motion.engine.current?.plan.direction).toBe("push");
   motion.start(nav("/t/1", "/boards"));
   expect(motion.engine.current?.plan.direction).toBe("pop");
   const id = motion.engine.current!.id;
   motion.participate(id, instance, [])!();
-  expect(root().dataset.nav).toBeUndefined();
+  expect(root().dataset.motionDirection).toBeUndefined();
 });
 it("快速切换相同方向时，旧React finished不能释放新方向与所有权", () => {
   const { motion } = setup();
@@ -96,7 +101,7 @@ it("快速切换相同方向时，旧React finished不能释放新方向与所�
   cleanup!();
   expect(motion.engine.current?.id).toBe(next);
   expect(root().dataset.motionNav).toBe(String(next));
-  expect(root().dataset.nav).toBe("push");
+  expect(root().dataset.motionDirection).toBe("push");
   expect(motion.participate(old, instance, [])).toBeUndefined();
 });
 it("本次全局hook覆写方向生效；显式Link方向高于注册表默认", () => {
@@ -104,17 +109,17 @@ it("本次全局hook覆写方向生效；显式Link方向高于注册表默认",
   const link = nav();
   link.anchor.setAttribute("data-motion-direction", "pop");
   motion.start(link);
-  expect(root().dataset.nav).toBe("pop");
+  expect(root().dataset.motionDirection).toBe("pop");
   motion.engine.register({ level: "global" }, { onIntent: () => ({ direction: "fade" }) });
   motion.start(link);
-  expect(root().dataset.nav).toBe("fade");
+  expect(root().dataset.motionDirection).toBe("fade");
 });
 it("自动方向不冒充显式hint，全局preset策略可以覆盖默认层级选择", () => {
   const { motion } = setup();
   motion.engine.register({ level: "global" }, { onIntent: () => ({ preset: "admin" }) });
   motion.start(nav());
   expect(motion.engine.current?.plan).toMatchObject({ preset: "admin", direction: "fade" });
-  expect(root().dataset.nav).toBe("fade");
+  expect(root().dataset.motionDirection).toBe("fade");
 });
 it("展开与收起保留旧几何和一次性记录，不能在双读判定中消费两次", () => {
   const { motion } = setup();
@@ -123,12 +128,12 @@ it("展开与收起保留旧几何和一次性记录，不能在双读判定中�
   const anchor = document.createElement("a");
   card.append(anchor);
   motion.start({ from: "/f/3", to: "/t/1", anchor, point: { x: 100, y: 120 } });
-  expect(root().dataset.nav).toBe("expand");
+  expect(root().dataset.motionDirection).toBe("expand");
   expect(root().style.getPropertyValue("--vt-x")).toBe("100px");
   motion.start(nav("/t/1", "/f/3"));
-  expect(root().dataset.nav).toBe("collapse");
+  expect(root().dataset.motionDirection).toBe("collapse");
   motion.start(nav("/t/1", "/f/3"));
-  expect(root().dataset.nav).toBe("pop");
+  expect(root().dataset.motionDirection).toBe("pop");
 });
 it.each(["cancelled", "disabled"] as const)(
   "%s 时旧/新层都抑制动画，标记保留到React finished",
@@ -164,7 +169,7 @@ it.each(["no-api", "reduced-motion"] as const)("%s 提前skip，导航提交后�
   expect(skipped).toHaveBeenCalledWith(expect.anything(), reason);
   expect(motion.engine.current).toBeUndefined();
   expect(root().dataset.motionNav).toBeUndefined();
-  expect(root().dataset.nav).toBeUndefined();
+  expect(root().dataset.motionDirection).toBeUndefined();
 });
 it("history/query/redirect不伪造导航动画，失败与超时均清理所有权", () => {
   const { motion, timers } = setup();
@@ -191,12 +196,12 @@ it("程序化导航经既有guard登记，方向提示只消费一次；绑定�
   old();
   motion.begin("/a/901", "pop");
   expect(begin).toHaveBeenCalledWith("/a/901");
-  expect(root().dataset.nav).toBe("pop");
+  expect(root().dataset.motionDirection).toBe("pop");
   motion.start(nav());
-  expect(root().dataset.nav).toBe("push");
+  expect(root().dataset.motionDirection).toBe("push");
   remove();
   motion.begin("/a/901", "fade");
-  expect(root().dataset.nav).toBe("fade");
+  expect(root().dataset.motionDirection).toBe("fade");
   expect(begin).toHaveBeenCalledTimes(1);
 });
 it("native ready失败与晚到finished不影响新会话；React回调不是原生成功证明", async () => {
