@@ -5,6 +5,19 @@
 
 ## [Unreleased]
 
+### Added（M15 · Step 5 收口与生产部署，2026-11-12）
+
+- **PR #13 CI 双作业绿（verify 9m07s / e2e 15m55s）合并 main**（merge commit `5dcb724`，merge commit 保留
+  M15 分步提交历史）；独立审查报告与整改记录见
+  [docs/reviews/2026-11-11-m15-code-review.md](docs/reviews/2026-11-11-m15-code-review.md)（无 P0）。
+- **生产部署（仅 web，公测口径）**：本机 `docker build --platform linux/amd64` → save/load → 服务器
+  inspect 核对 → `funwind-web:20261112` compose up；无 schema 迁移、ops 管线未触碰；回滚点
+  `funwind-web:20261111`。部署后核对：容器 healthy、公测五页全 200、新动效宿主 SSR 标记上线、
+  应用日志无异常、CSP report 零条、ops 管线安静（无新增 failed）。
+- **生产 LCP 公网实测（含 RTT）**：首页 940ms、版块 532ms、主题 604ms、搜索 640ms，全部远低于 2.5s。
+  M15 至此收口：Step 4.5 审查与全部前序门禁见
+  [M15 执行记录](docs/milestones/M15-motion-pipeline.md) §12–§16。
+
 ### Added（M15 · Step 4 全站收敛与 rank/data-nav 退役，2026-11-11）
 
 - **方向桥退役（机制：引擎自有方向属性）**：删除 `lib/motion/nav-kind.ts`（rank 表 + TAB_ORDER + kindBetween +

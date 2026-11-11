@@ -1,7 +1,7 @@
 # M15 · 统一动效管线（声明式动效引擎）
 
 - 阶段：四·运营与演进 ｜ 依赖：无（与 M14 相互独立）；设计基准：[M10.5-S4-VISUAL-MOTION](../M10.5-S4-VISUAL-MOTION.md)（四级动效体系与令牌）、M10.7（页面切换与流式动效）、[M13 备忘](M13-launch.md)（立项来源）
-- 状态：🚧 执行中（2026-11-09 立项，站长批准编排与 D1–D4；Step A / 0 / 1 / 2 / 3 / 4 / 4.5 已完成——全站收敛与旧链退役落地、收口前独立审查无 P0 且 P1 全部整改（含实测修复跨组退出瞬切缺陷）；仅剩 Step 5 收口（PR/CI/部署），未合并 main、未部署生产）
+- 状态：✅ 已收口（2026-11-12 部署公测。2026-11-09 立项，站长批准编排与 D1–D4；Step A–5 全部完成——PR #13 CI 双作业绿合并 main、生产部署与核对通过；引擎内核 / 页面接入 / 元素层 / 全站收敛 / 独立审查见 §11–§15，收口与部署见 §16）
 - 来源：站长 2026-11-09 立项——动效收敛为「全局默认 + 统一管理管线」：动效规则不再散落在路由表、
   CSS 选择器与组件 className 三处；页面 / 元素接入动效应声明式完成；并建立**生命周期钩子**，
   未来页面或元素接入动效可快速挂接。M13 备忘「统一页面切换动效管线」并入本里程碑。
@@ -24,33 +24,33 @@
 
 ## 1. 已核实事实（2026-11-09 探查 + 官方文档核查，行号佐证）
 
-| # | 事实 | 位置 | 对设计的影响 |
-|---|---|---|---|
-| F1 | 项目声明 react/react-dom **19.3.1**、next 16.4.2，`ViewTransition` 公开导入可用且无需 experimental 开关；Step2 进一步核实 Next 浏览器别名实际使用框架 bundled React（`19.3.0-canary-278794d7-20261002`），不能仅凭 package.json 称运行时全部 stable | `apps/web/package.json`、Next `create-compiler-aliases.js` 与 bundled React 版本字符串、本地 `dist/docs/01-app/02-guides/view-transitions.md` | 不升级依赖、不另开 canary；以框架内置实现和生产构建实测判断能力 |
-| F2 | 根 template 只在**第一路由段**变化时重挂；共享段动态参数变化需另建进退场对。官方同时支持段级 template 和给 VT 本体设置 key；Step2 选择单根 keyed VT，避免在现有根 VT 内再叠段级边界 | [Next template 文档](https://nextjs.org/docs/app/api-reference/file-conventions/template)、[view transitions 指南](https://nextjs.org/docs/app/guides/view-transitions)；本地指南 §Step4 key 示例 | 试点只改根边界 key，不用 `startViewTransition + flushSync` 包导航；真正跨根和快照组数量补进 Step2 E2E，不能引用 Step0 错标的“跨段”用例作证明 |
-| F3 | 立项时页面切换链路（Step2 后见 §12）：NavigationGuard 捕获点击 → `resolveNavKind` 由 rank 正则表判方向并写 `<html data-nav>` + 扩散圆心 CSS 变量 → 根 template 的 `<ViewTransition enter="fw-page-in" exit="fw-page-out">` → globals.css 按 data-nav 选择器播动画 → 等 `finished` 再清除 | `lib/motion/nav-kind.ts:30-48(rank),76-85(kindBetween),211-264(resolve)`、`components/site/navigation-guard.tsx:6,99`、`app/template.tsx:21`、`app/globals.css:274-423` | 方向判定 = 硬编码正则 + 全局属性 + CSS 选择器**三处分散**；引擎要把三处收敛为注册表单一事实源 |
-| F4 | rank=null 静默退化 fade；新页面必须手动登记正则——`/a` 就是 M13 补录的（`d4bc890`）；同层跨模块只能 fade（`/f/3 → /u/9`）；Tab 另开 TAB_ORDER 特例表（9 个根） | `nav-kind.ts:30-48,55-68,83` | 「新页面零配置继承」是引擎的验收标准之一；跨模块同层方向交给 `transitionTypes` 声明 |
-| F5 | 动效令牌基线已有：时长 4 档（fast150/base250/slow400/spring500）+ 缓动 4 种，注释明令「业务组件禁止裸写」；但魔法数绕过令牌层散落：进场 stagger `index*50ms` 内联 8 处（上限 10 条）、慢网进度条 12s（keyframes fw-nav-grow）、位移 28/14px 与 tab 96/56px 写死在 `:root`、`fw-float-up` 时长 `×1.75`、`vt-push-in` 为演示遗留（含死选择器 `[style*="vt-push-in"]`） | `styles/tokens/primitives.css:98-105`、`globals.css:190,205-214,250-252,262-269`、`app/page.tsx:216`、`f/[fid]:200`、`notifications:118`、`messages:146`、`follows:169`、`u/[uid]:223,255`、`points:98` | Step 3 令牌清账清单直接照此表执行；新增守卫测试（裸写时长/缓动/位移即红） |
-| F6 | 26 个 keyframes 全在 globals.css；reduced-motion 三处降级（微交互/进场、全部 VT 置 none、主题 Surface）；VT 动画规则约 20 条按 `html[data-nav=…]` 属性选择器组织 | `globals.css:138-156,176-211,326-423,453-484`、`:222-256,493-499,847-851` | 引擎的 CSS 由「预设类名约定」生成，属性选择器退役；reduced-motion 统一收进引擎全局默认 |
-| F7 | 主题包语义令牌层（M11.6）**不含动效槽**：token-schema 只有 colors/radius/shadows/font/surface | `lib/theme/token-schema.ts:86-92` | D2：本期不加主题动效槽，但令牌层按「可被主题覆盖」设计（后续可选） |
-| F8 | 立项时双轨现状：路由级 = 框架公开 `<ViewTransition>`（根 template 一处）；同文档状态级 = 手动 `document.startViewTransition` 封装（`withViewTransition`，仅 /design/motion 演示页用）；无第三方动效库（弹层走 tw-animate-css + Radix） | `app/template.tsx:2,21`、`lib/motion/view-transition.ts:31-62`、`design/motion/motion-demo.tsx:120,142` | 引擎收编手动 VT 助手；第三方库继续不引入（保持零依赖动效栈） |
-| F9 | 元素级入场现状：触底追加 `fw-fade-in`（stream-list 哨兵 IntersectionObserver）；首屏错落 = 8 个页面内联 `animationDelay: index*50ms`；微交互（点赞 pop/roll/float-up、Button active:scale、关注、FeedCard hover）各组件自管 | `components/stream/stream-list.tsx:9`、F5 的 8 处、`interact/like-toggle.tsx:85-111`、`follow-toggle.tsx:61,69` | 元素层 API（`<MotionList>` / `useMotion`）的迁移清单；微交互本期只收口到预设，不改行为 |
-| F10 | 测试基线：`nav-kind.test.ts` ~45 例、`nav-guard.test.ts` ~28 例、`view-transition.test.ts` 7 例；E2E 有 VT 打桩（`e2e/support/vt.ts` 拦截 startViewTransition + rAF 采样）、page-transition 18 例、micro-interactions 15 例；禁动效手段 = `page.emulateMedia({ reducedMotion: "reduce" })`；visual 配置 `animations: "disabled"` | `lib/motion/*.test.ts`、`e2e/support/vt.ts`、`e2e/page-transition.spec.ts:399,414`、`playwright.visual.config.ts:24` | 灰度期一致性测试直接建在 nav-kind 测试上（两套判定对全路由矩阵比对）；E2E 打桩设施复用 |
-| F11 | popstate 限制：React 文档明确「从 legacy popstate 启动的 transition 必须同步完成，动画会被跳过」，除非路由升级 Navigation API；M10.7 §5.7 遗留「浏览器返回键缓存命中无动画」；nav-guard 已有 Navigation API 接入（拦截 Next 整页回退兜底） | [React ViewTransition](https://react.dev/reference/react/ViewTransition)（popstate 节）、`M10.7-streaming-motion.md:144-145`、`lib/motion/nav-guard.ts:267-289` | Step 0-3 验证经 Navigation API 的返回键能否带出过渡；不能则该场景维持「无动画」并在规范里写明（诚实降级） |
+| #   | 事实                                                                                                                                                                                                                                                                                                                                                                 | 位置                                                                                                                                                                                                    | 对设计的影响                                                                                                                                 |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| F1  | 项目声明 react/react-dom **19.3.1**、next 16.4.2，`ViewTransition` 公开导入可用且无需 experimental 开关；Step2 进一步核实 Next 浏览器别名实际使用框架 bundled React（`19.3.0-canary-278794d7-20261002`），不能仅凭 package.json 称运行时全部 stable                                                                                                                  | `apps/web/package.json`、Next `create-compiler-aliases.js` 与 bundled React 版本字符串、本地 `dist/docs/01-app/02-guides/view-transitions.md`                                                           | 不升级依赖、不另开 canary；以框架内置实现和生产构建实测判断能力                                                                              |
+| F2  | 根 template 只在**第一路由段**变化时重挂；共享段动态参数变化需另建进退场对。官方同时支持段级 template 和给 VT 本体设置 key；Step2 选择单根 keyed VT，避免在现有根 VT 内再叠段级边界                                                                                                                                                                                  | [Next template 文档](https://nextjs.org/docs/app/api-reference/file-conventions/template)、[view transitions 指南](https://nextjs.org/docs/app/guides/view-transitions)；本地指南 §Step4 key 示例       | 试点只改根边界 key，不用 `startViewTransition + flushSync` 包导航；真正跨根和快照组数量补进 Step2 E2E，不能引用 Step0 错标的“跨段”用例作证明 |
+| F3  | 立项时页面切换链路（Step2 后见 §12）：NavigationGuard 捕获点击 → `resolveNavKind` 由 rank 正则表判方向并写 `<html data-nav>` + 扩散圆心 CSS 变量 → 根 template 的 `<ViewTransition enter="fw-page-in" exit="fw-page-out">` → globals.css 按 data-nav 选择器播动画 → 等 `finished` 再清除                                                                             | `lib/motion/nav-kind.ts:30-48(rank),76-85(kindBetween),211-264(resolve)`、`components/site/navigation-guard.tsx:6,99`、`app/template.tsx:21`、`app/globals.css:274-423`                                 | 方向判定 = 硬编码正则 + 全局属性 + CSS 选择器**三处分散**；引擎要把三处收敛为注册表单一事实源                                                |
+| F4  | rank=null 静默退化 fade；新页面必须手动登记正则——`/a` 就是 M13 补录的（`d4bc890`）；同层跨模块只能 fade（`/f/3 → /u/9`）；Tab 另开 TAB_ORDER 特例表（9 个根）                                                                                                                                                                                                        | `nav-kind.ts:30-48,55-68,83`                                                                                                                                                                            | 「新页面零配置继承」是引擎的验收标准之一；跨模块同层方向交给 `transitionTypes` 声明                                                          |
+| F5  | 动效令牌基线已有：时长 4 档（fast150/base250/slow400/spring500）+ 缓动 4 种，注释明令「业务组件禁止裸写」；但魔法数绕过令牌层散落：进场 stagger `index*50ms` 内联 8 处（上限 10 条）、慢网进度条 12s（keyframes fw-nav-grow）、位移 28/14px 与 tab 96/56px 写死在 `:root`、`fw-float-up` 时长 `×1.75`、`vt-push-in` 为演示遗留（含死选择器 `[style*="vt-push-in"]`） | `styles/tokens/primitives.css:98-105`、`globals.css:190,205-214,250-252,262-269`、`app/page.tsx:216`、`f/[fid]:200`、`notifications:118`、`messages:146`、`follows:169`、`u/[uid]:223,255`、`points:98` | Step 3 令牌清账清单直接照此表执行；新增守卫测试（裸写时长/缓动/位移即红）                                                                    |
+| F6  | 26 个 keyframes 全在 globals.css；reduced-motion 三处降级（微交互/进场、全部 VT 置 none、主题 Surface）；VT 动画规则约 20 条按 `html[data-nav=…]` 属性选择器组织                                                                                                                                                                                                     | `globals.css:138-156,176-211,326-423,453-484`、`:222-256,493-499,847-851`                                                                                                                               | 引擎的 CSS 由「预设类名约定」生成，属性选择器退役；reduced-motion 统一收进引擎全局默认                                                       |
+| F7  | 主题包语义令牌层（M11.6）**不含动效槽**：token-schema 只有 colors/radius/shadows/font/surface                                                                                                                                                                                                                                                                        | `lib/theme/token-schema.ts:86-92`                                                                                                                                                                       | D2：本期不加主题动效槽，但令牌层按「可被主题覆盖」设计（后续可选）                                                                           |
+| F8  | 立项时双轨现状：路由级 = 框架公开 `<ViewTransition>`（根 template 一处）；同文档状态级 = 手动 `document.startViewTransition` 封装（`withViewTransition`，仅 /design/motion 演示页用）；无第三方动效库（弹层走 tw-animate-css + Radix）                                                                                                                               | `app/template.tsx:2,21`、`lib/motion/view-transition.ts:31-62`、`design/motion/motion-demo.tsx:120,142`                                                                                                 | 引擎收编手动 VT 助手；第三方库继续不引入（保持零依赖动效栈）                                                                                 |
+| F9  | 元素级入场现状：触底追加 `fw-fade-in`（stream-list 哨兵 IntersectionObserver）；首屏错落 = 8 个页面内联 `animationDelay: index*50ms`；微交互（点赞 pop/roll/float-up、Button active:scale、关注、FeedCard hover）各组件自管                                                                                                                                          | `components/stream/stream-list.tsx:9`、F5 的 8 处、`interact/like-toggle.tsx:85-111`、`follow-toggle.tsx:61,69`                                                                                         | 元素层 API（`<MotionList>` / `useMotion`）的迁移清单；微交互本期只收口到预设，不改行为                                                       |
+| F10 | 测试基线：`nav-kind.test.ts` ~45 例、`nav-guard.test.ts` ~28 例、`view-transition.test.ts` 7 例；E2E 有 VT 打桩（`e2e/support/vt.ts` 拦截 startViewTransition + rAF 采样）、page-transition 18 例、micro-interactions 15 例；禁动效手段 = `page.emulateMedia({ reducedMotion: "reduce" })`；visual 配置 `animations: "disabled"`                                     | `lib/motion/*.test.ts`、`e2e/support/vt.ts`、`e2e/page-transition.spec.ts:399,414`、`playwright.visual.config.ts:24`                                                                                    | 灰度期一致性测试直接建在 nav-kind 测试上（两套判定对全路由矩阵比对）；E2E 打桩设施复用                                                       |
+| F11 | popstate 限制：React 文档明确「从 legacy popstate 启动的 transition 必须同步完成，动画会被跳过」，除非路由升级 Navigation API；M10.7 §5.7 遗留「浏览器返回键缓存命中无动画」；nav-guard 已有 Navigation API 接入（拦截 Next 整页回退兜底）                                                                                                                           | [React ViewTransition](https://react.dev/reference/react/ViewTransition)（popstate 节）、`M10.7-streaming-motion.md:144-145`、`lib/motion/nav-guard.ts:267-289`                                         | Step 0-3 验证经 Navigation API 的返回键能否带出过渡；不能则该场景维持「无动画」并在规范里写明（诚实降级）                                    |
 
 ## 1.1 Step A 增量复核记录（2026-11-11，版本/文件计数复核；框架语义由 Step2 补证勘误）
 
-| # | 复核项 | 结论 |
-|---|---|---|
-| R1 | F1 版本基线 | 声明版本 react 19.3.1 / next 16.4.2 未变；不能由此推断浏览器运行时完全 stable，Step2 实现复核见 F1 |
-| R2 | 页面总数 | ✓ 仍 73 页（M14 升级 /admin/ops 既有页，未新增路由） |
-| R3 | stagger 内联 | ✓ 仍 8 处 `index*50ms`，M14 未新增 |
-| R4 | rank 表 | ✓ `/a` 已登记；admin 兜底正则覆盖全部子页——M14 重构的 /admin/ops 自动被兜底，无登记缺口 |
-| R5 | 测试基线 | ✓ nav-kind 33 声明（~45 例）/ nav-guard 27 / view-transition 7；E2E 18+15；vt.ts 打桩完好可复用 |
-| R6 | M14 增量 | /admin/ops 与 OpsAutoRefresh 零动效使用（后台克制维持）；globals.css 行号漂移已刷新（fw-nav-grow→209、vt-push-in→250、fw-page-in→288、reduced-motion→222/493/847）——以符号检索为准 |
-| R7 | 手动 VT 收编目标 | ✓ 仅 /design/motion 两处（expand/fade） |
-| R8 | 元素级 class | fw 系列动效类共 11 个文件使用——Step 3 迁移清单 |
-| R9 | reduced-motion | ✓ 三块降级与 F6 一致 |
+| #   | 复核项           | 结论                                                                                                                                                                               |
+| --- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1  | F1 版本基线      | 声明版本 react 19.3.1 / next 16.4.2 未变；不能由此推断浏览器运行时完全 stable，Step2 实现复核见 F1                                                                                 |
+| R2  | 页面总数         | ✓ 仍 73 页（M14 升级 /admin/ops 既有页，未新增路由）                                                                                                                               |
+| R3  | stagger 内联     | ✓ 仍 8 处 `index*50ms`，M14 未新增                                                                                                                                                 |
+| R4  | rank 表          | ✓ `/a` 已登记；admin 兜底正则覆盖全部子页——M14 重构的 /admin/ops 自动被兜底，无登记缺口                                                                                            |
+| R5  | 测试基线         | ✓ nav-kind 33 声明（~45 例）/ nav-guard 27 / view-transition 7；E2E 18+15；vt.ts 打桩完好可复用                                                                                    |
+| R6  | M14 增量         | /admin/ops 与 OpsAutoRefresh 零动效使用（后台克制维持）；globals.css 行号漂移已刷新（fw-nav-grow→209、vt-push-in→250、fw-page-in→288、reduced-motion→222/493/847）——以符号检索为准 |
+| R7  | 手动 VT 收编目标 | ✓ 仅 /design/motion 两处（expand/fade）                                                                                                                                            |
+| R8  | 元素级 class     | fw 系列动效类共 11 个文件使用——Step 3 迁移清单                                                                                                                                     |
+| R9  | reduced-motion   | ✓ 三块降级与 F6 一致                                                                                                                                                               |
 
 **结论**：Step A 时维持既定范围与 D1–D4；Step 2 补证后已修正实际框架运行时、边界选择和实验结论，不能把当时复核外推为这些语义均已验证。**动效规范：[docs/motion-spec.md](../motion-spec.md)**（Step A 定稿，Step 1/2 增补契约；实现冲突时先改规范再改代码）。
 
@@ -95,14 +95,14 @@ flowchart TD
 
 ### 3.2 生命周期钩子
 
-| 层级 | 钩子 | 典型用途（现存实现归类） |
-|---|---|---|
-| 导航 | `onIntent` | 捕获导航意图（链接 / 编程式 / 返回键 / 底部 Tab），可改写本次预设——现 NavigationGuard + NavKindCapture 归此 |
-| 导航 | `onBeforeTransition` | 旧页快照前：测量触点、写 CSS 变量——现触点扩散圆心计算归此 |
-| 导航 | `onReady` | 过渡伪元素就绪：CSS 写不出的动画用 Web Animations API 兜（手动 VT 助手收编处，F8） |
-| 导航 | `onFinish` / `onSkip` | 收尾（焦点/滚动/清理）；跳过时附带原因（reduced-motion / 无 API / 被新导航打断）——现 `releaseNavKind` 等待 `finished` 归此 |
-| 元素 | `onEnter` / `onInView` | 挂载与触底追加入场、滚入视口显现（stream-list 哨兵收编） |
-| 元素 | `onExit` / `onUpdate` | 退场（VT 快照语义）；布局变化 FLIP（可选，后期） |
+| 层级 | 钩子                   | 典型用途（现存实现归类）                                                                                                   |
+| ---- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| 导航 | `onIntent`             | 捕获导航意图（链接 / 编程式 / 返回键 / 底部 Tab），可改写本次预设——现 NavigationGuard + NavKindCapture 归此                |
+| 导航 | `onBeforeTransition`   | 旧页快照前：测量触点、写 CSS 变量——现触点扩散圆心计算归此                                                                  |
+| 导航 | `onReady`              | 过渡伪元素就绪：CSS 写不出的动画用 Web Animations API 兜（手动 VT 助手收编处，F8）                                         |
+| 导航 | `onFinish` / `onSkip`  | 收尾（焦点/滚动/清理）；跳过时附带原因（reduced-motion / 无 API / 被新导航打断）——现 `releaseNavKind` 等待 `finished` 归此 |
+| 元素 | `onEnter` / `onInView` | 挂载与触底追加入场、滚入视口显现（stream-list 哨兵收编）                                                                   |
+| 元素 | `onExit` / `onUpdate`  | 退场（VT 快照语义）；布局变化 FLIP（可选，后期）                                                                           |
 
 - 三级注册：全局配置 → 页面 → 元素，**越靠近元素优先级越高**；执行顺序与可取消语义在 Step A 规范定稿。
 - 钩子签名要求纯客户端、可重入（StrictMode 双执行安全）、失败不阻塞导航（异常吞掉并上报日志）。
@@ -162,12 +162,12 @@ flowchart TD
 
 ## 6. 门禁标准
 
-| 层级 | 标准 |
-|---|---|
-| Step 门禁（1–4） | `pnpm verify:all` 退出码 0；本步新增单测/E2E 全过；灰度一致性测试全绿；visual 基线零更新 |
+| 层级                 | 标准                                                                                                                                                                                                   |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Step 门禁（1–4）     | `pnpm verify:all` 退出码 0；本步新增单测/E2E 全过；灰度一致性测试全绿；visual 基线零更新                                                                                                               |
 | 里程碑收口（Step 5） | verify:all / 全量 E2E / 安装 E2E / layout+summary / lighthouse / perf:posting 达标；page-transition 扩展用例全绿；六档布局矩阵零问题；PR CI 双绿；站长目视验收（共享段切换、列表入场、reduced-motion） |
-| 体验红线 | 既有动效行为回归零删减（push/pop/fade/tab/expand/collapse、触点扩散、慢网兜底）；LCP 预算不回退（动效不得阻塞渲染） |
-| 分支纪律 | `feat/m15-motion-pipeline` → PR → CI 双作业通过合并 main；不 force push |
+| 体验红线             | 既有动效行为回归零删减（push/pop/fade/tab/expand/collapse、触点扩散、慢网兜底）；LCP 预算不回退（动效不得阻塞渲染）                                                                                    |
+| 分支纪律             | `feat/m15-motion-pipeline` → PR → CI 双作业通过合并 main；不 force push                                                                                                                                |
 
 ## 7. 决策记录（站长 2026-11-09 全部按推荐拍板）
 
@@ -194,18 +194,19 @@ flowchart TD
 - [x] Step 2 页面层接入与共享段过渡（2026-11-11，范围、实验勘误、独立复核整改与门禁见 §12；本地灰度，未部署）
 - [x] Step 3 元素层接入与魔法数清账（2026-11-11，范围、裸写守卫与门禁见 §13；本地灰度，未部署）
 - [x] Step 4 全站收敛（rank 表退役）（2026-11-11，方向桥退役/全站接管/边界下沉/一致性退役/资产清理与门禁见 §14；本地灰度，未部署）
-- [x] Step 4.5 独立审查与站长交互验收（2026-11-11，两路自查无 P0、4 项 P1 整改含实测修复跨组退出瞬切，报告见 [reviews](../reviews/2026-11-11-m15-code-review.md) 与 §15；站长交互目视验收随 Step 5 收口一并执行）
+- [x] Step 4.5 独立审查与站长交互验收（2026-11-11，两路自查无 P0、4 项 P1 整改含实测修复跨组退出瞬切，报告见 [reviews](../reviews/2026-11-11-m15-code-review.md) 与 §15）
+- [x] Step 5 收口（2026-11-12：PR #13 CI 双作业绿——verify 9m07s / e2e 15m55s——合并 main `5dcb724`；生产部署 `funwind-web:20261112`（amd64 防呆核对，回滚点 `20261111`），仅换 web、无迁移、ops 未触碰；部署后核对与生产 LCP 见 §16）
 - [ ] Step 5 收口
 
 ## 10. Step 0 技术验证结论（2026-11-11，实验路由 /motion-lab + e2e/vt-lab.spec.ts 实测）
 
-| # | 验证项 | 结论 | 实测证据 |
-|---|---|---|---|
-| 1 | 双包裹（F2） | **Step2 勘误**：1a/1b 都在同一第一段 motion-lab 内，原“跨段”标签错误；一次原生 start 也不能证明只有一个快照组（旧探针归一化后丢失组身份）。Step2 改用单根 keyed VT，并以真实 `/boards ↔ /t/*` 及原始组名补证 | vt-lab 1b 标签已更正；page-motion-pilot 跨根与原始快照组断言 |
-| 2 | 方向延迟解析 | 可改变**新层 CSS 选择**，但不能重写旧 fiber 的 exit props、旧像素/几何或当次已认领的 types。原 2a 实际也导航到 useEffect 页，Step2 改为 two→one，才真正覆盖 useLayoutEffect 对照。无需生成构建期路由清单，但不能据此取消快照前注册/测量；本期方向由意图阶段注册表/显式 hint 定稿，旧 CSS 桥保持到 Step4。改变 animation-name 可能重启动画，不将“晚改可见”当稳定契约 | 修正后的 vt-lab 2a/2b；Next bundled renderer 的删除分支读取旧 props 与快照前 types 认领顺序 |
-| 3 | 返回键（F11） | ✅ 诚实降级成立：goBack 后 starts=[]（无任何过渡）。返回键无动画维持现状，规范写明；Navigation API 优化空间留未来 | vt-lab 验证 3（starts=[]） |
-| 4 | 流式互扰 | **Step2 勘误**：lab 自己的 VT 未配置 default，update 继承 auto；生产根边界已有 default=none，不能把 lab 的两次 start 外推为任何生产流式页都闪。Step2 页面组件显式 update/default=none，同 key resolve 不播放额外整页动画/会话；子 VT 或空原生 start 仍允许。startTransition 是激活条件，不是抑制方法 | 保留 lab 自身 starts=["fade", null] 实验；新增同 key Suspense 的 rawAnimations 不含 vt-page、生命周期不重复断言 |
-| 5 | 支持面 | webkit（Safari 27.2 引擎）实测三项全支持；Firefox 本机 Playwright 启动失败（juggler profile 环境问题），按 caniuse/MDN：VT 同文档 = Firefox 144+ / Safari 18.0+（全球 93.17%），view-transition-class = Chrome 125+ / Firefox 144+ / Safari 18.2+（90.32%），types 参数 = Baseline 2025 Newly available（2025-10；Firefox 精确版本未经真机复核）。**引擎红线成立**：不支持环境必须同步可用（探测红线断言过） | e2e/vt-support.spec.ts + caniuse |
+| #   | 验证项        | 结论                                                                                                                                                                                                                                                                                                                                                                                                         | 实测证据                                                                                                        |
+| --- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| 1   | 双包裹（F2）  | **Step2 勘误**：1a/1b 都在同一第一段 motion-lab 内，原“跨段”标签错误；一次原生 start 也不能证明只有一个快照组（旧探针归一化后丢失组身份）。Step2 改用单根 keyed VT，并以真实 `/boards ↔ /t/*` 及原始组名补证                                                                                                                                                                                                 | vt-lab 1b 标签已更正；page-motion-pilot 跨根与原始快照组断言                                                    |
+| 2   | 方向延迟解析  | 可改变**新层 CSS 选择**，但不能重写旧 fiber 的 exit props、旧像素/几何或当次已认领的 types。原 2a 实际也导航到 useEffect 页，Step2 改为 two→one，才真正覆盖 useLayoutEffect 对照。无需生成构建期路由清单，但不能据此取消快照前注册/测量；本期方向由意图阶段注册表/显式 hint 定稿，旧 CSS 桥保持到 Step4。改变 animation-name 可能重启动画，不将“晚改可见”当稳定契约                                          | 修正后的 vt-lab 2a/2b；Next bundled renderer 的删除分支读取旧 props 与快照前 types 认领顺序                     |
+| 3   | 返回键（F11） | ✅ 诚实降级成立：goBack 后 starts=[]（无任何过渡）。返回键无动画维持现状，规范写明；Navigation API 优化空间留未来                                                                                                                                                                                                                                                                                            | vt-lab 验证 3（starts=[]）                                                                                      |
+| 4   | 流式互扰      | **Step2 勘误**：lab 自己的 VT 未配置 default，update 继承 auto；生产根边界已有 default=none，不能把 lab 的两次 start 外推为任何生产流式页都闪。Step2 页面组件显式 update/default=none，同 key resolve 不播放额外整页动画/会话；子 VT 或空原生 start 仍允许。startTransition 是激活条件，不是抑制方法                                                                                                         | 保留 lab 自身 starts=["fade", null] 实验；新增同 key Suspense 的 rawAnimations 不含 vt-page、生命周期不重复断言 |
+| 5   | 支持面        | webkit（Safari 27.2 引擎）实测三项全支持；Firefox 本机 Playwright 启动失败（juggler profile 环境问题），按 caniuse/MDN：VT 同文档 = Firefox 144+ / Safari 18.0+（全球 93.17%），view-transition-class = Chrome 125+ / Firefox 144+ / Safari 18.2+（90.32%），types 参数 = Baseline 2025 Newly available（2025-10；Firefox 精确版本未经真机复核）。**引擎红线成立**：不支持环境必须同步可用（探测红线断言过） | e2e/vt-support.spec.ts + caniuse                                                                                |
 
 - [x] Step 0 技术验证（5 项结论如上；实验路由位于 **`app/motion-lab/`**（顶层，脱离 /design 的 dev-only 守卫范围——VT 结论须在 prod 构建下验证），noindex 无站内入口，**本地生产构建可达，不代表已部署线上；Step 4 清账时连同持久导航面板整体移除**；vt-lab spec 在 prod E2E 持续回归，vt-support 仅 Step 0 一次性探测）
       **实验教训**：VT 采样必须在上一段过渡真正播完后 reset（页面过渡 slow 400ms，URL 变更早于动画
@@ -271,7 +272,7 @@ flowchart TD
 - **全站接管**：移除 `isMotionPilot` 灰度门，`page-motion` 对所有路由（除同 pathname 查询串变化）建引擎会话。根边界 `motion-boundary`：非共享路由 pathname-key 接管（组内/跨页都进退场）；共享路由（`hasSharedLayout`=admin/settings）根边界 key/pageKey=`root-shared`、enter=`none`（跨组进入不与下沉边界双进场）、exit 默认（跨组退出旧页正常淡出；Step 4.5 边界 E2E 实测校准——嵌套 VT 在模板重挂卸载子树时不触发退场，根层是共享侧唯一可靠的退场载体）。
 - **共享 layout 边界下沉**：新增 `page-motion-boundary.tsx`（pathname-key MotionPage）；`admin-shell.tsx` 与 `settings/layout.tsx` 把 children 包进该边界——组内切换 fade 微动，侧栏/头部/抽屉在边界外静止不重挂；每会话恰一个边界认领（根 root-shared 不匹配、内层 pathname 匹配）。`MotionPage` enter/exit 升为可配置 props。admin 注册表 preset 改 `"admin"`（引擎 `resolveMotionPlan` 层默认 fade，显式 direction hint 仍可覆盖，保持克制；`siteMotionDirection` 仍是纯层级/Tab 算法，preset 方向在 resolver 层生效）。
 - **一致性退役**：`motion-routes.test` 删 kindBetween 全矩阵对比（82）+ isMotionPilot 试点块（20）+ lab 基线/枚举；`resolver.test` 删 49 对一致性矩阵；保留纯注册表方向/声明/query-hash 不变性断言。`nav-kind.test` 34 例：11 方向例删除（注册表矩阵已覆盖），23 例忠实迁 `nav-direction.test`（10：属性时序 7 + 圆心 3）+ `nav-geometry.test`（13：扩散/收起几何）。
-- **资产清理**：删 `motion-lab/*`（7 文件）、`motion-lab-panel`、`navigation-demo`、`vt-lab.spec`、`vt-support.spec`、`playwright.vt-support.config`、`view-transition` facade + 其测试（等价覆盖已在 `native.test`）；`globals.css` 删 lab 块（fw-lab-*/vt-lab-*）。架构守卫 `LEGACY_ENTRIES` 仅留 `nav-guard.ts`（点击/进度/失败兜底守卫，非方向）。
+- **资产清理**：删 `motion-lab/*`（7 文件）、`motion-lab-panel`、`navigation-demo`、`vt-lab.spec`、`vt-support.spec`、`playwright.vt-support.config`、`view-transition` facade + 其测试（等价覆盖已在 `native.test`）；`globals.css` 删 lab 块（fw-lab-_/vt-lab-_）。架构守卫 `LEGACY_ENTRIES` 仅留 `nav-guard.ts`（点击/进度/失败兜底守卫，非方向）。
 - **pilot harness 解耦**：新增 `motion-test-harness.tsx`（测试专用持久宿主，挂根 layout、provider 内、页面边界外故落全局作用域；仅 E2E 经 addInitScript 置 `window.__fwMotionTest` 激活，生产渲染 null 不注册钩子），复刻面板契约用真实 MotionLink/useMotionRouter。pilot 11 例 `open()` 改 flag+goto 脱离 lab；流式用例改用真实异步页（/boards→主题）验证「单会话、流式就绪不伪造第二会话」不变量。
 - **测试**：动效定向 21 文件 560 项通过（含架构守卫 156、裸写守卫 25、nav-direction 10、nav-geometry 13、motion-routes 151、resolver 19、page-motion 15+10、navigation-guard 14）。
 - **最终门禁**：`pnpm verify:all` 退出 0——web 4,583（360 文件，退役一致性矩阵/方向冗余例后净减）/ db 124 / content 55 / migration 278，脚本 18 项，类型/lint/格式/秘密扫描/构建均通过；jscpd 1,405 行 / 159 克隆与原基线持平。`pnpm test:e2e` 生产 499 + dev 8 全过（删除 vt-lab 6 + vt-support 1 后由 506 降至 499；**微交互 15 例零删减**，**pilot 11 例解耦后全过**）；`pnpm test:e2e:install` 4 全过；`pnpm test:visual` 10 全过、**截图基线零更新**（共享 layout 下沉边界与全站 pathname-key 未改变静态渲染）。
@@ -300,6 +301,22 @@ flowchart TD
   生产 503（499 + 4 条边界契约用例）+ dev 8 全过（微交互 15 例零删减）；`pnpm test:e2e:install` 4 全过；
   `pnpm test:visual` 10 全过、**截图基线零更新**；四页 LCP 76 / 136 / 192 / 84ms 全部低于 2,500ms 本地预算
   （开发迁移库，未重置/重种）。
+
+## 16. Step 5 收口与生产部署（2026-11-12）
+
+- **PR/CI**：[PR #13](https://github.com/SkyJourney/FunWind/pull/13)（feat/m15-motion-pipeline → main，
+  8 提交）。CI 双作业全绿——verify 9m07s、e2e 15m55s（run 43074279104）；merge commit `5dcb724`
+  （merge commit 保留分步提交历史），main push CI 留档独立运行。
+- **生产部署（仅 web，D4 公测口径）**：本机 `docker build --platform linux/amd64`（M14 架构防呆口径）→
+  `docker save | ssh load` → 服务器 `inspect` 核对 arch=amd64 → 打版本戳 `funwind-web:20261112` →
+  `cd /opt/funwind/app && docker compose up -d`。**无 schema 迁移、ops 管线未触碰**（M15 纯前端）；
+  回滚点 = `funwind-web:20261111`（部署前运行版本，RUNBOOK §6.4）。
+- **部署后核对**：funwind-app healthy（运行镜像 ID `545040330cd0` = 新版本）、funwind-ops/mysql 未受影响；
+  公测冒烟 `/`、`/a`、`/f/109`、`/t/6621`、`/api/health` 全 200；新动效宿主 SSR 标记已上线
+  （`data-fw-page` + `data-motion-preset`）；应用日志无异常；近 10 分钟 CSP report 零条；ops 管线安静
+  （无新增 failed、无告警——runs #12/#13 为 M14 期间已修复的历史失败）。
+- **生产 LCP 对比（公网实测，含 RTT）**：首页 940ms、版块 `/f/109` 532ms、主题 `/t/6621` 604ms、
+  搜索 640ms——全部远低于 2.5s 预算；与本地门禁（76–192ms，无网络 RTT）口径不同，作为公测基线留档。
 
 ## 遗留事项
 
