@@ -1,7 +1,7 @@
 import "server-only";
 
 import { eq } from "drizzle-orm";
-import { writeFile, unlink } from "node:fs/promises";
+import { mkdir, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { getWebDb, siteSettings, users } from "@funwind/db";
@@ -65,8 +65,12 @@ export function nodeVersionOk(userAgent = process.version): boolean {
 export async function storageWritable(
   env: Record<string, string | undefined> = process.env,
 ): Promise<boolean> {
-  const probe = path.join(getStorageDir(env), `.install-probe-${randomBytes(4).toString("hex")}`);
+  // 探针放 .tmp/ 子目录：容器 HEALTHCHECK 每 30s 调一次本函数，若写顶层会把顶层 mtime
+  // 每 30s 重置一次，与运维管线的 tar 归档竞争（管线对源目录 --exclude=.tmp，M14 教训）
+  const tmpDir = path.join(getStorageDir(env), ".tmp");
+  const probe = path.join(tmpDir, `.install-probe-${randomBytes(4).toString("hex")}`);
   try {
+    await mkdir(tmpDir, { recursive: true }); // .tmp 不存在则创建；只读/无权限在此失败
     await writeFile(probe, "probe"); // 目录不存在（ENOENT）或无权限都会失败
     // 写成功即判可写；清理失败（unlink）不影响结论，best-effort 删除（审查 F-7）
     await unlink(probe).catch(() => {});

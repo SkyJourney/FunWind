@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -32,9 +32,15 @@ describe("环境自检与进度推导（M12 Step 3）", () => {
       dir = "";
     });
 
-    it("已存在的目录可写 → true（探针文件清理）", async () => {
+    it("已存在的目录可写 → true（探针写入 .tmp/ 并清理，不触碰顶层）", async () => {
       dir = mkdtempSync(path.join(tmpdir(), "funwind-storage-ok-"));
       expect(await storageWritable({ STORAGE_DIR: dir })).toBe(true);
+      // 顶层 mtime 必须保持原样：容器 HEALTHCHECK 每 30s 调一次本函数，
+      // 若探针写顶层会与运维管线 tar 归档竞争（M14 教训，管线对 .tmp/ 已排除）
+      const before = statSync(dir).mtimeMs;
+      await storageWritable({ STORAGE_DIR: dir });
+      expect(statSync(dir).mtimeMs).toBe(before);
+      expect(readdirSync(dir)).toEqual([".tmp"]);
     });
 
     it("父目录不存在（ENOENT）→ false；权限与磁盘故障同口径 fail-false", async () => {
