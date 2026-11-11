@@ -1,7 +1,7 @@
 # M15 · 统一动效管线（声明式动效引擎）
 
 - 阶段：四·运营与演进 ｜ 依赖：无（与 M14 相互独立）；设计基准：[M10.5-S4-VISUAL-MOTION](../M10.5-S4-VISUAL-MOTION.md)（四级动效体系与令牌）、M10.7（页面切换与流式动效）、[M13 备忘](M13-launch.md)（立项来源）
-- 状态：⬜ 未开始（2026-11-09 立项，站长批准编排与 D1–D3 全部按推荐执行）
+- 状态：🚧 执行中（2026-11-09 立项，站长批准编排与 D1–D4；2026-11-11 二次前置探查复核完成，**推进计划已获站长批准**——Step A 进行中）
 - 来源：站长 2026-11-09 立项——动效收敛为「全局默认 + 统一管理管线」：动效规则不再散落在路由表、
   CSS 选择器与组件 className 三处；页面 / 元素接入动效应声明式完成；并建立**生命周期钩子**，
   未来页面或元素接入动效可快速挂接。M13 备忘「统一页面切换动效管线」并入本里程碑。
@@ -37,6 +37,22 @@
 | F9 | 元素级入场现状：触底追加 `fw-fade-in`（stream-list 哨兵 IntersectionObserver）；首屏错落 = 8 个页面内联 `animationDelay: index*50ms`；微交互（点赞 pop/roll/float-up、Button active:scale、关注、FeedCard hover）各组件自管 | `components/stream/stream-list.tsx:9`、F5 的 8 处、`interact/like-toggle.tsx:85-111`、`follow-toggle.tsx:61,69` | 元素层 API（`<MotionList>` / `useMotion`）的迁移清单；微交互本期只收口到预设，不改行为 |
 | F10 | 测试基线：`nav-kind.test.ts` ~45 例、`nav-guard.test.ts` ~28 例、`view-transition.test.ts` 7 例；E2E 有 VT 打桩（`e2e/support/vt.ts` 拦截 startViewTransition + rAF 采样）、page-transition 18 例、micro-interactions 15 例；禁动效手段 = `page.emulateMedia({ reducedMotion: "reduce" })`；visual 配置 `animations: "disabled"` | `lib/motion/*.test.ts`、`e2e/support/vt.ts`、`e2e/page-transition.spec.ts:399,414`、`playwright.visual.config.ts:24` | 灰度期一致性测试直接建在 nav-kind 测试上（两套判定对全路由矩阵比对）；E2E 打桩设施复用 |
 | F11 | popstate 限制：React 文档明确「从 legacy popstate 启动的 transition 必须同步完成，动画会被跳过」，除非路由升级 Navigation API；M10.7 §5.7 遗留「浏览器返回键缓存命中无动画」；nav-guard 已有 Navigation API 接入（拦截 Next 整页回退兜底） | [React ViewTransition](https://react.dev/reference/react/ViewTransition)（popstate 节）、`M10.7-streaming-motion.md:144-145`、`lib/motion/nav-guard.ts:267-289` | Step 0-3 验证经 Navigation API 的返回键能否带出过渡；不能则该场景维持「无动画」并在规范里写明（诚实降级） |
+
+## 1.1 增量复核（2026-11-11，M14 收口后二次探查——F1–F11 无实质漂移，仅行号/计数刷新）
+
+| # | 复核项 | 结论 |
+|---|---|---|
+| R1 | F1 版本基线 | ✓ react 19.3.1 / next 16.4.2 未变，stable `<ViewTransition>` 路线成立 |
+| R2 | 页面总数 | ✓ 仍 73 页（M14 升级 /admin/ops 既有页，未新增路由） |
+| R3 | stagger 内联 | ✓ 仍 8 处 `index*50ms`，M14 未新增 |
+| R4 | rank 表 | ✓ `/a` 已登记；admin 兜底正则覆盖全部子页——M14 重构的 /admin/ops 自动被兜底，无登记缺口 |
+| R5 | 测试基线 | ✓ nav-kind 33 声明（~45 例）/ nav-guard 27 / view-transition 7；E2E 18+15；vt.ts 打桩完好可复用 |
+| R6 | M14 增量 | /admin/ops 与 OpsAutoRefresh 零动效使用（后台克制维持）；globals.css 行号漂移已刷新（fw-nav-grow→209、vt-push-in→250、fw-page-in→288、reduced-motion→222/493/847）——以符号检索为准 |
+| R7 | 手动 VT 收编目标 | ✓ 仅 /design/motion 两处（expand/fade） |
+| R8 | 元素级 class | fw 系列动效类共 11 个文件使用——Step 3 迁移清单 |
+| R9 | reduced-motion | ✓ 三块降级与 F6 一致 |
+
+**结论**：§1–§3 维持定稿；D1–D4 不变。**动效规范已定稿：[docs/motion-spec.md](../motion-spec.md)**（Step A 产物——预设表 / 钩子契约 / 灰度与退役 / 守卫验收，实现冲突时先改规范再改代码）。
 
 ## 2. 边界（明确不做什么）
 
@@ -169,7 +185,7 @@ flowchart TD
 
 ## 9. 执行记录
 
-- [ ] Step A 文档先行（含动效规范定稿）
+- [x] Step A 文档先行（2026-11-11：增量复核 R1–R9 回写 + [动效规范](../motion-spec.md) 定稿 + S4 头部指针）
 - [ ] Step 0 技术验证（5 项结论回写）
 - [ ] Step 1 引擎内核
 - [ ] Step 2 页面层接入与共享段过渡
