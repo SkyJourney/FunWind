@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -43,10 +43,13 @@ describe("环境自检与进度推导（M12 Step 3）", () => {
       expect(readdirSync(dir)).toEqual([".tmp"]);
     });
 
-    it("父目录不存在（ENOENT）→ false；权限与磁盘故障同口径 fail-false", async () => {
-      // /proc 这类只读伪文件系统下建目录/写文件必然失败，跨平台稳定
-      const env = { STORAGE_DIR: "/proc/funwind-denied/install-storage" };
-      expect(await storageWritable(env)).toBe(false);
+    it("STORAGE_DIR 是已存在的文件（ENOTDIR）→ false；权限与磁盘故障同口径 fail-false", async () => {
+      // mkdir/writeFile 对「路径中含普通文件」的失败（ENOTDIR）在所有平台立即、稳定，
+      // 不依赖 /proc 这类伪文件系统的平台差异（recursive mkdir 在 Linux procfs 下会挂起）
+      dir = mkdtempSync(path.join(tmpdir(), "funwind-storage-blocked-"));
+      const blocked = path.join(dir, "not-a-dir");
+      writeFileSync(blocked, "x");
+      expect(await storageWritable({ STORAGE_DIR: blocked })).toBe(false);
     });
   });
 
