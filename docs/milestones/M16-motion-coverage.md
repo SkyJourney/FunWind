@@ -76,11 +76,39 @@
 
 ## 6. Step 0 可行性实验结论（2026-11-12，实验③独立静态台 + 实验②真机接线 + 实验①/ m16-lab 三路线；实验页已删）
 
-| # | 实验 | 结论 | 证据 |
-|---|---|---|---|
-| 1 | 图片显影 × LCP | **淡入使 LCP 推迟 ≈ 过渡时长**：同一 0.98MB 首屏大图，无显影 LCP≈40ms，onLoad 淡入后 LCP≈310ms（快网）；慢图（+800ms）872ms→1100ms——Chromium 在 opacity 渐入元素**动画结束（完全不透明）**时才计入 LCP。muted 占位底色救不回（纯 background-color 不构成 LCP 候选，实测占位变体 LCP 条目中无占位元素）。**豁免规则：首屏视口内可能成为 LCP 的图片直接渲染不挂淡入；首屏外 lazy 图片全部显影** | /tmp 独立静态台（0.98MB 基线 JPEG × 三变体 × 快/慢网，PerformanceObserver 全时间线） |
-| 2 | 主题切换 VT | **四项全过**：① 交叉溶解生效（`html[data-vt=fade]` + root `vt-fade-in/out` 播放）；② 属性落快照正确（旧帧 light→新帧 dark；next-themes 的属性写在 effect 里异步，须在 VT 内同步预写 data-mode——`theme-motion.ts` 已实现，system 就地解析）；③ reduce 降级无 VT、直改生效；④ 与页面导航 VT 共存互不干扰（同序列中状态级 `vt:fade` 与页面级 `vt:null` 各自正常）。PATCH 失败回滚保持直改（既有 9 项 jsdom 测试通过）。**接线代码保留在分支（`theme-motion.ts` + 4 个切换点），Step 2 补 E2E** | 真机 3100 + VT 探针（含 root 伪元素采样）；`theme-menu.test` 9/9 |
-| 3 | 返回键三路线 | **intercept 路线可行，predrive 否决**：② intercept（Navigation API 拦截遍历 + 手动状态级 VT，update 等 popstate）——返回动画完整播放（root 溶解）、**历史栈零污染**（长度稳定）、前进键正常、URL 正确、dev 与生产构建一致；③ predrive（preventDefault + router.push 重驱动）——**前进键实测失效**（返回后前进仍停原页，历史栈污染实锤）否决；① baseline 现状无动画。intercept 仅覆盖 lab 范围遍历、Navigation API 不支持时优雅回退 baseline | m16-lab 三路线（实验页已删）+ Playwright 三状态断言 × dev/prod |
-| 4 | **新发现（全站级）** | **返回滚动恢复全站失效（既有缺陷，非 M16 引入）**：真实页板块(滚动 800)→主题→浏览器返回→scrollY=72（期望 800），dev/prod、baseline/intercept 一致；实验首版测得「三模式全 0」曾系实验页不足视口高（max scroll=0）的测量缺陷，加高后真实页复核实锤。intercept 不改变该行为（与 baseline 同坏同好） | 真实页 /f/109→/t→back 实测（prod 3411） |
+| #   | 实验                 | 结论                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | 证据                                                                                 |
+| --- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| 1   | 图片显影 × LCP       | **淡入使 LCP 推迟 ≈ 过渡时长**：同一 0.98MB 首屏大图，无显影 LCP≈40ms，onLoad 淡入后 LCP≈310ms（快网）；慢图（+800ms）872ms→1100ms——Chromium 在 opacity 渐入元素**动画结束（完全不透明）**时才计入 LCP。muted 占位底色救不回（纯 background-color 不构成 LCP 候选，实测占位变体 LCP 条目中无占位元素）。**豁免规则：首屏视口内可能成为 LCP 的图片直接渲染不挂淡入；首屏外 lazy 图片全部显影**                                                                                               | /tmp 独立静态台（0.98MB 基线 JPEG × 三变体 × 快/慢网，PerformanceObserver 全时间线） |
+| 2   | 主题切换 VT          | **四项全过**：① 交叉溶解生效（`html[data-vt=fade]` + root `vt-fade-in/out` 播放）；② 属性落快照正确（旧帧 light→新帧 dark；next-themes 的属性写在 effect 里异步，须在 VT 内同步预写 data-mode——`theme-motion.ts` 已实现，system 就地解析）；③ reduce 降级无 VT、直改生效；④ 与页面导航 VT 共存互不干扰（同序列中状态级 `vt:fade` 与页面级 `vt:null` 各自正常）。PATCH 失败回滚保持直改（既有 9 项 jsdom 测试通过）。**接线代码保留在分支（`theme-motion.ts` + 4 个切换点），Step 2 补 E2E** | 真机 3100 + VT 探针（含 root 伪元素采样）；`theme-menu.test` 9/9                     |
+| 3   | 返回键三路线         | **intercept 路线可行，predrive 否决**：② intercept（Navigation API 拦截遍历 + 手动状态级 VT，update 等 popstate）——返回动画完整播放（root 溶解）、**历史栈零污染**（长度稳定）、前进键正常、URL 正确、dev 与生产构建一致；③ predrive（preventDefault + router.push 重驱动）——**前进键实测失效**（返回后前进仍停原页，历史栈污染实锤）否决；① baseline 现状无动画。intercept 仅覆盖 lab 范围遍历、Navigation API 不支持时优雅回退 baseline                                                   | m16-lab 三路线（实验页已删）+ Playwright 三状态断言 × dev/prod                       |
+| 4   | **新发现（全站级）** | **返回滚动恢复全站失效（既有缺陷，非 M16 引入）**：真实页板块(滚动 800)→主题→浏览器返回→scrollY=72（期望 800），dev/prod、baseline/intercept 一致；实验首版测得「三模式全 0」曾系实验页不足视口高（max scroll=0）的测量缺陷，加高后真实页复核实锤。intercept 不改变该行为（与 baseline 同坏同好）                                                                                                                                                                                           | 真实页 /f/109→/t→back 实测（prod 3411）                                              |
 
 **Step 0 决策落点**：① 图片显影按豁免规则实现（Step 3）；② 主题切换 VT 接线已验证保留（Step 2 补 E2E 与 next-themes `disableTransitionOnChange` 共存核对——实验中未见冲突）；③ 返回键采用 intercept 路线（Step 2 落地：nav-kind-capture 扩展为可拦截遍历并驱动状态级 VT，支持 Navigation API 的浏览器生效、其余优雅回退）；④ **Step 2 增补范围：根因修复返回滚动恢复**（全站级既有缺陷，优先级高于动画本身）。实验页 `src/app/m16-lab/` 已删除（无 spec 引用，无残留）。
+
+## 7. Step 2 高感知场景（2026-11-12）
+
+- **返回滚动恢复（全站级缺陷修复，本步最重交付）**：根因三层叠加——① Chrome 对软导航 history API 调用
+  会丢弃条目滚动存档；② Next 的 ScrollHandler 每次 commit 都会滚顶（流式页面分次 commit、滚顶多次晚到）；
+  ③ Next 恢复历史时的 replaceState 记账会派发 navigate(replace)，此时 scrollY 已是滚顶残值。
+  修复（nav-kind-capture）：**链接点击捕获**（document capture，必早于滚顶）快照离开页滚动（max-guard：
+  UA 上滚取元素不覆盖用户更深位置）+ 导航锁（4s，锁期间忽略该页记录覆盖）+ 持续滚动记录经
+  **sessionStorage 持久化**（正文 markdown 链接渲染为 target=_blank 新标签、普通站内 <a> 是整页跳转——
+  两者的返回都是 back_forward 整页加载，内存表会丢）+ back_forward 加载挂载时按记录恢复（先修被初始
+  record 写 0 的条目）+ 恢复循环带**用户让位**（wheel/touch/滚动键立即取消）。
+- **返回键动画落地（intercept 路线）**：同站 traverse 拦截驱动状态级 fade（update 等 popstate），
+  同站判定用 destination.origin 比对（跨站不拦截）、intercept 特性检测（jsdom 等优雅回退诚实跳过）。
+- **主题切换 VT**：`theme-motion.ts`（Step 0 已接线）补正式 E2E——交叉溶解 data-vt=fade + root 动画、
+  reduce 无 VT 直改、mode 正确切换。
+- **门控解锁 reveal**：`gate-reveal.tsx`（GateUnlockButton/GateReplyLink 打标记 + GateReveal 消费标记
+  淡入一次）；首次访问已解锁内容不播；reduce 归零。
+- **公告横幅过渡**：出现 fw-fade-in；关闭 grid-rows 1fr→0fr 折叠（缓解布局跳动）+ motion-reduce:transition-none。
+- **测试**：单测 nav-kind-capture 8→12（VT 生命周期/跨站不拦截/点击快照 max-guard/replace 不写快照）；
+  E2E 新增 motion-step2.spec 4 例（滚动恢复+返回动画+前进键 / 用户让位 / 主题 VT×reduce / 门控 reveal）；
+  架构守卫全仓扫描用例显式超时 20s（全仓 AST 扫描是套件最重单用例，并行全量 5s 默认超时不够——仅测试
+  基建调整，断言不变）。
+- **门禁**：`pnpm verify:all` 退出 0（web 4,591 / db 124 / content 55 / migration 278，jscpd 持平）；
+  E2E 定向 70 例全过（motion-step2 4 + gates 14 + reduce-overlays 4 + micro-interactions 15 +
+  page-motion-pilot 19 + page-transition 14，**既有动效零删减**）；visual 10 项、**基线零更新**
+  （motion-step2 自建线程经 afterAll 清理，不污染首页信息流基线）。
+- **边界**：横幅关闭的折叠过渡 150ms+220ms 卸载，既有 E2E 无横幅断言（人工目视随 Step 4.5 验收）；
+  返回滚动恢复的用户让位窗口 4s 内用户滚动生效，4s 后无对抗（用户此后自由滚动）；Step 3 图片显影未开始。

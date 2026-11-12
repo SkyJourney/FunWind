@@ -2,6 +2,7 @@ import Link from "next/link";
 import { BadgeCheck, Lock, ShieldCheck, Sparkles, Store } from "lucide-react";
 import { unlockGateAction } from "@/app/actions/gates";
 import { RichContent } from "@/components/content/rich-content";
+import { GateReplyLink, GateReveal, GateUnlockButton } from "@/components/content/gate-reveal";
 import type { GatePrompt, GateView } from "@/lib/gates/types";
 
 /**
@@ -52,13 +53,9 @@ function PromptLine({
             <input type="hidden" name="page" value={returnPage} />
             {/* 买家看到的价格随表单提交，服务端按它核对，避免作者在点击前改价而被按新价扣款 */}
             <input type="hidden" name="expectedPrice" value={prompt.price} />
-            <button
-              type="submit"
-              disabled={prompt.balance < prompt.price}
-              className="rounded-md border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-medium text-primary hover:bg-primary/20 disabled:cursor-not-allowed disabled:border-border disabled:bg-transparent disabled:text-muted-foreground"
-            >
+            <GateUnlockButton gateId={gateId} disabled={prompt.balance < prompt.price}>
               {prompt.price === 0 ? "免费解锁" : `${prompt.price} ${pointsName} 解锁`}
-            </button>
+            </GateUnlockButton>
           </form>
         </div>
       );
@@ -66,9 +63,9 @@ function PromptLine({
       return (
         <p className="font-medium">
           回复本帖后可见 ·{" "}
-          <a href="#reply" className="text-primary hover:underline">
+          <GateReplyLink gateId={gateId} href="#reply">
             去回复
-          </a>
+          </GateReplyLink>
         </p>
       );
     case "unavailable":
@@ -144,15 +141,17 @@ export function GateBlock({
 
   const label = openLabel(view, pointsName);
   return (
-    <div className="my-3 rounded-lg border bg-card" data-gate-state="open">
-      <div className="flex items-center gap-1.5 border-b bg-muted/40 px-4 py-1.5 text-xs text-muted-foreground">
-        {label.icon}
-        {label.text}
-        {view.updateNote && <span className="text-warning">· {view.updateNote}</span>}
+    <GateReveal gateId={view.gateId}>
+      <div className="my-3 rounded-lg border bg-card" data-gate-state="open">
+        <div className="flex items-center gap-1.5 border-b bg-muted/40 px-4 py-1.5 text-xs text-muted-foreground">
+          {label.icon}
+          {label.text}
+          {view.updateNote && <span className="text-warning">· {view.updateNote}</span>}
+        </div>
+        <div className="px-4 py-3">
+          <RichContent md={view.contentMd} />
+        </div>
       </div>
-      <div className="px-4 py-3">
-        <RichContent md={view.contentMd} />
-      </div>
-    </div>
+    </GateReveal>
   );
 }
