@@ -250,4 +250,19 @@ describe("M15 Step 3 reduced-motion 收编核对", () => {
       .trim();
     expect(pulseBody, "animate-pulse 须真归零").toBe("animation: none !important;");
   });
+
+  it("场景级高亮在 reduce 块内归零（楼层锚点 / 新插入锁定内容）", () => {
+    const blocks = [
+      ...globals.matchAll(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{([\s\S]*?)\n\}/g),
+    ]
+      .map((m) => m[1])
+      .join("\n");
+    // 两者都是场景级 keyframes（动着色不动几何），reduce 下必须静止呈现
+    for (const selector of [".fw-floor.fw-floor-hl-on", ".fw-gate.fw-gate-hl-on"]) {
+      const at = blocks.indexOf(selector);
+      expect(at, `reduce 块须包含 ${selector}`).toBeGreaterThanOrEqual(0);
+      const body = blocks.slice(blocks.indexOf("{", at) + 1, blocks.indexOf("}", at)).trim();
+      expect(body, `${selector} 须真归零`).toBe("animation: none;");
+    }
+  });
 });

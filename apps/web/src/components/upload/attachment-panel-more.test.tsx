@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { stubUploadXhr, uploadOkBody } from "@/test/upload-xhr-double";
 import { AttachmentPanel } from "./attachment-panel";
 
 const KEY = "funwind:draft:1:edit:33";
@@ -56,12 +57,9 @@ describe("AttachmentPanel 补充", () => {
   });
 
   it("网络异常：统一给出可读提示", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        throw new TypeError("offline");
-      }),
-    );
+    // 上传已走 XHR：stub fetch 对上传路径完全无效（旧写法靠 jsdom 无监听侥幸触发 onerror）
+    const xhr = stubUploadXhr();
+    xhr.autoFail();
     const user = userEvent.setup();
     render(
       <AttachmentPanel
@@ -94,10 +92,8 @@ describe("AttachmentPanel 补充", () => {
     // 先让草稿键里有内容（列表变化才会写入），再提交
     expand();
     await user.click(screen.getByRole("button", { name: "移除附件：提交.zip" }));
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response(JSON.stringify({ fileId: 8, sizeBytes: 1 }), { status: 200 })),
-    );
+    const xhr = stubUploadXhr();
+    xhr.autoRespond(200, uploadOkBody({ fileId: 8, sizeBytes: 1 }));
     await user.upload(fileInput(), new File(["x"], "再加.zip", { type: "application/zip" }));
     await screen.findByText("再加.zip");
     fireEvent.submit(document.querySelector("form")!);

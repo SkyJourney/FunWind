@@ -18,6 +18,7 @@ export function SmoothAnchors() {
   useEffect(() => {
     const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     let hlTimer: number | undefined;
+    let lastTarget: Element | null = null;
     const onClick = (raw: Event) => {
       const anchor = (raw.target as Element | null)?.closest?.("a[href]");
       if (!anchor) return;
@@ -36,8 +37,15 @@ export function SmoothAnchors() {
       // 点击路径由 JS 挂临时高亮类（深链直开仍走 :target CSS 规则）；reduce 不挂。
       if (!reduced()) {
         window.clearTimeout(hlTimer);
+        // 先摘上一个目标的高亮（M16.1 Step 4.5）：否则连点不同楼层时旧类永不摘除，
+        // 而 classList.add 对已有类是 no-op —— 再点回旧楼层时动画不会重播。
+        lastTarget?.classList.remove("fw-floor-hl-on");
+        lastTarget = target;
         target.classList.add("fw-floor-hl-on");
-        hlTimer = window.setTimeout(() => target.classList.remove("fw-floor-hl-on"), 2100);
+        hlTimer = window.setTimeout(() => {
+          target.classList.remove("fw-floor-hl-on");
+          if (lastTarget === target) lastTarget = null;
+        }, 2100);
       }
     };
     document.addEventListener("click", onClick, true);

@@ -814,6 +814,28 @@ html[data-vt="expand"]::view-transition-new(root) {
 .fw-gate-content {
   padding: 0.25rem 0.75rem;
 }
+/* 刚插入的锁定内容闪一下（M16.1 Step 2）：光标本来就会落进新块，但虚线框是「凭空出现」的，
+   缺一个「就是这一块」的视觉确认。只在新插入时由 toolbar 挂类，既有门控加载时不播。
+   与 fw-floor-hl 同属场景级 keyframes（动 border/background 属着色，不动几何）。 */
+.fw-gate.fw-gate-hl-on {
+  animation: fw-gate-hl var(--fw-dur-slow) var(--fw-ease-out);
+}
+@keyframes fw-gate-hl {
+  0%,
+  55% {
+    border-color: var(--primary);
+    background-color: color-mix(in srgb, var(--primary) 16%, transparent);
+  }
+  100% {
+    border-color: color-mix(in srgb, var(--primary) 55%, transparent);
+    background-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fw-gate.fw-gate-hl-on {
+    animation: none;
+  }
+}
 .content-md ul {
   margin: 0.5rem 0;
   list-style: disc;

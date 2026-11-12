@@ -32,6 +32,14 @@ const openPanel = async () => {
 beforeEach(() => localStorage.clear());
 
 describe("表情面板", () => {
+  it("页签色变有过渡（M16.1 Step 2）：色彩过渡属即时反馈，reduce 下保留", async () => {
+    await mount();
+    await openPanel();
+    const tabs = await screen.findAllByRole("tab");
+    expect(tabs.length).toBeGreaterThan(1);
+    for (const tab of tabs) expect(tab.className).toContain("transition-colors");
+  });
+
   it("打开后默认在「笑脸与情绪」；点一个表情：插入正文并关闭面板", async () => {
     const { container } = await mount("好");
     await openPanel();

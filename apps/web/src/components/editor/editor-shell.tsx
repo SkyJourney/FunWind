@@ -24,7 +24,8 @@ import { AttachmentPanel, type AttachmentItem } from "@/components/upload/attach
 import { CropDialog } from "@/components/upload/crop-dialog";
 import type { Box } from "@/components/upload/crop-math";
 import { ImagePicker, imageFileFromClipboard } from "@/components/upload/image-picker";
-import { uploadFile } from "@/components/upload/upload-client";
+import { UploadError, uploadFile } from "@/components/upload/upload-client";
+import { UploadProgress, useUploadProgress } from "@/components/upload/upload-progress";
 
 /**
  * 编辑器外壳（M6.3 第 2、4、5 步）：组合所见即所得、源码模式、预览与草稿，并通过一个隐藏字段把结果交给表单。
@@ -158,7 +159,18 @@ export function EditorShell({
   const [wantCrop, setWantCrop] = useState(false);
   const [imagePending, setImagePending] = useState(0);
   const [attachPending, setAttachPending] = useState(0);
-  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+  // 上传提示分两态（M16.1 Step 2）：此前 info 与 error 共用 role="alert" + 红字，
+  // 「GIF 不支持裁剪，已直接插入」这类成功说明被渲染成错误样式，读屏也会当错误播报
+  const [uploadNotice, setUploadNotice] = useState<{
+    kind: "info" | "error";
+    text: string;
+  } | null>(null);
+  // 正文插图的上行进度（M16.1 Step 1）：与附件面板同款呈现
+  const {
+    progress: imageProgress,
+    onProgress: onImageProgress,
+    resetProgress: resetImageProgress,
+  } = useUploadProgress();
   const [cropFile, setCropFile] = useState<File | null>(null);
   const richApi = useRef<InsertApi | null>(null);
   const sourceApi = useRef<InsertApi | null>(null);
@@ -283,14 +295,26 @@ export function EditorShell({
   const uploadImage = async (file: File, crop?: Box, preNotice: string | null = null) => {
     if (forumId === undefined) return;
     setImagePending((n) => n + 1);
-    setUploadNotice(preNotice);
+    setUploadNotice(preNotice === null ? null : { kind: "info", text: preNotice });
+    resetImageProgress();
     try {
-      const r = await uploadFile({ file, purpose: "inline", forumId, crop });
+      const r = await uploadFile({
+        file,
+        purpose: "inline",
+        forumId,
+        crop,
+        onProgress: onImageProgress,
+      });
       insertImage(r.url);
     } catch (e) {
-      setUploadNotice(e instanceof Error ? e.message : "上传失败，请稍后重试。");
+      setUploadNotice({
+        kind: "error",
+        // 只认 UploadError 的中文文案；其它异常（如响应体解析失败）不把英文栈信息抛给用户
+        text: e instanceof UploadError ? e.message : "上传失败，请稍后重试。",
+      });
     } finally {
       setImagePending((n) => n - 1);
+      resetImageProgress();
     }
   };
 
@@ -299,12 +323,16 @@ export function EditorShell({
       setCropFile(file);
       return;
     }
-    void uploadImage(file, undefined, wantCrop ? "GIF 不支持裁剪，已直接插入。" : null);
+    void uploadImage(file, undefined, wantCrop ? "GIF 不支持裁剪，将直接插入。" : null);
   };
 
   // 粘贴截图：只拦截含图片的粘贴（捕获阶段，抢在编辑器自身的粘贴处理之前）；文本粘贴原样放行
   const onPasteCapture = (e: ClipboardEvent<HTMLDivElement>) => {
     if (forumId === undefined) return;
+    // 并发闸（M16.1 Step 4.5）：上传期间编辑器仍可交互，连贴两张截图会并发——
+    // 单一 imageProgress/uploadNotice 契约会被两路交错覆盖（百分比来回跳、提示互相清）。
+    // 与 ImagePicker 的 disabled 同口径串行；服务端并发闸本就 ≤3，客户端串行更简单。
+    if (imagePending > 0) return;
     const file = imageFileFromClipboard(e.clipboardData);
     if (file === null) return;
     e.preventDefault();
@@ -414,9 +442,19 @@ export function EditorShell({
             onWantCropChange={setWantCrop}
             hideControls={mode === "rich"}
           />
+          {imagePending > 0 && imageProgress && (
+            <div className="max-w-xs">
+              <UploadProgress value={imageProgress} label="图片上传" />
+            </div>
+          )}
           {uploadNotice && (
-            <p role="alert" className="text-sm text-destructive">
-              {uploadNotice}
+            <p
+              role={uploadNotice.kind === "error" ? "alert" : "status"}
+              className={`text-sm ${
+                uploadNotice.kind === "error" ? "text-destructive" : "text-muted-foreground"
+              }`}
+            >
+              {uploadNotice.text}
             </p>
           )}
           <AttachmentPanel
@@ -445,8 +483,23 @@ export function EditorShell({
       />
 
       {previewError && <p className="text-sm text-destructive">{previewError}</p>}
+      {/* 首次预览的等待骨架（M16.1 Step 2）：此前 busy 期只有按钮文案，预览区凭空出现。
+          再次预览时保留上一版内容不换成骨架——真内容不推迟（M10.7 口径），也避免闪一下 */}
+      {previewBusy && previewHtml === null && (
+        <section
+          aria-label="预览生成中"
+          aria-busy="true"
+          className="space-y-2 rounded-lg border bg-muted/30 p-3"
+        >
+          <Skeleton className="h-3 w-48" />
+          <Skeleton className="h-20 w-full" />
+        </section>
+      )}
       {previewHtml !== null && (
-        <section aria-label="预览" className="space-y-2 rounded-lg border bg-muted/30 p-3">
+        <section
+          aria-label="预览"
+          className="fw-fade-in space-y-2 rounded-lg border bg-muted/30 p-3"
+        >
           <p className="text-xs text-muted-foreground">
             近似预览：锁定内容以占位显示，以发布后为准。
           </p>

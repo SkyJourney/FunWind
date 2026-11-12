@@ -22,6 +22,7 @@ import { getCurrentSubject } from "@/lib/authz/subject";
 import { checkPermission, getModeratedForumIds } from "@/lib/authz/service";
 import { unreadPmTotal } from "@/lib/pm/queries";
 import { bannerAnnouncement, getSiteChrome, getSiteIdentity } from "@/lib/chrome/site-chrome";
+import { swVersion } from "@/lib/pwa/build-version";
 import { getUserThemePack, resolveEffectivePack } from "@/lib/theme/pref";
 import { getThemeCatalog, isKnownPackId } from "@/lib/theme/catalog";
 import { cssTextForPack } from "@/lib/theme/surface-render";
@@ -29,6 +30,7 @@ import { themeSurfaceStyle } from "@/lib/theme/surface-style";
 import { THEME_PREVIEW_COOKIE, verifyThemePreview } from "@/lib/theme/preview";
 import { stopThemePreviewAction } from "@/app/theme-preview-actions";
 import { QueryToast } from "@/components/feedback/query-toast";
+import { ConnectionStatus } from "@/components/pwa/connection-status";
 import { ServiceWorkerRegistration } from "@/components/pwa/service-worker-registration";
 // 模块注册表求值（注册 + 封板）：任何内核调用前加载
 import "@/modules";
@@ -149,7 +151,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           disableTransitionOnChange
         >
           <SiteMotionProvider>
-            <ServiceWorkerRegistration />
+            <ServiceWorkerRegistration version={swVersion()} />
+            <ConnectionStatus />
             <AnnouncementBanner banner={banner} />
             <SiteHeader
               user={user}

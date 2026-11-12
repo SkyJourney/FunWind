@@ -11,6 +11,7 @@ import {
   writeDraft,
 } from "@/components/editor/draft";
 import { UploadError, uploadFile } from "./upload-client";
+import { UploadProgress, useUploadProgress } from "./upload-progress";
 
 /**
  * 附件面板（M6.4d2）：上传下载附件、移除、为每个附件选择归属（公开 / 某个门控）。
@@ -244,6 +245,9 @@ function AttachmentEditor({
   const itemsRef = useRef(items);
   const [busy, setBusy] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  // 上传中的文件名与真实上行进度（M16.1 Step 1）：面板强制串行上传，故只需跟踪当前这一个
+  const [pendingName, setPendingName] = useState<string | null>(null);
+  const { progress, onProgress, resetProgress } = useUploadProgress();
   // 默认折叠成「附件（N）」一行，减少首屏被附件占去的高度；上传成功后自动展开（让作者看到刚传的文件并选择归属）
   const [open, setOpen] = useState(defaultOpen);
   // 列表挂载期（M16 Step 4）：收起时先播 grid-rows 折叠过渡，播完（duration-fast 150ms + 余量）再卸载内容，不再瞬拔
@@ -300,8 +304,10 @@ function AttachmentEditor({
     }
     setBusy((n) => n + 1);
     onPendingChange?.(1);
+    setPendingName(file.name);
+    resetProgress();
     try {
-      const r = await uploadFile({ file, purpose: "attachment", forumId });
+      const r = await uploadFile({ file, purpose: "attachment", forumId, onProgress });
       setOpenAnimated(true);
       commit([
         ...itemsRef.current,
@@ -319,6 +325,8 @@ function AttachmentEditor({
     } finally {
       setBusy((n) => n - 1);
       onPendingChange?.(-1);
+      setPendingName(null);
+      resetProgress();
     }
   };
 
@@ -371,6 +379,24 @@ function AttachmentEditor({
           }}
         />
       </div>
+
+      {/* 上传中占位行（M16.1 Step 1）：放在折叠列表**之外**——传第一个附件时列表还没挂载，
+          放里面会看不见；虚线边框区分「正在传」与已完成的附件行 */}
+      {pendingName !== null && (
+        <div
+          data-testid="attachment-uploading"
+          className="fw-fade-in flex flex-wrap items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm"
+        >
+          <span className="min-w-0 flex-1 truncate text-muted-foreground">{pendingName}</span>
+          {progress ? (
+            <div className="flex w-40 shrink-0">
+              <UploadProgress value={progress} label={`上传 ${pendingName}`} />
+            </div>
+          ) : (
+            <span className="shrink-0 text-xs text-muted-foreground">准备上传…</span>
+          )}
+        </div>
+      )}
 
       {/* 折叠过渡容器（M16 Step 4，参照 announcement-banner 的 grid-rows 模式）：
           展开时直接呈现（保持原有行为），收起时 1fr→0fr 平滑折叠，播完由 setOpenAnimated 延迟卸载 */}

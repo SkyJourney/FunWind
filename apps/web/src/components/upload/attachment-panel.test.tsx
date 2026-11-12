@@ -2,6 +2,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { stubUploadXhr, uploadOkBody } from "@/test/upload-xhr-double";
 import { AttachmentPanel, type AttachmentItem } from "./attachment-panel";
 
 const KEY = "funwind:draft:1:edit:9";
@@ -113,36 +114,30 @@ describe("AttachmentPanel", () => {
   });
 
   it("上传成功：追加一行，附件以 purpose=attachment 与版块提交", async () => {
-    const fetchMock = vi.fn(
-      async () =>
-        new Response(
-          JSON.stringify({
-            fileId: 7,
-            sizeBytes: 9,
-            storageKey: "k",
-            url: "/files/k",
-            mime: "application/zip",
-            width: null,
-            height: null,
-          }),
-          { status: 200 },
-        ),
+    const xhr = stubUploadXhr();
+    xhr.autoRespond(
+      200,
+      uploadOkBody({
+        fileId: 7,
+        sizeBytes: 9,
+        storageKey: "k",
+        url: "/files/k",
+        mime: "application/zip",
+        width: null,
+        height: null,
+      }),
     );
-    vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     const { container } = mount({ initial: [] });
     await user.upload(fileInput(), new File(["zip"], "新附件.zip", { type: "application/zip" }));
     await waitFor(() => expect(screen.getByText("新附件.zip")).toBeInTheDocument());
     expect(parsed(container)).toEqual([{ fileId: 7, gateKey: null, name: "新附件.zip" }]);
-    const [url] = fetchMock.mock.calls[0] as unknown as [string];
-    expect(url).toBe("/api/upload?purpose=attachment&forumId=901");
+    expect(xhr.calls[0]!.url).toBe("/api/upload?purpose=attachment&forumId=901");
   });
 
   it("上传失败：展示服务端给出的中文原因，列表不变", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response(JSON.stringify({ error: "quota_exceeded" }), { status: 429 })),
-    );
+    const xhr = stubUploadXhr();
+    xhr.autoRespond(429, JSON.stringify({ error: "quota_exceeded" }));
     const user = userEvent.setup();
     mount({ initial: [] });
     await user.upload(fileInput(), new File(["x"], "a.zip", { type: "application/zip" }));
@@ -150,24 +145,56 @@ describe("AttachmentPanel", () => {
     expect(screen.queryByText("a.zip")).toBeNull();
   });
 
+  it("上传中占位行：传第一个附件时也可见（列表尚空/折叠），显示文件名与真实百分比", async () => {
+    const xhr = stubUploadXhr(); // 不自动响应：停在上传中
+    const user = userEvent.setup();
+    mountCollapsed({ initial: [] }); // 空列表 + 折叠：占位行必须仍然可见
+    await user.upload(fileInput(), new File(["zip"], "大文件.zip", { type: "application/zip" }));
+    const row = await screen.findByTestId("attachment-uploading");
+    expect(row).toHaveTextContent("大文件.zip");
+    expect(screen.getByText("准备上传…")).toBeInTheDocument(); // 首个进度事件到达前
+    await act(async () => xhr.calls[0]!.progress(60, 200));
+    expect(screen.getByRole("progressbar", { name: "上传 大文件.zip进度" })).toHaveAttribute(
+      "aria-valuenow",
+      "30",
+    );
+    // 上行完成 → 服务端处理期切不定态
+    await act(async () => xhr.calls[0]!.uploaded());
+    expect(screen.getByText("处理中…")).toBeInTheDocument();
+    await act(async () =>
+      xhr.calls[0]!.respond(200, uploadOkBody({ fileId: 9, name: "大文件.zip", sizeBytes: 9 })),
+    );
+    // 完成后占位行消失，真实附件行出现
+    await waitFor(() => expect(screen.queryByTestId("attachment-uploading")).toBeNull());
+    expect(await screen.findByText("大文件.zip")).toBeInTheDocument();
+  });
+
+  it("上传失败：占位行撤下，只留错误原因", async () => {
+    const xhr = stubUploadXhr();
+    const user = userEvent.setup();
+    mountCollapsed({ initial: [] });
+    await user.upload(fileInput(), new File(["x"], "坏文件.zip", { type: "application/zip" }));
+    await screen.findByTestId("attachment-uploading");
+    await act(async () => xhr.calls[0]!.respond(429, JSON.stringify({ error: "quota_exceeded" })));
+    expect(await screen.findByRole("alert")).toHaveTextContent("今天的上传次数已用完");
+    expect(screen.queryByTestId("attachment-uploading")).toBeNull();
+  });
+
   it("上限 20 个：超过时直接提示，不发起上传", async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
+    const xhr = stubUploadXhr();
     const user = userEvent.setup();
     const full = Array.from({ length: 20 }, (_, i) => item(100 + i, `f${i}.zip`));
     mount({ initial: full });
     await user.upload(fileInput(), new File(["x"], "more.zip", { type: "application/zip" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("最多 20 个附件");
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(xhr.calls).toHaveLength(0);
   });
 
   it("草稿：列表随编辑写入 :attachments 键；清空后键存空数组（冲突恢复可表达「全部移除」）", async () => {
     const user = userEvent.setup();
     mount({ draftKey: KEY, initial: [] });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response(JSON.stringify({ fileId: 5, sizeBytes: 1 }), { status: 200 })),
-    );
+    const xhr = stubUploadXhr();
+    xhr.autoRespond(200, uploadOkBody({ fileId: 5, sizeBytes: 1 }));
     await user.upload(fileInput(), new File(["x"], "d.zip", { type: "application/zip" }));
     await screen.findByText("d.zip");
     expect(JSON.parse(window.localStorage.getItem(`${KEY}:attachments`)!)).toEqual([

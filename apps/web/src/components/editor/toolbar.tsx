@@ -26,7 +26,7 @@ import {
   Undo2,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -172,6 +172,15 @@ export function EditorToolbar({
   });
 
   const chain = () => editor.chain().focus();
+  // 新插入锁定内容的高亮定时器（M16.1 Step 2）：连点先清旧，卸载时清理
+  const gateHlTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const gateHlTarget = useRef<HTMLElement | null>(null);
+  useEffect(
+    () => () => {
+      if (gateHlTimer.current !== null) clearTimeout(gateHlTimer.current);
+    },
+    [],
+  );
   /** 插入前把选区折叠到末尾，避免替换选中的文字 */
   const afterSelection = () => chain().setTextSelection(editor.state.selection.to);
   /**
@@ -199,6 +208,20 @@ export function EditorToolbar({
       )
       .setTextSelection(from + 2)
       .run();
+    // 高亮新块（M16.1 Step 2）：在插入动作里挂类，而不是在节点视图里——
+    // 节点视图对「加载既有门控」也会创建，那样每次开编辑页都会闪一片。
+    const dom = editor.view.nodeDOM(from);
+    if (dom instanceof HTMLElement) {
+      if (gateHlTimer.current !== null) clearTimeout(gateHlTimer.current);
+      // 先摘上一块的类（M16.1 Step 4.5）：连点时旧 timer 被清，旧类否则会一直留着
+      gateHlTarget.current?.classList.remove("fw-gate-hl-on");
+      gateHlTarget.current = dom;
+      dom.classList.add("fw-gate-hl-on");
+      gateHlTimer.current = setTimeout(() => {
+        dom.classList.remove("fw-gate-hl-on");
+        if (gateHlTarget.current === dom) gateHlTarget.current = null;
+      }, 1200);
+    }
     onInsertGate?.();
   };
 

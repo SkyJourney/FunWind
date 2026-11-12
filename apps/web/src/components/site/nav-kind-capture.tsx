@@ -13,9 +13,16 @@ import {
   scrollLockAlive,
 } from "./scroll-record";
 
-/** 恢复窗口：流式页面（RSC 分次 commit）的 Next 滚顶会晚到多次，窗口须覆盖整个流式周期 */
-const RESTORE_ATTEMPTS = 40;
+/**
+ * 恢复窗口：流式页面（RSC 分次 commit）的 Next 滚顶会晚到多次，窗口须覆盖整个流式周期。
+ * 上限 6s：Step 4.5 CI 实测 2 核慢机上滚顶可晚到 4s 之后（原 4s 窗口耗尽后污染无人对抗）——
+ * 真实竞态而非环境假象（本机高负载 4 连跑复现 1 次）。配合「连续稳定 1.5s 提前收尾」，
+ * 正常路径实际结束更早，只有真在滚顶风暴里才用满窗口。
+ */
+const RESTORE_ATTEMPTS = 60;
 const RESTORE_DELAY_MS = 100;
+/** 连续稳定判定：滚动位置连续这么多次都在目标附近（1.5s），视为恢复完成、提前收尾 */
+const RESTORE_STABLE_TICKS = 15;
 
 /** 当前在跑的恢复循环停止函数（模块级：NavKindCapture 为全局单例） */
 let activeRestoreStop: (() => void) | null = null;
@@ -27,8 +34,8 @@ function cancelRestoreLoop(): void {
 }
 
 /**
- * 滚动恢复循环：每 100ms 校正一次直到接近目标或超时（40 次 ≈ 4s，覆盖流式页面的整个
- * commit 周期）；用户真实输入（滚轮 / 触摸 / 滚动键）立即让位，尊重用户新意图。
+ * 滚动恢复循环：每 100ms 校正一次，直到「连续稳定 1.5s」或 6s 上限；用户真实输入
+ * （滚轮 / 触摸 / 滚动键）立即让位，尊重用户新意图。
  * 停止函数登记到 activeRestoreStop：换页（key 变化）/ 卸载统一取消（cancelRestoreLoop）。
  */
 function runRestoreLoop(page: string, saved: number): void {
@@ -56,9 +63,18 @@ function runRestoreLoop(page: string, saved: number): void {
   // 恢复期间对到达页上锁：Next 滚顶残值不得覆盖「真实用户滚动」存档
   lockScroll(page);
   let attempts = 0;
+  let stable = 0;
   timer = setInterval(() => {
     attempts += 1;
-    if (Math.abs(window.scrollY - saved) > 4) window.scrollTo(0, saved); // 对抗 Next 分次 commit 的滚顶
+    if (Math.abs(window.scrollY - saved) > 4) {
+      window.scrollTo(0, saved); // 对抗 Next 分次 commit 的滚顶
+      stable = 0;
+    } else {
+      stable += 1;
+      // 位置已稳 1.5s：恢复完成。不硬等满窗口——晚到的滚顶若在收尾后才来，
+      // 只会滚顶一次（无人对抗），所以窗口长度才是对抗强度的来源，这里提前收尾无损。
+      if (stable >= RESTORE_STABLE_TICKS) cancel();
+    }
     if (attempts >= RESTORE_ATTEMPTS) cancel();
   }, RESTORE_DELAY_MS);
   activeRestoreStop = cancel;

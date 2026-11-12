@@ -185,7 +185,8 @@ export function EmojiPanel({
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => setTab(t.id)}
               className={cn(
-                "flex size-9 shrink-0 items-center justify-center rounded-md text-lg hover:bg-accent sm:size-8",
+                // 页签选中/悬停色变（M16.1 Step 2）：色彩过渡属非运动即时反馈，reduce 下保留
+                "flex size-9 shrink-0 items-center justify-center rounded-md text-lg transition-colors hover:bg-accent sm:size-8",
                 tab === t.id && "bg-secondary",
               )}
             >

@@ -21,6 +21,41 @@ test.afterAll(async () => {
   await restoreLimits();
 });
 
+test("附件上传进度：慢上行下占位行可见并显示真实百分比，完成后换成正式附件行（M16.1）", async ({
+  page,
+  context,
+}) => {
+  await loginAs(context, USERS.member);
+  await page.goto(`/f/${FIX.compose.id}/new`);
+  // 真实限速（CDP），不用 route 拦截：拦截会把 XHR 的上行事件整个压住，进度反而观察不到。
+  // 256KB ÷ 32KB/s ≈ 8s 上行窗口，足够稳定断言中间的百分比态。
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("Network.enable");
+  const throttle = (uploadThroughput: number) =>
+    cdp.send("Network.emulateNetworkConditions", {
+      offline: false,
+      latency: 0,
+      downloadThroughput: -1,
+      uploadThroughput,
+    });
+  await throttle(32 * 1024);
+  await page.locator('input[type="file"][aria-label="选择附件"]').setInputFiles({
+    name: "慢附件.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.alloc(256 * 1024, 0x61),
+  });
+  const pending = page.getByTestId("attachment-uploading");
+  await expect(pending).toBeVisible();
+  await expect(pending).toContainText("慢附件.txt");
+  // 真实上行百分比：progressbar 带 0–100 数值（不是伪造的动画）
+  const bar = pending.getByRole("progressbar");
+  await expect(bar).toHaveAttribute("aria-valuenow", /^(\d{1,2}|100)$/);
+  await throttle(-1); // 放开限速让它传完
+  await expect(pending).toBeHidden({ timeout: 20_000 });
+  await expect(page.getByTestId("attachment-row").filter({ hasText: "慢附件.txt" })).toBeVisible();
+  await cdp.detach();
+});
+
 test("会员：正文插入图片，发布后主题页的正文图片指向 /files/（内容寻址地址）", async ({
   page,
   context,
