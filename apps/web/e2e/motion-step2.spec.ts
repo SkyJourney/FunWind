@@ -103,7 +103,7 @@ test("返回滚动恢复：软导航返回后回到离开时的滚动位置，�
   await page.locator("main a[href^='/u/']").first().click();
   await page.waitForTimeout(1200);
   await page.goBack();
-  await page.waitForTimeout(4500); // 恢复窗口 4s（对抗流式 commit 的滚顶）
+  await page.waitForTimeout(7000); // 读值须在恢复循环收尾之后（6s 窗口），否则可能读到滚顶瞬间的中间态
   const s1 = await page.evaluate(() => window.scrollY);
   expect(Math.abs(s1 - s0), "返回后滚动恢复").toBeLessThan(60);
 
