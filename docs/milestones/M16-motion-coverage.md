@@ -139,22 +139,17 @@
   Step 4 范围）；emoji 面板小图未接（装饰性、可见性无碍）；ContentImageFade 只在挂载时
   扫描一轮——后续 JS 动态插入的正文图（当前不存在）不处理。
 
-## 遗留事项（如有）
-
-__zcode_status=$?
-if [ "$__zcode_status" -eq 0 ]; then pwd -P > '/var/folders/2n/ch1yy0f932vfwf7s686m28fm0000gn/T/zcode-c5cb5643-cf41-42f9-aef5-d433f356f1af-cwd'; fi
-exit "$__zcode_status"
-
 ## 9. Step 4 覆盖补齐（2026-11-12）
 
 - **进场编排 7 类**：/t 楼层（MotionList 首 10 错落 + FloorReveal 深层滚入）、/search 结果、/a 归档、
   /me 我的主帖、/submit 可发帖列表、/boards 板块卡网格、chat-history 上滑加载追加淡入
   （MessageBubble 增 className 透传）。除 /t 楼层外均MotionList 声明式包裹（页 1 播放、深页不重播）。
-- **FloorReveal 深层滚入淡入**（ui/floor-reveal.tsx）：三态状态机 initial→direct/pending→fade——
-  挂载时首屏视口内 direct 直出（MotionList 错落照常）；视口外 pending（opacity-0）、IO 首次滚入
-  （底部收窄 80px 触发区）→ fade 永久显影、**滚出不回退**（此前版本 IO else 回退 pending 的缺陷
-  在 E2E 实测中暴露并修复）；mounted 经 useSyncExternalStore（渲染期不读 ref，lint 合规）；
-  className/style 透传承接 MotionList 注入的错落类与延迟。
+- **FloorReveal 深层滚入淡入**（ui/floor-reveal.tsx）：三态状态机 direct/pending→fade
+  （Step 4.5 定稿）——SSR 与首帧一律直出（不推迟 LCP、无水合 mismatch、无 JS 也可读全文）；
+  IO 首次回调完成分类：相交或本体已入可视视口（折叠线楼层）→ direct 直出（MotionList 错落
+  照常）；完全在视口外 → pending（opacity-0 挂起，施加时楼层仍不可见、无闪烁窗口）；此后
+  首次滚入触发区（底部收窄 80px）→ fade 永久显影、**滚出不回退**。direct 不挂 fw-fade-in，
+  与 fw-enter 无同元素声明序竞争；className/style 透传承接 MotionList 注入的错落类与延迟。
 - **L1 批量**（18 文件，全部既有 fw-* 类/令牌工具类，无裸写）：复制成功 fw-pop + 失败文案反馈
   （copy-code/json-viewer）；未读徽标 fw-pop + key 重播（铃铛/底部 Tab）；通知已读 transition；
   投票结果条 transition-[width] duration-spring；签到成功 fw-pop；AdminFlash 出现 fw-fade-in；
@@ -176,8 +171,38 @@ exit "$__zcode_status"
 - **边界**：看板柱条生长动画、pref-toggles 私信 chips（已有 transition）、avatar-uploader/attachment
   上传过程进度反馈不在本步；楼层 Card 无 hover（不可点元素不加悬停反馈，与探查建议一致）。
 
-## 遗留事项（如有）
+## 10. Step 4.5 收口前独立审查与整改（2026-11-12）
 
-__zcode_status=$?
-if [ "$__zcode_status" -eq 0 ]; then pwd -P > '/var/folders/2n/ch1yy0f932vfwf7s686m28fm0000gn/T/zcode-e36afbc6-8879-4461-8398-63b7752df79c-cwd'; fi
-exit "$__zcode_status"
+两路代理并审（安全架构路 + 规范文档路），全文见
+[docs/reviews/2026-11-12-m16-code-review.md](../reviews/2026-11-12-m16-code-review.md)。
+**P0×1 + P1×8 全部整改复验，P2 整改 6 项、在案 5 项。** 要点：
+
+- **P0-1 FloorReveal 重写**（ui/floor-reveal.tsx）：三态 direct/pending→fade（§9 记录已同步
+  修正）——SSR/首帧直出不推迟 LCP；IO 首回调分类（setState 全在订阅回调内），折叠线楼层
+  直出防「闪现→消失」，视口外 pending 挂起，滚入触发区单向 fade；direct 不挂 fw-fade-in，
+  与 fw-enter 无声明序竞争；E2E 收紧（滚入前 opacity-0 断言 + 错落 animationName 钉住）。
+- **P1 BackToTop**：ReplyFab 同款常驻口径（display 恒不切换，过渡恢复生效；隐藏态
+  pointer-events-none + inert + aria-hidden；移动端 base hidden 不与 ReplyFab 重叠），
+  E2E 重写为状态断言并新增移动端断言。
+- **P1 恢复循环**：停止函数模块化（activeRestoreStop/cancelRestoreLoop），换页/卸载统一取消
+  （不跨页强滚）；keydown 捕获标志补齐（原 removeEventListener 漏 capture 永远泄漏）+ IME
+  组合键守卫。
+- **P1 锚点×滚动存档**：存档抽为共享模块 **site/scroll-record.ts**（采集/导航锁/800ms 节流
+  落盘/pagehide 刷盘/容量上限）；SmoothAnchors 点击先 pinScrollAtCurrent 钉住点击前位置——
+  从锚点历史项返回回到点击前位置（浏览器原生语义）；traverse intercept 增加同页守卫
+  （from !== to）：同页历史移动不再播整页 fade。motion.pop 同 key 记账路径保持（既有单测
+  钉住，整改中误加同页提前 return 被 3 例单测当场拦下）。
+- **P1 杂项**：poll-block 投票条补 motion-reduce:transition-none（§6 第 6 条口径成文于
+  motion-spec）；globals.css reduce 块补 .animate-pulse 归零（守卫断言钉住）；M16 文档
+  shell 残片清理；[m16dbg]/lockStates/__y 探针等调试残留清除；S4 头部 §6.5 指针更正；
+  Avatar 兜底注释更正。
+- **门禁**：verify:all 退出 0（web 4,595 + db 124 + content 55 + migration 278）；E2E 动效
+  定向 **74 例全过**（既有动效零删减）；visual 10 项**基线零更新**；**LCP** 生产构建四页
+  84 / 140 / 208 / 76ms 全部达标。
+
+## 遗留事项
+
+- P2 在案（不阻断收口）：BackToTop/SmoothAnchors 的 reduce 降级 E2E（纯参数分支，组件单测
+  已覆盖）；ContentImageFade 全页扫描/SSR 图 lazy 优化（等真实长图场景）；reveal 失败路径
+  E2E 显式用例；CLAUDE.md 的 M16 口径注入（Step 5 收口节奏）。
+- 站长交互目视验收（Step 5 前置）：共享段/楼层滚入/锚点高亮/回顶/主题切换/横幅/reduce 双口径。

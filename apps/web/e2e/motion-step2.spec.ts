@@ -92,12 +92,6 @@ test("返回滚动恢复：软导航返回后回到离开时的滚动位置，�
   page,
 }) => {
   await page.addInitScript(probe);
-  await page.addInitScript(`
-    window.__y = [];
-    let last = -1;
-    const iv = setInterval(() => { const y = window.scrollY; if (y !== last) { window.__y.push({ t: Math.round(performance.now()), y }); last = y; } }, 80);
-    window.__yStop = () => clearInterval(iv);
-  `);
   await page.goto(`/t/${TALL_THREAD}`);
   await page.waitForTimeout(1500);
   await page.evaluate(() => window.scrollTo(0, 800));
@@ -110,13 +104,8 @@ test("返回滚动恢复：软导航返回后回到离开时的滚动位置，�
   await page.waitForTimeout(1200);
   await page.goBack();
   await page.waitForTimeout(4500); // 恢复窗口 4s（对抗流式 commit 的滚顶）
-  const s1 = await page.evaluate(() => {
-    const y = window.__y;
-    window.__yStop();
-    return { y: window.scrollY, log: y };
-  });
-  console.log("[m16dbg] s0=" + s0 + " s1=" + s1.y + " 时序=" + JSON.stringify(s1.log));
-  expect(Math.abs(s1.y - s0), "返回后滚动恢复").toBeLessThan(60);
+  const s1 = await page.evaluate(() => window.scrollY);
+  expect(Math.abs(s1 - s0), "返回后滚动恢复").toBeLessThan(60);
 
   const vt = await page.evaluate(() => window.__vt as { vt: string | null; anims: string[] }[]);
   const backVt = vt[vt.length - 1]!;

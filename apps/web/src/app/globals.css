@@ -289,6 +289,11 @@
   [class*="animate-out"] {
     animation: none !important;
   }
+  /* 元素级预设的缝隙（M16 Step 4.5）：Skeleton 的 animate-pulse 是无限循环脉冲，
+     不属弹层（上面的兜底覆盖不到），reduce 下一并归零——骨架屏静止呈现 */
+  .animate-pulse {
+    animation: none !important;
+  }
 }
 
 /* ===== 页面级过渡（M10.7 Step 4b）=====

@@ -26,7 +26,8 @@ function Avatar({
 
 function AvatarImage({ className, ...props }: React.ComponentProps<typeof AvatarPrimitive.Image>) {
   return (
-    // Radix 仅在图片加载成功后挂载此节点：淡入一次（M16 Step 3；reduce 由全局弹层/动画兜底归零）
+    // Radix 仅在图片加载成功后挂载此节点：淡入一次（M16 Step 3）；
+    // reduce 下由 globals.css 的 animate-in 兜底归零——Avatar 非弹层但属预期覆盖面（子串匹配）
     <AvatarPrimitive.Image
       data-slot="avatar-image"
       className={cn("aspect-square size-full animate-in duration-fast fade-in-0", className)}

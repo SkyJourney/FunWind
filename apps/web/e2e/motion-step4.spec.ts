@@ -1,20 +1,19 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { withE2eDb } from "./support/db";
 import { USERS } from "./support/session";
 
 /**
  * M16 Step 4 覆盖补齐 E2E（docs/milestones/M16-motion-coverage.md §9）：
- * - 楼层进场：首屏 10 层 MotionList 错落（animationDelay 递增），深层楼层滚入淡入（FloorReveal）；
- * - 锚点：点击「回复 #N」滚到目标楼层且 :target 高亮；深链直开同样高亮；
- * - 回到顶部：滚动超过一屏出现，点击回顶。
+ * - 楼层进场：首屏 10 层 MotionList 错落（fw-enter，animationDelay 递增且不被覆盖），
+ *   深层楼层滚入前挂起隐藏（opacity-0）、滚入淡入（FloorReveal 单向显影）；
+ * - 锚点：点击「回复 #N」平滑滚到目标楼层并挂 JS 高亮类（pushState 不激活 :target）；
+ *   深链直开走 :target CSS 高亮；
+ * - 回到顶部：ReplyFab 同款常驻口径（只动 transform/opacity + inert），移动端 base hidden。
  * 自建 31 楼夹具线程（991201，论坛 901），测后删除——避免污染首页信息流 visual 基线。
  */
 
 const TALL_THREAD = 991201;
 const TALL_POST = TALL_THREAD + 100;
-
-const lockStates = (page: Page) => page.locator("[data-gate-state]");
-void lockStates;
 
 test.describe.configure({ mode: "serial" });
 
@@ -54,39 +53,37 @@ test.afterAll(async () => {
 test("楼层进场：首屏 10 层错落（animationDelay 递增），深层楼层滚入时淡入", async ({ page }) => {
   await page.goto(`/t/${TALL_THREAD}`);
   await page.waitForTimeout(1500);
-  const delays = await page.evaluate(() =>
-    Array.from(document.querySelectorAll("main .fw-enter")).map(
-      (el) => getComputedStyle(el).animationDelay,
-    ),
+  const stagger = await page.evaluate(() =>
+    Array.from(document.querySelectorAll("main .fw-enter")).map((el) => {
+      const style = getComputedStyle(el);
+      return { delay: style.animationDelay, name: style.animationName };
+    }),
   );
-  expect(delays.length, "首屏错落楼层数（MotionList 封顶 10）").toBe(10);
-  expect(delays[0]!, "首层无延迟").toMatch(/0s|0ms/);
-  expect(delays[9]!, "第 10 层延迟 450ms").toMatch(/0\.45s|450ms/);
+  expect(stagger.length, "首屏错落楼层数（MotionList 封顶 10）").toBe(10);
+  expect(stagger[0]!.delay, "首层无延迟").toMatch(/0s|0ms/);
+  expect(stagger[9]!.delay, "第 10 层延迟 450ms").toMatch(/0\.45s|450ms/);
+  // 错落预设不被同元素其他动画覆盖（Step 4.5 P0-1：.fw-fade-in 声明序在后，同挂会吞掉位移预设）
+  expect(new Set(stagger.map((s) => s.name)), "错落动画名统一为 fw-enter").toEqual(
+    new Set(["fw-enter"]),
+  );
 
-  // 深层楼层（同页超出错落上限的第 11+ 层，滚入视口前无淡入类；FloorReveal 滚入后在包裹层挂上——楼层 Card 不持有）
+  // 深层楼层（同页超出错落上限的第 11+ 层）：滚入视口前挂起隐藏（opacity-0）且未淡入；
+  // FloorReveal 滚入后在包裹层挂 fw-fade-in——楼层 Card 不持有（断言目标为包裹层）
   const deepFloor = page.locator("#p991315"); // 第 15 楼（错落上限外的深层楼层）
-  expect(
-    await deepFloor.evaluate((el) => el.parentElement?.classList.contains("fw-fade-in") ?? false),
-  ).toBe(false);
+  const wrapState = () =>
+    deepFloor.evaluate((el) => {
+      const cls = el.parentElement?.classList;
+      return {
+        fade: cls?.contains("fw-fade-in") ?? false,
+        hidden: cls?.contains("opacity-0") ?? false,
+      };
+    });
+  expect(await wrapState(), "滚入前：挂起隐藏、未淡入").toEqual({ fade: false, hidden: true });
   await deepFloor.scrollIntoViewIfNeeded();
   // FloorReveal 的 IO 底部收窄 80px：再滚 150px 让楼层进入触发区
   await page.mouse.wheel(0, 150);
   await page.waitForTimeout(600);
-  const dump = await page.evaluate(() =>
-    [...document.querySelectorAll("main [id^='p']")].map((e) => ({
-      id: e.id,
-      y: Math.round(e.getBoundingClientRect().top + window.scrollY),
-      wrap:
-        e.parentElement?.className
-          .split(" ")
-          .filter((c) => c.startsWith("fw-") || c === "opacity-0")
-          .join(",") ?? "",
-    })),
-  );
-  console.log("[m16dbg] 楼层状态:", JSON.stringify(dump));
-  expect(
-    await deepFloor.evaluate((el) => el.parentElement?.classList.contains("fw-fade-in") ?? false),
-  ).toBe(true);
+  expect(await wrapState(), "滚入后：单向淡入且不再隐藏").toEqual({ fade: true, hidden: false });
 });
 
 test("锚点跳转：点「回复 #N」平滑滚到目标楼层并挂 JS 高亮类", async ({ page }) => {
@@ -112,17 +109,28 @@ test("深链直开：#楼层 hash 加载后 :target 高亮生效", async ({ page
   );
 });
 
-test("回到顶部：滚动超过一屏出现，点击回顶且按钮隐藏", async ({ page }) => {
+test("回到顶部：滚动超过一屏出现，点击回顶且按钮隐藏（ReplyFab 同款口径）", async ({ page }) => {
   await page.goto(`/t/${TALL_THREAD}`);
   await page.waitForTimeout(1500);
-  const top = page.getByRole("button", { name: "回到顶部" });
-  await expect(top).toBeHidden(); // 页顶不出现
+  // 常驻渲染 + 隐藏态挂 inert/aria-hidden：getByRole 会跳过 aria-hidden 元素，用属性定位器断言状态
+  const top = page.locator('button[aria-label="回到顶部"]');
+  const hiddenState = () =>
+    top.evaluate((el) => ({
+      hidden: el.classList.contains("opacity-0") && el.getAttribute("inert") !== null,
+    }));
+  expect(await hiddenState(), "页顶隐藏：opacity-0 + inert").toEqual({ hidden: true });
 
   await page.evaluate(() => window.scrollTo(0, 900));
   await page.waitForTimeout(400);
-  await expect(top).toBeVisible();
+  expect(await hiddenState(), "深滚后显示").toEqual({ hidden: false });
   await top.click();
   await page.waitForTimeout(1200);
   expect(await page.evaluate(() => window.scrollY)).toBeLessThan(60);
-  await expect(top).toBeHidden(); // 回顶后隐藏
+  expect(await hiddenState(), "回顶后隐藏").toEqual({ hidden: true });
+
+  // 移动端（<md）：base hidden——即使深滚也 display:none（与 ReplyFab 同位互斥，不参与布局）
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => window.scrollTo(0, 900));
+  await page.waitForTimeout(300);
+  expect(await top.evaluate((el) => getComputedStyle(el).display), "移动端恒不显示").toBe("none");
 });

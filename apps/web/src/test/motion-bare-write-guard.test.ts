@@ -242,5 +242,12 @@ describe("M15 Step 3 reduced-motion 收编核对", () => {
     expect(body, "弹层兜底须真归零（!important 压过 tw-animate）").toBe(
       "animation: none !important;",
     );
+    // Skeleton 的 animate-pulse 无限脉冲不属弹层、兜底覆盖不到，单独归零（M16 Step 4.5 P1-5）
+    const pulseAt = blocks.indexOf(".animate-pulse");
+    expect(pulseAt, "reduce 块须包含 animate-pulse 归零").toBeGreaterThanOrEqual(0);
+    const pulseBody = blocks
+      .slice(blocks.indexOf("{", pulseAt) + 1, blocks.indexOf("}", pulseAt))
+      .trim();
+    expect(pulseBody, "animate-pulse 须真归零").toBe("animation: none !important;");
   });
 });

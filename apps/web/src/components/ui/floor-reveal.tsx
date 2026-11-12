@@ -1,36 +1,25 @@
 "use client";
 
-import {
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type CSSProperties,
-  type ReactNode,
-} from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-type RevealState = "initial" | "direct" | "pending" | "fade";
-
-/** 水合前 false、水合后 true（无 setState-in-effect 的 mounted 检测，theme-menu 同款） */
-function useMounted(): boolean {
-  return useSyncExternalStore(
-    () => () => {},
-    () => true,
-    () => false,
-  );
-}
+type RevealState = "direct" | "pending" | "fade";
 
 /**
- * 楼层滚入显影（M16 Step 4，docs/motion-spec.md §6.3 onInView 消费）：
- * - 挂载时在首屏视口内：direct——直接渲染不播动画（MotionList 对前 10 层注入的错落照常）；
- * - 挂载时在视口外：pending（opacity-0 隐藏），IO 首次滚入 → fade（fw-fade-in 淡入一次）；
- * - 状态驱动渲染：显隐类出自 React 输出——流式 RSC 重渲染不会抹掉手动加的类
- *   （与 draft.ts / hidden field 的「React 重渲染覆盖手动 DOM」同源教训）。
- * SSR / 首次客户端渲染不输出隐藏类（SSR 无法测位置；视口外楼层本不可见，无 CLS、无闪烁）；
- * reduce 下 fw-fade-in 被 globals.css 归零（直接显示）；IO 不可用时全部直出。
- * className / style 透传给包裹层——MotionList 注入的 fw-enter 错落类与延迟经此生效，
+ * 楼层滚入显影（M16 Step 4，docs/motion-spec.md §6.3 onInView 消费），三态：
+ * - direct：首屏视口内（含贴着折叠线的楼层）或 IO 不可用——直出不播动画，MotionList
+ *   注入的 fw-enter 错落照常（direct 不挂 fw-fade-in，两者不会同元素竞争 CSS 声明序）；
+ * - pending：挂载时完全在视口外——opacity-0 挂起；
+ * - fade：滚入触发区（视口底缘收窄 80px）后 fw-fade-in 淡入一次，永久显影、滚出不回退。
+ *
+ * 分类在 IO 首次回调完成（observe 即回报当下相交状态）：相交=已在触发区→保持直出；
+ * 不相交但本体已入可视视口（折叠线楼层）→也保持直出，避免加载首帧「闪现→消失→再淡入」；
+ * 完全在视口外→挂起，此后首次相交→fade 并停止观察（单向）。
+ * setState 全部发生在 IO 订阅回调内；SSR 与首帧一律直出（无水合 mismatch、不推迟 LCP、
+ * 无 JS 环境也可读全文）；挂起类施加时楼层仍在视口外，用户不可见、无闪烁窗口。
+ * className / style 透传给包裹层——MotionList 注入的错落类与延迟经此生效；
  * 楼层锚点 id/scroll-mt 由调用方在内层元素继续持有。
+ * reduce 下 fw-fade-in 被 globals.css 归零（滚入直接显现）。
  */
 export function FloorReveal({
   children,
@@ -42,22 +31,23 @@ export function FloorReveal({
   style?: CSSProperties;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const mounted = useMounted();
-  const [state, setState] = useState<RevealState>("initial");
+  const [state, setState] = useState<RevealState>("direct");
 
   useEffect(() => {
     const el = ref.current;
-    if (!el || typeof IntersectionObserver === "undefined") {
-      setState("direct"); // 无 IO：直出
-      return;
-    }
+    if (!el || typeof IntersectionObserver === "undefined") return; // 无 IO：保持直出
     const io = new IntersectionObserver(
       (entries) => {
-        // 单向显影：首次相交即 fade 并停止观察——滚出视口后不得回退成隐藏
         if (entries.some((e) => e.isIntersecting)) {
-          setState("fade");
+          // 首回调相交=首屏楼层（保持直出）；pending 后相交=滚入触发区→淡入（单向显影）
+          setState((s) => (s === "pending" ? "fade" : s));
           io.disconnect();
+          return;
         }
+        // 折叠线楼层（本体已入视口、尚未进触发区）保持直出；完全在视口外才挂起
+        const rect = el.getBoundingClientRect();
+        if (rect.top < window.innerHeight && rect.bottom > 0) io.disconnect();
+        else setState("pending");
       },
       { rootMargin: "0px 0px -80px" },
     );
@@ -65,13 +55,7 @@ export function FloorReveal({
     return () => io.disconnect();
   }, []);
 
-  const extra = !mounted
-    ? ""
-    : state === "fade"
-      ? "fw-fade-in"
-      : state === "pending"
-        ? "opacity-0"
-        : "";
+  const extra = state === "fade" ? "fw-fade-in" : state === "pending" ? "opacity-0" : "";
 
   return (
     <div ref={ref} className={cn(className, extra)} style={style}>

@@ -90,6 +90,7 @@
 3. L3 触点扩散：退化为普通切换；
 4. **L1 状态反馈保留，运动效果按现状禁用**：现行 reduce 规则取消 pop / roll / switch 动画并隐藏 float-up，按压/色变仍按既有 CSS 工作；不把“保留即时反馈”误读为重开位移/弹跳。
 5. **弹层全局兜底（M16）**：tw-animate-css 的 animate-in/out 类在 reduce 下由 globals.css 全局规则归零（Dialog/Sheet/DropdownMenu/Popover/Tooltip 及后续 HoverCard）——不换库、不改第三方 dist；sonner 自带 reduce 全禁、Lightbox 由库管理，兜底规则不得误伤；守卫断言钉住覆盖。
+6. **过渡类型口径（M16 Step 4.5 成文）**：色彩 / 透明度过渡（transition-colors / transition-opacity）属非运动即时反馈，reduce 下保留（禁用反而破坏状态反馈的对齐感）；**布局型过渡（width / height / grid-rows 等几何属性）与 transform 过渡必须在组件上加 `motion-reduce:transition-none`**（投票条、横幅折叠、附件面板同款）。无限循环的元素级动画（如 Skeleton 的 animate-pulse）在 reduce 块归零，守卫断言钉住。
 
 ## 6.1 Step 1 内核边界与定稿契约
 
