@@ -206,3 +206,20 @@
   已覆盖）；ContentImageFade 全页扫描/SSR 图 lazy 优化（等真实长图场景）；reveal 失败路径
   E2E 显式用例；CLAUDE.md 的 M16 口径注入（Step 5 收口节奏）。
 - 站长交互目视验收（Step 5 前置）：共享段/楼层滚入/锚点高亮/回顶/主题切换/横幅/reduce 双口径。
+
+## 11. Step 5 收口与生产部署（2026-11-12）
+
+- **收口前置优化（站长拍板）**：`verify:all` 的 build 步骤以 `NEXT_DIST_DIR=.next-verify` 运行——生产构建不再覆盖
+  本机 dev 正在使用的 `.next`（当日实证过一次撞库：dev 报错，重启 + 清产物恢复）；eslint ignores 与 .gitignore 同步；
+  Next 重写 tsconfig 补 `.next-verify` 类型路径已入库。另：vitest `testTimeout` 对齐 `hookTimeout`（30s）——CI 2 核
+  runner 上全库扫描型守卫（gate-wording-guard 5.3s / server-only-guard）随机撞默认 5s，连续两轮各红一个后统一放宽。
+- **PR #14**：CI 第一轮 verify 红（gate-wording 超时）→ 修；第二轮红（server-only-guard 超时）→ 上条根治；第三轮
+  **双作业绿（verify 9m11s / e2e 17m35s）** 合并 main（merge commit `f5a8592`，保留 M16 分步提交历史）。
+- **生产部署（仅 web）**：本机 `docker build --platform linux/amd64` → save/load → inspect 核对 amd64 → tag
+  `funwind-web:20261112-f5a8592`（**同日 tag 已被 M15 占用**，追加 merge commit 短哈希防覆盖回滚点）→ compose up。
+  无 schema 迁移、ops 管线未触碰。回滚点 `funwind-web:20261112`（M15，545040330cd0）。
+- **部署后核对**：容器 healthy；公测五页全 200；M16 资产 SSR 标记上线（回顶按钮常驻口径 + 页顶隐藏态、楼层包裹层
+  无隐藏类=直出契约生效、`fw-fade-in` 无 SSR 泄漏）；应用日志与 CSP report 零异常；ops 管线安静（30m 零 failed）。
+  **生产 LCP 公网实测（含 RTT）**：首页 1156 / 版块 608 / 帖子 1004 / 搜索 600ms，全部远低于 2.5s 预算。
+- **站长目视验收**：六项清单（共享段过渡/楼层滚入/锚点高亮与返回位置/回顶/主题交叉溶解/reduce 双口径）通过后执行
+  本步（2026-11-12「基本没啥问题，可以进入step5」）。

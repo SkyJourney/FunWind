@@ -5,6 +5,20 @@
 
 ## [Unreleased]
 
+### Added（M16 · 动效补全与全站审计收口，2026-11-12）
+
+- **PR #14 CI 双作业绿（verify 9m11s / e2e 17m35s）合并 main**（merge commit `f5a8592`，merge commit 保留
+  M16 分步提交历史）；两路独立审查（安全架构 + 规范文档）报告与整改记录见
+  [docs/reviews/2026-11-12-m16-code-review.md](docs/reviews/2026-11-12-m16-code-review.md)（P0×1 + P1×8 全清）。
+- **生产部署（仅 web，公测口径）**：本机 `docker build --platform linux/amd64` → save/load → inspect 架构核对 →
+  `funwind-web:20261112-f5a8592`（同日 tag 已被 M15 占用，追加 merge commit 短哈希防覆盖）compose up；
+  无 schema 迁移、ops 管线未触碰；回滚点 `funwind-web:20261112`（M15，545040330cd0）。部署后核对：容器 healthy、
+  公测五页全 200、M16 资产 SSR 标记上线（回顶按钮常驻口径、楼层直出无隐藏类）、应用日志与 CSP report 零异常、
+  ops 管线安静；**生产 LCP 公网实测（含 RTT）**：首页 1156 / 版块 608 / 帖子 1004 / 搜索 600ms，全部远低于 2.5s。
+- **收口前置优化（站长拍板）**：`verify:all` 的 build 步骤隔离产物目录 `.next-verify`（不再覆盖本机 dev 的
+  `.next`）；vitest `testTimeout` 对齐 `hookTimeout`（30s）——CI 2 核 runner 上全库扫描型守卫随机撞默认 5s。
+  M16 至此收口：Step A–4.5 交付、实验与整改见 [M16 执行记录](docs/milestones/M16-motion-coverage.md) §6–§10。
+
 ### Added（M15 · Step 5 收口与生产部署，2026-11-12）
 
 - **PR #13 CI 双作业绿（verify 9m07s / e2e 15m55s）合并 main**（merge commit `5dcb724`，merge commit 保留
