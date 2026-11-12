@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Directory } from "@/lib/queries/forums";
+import { FadeImage } from "@/components/ui/fade-image";
 import { themeSurfaceStyle } from "@/lib/theme/surface-style";
 
 /**
@@ -38,12 +39,10 @@ export function ForumDirectory({ dir }: { dir: Directory }) {
                 {/* 左图区：板块图（cover）或首字符水印，右缘由遮罩渐隐（.forum-card-band 的全局样式） */}
                 <div className="forum-card-band__img relative w-[var(--band-width)] shrink-0">
                   {forum.iconKey ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
+                    <FadeImage
                       src={`/files/${forum.iconKey}`}
                       alt=""
                       className="absolute inset-0 h-full w-full object-cover"
-                      loading="lazy"
                     />
                   ) : (
                     <>

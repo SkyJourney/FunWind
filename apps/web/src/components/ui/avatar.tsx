@@ -26,9 +26,10 @@ function Avatar({
 
 function AvatarImage({ className, ...props }: React.ComponentProps<typeof AvatarPrimitive.Image>) {
   return (
+    // Radix 仅在图片加载成功后挂载此节点：淡入一次（M16 Step 3；reduce 由全局弹层/动画兜底归零）
     <AvatarPrimitive.Image
       data-slot="avatar-image"
-      className={cn("aspect-square size-full", className)}
+      className={cn("aspect-square size-full animate-in duration-fast fade-in-0", className)}
       {...props}
     />
   );

@@ -20,6 +20,7 @@ import { unreadPmTotal } from "@/lib/pm/queries";
 import { getProfile, getUserThreads } from "@/lib/queries/users";
 import { unreadSummary } from "@/lib/notifications/queries";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { FadeImage } from "@/components/ui/fade-image";
 import { LogoutForm } from "@/components/auth/logout-form";
 import { ThreadRow } from "@/components/content/thread-row";
 
@@ -93,8 +94,7 @@ export default async function MePage() {
       {/* 身份行 */}
       <header className="flex items-center gap-4">
         {profile?.avatarKey ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <FadeImage
             src={fileUrl(profile.avatarKey)}
             alt=""
             width={56}

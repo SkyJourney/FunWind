@@ -112,3 +112,35 @@
   （motion-step2 自建线程经 afterAll 清理，不污染首页信息流基线）。
 - **边界**：横幅关闭的折叠过渡 150ms+220ms 卸载，既有 E2E 无横幅断言（人工目视随 Step 4.5 验收）；
   返回滚动恢复的用户让位窗口 4s 内用户滚动生效，4s 后无对抗（用户此后自由滚动）；Step 3 图片显影未开始。
+
+## 8. Step 3 图片显影体系（2026-11-12）
+
+- **共享组件 `FadeImage`（ui/fade-image.tsx，客户端原子）**：bg-muted 占位底色 + 加载完成前
+  opacity-0 + onLoad 后挂 fw-fade-in 淡入一次；状态机 hidden→fading→（CSS 收尾）。
+  - **eager 豁免**（Step 0 实验③）：首屏 LCP 图片直接渲染——不懒加载、无任何显影类；
+  - 缓存命中（挂载即 complete）：直接显示不播动画（load 事件已错过，重播是噪音）；
+  - 加载失败也置 shown（露出 alt/破图态，不无限隐藏）。
+- **正文图委托 `ContentImageFade`**：content-md 经 dangerouslySetInnerHTML 无法逐图挂
+  React onLoad——客户端组件自发现未处理的 .content-md 容器（data 标记幂等），逐图判断：
+  缓存已加载不动（无闪烁）；首屏视口内不动（LCP 豁免）；视口外置 loading=lazy + 挂
+  fw-img-fade（未加载隐藏 / load 后过渡显影 / error 也显影）。
+- **CSS**（globals.css）：`.content-md img.fw-img-fade` 未 loaded opacity 0、loaded 过渡显影
+  （fw-dur-base/ease-out 令牌）；**自带 reduce 媒体查询**（opacity 1 + transition none——
+  过渡不归动画兜底覆盖，须单独规则）。
+- **应用面**：FeedCard 封面、/boards 板块图、me/u 大头像（FadeImage）；AvatarImage 挂
+  animate-in fade-in-0 duration-fast（Radix 仅在加载成功后挂载，天然只播一次）；
+  content-md 视口外正文图（委托）；**首页 hero 未动**（首屏 LCP 元素，豁免）。
+- **单测**：FadeImage 4 项（懒加载隐藏→淡入 / eager 无显影类 / 缓存命中不播 / 失败显示）。
+- **门禁**：`pnpm verify:all` 退出 0（web 4,595 / db 124 / content 55 / migration 278，
+  jscpd 持平）；E2E 定向 70 例全过；visual 10 项**基线零更新**（显影终态 = 原图，静态截图
+  等价；占位底色 bg-muted 与原图重合不产生像素差）；**LCP 不回退**：开发迁移库四页实测
+  72 / 132 / 188 / 84ms 全部低于 2,500ms 预算（豁免规则生效——首页 hero 直接渲染）。
+- **边界**：上传预览（avatar-uploader/attachment-panel）本步未接显影（上传过程反馈属
+  Step 4 范围）；emoji 面板小图未接（装饰性、可见性无碍）；ContentImageFade 只在挂载时
+  扫描一轮——后续 JS 动态插入的正文图（当前不存在）不处理。
+
+## 遗留事项（如有）
+
+__zcode_status=$?
+if [ "$__zcode_status" -eq 0 ]; then pwd -P > '/var/folders/2n/ch1yy0f932vfwf7s686m28fm0000gn/T/zcode-c5cb5643-cf41-42f9-aef5-d433f356f1af-cwd'; fi
+exit "$__zcode_status"

@@ -103,6 +103,21 @@
     transform: translateY(8px);
   }
 }
+/* ===== 正文图片显影（M16 Step 3）：视口外图片由 ContentImageFade 委托挂类 =====
+   未加载隐藏、load 后过渡显影；过渡在 reduce 下归零（直接显示）。首屏视口内图片不挂类（LCP 豁免）。 */
+.content-md img.fw-img-fade {
+  opacity: 0;
+  transition: opacity var(--fw-dur-base) var(--fw-ease-out);
+}
+.content-md img.fw-img-fade.fw-img-loaded {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .content-md img.fw-img-fade {
+    opacity: 1;
+    transition: none;
+  }
+}
 .fw-enter {
   animation: fw-enter var(--fw-dur-base) var(--fw-ease-out) both;
 }
