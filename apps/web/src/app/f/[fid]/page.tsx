@@ -124,7 +124,7 @@ export default async function ForumPage({ params, searchParams }: Params) {
             <Link
               key={t.id}
               href={`/f/${fid}?tag=${encodeURIComponent(t.name)}`}
-              className={`rounded-full border px-2.5 py-0.5 text-xs ${
+              className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${
                 tag?.id === t.id
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:text-primary"
@@ -146,7 +146,7 @@ export default async function ForumPage({ params, searchParams }: Params) {
         <nav className="flex flex-wrap gap-1.5" aria-label="主题分类">
           <Link
             href={`/f/${fid}`}
-            className={`rounded-full border px-3 py-1 text-xs ${prefixId === 0 ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
+            className={`rounded-full border px-3 py-1 text-xs transition-colors ${prefixId === 0 ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
           >
             全部
           </Link>
@@ -154,7 +154,7 @@ export default async function ForumPage({ params, searchParams }: Params) {
             <Link
               key={p.id}
               href={`/f/${fid}?type=${p.id}`}
-              className={`rounded-full border px-3 py-1 text-xs ${prefixId === p.id ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
+              className={`rounded-full border px-3 py-1 text-xs transition-colors ${prefixId === p.id ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
             >
               {p.name}
             </Link>

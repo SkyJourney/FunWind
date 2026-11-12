@@ -66,9 +66,10 @@ export default async function PollBlock({
               return (
                 <li key={o.id} className="relative rounded-lg border px-3 py-2 text-sm">
                   {showBar && o.percent !== null && o.percent > 0 && (
+                    // 改票/刷新后百分比条平滑变化（M16 Step 4）：宽度过渡走令牌时长与 spring 曲线
                     <div
                       aria-hidden
-                      className="absolute inset-y-0 left-0 rounded-l-lg bg-primary/15"
+                      className="absolute inset-y-0 left-0 rounded-l-lg bg-primary/15 transition-[width] duration-spring ease-spring"
                       style={{ width: `${o.percent}%` }}
                     />
                   )}

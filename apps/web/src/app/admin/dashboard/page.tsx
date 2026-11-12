@@ -23,7 +23,8 @@ function BarChart({ data, label }: { data: DailyCount[]; label: string }) {
           <div
             key={d.date}
             title={`${d.date}：${d.n}`}
-            className="flex-1 rounded-t-sm bg-primary/25 hover:bg-primary/50"
+            // hover 颜色平滑过渡（M16 Step 4）；生长动画无既有 scale-y 预设可挂，本次不加（避免裸写 keyframes）
+            className="flex-1 rounded-t-sm bg-primary/25 transition-colors hover:bg-primary/50"
             style={{ height: `${Math.max(2, (d.n / max) * 100)}%` }}
           />
         ))}

@@ -57,13 +57,15 @@ describe("AttachmentPanel：折叠（M10.8 Step 9）", () => {
     expect(parsed(container)).toHaveLength(2);
   });
 
-  it("点击展开 / 再点收起", () => {
+  it("点击展开 / 再点收起", async () => {
     mountCollapsed();
     fireEvent.click(toggle());
     expect(toggle()).toHaveAttribute("aria-expanded", "true");
     expect(screen.getAllByTestId("attachment-row")).toHaveLength(2);
     fireEvent.click(toggle());
-    expect(screen.queryByTestId("attachment-row")).toBeNull();
+    // 收起即置 aria-expanded=false；内容随 grid-rows 折叠过渡延迟卸载（M16 Step 4，220ms 后移除）
+    expect(toggle()).toHaveAttribute("aria-expanded", "false");
+    await waitFor(() => expect(screen.queryByTestId("attachment-row")).toBeNull());
   });
 });
 

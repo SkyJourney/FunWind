@@ -1,5 +1,7 @@
 import { ViewBeacon } from "@/components/content/view-beacon";
 import { ImageLightbox } from "@/components/content/image-lightbox";
+import { MotionList } from "@/lib/motion";
+import { FloorReveal } from "@/components/ui/floor-reveal";
 import { ArrowLeft, Clock, Eye, MessageSquare, XCircle } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -307,52 +309,57 @@ export default async function ThreadPage({ params, searchParams }: Params) {
             <p className="mt-1 text-sm text-muted-foreground">来抢沙发，点亮这个主题</p>
           </div>
         )}
-        {replies.items.map((f) => {
-          // 父帖不可见时不渲染链接；可见时：本页内（或首帖）用页内锚点，否则带页码
-          const link = parentLink(
-            f.replyToPostId ? parents.get(f.replyToPostId) : undefined,
-            replies.page,
-          );
-          return (
-            <Card key={f.id} id={`p${f.id}`} className="scroll-mt-20">
-              <CardHeader className="flex flex-row items-center justify-between gap-2 py-3">
-                <UserBadge
-                  uid={f.authorId ?? undefined}
-                  name={f.authorName}
-                  deleted={f.authorDeleted}
-                />
-                <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                  {replyBadge(f.state) && <Badge variant="outline">{replyBadge(f.state)}</Badge>}#
-                  {f.floor}
-                </span>
-              </CardHeader>
-              <CardContent className="space-y-2 pb-4">
-                {link && (
-                  <p className="text-xs text-muted-foreground">
-                    ↩ 回复{" "}
-                    <a href={link.href} className="text-primary hover:underline">
-                      #{link.floor}
-                    </a>
-                  </p>
-                )}
-                <PostBody
-                  md={f.bodyMd}
-                  hasGate={f.hasGate}
-                  gates={gates.get(f.id)}
-                  pointsName={pointsName}
-                  returnPage={replies.page}
-                />
-                {attachmentList(f.id)}
-                <PostFooter
-                  like={<LikeButton {...likeProps(f.id)} />}
-                  timestamp={`${f.createdAt}${f.editedAt ? ` · 编辑于 ${f.editedAt}` : ""}`}
-                >
-                  {hasPostActions(f.authorId, f.state) && postActions(f.id, f.authorId, f.state)}
-                </PostFooter>
-              </CardContent>
-            </Card>
-          );
-        })}
+        <MotionList animate>
+          {replies.items.map((f) => {
+            // 父帖不可见时不渲染链接；可见时：本页内（或首帖）用页内锚点，否则带页码
+            const link = parentLink(
+              f.replyToPostId ? parents.get(f.replyToPostId) : undefined,
+              replies.page,
+            );
+            const floor = (
+              <Card key={f.id} id={`p${f.id}`} className="fw-floor scroll-mt-20">
+                <CardHeader className="flex flex-row items-center justify-between gap-2 py-3">
+                  <UserBadge
+                    uid={f.authorId ?? undefined}
+                    name={f.authorName}
+                    deleted={f.authorDeleted}
+                  />
+                  <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                    {replyBadge(f.state) && <Badge variant="outline">{replyBadge(f.state)}</Badge>}#
+                    {f.floor}
+                  </span>
+                </CardHeader>
+                <CardContent className="space-y-2 pb-4">
+                  {link && (
+                    <p className="text-xs text-muted-foreground">
+                      ↩ 回复{" "}
+                      <a href={link.href} className="text-primary hover:underline">
+                        #{link.floor}
+                      </a>
+                    </p>
+                  )}
+                  <PostBody
+                    md={f.bodyMd}
+                    hasGate={f.hasGate}
+                    gates={gates.get(f.id)}
+                    pointsName={pointsName}
+                    returnPage={replies.page}
+                  />
+                  {attachmentList(f.id)}
+                  <PostFooter
+                    like={<LikeButton {...likeProps(f.id)} />}
+                    timestamp={`${f.createdAt}${f.editedAt ? ` · 编辑于 ${f.editedAt}` : ""}`}
+                  >
+                    {hasPostActions(f.authorId, f.state) && postActions(f.id, f.authorId, f.state)}
+                  </PostFooter>
+                </CardContent>
+              </Card>
+            );
+            // 每层都包 FloorReveal：首屏视口内的自动直出（MotionList 对前 10 层注入错落）、
+            // 深层楼层滚入视口时淡入（M16 Step 4）。同一集合统一由一个 MotionList 编排。
+            return <FloorReveal key={f.id}>{floor}</FloorReveal>;
+          })}
+        </MotionList>
       </section>
 
       <Pagination basePath={`/t/${tid}`} page={replies.page} totalPages={replies.totalPages} />

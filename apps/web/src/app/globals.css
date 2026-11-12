@@ -118,6 +118,27 @@
     transition: none;
   }
 }
+/* ===== 楼层锚点高亮（M16 Step 4）：深链直开走 :target（浏览器原生激活）；
+   点击路径由 SmoothAnchors 挂 fw-floor-hl-on（pushState 不触发 :target）===== */
+.fw-floor:target,
+.fw-floor.fw-floor-hl-on {
+  animation: fw-floor-hl var(--fw-dur-slow) var(--fw-ease-out);
+}
+@keyframes fw-floor-hl {
+  0%,
+  55% {
+    background-color: color-mix(in srgb, var(--primary) 10%, var(--card));
+  }
+  100% {
+    background-color: var(--card);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fw-floor:target,
+  .fw-floor.fw-floor-hl-on {
+    animation: none;
+  }
+}
 .fw-enter {
   animation: fw-enter var(--fw-dur-base) var(--fw-ease-out) both;
 }

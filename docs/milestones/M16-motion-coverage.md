@@ -144,3 +144,40 @@
 __zcode_status=$?
 if [ "$__zcode_status" -eq 0 ]; then pwd -P > '/var/folders/2n/ch1yy0f932vfwf7s686m28fm0000gn/T/zcode-c5cb5643-cf41-42f9-aef5-d433f356f1af-cwd'; fi
 exit "$__zcode_status"
+
+## 9. Step 4 覆盖补齐（2026-11-12）
+
+- **进场编排 7 类**：/t 楼层（MotionList 首 10 错落 + FloorReveal 深层滚入）、/search 结果、/a 归档、
+  /me 我的主帖、/submit 可发帖列表、/boards 板块卡网格、chat-history 上滑加载追加淡入
+  （MessageBubble 增 className 透传）。除 /t 楼层外均MotionList 声明式包裹（页 1 播放、深页不重播）。
+- **FloorReveal 深层滚入淡入**（ui/floor-reveal.tsx）：三态状态机 initial→direct/pending→fade——
+  挂载时首屏视口内 direct 直出（MotionList 错落照常）；视口外 pending（opacity-0）、IO 首次滚入
+  （底部收窄 80px 触发区）→ fade 永久显影、**滚出不回退**（此前版本 IO else 回退 pending 的缺陷
+  在 E2E 实测中暴露并修复）；mounted 经 useSyncExternalStore（渲染期不读 ref，lint 合规）；
+  className/style 透传承接 MotionList 注入的错落类与延迟。
+- **L1 批量**（18 文件，全部既有 fw-* 类/令牌工具类，无裸写）：复制成功 fw-pop + 失败文案反馈
+  （copy-code/json-viewer）；未读徽标 fw-pop + key 重播（铃铛/底部 Tab）；通知已读 transition；
+  投票结果条 transition-[width] duration-spring；签到成功 fw-pop；AdminFlash 出现 fw-fade-in；
+  密码显隐图标 fw-fade-in + key；chips transition-colors 统一（版块前缀/标签云/通知分类/AdminTabs/
+  筛选条/分页/门控按钮）；AdminTable 行悬停；看板柱条 transition-colors；附件面板收起
+  grid-rows 折叠（展开保持瞬现——常挂方案会引入空容器布局回归，实测后弃用）。
+- **锚点与回顶（D4）**：SmoothAnchors（同页 #锚点点击 → scrollIntoView 平滑 + pushState 写 hash +
+  JS 挂 fw-floor-hl-on 高亮类 2.1s——**pushState 不触发 Chromium :target 激活**，故深链与点击分两路）；
+  深链直开的 :target 高亮走 CSS 规则；BackToTop 桌面右下（滚动超一屏出现、smooth 回顶、reduce 瞬时）。
+- **编辑器 lazy 占位（D5）**：源码模式加载占位用 Skeleton 脉冲替代空白块（其余编辑器内部不动）。
+- **测试**：E2E 新增 motion-step4.spec 4 例（31 楼自建夹具线程：首屏 10 错落 computed 断言 /
+  深层滚入 wrapper fade / 锚点点击高亮 + hash / 深链 :target；回顶含出现-点击-隐藏全链）；
+  attachment-panel/admin-tabs 既有测试适配（展开延迟卸载 / transition-colors 类断言）。
+- **门禁**：`pnpm verify:all` 退出 0（web 4,595+（FadeImage 4 + attachment/admin-tabs 适配）/ db 124 /
+  content 55 / migration 278，jscpd 持平）；E2E 定向 **74 例全过**（motion-step2 4 + motion-step4 4 +
+  gates 14 + reduce-overlays 4 + micro-interactions 15 + page-motion-pilot 19 + page-transition 14，
+  **既有动效零删减**）；visual 10 项、**基线零更新**；**LCP 不回退**：四页实测 116 / 260 / 296 / 104ms
+  全部低于 2,500ms 预算（开发迁移库）。
+- **边界**：看板柱条生长动画、pref-toggles 私信 chips（已有 transition）、avatar-uploader/attachment
+  上传过程进度反馈不在本步；楼层 Card 无 hover（不可点元素不加悬停反馈，与探查建议一致）。
+
+## 遗留事项（如有）
+
+__zcode_status=$?
+if [ "$__zcode_status" -eq 0 ]; then pwd -P > '/var/folders/2n/ch1yy0f932vfwf7s686m28fm0000gn/T/zcode-e36afbc6-8879-4461-8398-63b7752df79c-cwd'; fi
+exit "$__zcode_status"

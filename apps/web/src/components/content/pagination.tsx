@@ -22,7 +22,10 @@ export function Pagination({
   return (
     <nav className="flex flex-wrap items-center justify-center gap-1.5 py-4" aria-label="分页">
       {page > 1 && (
-        <Link className="rounded-md border px-3 py-1 text-sm hover:bg-accent" href={href(page - 1)}>
+        <Link
+          className="rounded-md border px-3 py-1 text-sm transition-colors hover:bg-accent"
+          href={href(page - 1)}
+        >
           上一页
         </Link>
       )}
@@ -42,7 +45,7 @@ export function Pagination({
         ) : (
           <Link
             key={p}
-            className="rounded-md border px-3 py-1 text-sm hover:bg-accent"
+            className="rounded-md border px-3 py-1 text-sm transition-colors hover:bg-accent"
             href={href(p)}
           >
             {p}
@@ -50,7 +53,10 @@ export function Pagination({
         ),
       )}
       {page < totalPages && (
-        <Link className="rounded-md border px-3 py-1 text-sm hover:bg-accent" href={href(page + 1)}>
+        <Link
+          className="rounded-md border px-3 py-1 text-sm transition-colors hover:bg-accent"
+          href={href(page + 1)}
+        >
           下一页
         </Link>
       )}

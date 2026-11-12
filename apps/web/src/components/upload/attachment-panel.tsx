@@ -246,6 +246,26 @@ function AttachmentEditor({
   const [error, setError] = useState<string | null>(null);
   // 默认折叠成「附件（N）」一行，减少首屏被附件占去的高度；上传成功后自动展开（让作者看到刚传的文件并选择归属）
   const [open, setOpen] = useState(defaultOpen);
+  // 列表挂载期（M16 Step 4）：收起时先播 grid-rows 折叠过渡，播完（duration-fast 150ms + 余量）再卸载内容，不再瞬拔
+  const [listMounted, setListMounted] = useState(defaultOpen);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    // 卸载时清理收起定时器，避免定时器回调打到已卸载组件
+    return () => {
+      if (closeTimer.current !== null) clearTimeout(closeTimer.current);
+    };
+  }, []);
+
+  /** 设置展开态：展开立即挂载列表；收起先播 0fr 折叠过渡，220ms 后再卸载内容 */
+  const setOpenAnimated = (next: boolean) => {
+    setOpen(next);
+    if (closeTimer.current !== null) clearTimeout(closeTimer.current);
+    if (next) {
+      setListMounted(true);
+    } else {
+      closeTimer.current = setTimeout(() => setListMounted(false), 220);
+    }
+  };
   const input = useRef<HTMLInputElement>(null);
   const hidden = useRef<HTMLInputElement>(null);
 
@@ -282,7 +302,7 @@ function AttachmentEditor({
     onPendingChange?.(1);
     try {
       const r = await uploadFile({ file, purpose: "attachment", forumId });
-      setOpen(true);
+      setOpenAnimated(true);
       commit([
         ...itemsRef.current,
         {
@@ -318,7 +338,7 @@ function AttachmentEditor({
             type="button"
             aria-expanded={open}
             aria-controls="fw-attachment-list"
-            onClick={() => setOpen((o) => !o)}
+            onClick={() => setOpenAnimated(!open)}
             className="flex min-h-11 items-center gap-1 rounded-md pr-2 hover:text-primary sm:min-h-9"
           >
             <ChevronRight
@@ -352,66 +372,78 @@ function AttachmentEditor({
         />
       </div>
 
-      {open && visible.length > 0 && (
-        <ul id="fw-attachment-list" className="space-y-2">
-          {visible.map((it) => {
-            const gate = effectiveGate(it);
-            return (
-              <li
-                key={it.fileId}
-                data-testid="attachment-row"
-                className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm"
-              >
-                <span className="min-w-0 flex-1 truncate">{it.name}</span>
-                <span className="text-xs text-muted-foreground">{formatSize(it.sizeBytes)}</span>
-                <select
-                  aria-label={`附件归属：${it.name}`}
-                  value={gate ?? ""}
-                  onChange={(e) =>
-                    commit(
-                      itemsRef.current.map((x) =>
-                        x.fileId === it.fileId ? { ...x, gateKey: e.target.value || null } : x,
-                      ),
-                    )
-                  }
-                  className="min-h-11 rounded-md border border-input bg-transparent px-2 text-sm sm:min-h-9"
-                >
-                  <option value="">公开</option>
-                  {gateKeys.map((k) => (
-                    <option key={k} value={k}>
-                      锁定内容 {k}
-                    </option>
-                  ))}
-                </select>
-                {it.gateKey !== null && gate === null && (
-                  <span className="text-xs text-warning">锁定内容已不存在，将保存为公开</span>
-                )}
-                {onInsertImage && it.storageKey && it.mime?.startsWith("image/") && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    aria-label={`插入正文：${it.name}`}
-                    onClick={() => onInsertImage(`/files/${it.storageKey}`)}
-                    className="min-h-11 sm:min-h-9"
+      {/* 折叠过渡容器（M16 Step 4，参照 announcement-banner 的 grid-rows 模式）：
+          展开时直接呈现（保持原有行为），收起时 1fr→0fr 平滑折叠，播完由 setOpenAnimated 延迟卸载 */}
+      {listMounted && visible.length > 0 && (
+        <div
+          className={`grid transition-[grid-template-rows] duration-fast ease-out motion-reduce:transition-none ${
+            open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+          }`}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <ul id="fw-attachment-list" className="space-y-2">
+              {visible.map((it) => {
+                const gate = effectiveGate(it);
+                return (
+                  <li
+                    key={it.fileId}
+                    data-testid="attachment-row"
+                    className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm"
                   >
-                    插入正文
-                  </Button>
-                )}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  aria-label={`移除附件：${it.name}`}
-                  onClick={() => commit(itemsRef.current.filter((x) => x.fileId !== it.fileId))}
-                  className="min-h-11 sm:min-h-9"
-                >
-                  移除
-                </Button>
-              </li>
-            );
-          })}
-        </ul>
+                    <span className="min-w-0 flex-1 truncate">{it.name}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {formatSize(it.sizeBytes)}
+                    </span>
+                    <select
+                      aria-label={`附件归属：${it.name}`}
+                      value={gate ?? ""}
+                      onChange={(e) =>
+                        commit(
+                          itemsRef.current.map((x) =>
+                            x.fileId === it.fileId ? { ...x, gateKey: e.target.value || null } : x,
+                          ),
+                        )
+                      }
+                      className="min-h-11 rounded-md border border-input bg-transparent px-2 text-sm sm:min-h-9"
+                    >
+                      <option value="">公开</option>
+                      {gateKeys.map((k) => (
+                        <option key={k} value={k}>
+                          锁定内容 {k}
+                        </option>
+                      ))}
+                    </select>
+                    {it.gateKey !== null && gate === null && (
+                      <span className="text-xs text-warning">锁定内容已不存在，将保存为公开</span>
+                    )}
+                    {onInsertImage && it.storageKey && it.mime?.startsWith("image/") && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        aria-label={`插入正文：${it.name}`}
+                        onClick={() => onInsertImage(`/files/${it.storageKey}`)}
+                        className="min-h-11 sm:min-h-9"
+                      >
+                        插入正文
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      aria-label={`移除附件：${it.name}`}
+                      onClick={() => commit(itemsRef.current.filter((x) => x.fileId !== it.fileId))}
+                      className="min-h-11 sm:min-h-9"
+                    >
+                      移除
+                    </Button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </div>
       )}
 
       {error && (

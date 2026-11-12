@@ -23,7 +23,7 @@ export function AdminTabs({
         <Link
           key={tab.key}
           href={tab.href}
-          className={`${linkClassName} ${activeKey === tab.key ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
+          className={`${linkClassName} transition-colors ${activeKey === tab.key ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
         >
           {tab.label}
         </Link>

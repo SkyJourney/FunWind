@@ -36,7 +36,8 @@ export function AdminTable({
 }) {
   return (
     <div className="overflow-x-auto rounded-xl border bg-card">
-      <table className="w-full text-left text-xs">
+      {/* 行悬停反馈（M16 Step 4，与前台列表一致）：tr 由各页 rows 传入，这里用任意变体在壳上统一挂悬停底色与颜色过渡 */}
+      <table className="w-full text-left text-xs [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-accent/50">
         <thead className="border-b text-muted-foreground">
           <tr>{head}</tr>
         </thead>

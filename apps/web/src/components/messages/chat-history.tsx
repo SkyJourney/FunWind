@@ -204,7 +204,7 @@ export function ChatHistory({
       <ul className="space-y-2.5">
         {state.older.map((m) => (
           <Fragment key={m.id}>
-            <MessageBubble message={m} mine={m.senderId === viewerId} />
+            <MessageBubble message={m} mine={m.senderId === viewerId} className="fw-fade-in" />
           </Fragment>
         ))}
         {children}

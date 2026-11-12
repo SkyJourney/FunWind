@@ -12,6 +12,7 @@ import {
   type RefObject,
 } from "react";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { readDraft, removeDraft, stageDraft, stagedKey, writeDraft } from "./draft";
 import { explicitGateKeys } from "./gate-keys";
 import { extractInlineImages } from "./inline-images";
@@ -39,7 +40,12 @@ import { uploadFile } from "@/components/upload/upload-client";
  */
 const SourceEditor = dynamic(() => import("./source-editor"), {
   ssr: false,
-  loading: () => <div className="min-h-48" aria-busy="true" />,
+  // 加载占位用骨架脉冲（M16-D5），替代空白块
+  loading: () => (
+    <div className="min-h-48" aria-busy="true">
+      <Skeleton className="size-full" />
+    </div>
+  ),
 });
 
 /** 草稿来自 localStorage、不会在本页内变化：订阅函数为空操作（仅为满足 useSyncExternalStore 的签名） */

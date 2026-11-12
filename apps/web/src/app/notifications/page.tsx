@@ -84,7 +84,7 @@ export default async function NotificationsPage({
             <Link
               key={t.label}
               href={href}
-              className={`rounded-full border px-3 py-1 text-xs ${active ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
+              className={`rounded-full border px-3 py-1 text-xs transition-colors ${active ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
             >
               {t.label}
               {unread > 0 && (
