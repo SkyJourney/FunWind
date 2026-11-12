@@ -5,6 +5,21 @@
 
 ## [Unreleased]
 
+### Added（M16.1 · 扫尾专项收口与生产部署，2026-11-13）
+
+- **PR #15 CI 双作业绿（verify 9m21s / e2e 17m12s，第二轮）合并 main**（merge commit `1290876`）；
+  第一轮 e2e 红暴露返回滚动恢复的**真实竞态**（恢复循环 4s 上限被慢机流式滚顶穿透，本机 4 连跑复现
+  1 次），修复为 6s 窗口 + 连续稳定 1.5s 提前收尾（正常路径实际结束更早）。两路独立审查（无 P0，
+  8 项 P1 全清）报告见 [docs/reviews/2026-11-13-m16.1-code-review.md](docs/reviews/2026-11-13-m16.1-code-review.md)。
+- **生产部署（仅 web，公测口径）**：`funwind-web:20261113-1290876` compose up；回滚点
+  `funwind-web:20261112-f5a8592`。生产实测（真实浏览器）：SW 注册 URL 与壳缓存带真实 BUILD_ID
+  （版本化端到端打通）、断网提示生效、运行时错误 0；LCP 716 / 832 / 948 / 564ms。
+- **交付**：上传真实进度（fetch→XHR + 两态进度 + 三消费方）、编辑器反馈补齐（uploadNotice 语义
+  拆分 / 预览两态 / 占位骨架 / 门控插入高亮）、离线深化（SW 版本化 / 更新提示 / 联网状态感知）、
+  M16 残值测试补齐（四组件 43 例单测 + reduce 与门控失败 E2E）。执行记录见
+  [M16.1](docs/milestones/M16.1-tail-cleanup.md) §6–§12；Web Push 独立立项
+  [M18](docs/milestones/M18-web-push.md)（仅立项未启动）。
+
 ### Added（M16 · 动效补全与全站审计收口，2026-11-12）
 
 - **PR #14 CI 双作业绿（verify 9m11s / e2e 17m35s）合并 main**（merge commit `f5a8592`，merge commit 保留
