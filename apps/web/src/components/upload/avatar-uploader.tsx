@@ -36,7 +36,8 @@ export function AvatarUploader({ currentKey, name }: { currentKey: string | null
     } catch (e) {
       setMessage({
         kind: "error",
-        text: e instanceof UploadError || e instanceof Error ? e.message : "上传失败，请稍后重试。",
+        // 只认 UploadError 的中文文案；其它异常（如响应体解析失败）不暴露英文栈信息
+        text: e instanceof UploadError ? e.message : "上传失败，请稍后重试。",
       });
     } finally {
       setBusy(false);

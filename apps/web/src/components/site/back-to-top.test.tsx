@@ -122,12 +122,17 @@ describe("BackToTop 点击行为与 reduce 降级", () => {
 });
 
 describe("BackToTop 生命周期", () => {
-  it("卸载后不再响应滚动（监听对称清理）", () => {
+  it("卸载时以同一函数引用摘掉 scroll 监听（真断言：删掉 cleanup 就会红）", () => {
+    // 不能断言「卸载后 className 不变」——React 对已卸载组件 setState 本就是 no-op，
+    // 那样即使删掉 removeEventListener 也照样绿（Step 4.5 审查查出的永真断言）。
+    const add = vi.spyOn(window, "addEventListener");
+    const remove = vi.spyOn(window, "removeEventListener");
     const { unmount } = render(<BackToTop />);
-    const el = button();
+    const registered = add.mock.calls.filter(([type]) => type === "scroll");
+    expect(registered).toHaveLength(1);
     unmount();
-    setScrollY(5000);
-    scroll();
-    expect(el.className).toContain("opacity-0"); // 状态没被已卸载组件更新
+    const removed = remove.mock.calls.filter(([type]) => type === "scroll");
+    expect(removed).toHaveLength(1);
+    expect(removed[0]![1]).toBe(registered[0]![1]); // 必须是同一个函数引用才摘得掉
   });
 });

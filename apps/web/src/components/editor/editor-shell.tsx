@@ -24,7 +24,7 @@ import { AttachmentPanel, type AttachmentItem } from "@/components/upload/attach
 import { CropDialog } from "@/components/upload/crop-dialog";
 import type { Box } from "@/components/upload/crop-math";
 import { ImagePicker, imageFileFromClipboard } from "@/components/upload/image-picker";
-import { uploadFile } from "@/components/upload/upload-client";
+import { UploadError, uploadFile } from "@/components/upload/upload-client";
 import { UploadProgress, useUploadProgress } from "@/components/upload/upload-progress";
 
 /**
@@ -309,7 +309,8 @@ export function EditorShell({
     } catch (e) {
       setUploadNotice({
         kind: "error",
-        text: e instanceof Error ? e.message : "上传失败，请稍后重试。",
+        // 只认 UploadError 的中文文案；其它异常（如响应体解析失败）不把英文栈信息抛给用户
+        text: e instanceof UploadError ? e.message : "上传失败，请稍后重试。",
       });
     } finally {
       setImagePending((n) => n - 1);
@@ -322,12 +323,16 @@ export function EditorShell({
       setCropFile(file);
       return;
     }
-    void uploadImage(file, undefined, wantCrop ? "GIF 不支持裁剪，已直接插入。" : null);
+    void uploadImage(file, undefined, wantCrop ? "GIF 不支持裁剪，将直接插入。" : null);
   };
 
   // 粘贴截图：只拦截含图片的粘贴（捕获阶段，抢在编辑器自身的粘贴处理之前）；文本粘贴原样放行
   const onPasteCapture = (e: ClipboardEvent<HTMLDivElement>) => {
     if (forumId === undefined) return;
+    // 并发闸（M16.1 Step 4.5）：上传期间编辑器仍可交互，连贴两张截图会并发——
+    // 单一 imageProgress/uploadNotice 契约会被两路交错覆盖（百分比来回跳、提示互相清）。
+    // 与 ImagePicker 的 disabled 同口径串行；服务端并发闸本就 ≤3，客户端串行更简单。
+    if (imagePending > 0) return;
     const file = imageFileFromClipboard(e.clipboardData);
     if (file === null) return;
     e.preventDefault();

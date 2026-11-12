@@ -26,6 +26,8 @@ export interface UploadXhrCall {
   fail: () => void;
   /** 用户/浏览器取消 */
   abort: () => void;
+  /** 触发超时 */
+  timeout: () => void;
 }
 
 export interface UploadXhrDouble {
@@ -51,6 +53,8 @@ export function stubUploadXhr(): UploadXhrDouble {
     onload: (() => void) | null = null;
     onerror: (() => void) | null = null;
     onabort: (() => void) | null = null;
+    ontimeout: (() => void) | null = null;
+    timeout = 0;
     readonly upload = {
       onprogress: null as ((e: ProgressEvent<EventTarget>) => void) | null,
       onload: null as (() => void) | null,
@@ -72,12 +76,16 @@ export function stubUploadXhr(): UploadXhrDouble {
           } as ProgressEvent),
         uploaded: () => this.upload.onload?.(),
         respond: (status, body) => {
+          // 真实浏览器：成功响应之前上行必然已结束。替身自动补这一步，
+          // 避免用例构造出现实中不可能的时序（响应先于 upload.onload）。
+          if (status > 0) this.upload.onload?.();
           this.status = status;
           this.responseText = body;
           this.onload?.();
         },
         fail: () => this.onerror?.(),
         abort: () => this.onabort?.(),
+        timeout: () => this.ontimeout?.(),
       };
     }
 

@@ -71,8 +71,40 @@ MySQL 8.4 容器默认 `log_bin=ON`，binlog 落在数据卷 `funwind-mysql-data
 
 - **RPO 口径**：dump 每日一次 → 最坏丢 24h；如需更小 RPO，可备份 binlog（`SHOW BINARY LOGS` 后
   `mysqlbinlog --raw` 拉取到备份目录）并按位点重放——当前规模（日均发帖个位数）不值得，记为口径。
-- binlog 空间：默认无过期自动清理会持续增长；生产编排可按需加
-  `--binlog_expire_logs_seconds=604800`（7 天）。数据卷本身也在备份考量内（见 §4 方式 B）。
+- binlog 空间：默认无过期自动清理会持续增长。**生产编排 `docker/mysql/compose.yaml` 已配**
+  `--binlog-expire-logs-seconds=604800`（7 天）+ `--max-binlog-size=268435456`（256MB，
+  默认是 1GB）。两个一起加的原因：过期只在**轮转**时判定，文件越大，7 天窗口的溢出越多。
+  数据卷本身也在备份考量内（见 §4 方式 B）。
+
+### 3.1 本机 dev/预览实例：binlog 已关闭（2026-11-12）
+
+本机的 `qysub-next` 预览实例（`docker/qysub-next/compose.yaml`，127.0.0.1:33621）
+是**本地开发 + 预览**用途，**已加 `--skip-log-bin` 关掉 binlog**：
+
+- 依据：上面的 RPO 口径本就是「每日全备 → 最坏丢 24h」，binlog 只服务 PITR，本机不需要；
+  每日 mysqldump 全备（`scripts/backup/backup-db.sh`，含 sha256 与 14 天轮转）已覆盖恢复需求。
+- 收益：此前 binlog 无过期策略，13 个文件累积到 8.6G；关闭后数据目录 9.7G → 1.1G。
+- 代价：**本实例没有 PITR**，损坏时只能回到最近一次全备（最坏丢 24h），不能做秒级回滚。
+- 一次性清理存量 binlog 用（MySQL 8.4 已移除 `RESET MASTER`，改用新语法）：
+  ```sh
+  docker exec qysub-next-mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" \
+    -e "RESET BINARY LOGS AND GTIDS;"'
+  ```
+- ⚠️ **生产编排（`funwind-mysql`）不要照抄这条**——那边需要 PITR，保持 `log_bin=ON`，
+  按需配 `--binlog_expire_logs_seconds` 控制空间。
+
+### 3.2 各 MySQL 实例的 binlog 现状（2026-11-12 盘点）
+
+| 实例 | 版本 | binlog | 保留策略 |
+|---|---|---|---|
+| `funwind-mysql`（生产，站长服务器） | 8.4 | ON | `--binlog-expire-logs-seconds=604800` + `--max-binlog-size=256M` |
+| `qysub-next-mysql`（本机 dev/预览） | 8.4 | **OFF** | 无需，见 §3.1 |
+| `qingyisub-mysql`（本机 phpwind 只读副本） | 5.7.44 | **OFF** | 5.7 服务端默认就是 OFF |
+| `mysql-260422/260529/260615`（health-data，本机） | 8.4 | **OFF** | `conf.d/custom.cnf` 已配 `skip-log-bin` |
+
+> ⚠️ **版本坑**：`--binlog-expire-logs-seconds` 是 MySQL **8.0+** 才有的秒级参数。
+> 5.7 只认 `--expire-logs-days`（整数天），写成秒级参数会让 mysqld 直接
+> `unknown variable` 启动失败（已实测 mysql:5.7.44 报此错）。
 
 ## 4. 恢复演练（本机已实测的命令序列）
 

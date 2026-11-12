@@ -112,7 +112,7 @@ describe("EditorShell：裁剪与 GIF", () => {
     await user.upload(imageInput(), gif);
     // 语义拆分（M16.1 Step 2）：这是成功说明，必须是 status 而非 alert，也不该是错误红字
     const notice = await screen.findByRole("status");
-    expect(notice).toHaveTextContent("GIF 不支持裁剪，已直接插入。");
+    expect(notice).toHaveTextContent("GIF 不支持裁剪，将直接插入。");
     expect(notice.className).not.toContain("text-destructive");
     expect(screen.queryByRole("alert")).toBeNull();
     expect(xhr.calls).toHaveLength(1);

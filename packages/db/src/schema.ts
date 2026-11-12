@@ -62,7 +62,7 @@ export const NOTIFICATION_CATEGORIES = [
 ] as const;
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
-/** 通知投递渠道；当前只实现 in_app，其余为注册边界预留 */
+/** 通知投递渠道；in_app 与 email 均已实现，push 预留（独立立项 M18） */
 export const NOTIFICATION_CHANNELS = ["in_app", "email", "push"] as const;
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 

@@ -152,6 +152,23 @@ describe("uploadFile 上行进度（M16.1 Step 1）", () => {
     await expect(uploadFile({ file, purpose: "inline" })).rejects.toThrow();
   });
 
+  it("非 2xx 且响应是合法 JSON 但无 error 键：回落 http_XXX + 通用文案", async () => {
+    const xhr = stubUploadXhr();
+    xhr.autoRespond(500, "{}");
+    const err = await uploadFile({ file, purpose: "inline" }).catch((e) => e);
+    expect(err.code).toBe("http_500");
+    expect(err.message).toBe("上传失败，请稍后重试。");
+  });
+
+  it("超时：与网络异常同口径（有进度条后「卡在 N%」必须有确定终态）", async () => {
+    const xhr = stubUploadXhr();
+    const done = uploadFile({ file, purpose: "attachment" }).catch((e) => e);
+    xhr.calls[0]!.timeout();
+    const err = await done;
+    expect(err).toBeInstanceOf(UploadError);
+    expect(err.code).toBe("network");
+  });
+
   it("配额与超限错误码在 XHR 下同样映射（429 / 413）", async () => {
     for (const [status, code] of [
       [429, "quota_exceeded"],

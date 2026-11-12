@@ -174,6 +174,7 @@ export function EditorToolbar({
   const chain = () => editor.chain().focus();
   // 新插入锁定内容的高亮定时器（M16.1 Step 2）：连点先清旧，卸载时清理
   const gateHlTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const gateHlTarget = useRef<HTMLElement | null>(null);
   useEffect(
     () => () => {
       if (gateHlTimer.current !== null) clearTimeout(gateHlTimer.current);
@@ -212,8 +213,14 @@ export function EditorToolbar({
     const dom = editor.view.nodeDOM(from);
     if (dom instanceof HTMLElement) {
       if (gateHlTimer.current !== null) clearTimeout(gateHlTimer.current);
+      // 先摘上一块的类（M16.1 Step 4.5）：连点时旧 timer 被清，旧类否则会一直留着
+      gateHlTarget.current?.classList.remove("fw-gate-hl-on");
+      gateHlTarget.current = dom;
       dom.classList.add("fw-gate-hl-on");
-      gateHlTimer.current = setTimeout(() => dom.classList.remove("fw-gate-hl-on"), 1200);
+      gateHlTimer.current = setTimeout(() => {
+        dom.classList.remove("fw-gate-hl-on");
+        if (gateHlTarget.current === dom) gateHlTarget.current = null;
+      }, 1200);
     }
     onInsertGate?.();
   };

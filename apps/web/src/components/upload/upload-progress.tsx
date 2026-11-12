@@ -55,7 +55,7 @@ export function UploadProgress({
         className="h-1.5 min-w-16 flex-1 overflow-hidden rounded-full bg-muted"
       >
         <div
-          className={`h-full rounded-full bg-primary transition-[width] duration-fast ease-out motion-reduce:transition-none ${
+          className={`h-full rounded-full bg-primary transition-[width] duration-fast ease-out-soft motion-reduce:transition-none ${
             processing ? "w-full animate-pulse" : ""
           }`}
           style={processing ? undefined : { width: `${percent}%` }}

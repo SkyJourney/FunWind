@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { render } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ContentImageFade } from "./content-image-fade";
 
 /**
@@ -106,15 +106,19 @@ describe("幂等与范围", () => {
     expect(img("i0").classList.contains("fw-img-loaded")).toBe(true); // 前一次的结果保留
   });
 
-  it("同一容器再次扫描不重复挂监听（load 只显影一次，不叠加）", () => {
+  it("同一容器再次扫描不重复挂监听（真断言：删掉幂等守卫就会红）", () => {
+    // 不能断言「dispatch load 后类被加回」——挂 1 个还是 N 个监听结果都一样，
+    // 区分不了重复挂载（Step 4.5 审查查出的永真断言）。直接数监听注册次数。
     mountHtml();
+    const target = img("i0");
+    const add = vi.spyOn(target, "addEventListener");
     const { unmount } = render(<ContentImageFade />);
+    expect(add.mock.calls.filter(([t]) => t === "load")).toHaveLength(1);
+    expect(add.mock.calls.filter(([t]) => t === "error")).toHaveLength(1);
     unmount();
-    render(<ContentImageFade />);
-    // 移除显影类后再触发 load：若重复挂了监听，会被再次加上
-    img("i0").classList.remove("fw-img-loaded");
-    img("i0").dispatchEvent(new Event("load"));
-    expect(img("i0").classList.contains("fw-img-loaded")).toBe(true); // once 监听仍在，正常显影
+    render(<ContentImageFade />); // 容器已标记：整段跳过，不得再挂
+    expect(add.mock.calls.filter(([t]) => t === "load")).toHaveLength(1);
+    expect(add.mock.calls.filter(([t]) => t === "error")).toHaveLength(1);
   });
 
   it("只处理 .content-md 内的图：容器外的图不动", () => {

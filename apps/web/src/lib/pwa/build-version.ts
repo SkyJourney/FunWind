@@ -19,11 +19,19 @@ let cached: string | null = null;
 
 export function swVersion(): string {
   if (cached !== null) return cached;
+  let value = "";
   try {
     const distDir = process.env.NEXT_DIST_DIR || ".next";
-    cached = readFileSync(path.join(process.cwd(), distDir, "BUILD_ID"), "utf8").trim() || "dev";
+    value = readFileSync(path.join(process.cwd(), distDir, "BUILD_ID"), "utf8").trim();
   } catch {
-    cached = "dev";
+    value = ""; // 读不到与读到空串同等对待：都等于没有版本化
   }
+  if (value === "") {
+    // 静默回落会让版本化失效（所有部署共用 ?v=dev → 浏览器不再重装 SW → 离线壳永久停旧），
+    // 正是本机制要消灭的故障模式。给运维一条可见信号，而不是无声退化。
+    console.warn("[pwa] 读不到 BUILD_ID，SW 版本号回落 dev——离线壳将不随部署刷新，请核对 distDir");
+    value = "dev";
+  }
+  cached = value;
   return cached;
 }

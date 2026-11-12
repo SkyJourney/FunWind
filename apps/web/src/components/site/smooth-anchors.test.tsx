@@ -90,11 +90,24 @@ describe("SmoothAnchors 点击路径", () => {
     expect(target().classList.contains("fw-floor-hl-on")).toBe(false);
   });
 
-  it("连点不同目标：各自挂各自的高亮", () => {
-    document.getElementById("jump")!.setAttribute("href", "#floor-6");
+  it("连点不同目标：旧目标高亮立即摘除，且再点回旧目标能重播（Step 4.5 修复）", () => {
     render(<SmoothAnchors />);
-    click(link());
+    const jump = link();
+    jump.setAttribute("href", "#floor-5");
+    click(jump);
+    expect(target("floor-5").classList.contains("fw-floor-hl-on")).toBe(true);
+
+    jump.setAttribute("href", "#floor-6");
+    click(jump);
     expect(target("floor-6").classList.contains("fw-floor-hl-on")).toBe(true);
+    // 旧目标必须被摘掉：否则类残留，再点回去时 classList.add 是 no-op、动画不重播
+    expect(target("floor-5").classList.contains("fw-floor-hl-on")).toBe(false);
+
+    jump.setAttribute("href", "#floor-5");
+    click(jump);
+    expect(target("floor-5").classList.contains("fw-floor-hl-on")).toBe(true); // 能重新挂上=能重播
+    expect(target("floor-6").classList.contains("fw-floor-hl-on")).toBe(false);
+    act(() => vi.advanceTimersByTime(2100));
     expect(target("floor-5").classList.contains("fw-floor-hl-on")).toBe(false);
   });
 });

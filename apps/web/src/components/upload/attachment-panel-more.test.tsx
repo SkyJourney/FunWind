@@ -57,12 +57,9 @@ describe("AttachmentPanel 补充", () => {
   });
 
   it("网络异常：统一给出可读提示", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        throw new TypeError("offline");
-      }),
-    );
+    // 上传已走 XHR：stub fetch 对上传路径完全无效（旧写法靠 jsdom 无监听侥幸触发 onerror）
+    const xhr = stubUploadXhr();
+    xhr.autoFail();
     const user = userEvent.setup();
     render(
       <AttachmentPanel

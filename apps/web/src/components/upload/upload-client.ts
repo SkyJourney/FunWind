@@ -13,6 +13,9 @@
 
 export type UploadPurposeClient = "inline" | "attachment" | "avatar";
 
+/** 上传超时：50MB 附件在慢网下也可能几分钟，取宽松值只兜「网络黑洞」，不打断正常慢传 */
+const UPLOAD_TIMEOUT_MS = 5 * 60_000;
+
 export interface UploadResult {
   fileId: number;
   storageKey: string;
@@ -101,6 +104,10 @@ export async function uploadFile(input: {
         report(settled, settled);
       };
     }
+    // 超时（M16.1 Step 4.5）：fetch 时代也没有超时，但有了进度条后「卡在 N%」更显眼——
+    // 网络黑洞时给一个确定的失败终态，而不是让提交按钮永远禁用、只能刷新。
+    xhr.timeout = UPLOAD_TIMEOUT_MS;
+    xhr.ontimeout = () => reject(new UploadError("network", "网络异常，请稍后重试。"));
     xhr.onerror = () => reject(new UploadError("network", "网络异常，请稍后重试。"));
     xhr.onabort = () => reject(new UploadError("aborted", "上传已取消。"));
     xhr.onload = () => {
