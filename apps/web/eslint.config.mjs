@@ -6,6 +6,7 @@ const config = [
   {
     ignores: [
       ".next/**",
+      ".next-verify/**",
       ".next-e2e/**",
       ".next-e2e-prod/**",
       ".next-e2e-step7-*/**",
