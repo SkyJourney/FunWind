@@ -4,7 +4,13 @@
  * 只缓存通用 offline.html 离线壳与带版本哈希/公开可读的静态资源。动态页面断网时回退通用离线壳。
  */
 const CACHE_PREFIX = "funwind-pwa-";
-const SHELL_CACHE = `${CACHE_PREFIX}shell-v1`;
+// 离线壳缓存跟部署版本（M16.1 Step 3）：注册 URL 带 ?v=<BUILD_ID>，每次部署脚本 URL 都不同，
+// 浏览器必然重装一次 → 离线壳跟着刷新，不再依赖手改 `-v1` 常量（改策略忘 bump 是真实风险）。
+const VERSION = new URL(self.location.href).searchParams.get("v") || "dev";
+const SHELL_CACHE = `${CACHE_PREFIX}shell-${VERSION}`;
+// 静态资源缓存**不跟版本**：/_next/static/ 是内容哈希 URL，换了内容就是换了 URL，
+// 旧条目天然不会被命中。跟着部署清缓存只会让每次发版后首访重新下载，纯亏带宽。
+// 这里的 v1 是「缓存策略版本」，只有白名单/策略本身变化时才需要手改。
 const ASSET_CACHE = `${CACHE_PREFIX}assets-v1`;
 const OFFLINE_URL = "/offline.html";
 const STATIC_PREFIXES = ["/_next/static/", "/pwa/", "/emoji/"];

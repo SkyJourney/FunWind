@@ -117,11 +117,14 @@ test("生产 SW：通用离线壳预缓存；断网动态页面返回离线壳�
 
   const onlineState = await page.evaluate(async () => {
     const keys = await caches.keys();
-    const shell = await caches.open("funwind-pwa-shell-v1");
+    // 离线壳缓存名跟部署版本（M16.1 Step 3：?v=<BUILD_ID>），按前缀发现而不是写死名字
+    const shellName = keys.find((k) => k.startsWith("funwind-pwa-shell-")) ?? "";
+    const shell = await caches.open(shellName);
     const offline = await shell.match("/offline.html");
     return {
       controller: Boolean(navigator.serviceWorker.controller),
-      hasShell: keys.includes("funwind-pwa-shell-v1"),
+      hasShell: shellName !== "",
+      shellName,
       offlineStatus: offline?.status ?? null,
       cachedUrls: (await Promise.all(keys.map(async (key) => (await caches.open(key)).keys())))
         .flat()
@@ -129,6 +132,17 @@ test("生产 SW：通用离线壳预缓存；断网动态页面返回离线壳�
     };
   });
   expect(onlineState).toMatchObject({ controller: true, hasShell: true, offlineStatus: 200 });
+  // 版本号必须真的带上（不是回落 dev）：注册 URL 与壳缓存名同源
+  expect(onlineState.shellName).toMatch(/^funwind-pwa-shell-.+/);
+  expect(onlineState.shellName).not.toBe("funwind-pwa-shell-dev");
+  const scriptUrl = await page.evaluate(async () => {
+    const reg = await navigator.serviceWorker.getRegistration();
+    return reg?.active?.scriptURL ?? "";
+  });
+  expect(scriptUrl).toContain("/sw.js?v=");
+  expect(decodeURIComponent(scriptUrl.split("?v=")[1] ?? "")).toBe(
+    onlineState.shellName.replace("funwind-pwa-shell-", ""),
+  );
   expect(onlineState.cachedUrls).toContain("/offline.html");
   expect(
     onlineState.cachedUrls.every(
@@ -157,10 +171,35 @@ test("生产 SW：通用离线壳预缓存；断网动态页面返回离线壳�
   );
   expect(dynamicCached).toEqual([]);
 
+  // 此时页面已由 SW 接管，静态资源已走 cache-first：资源缓存必须仍是**策略版本**常量，
+  // 不跟部署版本（内容哈希 URL 天然免疫，跟着部署清缓存只会白白重下）
+  const cacheNames = await page.evaluate(() => caches.keys());
+  expect(cacheNames).toContain("funwind-pwa-assets-v1");
+  expect(cacheNames.filter((k) => k.startsWith("funwind-pwa-shell-"))).toHaveLength(1);
+
   await context.setOffline(true);
   await page.goto("/t/900004");
   await expect(page.getByRole("heading", { name: "暂时离线" })).toBeVisible();
   await expect(page.getByText(/页面内容不会在设备上缓存/)).toBeVisible();
   await expect(page.getByText("[门控演示] 付费与回复可见")).toHaveCount(0);
   await context.setOffline(false);
+});
+
+test("联网状态感知：断网给常驻提示，恢复后撤下并确认（M16.1 Step 3）", async ({
+  page,
+  context,
+}) => {
+  await page.goto("/");
+  await page.waitForLoadState("networkidle");
+  // 在线进站不该平白提示「网络已恢复」
+  await expect(page.getByText("网络已恢复")).toHaveCount(0);
+
+  // 不导航、只断网：页面仍是应用本体，ConnectionStatus 应当感知到
+  await context.setOffline(true);
+  await expect(page.getByText("网络已断开")).toBeVisible();
+  await expect(page.getByText("暂时无法加载新内容，恢复后会自动提示。")).toBeVisible();
+
+  await context.setOffline(false);
+  await expect(page.getByText("网络已恢复")).toBeVisible();
+  await expect(page.getByText("网络已断开")).toHaveCount(0);
 });

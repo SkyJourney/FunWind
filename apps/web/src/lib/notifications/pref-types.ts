@@ -1,7 +1,9 @@
 /**
  * 通知偏好可选类型（M10.6c，docs/NOTIFICATIONS.md §4 的用户侧子集）：
- * 版主工作流（review.pending）与账户强制类不开放关闭；channel 仅站内（邮件/推送未实现）。
- * 默认全开：notification_preferences 无行 = 开启（inAppEnabled 口径）。
+ * 版主工作流（review.pending）与账户强制类不开放关闭。
+ * 渠道现状（M16.1 Step 3 更正过时注释）：站内与**邮件均已实现**（lib/notifications/email.ts），
+ * 推送尚未实现（独立立项 M18）；本文件的类型清单是两渠道共用的用户侧子集。
+ * 默认值两渠道相反：站内无行 = 开启（inAppEnabled 口径）；邮件无行 = 关闭（需显式订阅）。
  */
 export interface NotifPrefType {
   type: string;
