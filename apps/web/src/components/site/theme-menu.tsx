@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { THEME_OPTIONS, isThemeValue, type ThemeValue } from "@/lib/theme";
 import { patchPreference } from "@/lib/api/settings-pref";
+import { applyPackWithTransition, applyThemeWithTransition } from "./theme-motion";
 import { cn } from "@/lib/utils";
 
 const ICONS = { Sun, Moon, Monitor } as const;
@@ -50,7 +51,10 @@ function usePackSwitch(pref: PackPref) {
   const choose = (next: string | null) => {
     const prev = user;
     setUser(next);
-    document.documentElement.dataset.pack = next ?? pref.site;
+    // 状态级 VT 交叉溶解（M16-D2）：属性写入进 VT 快照；PATCH 失败的回滚保持直改
+    applyPackWithTransition(() => {
+      document.documentElement.dataset.pack = next ?? pref.site;
+    });
     startTransition(async () => {
       try {
         const res = await patchPreference({ kind: "themePack", pack: next });
@@ -96,7 +100,10 @@ export function ThemeMenu({ packPref = null }: { packPref?: PackPref | null }) {
         {THEME_OPTIONS.map(({ value, label, icon }) => {
           const Icon = ICONS[icon];
           return (
-            <DropdownMenuItem key={value} onSelect={() => setTheme(value)}>
+            <DropdownMenuItem
+              key={value}
+              onSelect={() => applyThemeWithTransition(setTheme, value)}
+            >
               <Icon className="size-4" aria-hidden />
               {label}
               {theme === value && <Check className="ml-auto size-4" aria-hidden />}
@@ -144,7 +151,7 @@ export function ThemeOptionsRow() {
           <button
             key={value}
             type="button"
-            onClick={() => setTheme(value)}
+            onClick={() => applyThemeWithTransition(setTheme, value)}
             aria-pressed={active}
             title={label}
             className={cn(

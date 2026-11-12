@@ -4,6 +4,7 @@ import { useSyncExternalStore } from "react";
 import { Monitor, Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
+import { applyThemeWithTransition } from "@/components/site/theme-motion";
 import { THEME_OPTIONS } from "@/lib/theme";
 
 const ICONS = { Sun, Moon, Monitor } as const;
@@ -40,7 +41,7 @@ export function ThemeSwitcher() {
             key={value}
             variant={active ? "secondary" : "ghost"}
             size="sm"
-            onClick={() => setTheme(value)}
+            onClick={() => applyThemeWithTransition(setTheme, value)}
             aria-pressed={active}
             title={label}
           >

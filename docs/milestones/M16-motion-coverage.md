@@ -73,3 +73,14 @@
 - **D3 图片显影**：占位背景 + onLoad 淡入，组件化可扩展；**首屏 LCP 元素豁免规则由 Step 0 实验定**。
 - **D4 锚点/回顶**：纳入——锚点平滑滚动 + 楼层高亮 + 回顶按钮。
 - **D5 编辑器**：**只修 lazy 加载死白**（skeleton animate-pulse 替代空白）；其余编辑器内部不动（站长拍板）。
+
+## 6. Step 0 可行性实验结论（2026-11-12，实验③独立静态台 + 实验②真机接线 + 实验①/ m16-lab 三路线；实验页已删）
+
+| # | 实验 | 结论 | 证据 |
+|---|---|---|---|
+| 1 | 图片显影 × LCP | **淡入使 LCP 推迟 ≈ 过渡时长**：同一 0.98MB 首屏大图，无显影 LCP≈40ms，onLoad 淡入后 LCP≈310ms（快网）；慢图（+800ms）872ms→1100ms——Chromium 在 opacity 渐入元素**动画结束（完全不透明）**时才计入 LCP。muted 占位底色救不回（纯 background-color 不构成 LCP 候选，实测占位变体 LCP 条目中无占位元素）。**豁免规则：首屏视口内可能成为 LCP 的图片直接渲染不挂淡入；首屏外 lazy 图片全部显影** | /tmp 独立静态台（0.98MB 基线 JPEG × 三变体 × 快/慢网，PerformanceObserver 全时间线） |
+| 2 | 主题切换 VT | **四项全过**：① 交叉溶解生效（`html[data-vt=fade]` + root `vt-fade-in/out` 播放）；② 属性落快照正确（旧帧 light→新帧 dark；next-themes 的属性写在 effect 里异步，须在 VT 内同步预写 data-mode——`theme-motion.ts` 已实现，system 就地解析）；③ reduce 降级无 VT、直改生效；④ 与页面导航 VT 共存互不干扰（同序列中状态级 `vt:fade` 与页面级 `vt:null` 各自正常）。PATCH 失败回滚保持直改（既有 9 项 jsdom 测试通过）。**接线代码保留在分支（`theme-motion.ts` + 4 个切换点），Step 2 补 E2E** | 真机 3100 + VT 探针（含 root 伪元素采样）；`theme-menu.test` 9/9 |
+| 3 | 返回键三路线 | **intercept 路线可行，predrive 否决**：② intercept（Navigation API 拦截遍历 + 手动状态级 VT，update 等 popstate）——返回动画完整播放（root 溶解）、**历史栈零污染**（长度稳定）、前进键正常、URL 正确、dev 与生产构建一致；③ predrive（preventDefault + router.push 重驱动）——**前进键实测失效**（返回后前进仍停原页，历史栈污染实锤）否决；① baseline 现状无动画。intercept 仅覆盖 lab 范围遍历、Navigation API 不支持时优雅回退 baseline | m16-lab 三路线（实验页已删）+ Playwright 三状态断言 × dev/prod |
+| 4 | **新发现（全站级）** | **返回滚动恢复全站失效（既有缺陷，非 M16 引入）**：真实页板块(滚动 800)→主题→浏览器返回→scrollY=72（期望 800），dev/prod、baseline/intercept 一致；实验首版测得「三模式全 0」曾系实验页不足视口高（max scroll=0）的测量缺陷，加高后真实页复核实锤。intercept 不改变该行为（与 baseline 同坏同好） | 真实页 /f/109→/t→back 实测（prod 3411） |
+
+**Step 0 决策落点**：① 图片显影按豁免规则实现（Step 3）；② 主题切换 VT 接线已验证保留（Step 2 补 E2E 与 next-themes `disableTransitionOnChange` 共存核对——实验中未见冲突）；③ 返回键采用 intercept 路线（Step 2 落地：nav-kind-capture 扩展为可拦截遍历并驱动状态级 VT，支持 Navigation API 的浏览器生效、其余优雅回退）；④ **Step 2 增补范围：根因修复返回滚动恢复**（全站级既有缺陷，优先级高于动画本身）。实验页 `src/app/m16-lab/` 已删除（无 spec 引用，无残留）。
