@@ -184,3 +184,53 @@ test("门控 reveal：解锁后内容淡入一次（fw-fade-in），直接访问
   await expect(page.locator('[data-gate-state="open"]').getByText(FREE_TEXT)).toBeVisible();
   expect(await page.locator("div.fw-fade-in:has([data-gate-state='open'])").count()).toBe(0);
 });
+
+test("门控 reveal 失败路径：解锁失败留下 stale 标记不播动画，下次成功才淡入一次（M16.1）", async ({
+  page,
+  context,
+}) => {
+  await loginAs(context, USERS.team);
+  const setPrice = (price: number) =>
+    withE2eDb(async (q) => {
+      await q.exec("UPDATE post_gates SET conditions = ? WHERE id = ?", [
+        JSON.stringify([{ type: "points", price }]),
+        GATE_THREAD,
+      ]);
+    });
+  // 前一个用例已解锁过：先清掉解锁记录并回到免费起点
+  await withE2eDb(async (q) => {
+    await q.exec("DELETE FROM gate_unlocks WHERE gate_id = ?", [GATE_THREAD]);
+  });
+  await setPrice(0);
+  await page.goto(`/t/${GATE_THREAD}`);
+  await expect(lockStates(page).filter({ hasText: "免费解锁" })).toBeVisible();
+
+  // ① 解锁失败：按钮按「渲染时的余额/价格」判定可点，点击后服务端才发现条件已变
+  //    （真实场景：并发扣分、价格调整、限流）。用改价模拟，而不是 abort 请求——
+  //    abort 会打断 Next 的 Server Action 机制，整块内容都渲染不出来，测的就不是失败态了。
+  await setPrice(999_999);
+  await lockStates(page).getByRole("button", { name: "免费解锁" }).click();
+  await page.waitForTimeout(1200);
+  // 内容仍是 locked：不渲染 GateReveal，因此没有任何淡入
+  await expect(page.locator('[data-gate-state="open"]')).toHaveCount(0);
+  expect(await page.locator("div.fw-fade-in:has([data-gate-state='open'])").count()).toBe(0);
+  // stale 标记留在会话里（按设计无害：记账到下一次成功）
+  expect(
+    await page.evaluate((id) => window.sessionStorage.getItem(`fw-gate-reveal:${id}`), GATE_THREAD),
+  ).toBe("1");
+
+  // ② 条件恢复后再次解锁成功：此时才消费 stale 标记并淡入一次
+  await setPrice(0);
+  await page.reload();
+  await lockStates(page).getByRole("button", { name: "免费解锁" }).click();
+  await expect(page.locator('[data-gate-state="open"]').getByText(FREE_TEXT)).toBeVisible();
+  await expect(page.locator("div.fw-fade-in:has([data-gate-state='open'])")).toHaveCount(1);
+  expect(
+    await page.evaluate((id) => window.sessionStorage.getItem(`fw-gate-reveal:${id}`), GATE_THREAD),
+  ).toBeNull();
+
+  // ③ 刷新不重播
+  await page.reload();
+  await expect(page.locator('[data-gate-state="open"]').getByText(FREE_TEXT)).toBeVisible();
+  expect(await page.locator("div.fw-fade-in:has([data-gate-state='open'])").count()).toBe(0);
+});

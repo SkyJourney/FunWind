@@ -134,3 +134,78 @@ test("回到顶部：滚动超过一屏出现，点击回顶且按钮隐藏（Re
   await page.waitForTimeout(300);
   expect(await top.evaluate((el) => getComputedStyle(el).display), "移动端恒不显示").toBe("none");
 });
+
+/**
+ * reduce 降级（M16.1 Step 4 补齐 M16 残值）：BackToTop 与 SmoothAnchors 的 reduce 是
+ * **点击时的 JS 参数分支**（behavior auto / 不挂高亮类），不是 CSS 动画名——
+ * 不能套 reduce-overlays 的 animationName 断言，改用滚动探针记录真实入参。
+ * 只记录对象形式的调用：NavKindCapture 的恢复循环用的是位置参数 scrollTo(0, y)，不干扰。
+ */
+const scrollProbe = `
+  window.__scrollCalls = [];
+  const origTo = window.scrollTo.bind(window);
+  window.scrollTo = (...args) => {
+    if (args[0] && typeof args[0] === "object")
+      window.__scrollCalls.push({ kind: "scrollTo", behavior: args[0].behavior ?? null });
+    return origTo(...args);
+  };
+  const origInto = Element.prototype.scrollIntoView;
+  Element.prototype.scrollIntoView = function (arg) {
+    if (arg && typeof arg === "object")
+      window.__scrollCalls.push({ kind: "scrollIntoView", behavior: arg.behavior ?? null });
+    return origInto.call(this, arg);
+  };
+`;
+
+test("reduce 降级：回顶与锚点都瞬时跳转，锚点不挂高亮类；关掉 reduce 立即恢复平滑", async ({
+  page,
+}) => {
+  await page.addInitScript(scrollProbe);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto(`/t/${TALL_THREAD}`);
+  await page.waitForTimeout(1500);
+
+  // ① reduce 下的锚点点击：behavior auto + 不挂 fw-floor-hl-on
+  const replyLink = page.locator("main a[href^='#p']").first();
+  await replyLink.scrollIntoViewIfNeeded();
+  const href = (await replyLink.getAttribute("href"))!;
+  await page.evaluate(() => (window.__scrollCalls = []));
+  await replyLink.click();
+  await page.waitForTimeout(500);
+  const anchorCalls = await page.evaluate(
+    () => window.__scrollCalls as { kind: string; behavior: string | null }[],
+  );
+  expect(
+    anchorCalls.filter((c) => c.kind === "scrollIntoView").every((c) => c.behavior === "auto"),
+    "reduce 下锚点瞬时跳转",
+  ).toBe(true);
+  expect(anchorCalls.some((c) => c.kind === "scrollIntoView")).toBe(true);
+  expect(await page.locator(href).evaluate((el) => el.classList.contains("fw-floor-hl-on"))).toBe(
+    false,
+  );
+  // 导航语义不受 reduce 影响：hash 照常写
+  expect(new URL(page.url()).hash).toBe(href);
+
+  // ② reduce 下的回顶：behavior auto
+  await page.evaluate(() => window.scrollTo(0, 1200));
+  await page.waitForTimeout(400);
+  await page.evaluate(() => (window.__scrollCalls = []));
+  await page.locator('button[aria-label="回到顶部"]').click();
+  await page.waitForTimeout(600);
+  const topCalls = await page.evaluate(
+    () => window.__scrollCalls as { kind: string; behavior: string | null }[],
+  );
+  expect(topCalls).toContainEqual({ kind: "scrollTo", behavior: "auto" });
+  expect(await page.evaluate(() => window.scrollY)).toBeLessThan(60);
+
+  // ③ 会话中途关掉 reduce：同一按钮立即恢复平滑（偏好实时读取，不是挂载时固化）
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.evaluate(() => window.scrollTo(0, 1200));
+  await page.waitForTimeout(400);
+  await page.evaluate(() => (window.__scrollCalls = []));
+  await page.locator('button[aria-label="回到顶部"]').click();
+  await page.waitForTimeout(300);
+  expect(
+    await page.evaluate(() => window.__scrollCalls as { kind: string; behavior: string | null }[]),
+  ).toContainEqual({ kind: "scrollTo", behavior: "smooth" });
+});
