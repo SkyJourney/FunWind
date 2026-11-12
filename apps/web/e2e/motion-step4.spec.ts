@@ -3,7 +3,7 @@ import { withE2eDb } from "./support/db";
 import { USERS } from "./support/session";
 
 /**
- * M16 Step 4 覆盖补齐 E2E（docs/milestones/M16-motion-coverage.md §9）：
+ * M16 Step 4 覆盖补齐 E2E（docs/milestones/M16-motion-coverage.md §10）：
  * - 楼层进场：首屏 10 层 MotionList 错落（fw-enter，animationDelay 递增且不被覆盖），
  *   深层楼层滚入前挂起隐藏（opacity-0）、滚入淡入（FloorReveal 单向显影）；
  * - 锚点：点击「回复 #N」平滑滚到目标楼层并挂 JS 高亮类（pushState 不激活 :target）；

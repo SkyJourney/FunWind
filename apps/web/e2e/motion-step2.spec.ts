@@ -3,7 +3,7 @@ import { withE2eDb } from "./support/db";
 import { loginAs, USERS } from "./support/session";
 
 /**
- * M16 Step 2 高感知场景（docs/milestones/M16-motion-coverage.md §6）：
+ * M16 Step 2 高感知场景（docs/milestones/M16-motion-coverage.md §8）：
  * - 返回滚动恢复（Step 0 实证的全站级缺陷修复）+ 返回键状态级 VT + 前进键；
  * - 用户中途滚动让位（恢复循环尊重用户新意图）；
  * - 主题切换状态级 VT（交叉溶解 / reduce 降级）；

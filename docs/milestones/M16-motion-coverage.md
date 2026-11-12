@@ -1,7 +1,7 @@
-# M16 · 动效补全与全站审计（执行版）
+# M16 · 动效补全与全站审计（已收口）
 
 - 阶段：四·运营与演进 ｜ 依赖：M15（已收口上线公测）｜ 设计基准：[motion-spec](../motion-spec.md)、[M10.5-S4](../M10.5-S4-VISUAL-MOTION.md)
-- 状态：🚧 执行中（2026-11-12 立项：站长提议「M15 后全面审视当前项目所有动效并补足缺失场景」，8 项候选与探查新发现全部纳入；前置探查定稿 F1–F15，**推进线与 D1–D5 已经计划模式批准**，分支 `feat/m16-motion-coverage`；Step 0 尚未开始，未合并 main、未部署生产）
+- 状态：✅ 已收口（2026-11-12 立项 → 同日完成 Step A/0/1/2/3/4/4.5/5 全流程；PR #14 CI 双作业绿合并 main（`f5a8592`），生产部署公测（镜像 `funwind-web:20261112-f5a8592`，回滚点 `funwind-web:20261112`），两路独立审查 P0×1+P1×8 全清（报告见 [docs/reviews/2026-11-12-m16-code-review.md](../reviews/2026-11-12-m16-code-review.md)）；执行记录见 §6–§12）
 - 上线口径：延续 M15 D4（本地灰度 + 门禁全绿即发布线上公测）
 
 ## 目标
@@ -13,6 +13,8 @@
 5. **返回键动画可行性实验**：实验先行，验证不过则维持诚实跳过（不伪装）。
 
 ## 1. 已核实事实（2026-11-12 两路只读探查 + 自查，全部 file:line 佐证）
+
+> **时点说明**：本表是**实施前**的现状快照（F1–F15），记录的是「立项当时缺什么」——表内行号与状态均为探查时点值。实施结果见 §7–§12（如 F6「弹层 reduce 硬缺口」、F11「无回顶按钮 / 锚点瞬跳」、F8「主题切换瞬跳」等均已在 Step 1/2/4 落地）。读当前状态请以 §12 与 motion-spec §6.3 为准。
 
 | #   | 事实                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | 对 M16 的影响                                                                |
 | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
@@ -85,7 +87,22 @@
 
 **Step 0 决策落点**：① 图片显影按豁免规则实现（Step 3）；② 主题切换 VT 接线已验证保留（Step 2 补 E2E 与 next-themes `disableTransitionOnChange` 共存核对——实验中未见冲突）；③ 返回键采用 intercept 路线（Step 2 落地：nav-kind-capture 扩展为可拦截遍历并驱动状态级 VT，支持 Navigation API 的浏览器生效、其余优雅回退）；④ **Step 2 增补范围：根因修复返回滚动恢复**（全站级既有缺陷，优先级高于动画本身）。实验页 `src/app/m16-lab/` 已删除（无 spec 引用，无残留）。
 
-## 7. Step 2 高感知场景（2026-11-12）
+## 7. Step 1 无障碍兜底（2026-11-12）
+
+- **弹层 reduce 全局兜底**（globals.css）：tw-animate-css 自身不提供 reduce 规则，Dialog / Sheet /
+  DropdownMenu / Popover / Tooltip 的 animate-in / animate-out 在 reduce 下照播——**不换库、不改第三方
+  dist**，改为一条全局规则归零：`[class*="animate-in"], [class*="animate-out"] { animation: none !important }`。
+  **子串匹配**是关键（教训：裸 `.animate-in` 漏掉 `data-[state=open]:animate-in` 变体形态）；sonner 自带
+  reduce 全禁、Lightbox 由库管理，两者不使用 tw-animate 类，不在兜底面内。
+- **HoverCard 进出场**（content/user-hover-card.tsx）：此前只有出现无退场，补 animate-in /
+  `data-[state=closed]:animate-out` + fade-in-0/fade-out-0（对齐 popover 的 fade 口径与时长令牌）。
+- **守卫**（motion-bare-write-guard.test.ts）：新增断言钉住 reduce 块须含 animate-in/out 兜底且**真归零**
+  （`animation: none !important`）——防回归（Step 4.5 又扩展到 animate-pulse 归零）。
+- **测试**：新增 e2e/reduce-overlays.spec.ts 4 例（主题下拉 × 正常/reduce、用户悬浮名片 × 正常/reduce）：
+  reduce 下断言 computed animationName 为 none、正常下为 tw-animate 的 enter。
+- **门禁**：`pnpm verify:all` 退出 0；E2E reduce 断言 4 例全过；visual 10 项基线零更新。
+
+## 8. Step 2 高感知场景（2026-11-12）
 
 - **返回滚动恢复（全站级缺陷修复，本步最重交付）**：根因三层叠加——① Chrome 对软导航 history API 调用
   会丢弃条目滚动存档；② Next 的 ScrollHandler 每次 commit 都会滚顶（流式页面分次 commit、滚顶多次晚到）；
@@ -113,7 +130,7 @@
 - **边界**：横幅关闭的折叠过渡 150ms+220ms 卸载，既有 E2E 无横幅断言（人工目视随 Step 4.5 验收）；
   返回滚动恢复的用户让位窗口 4s 内用户滚动生效，4s 后无对抗（用户此后自由滚动）；Step 3 图片显影未开始。
 
-## 8. Step 3 图片显影体系（2026-11-12）
+## 9. Step 3 图片显影体系（2026-11-12）
 
 - **共享组件 `FadeImage`（ui/fade-image.tsx，客户端原子）**：bg-muted 占位底色 + 加载完成前
   opacity-0 + onLoad 后挂 fw-fade-in 淡入一次；状态机 hidden→fading→（CSS 收尾）。
@@ -139,7 +156,7 @@
   Step 4 范围）；emoji 面板小图未接（装饰性、可见性无碍）；ContentImageFade 只在挂载时
   扫描一轮——后续 JS 动态插入的正文图（当前不存在）不处理。
 
-## 9. Step 4 覆盖补齐（2026-11-12）
+## 10. Step 4 覆盖补齐（2026-11-12）
 
 - **进场编排 7 类**：/t 楼层（MotionList 首 10 错落 + FloorReveal 深层滚入）、/search 结果、/a 归档、
   /me 我的主帖、/submit 可发帖列表、/boards 板块卡网格、chat-history 上滑加载追加淡入
@@ -171,13 +188,13 @@
 - **边界**：看板柱条生长动画、pref-toggles 私信 chips（已有 transition）、avatar-uploader/attachment
   上传过程进度反馈不在本步；楼层 Card 无 hover（不可点元素不加悬停反馈，与探查建议一致）。
 
-## 10. Step 4.5 收口前独立审查与整改（2026-11-12）
+## 11. Step 4.5 收口前独立审查与整改（2026-11-12）
 
 两路代理并审（安全架构路 + 规范文档路），全文见
 [docs/reviews/2026-11-12-m16-code-review.md](../reviews/2026-11-12-m16-code-review.md)。
 **P0×1 + P1×8 全部整改复验，P2 整改 6 项、在案 5 项。** 要点：
 
-- **P0-1 FloorReveal 重写**（ui/floor-reveal.tsx）：三态 direct/pending→fade（§9 记录已同步
+- **P0-1 FloorReveal 重写**（ui/floor-reveal.tsx）：三态 direct/pending→fade（§10 记录已同步
   修正）——SSR/首帧直出不推迟 LCP；IO 首回调分类（setState 全在订阅回调内），折叠线楼层
   直出防「闪现→消失」，视口外 pending 挂起，滚入触发区单向 fade；direct 不挂 fw-fade-in，
   与 fw-enter 无声明序竞争；E2E 收紧（滚入前 opacity-0 断言 + 错落 animationName 钉住）。
@@ -200,14 +217,8 @@
   定向 **74 例全过**（既有动效零删减）；visual 10 项**基线零更新**；**LCP** 生产构建四页
   84 / 140 / 208 / 76ms 全部达标。
 
-## 遗留事项
 
-- P2 在案（不阻断收口）：BackToTop/SmoothAnchors 的 reduce 降级 E2E（纯参数分支，组件单测
-  已覆盖）；ContentImageFade 全页扫描/SSR 图 lazy 优化（等真实长图场景）；reveal 失败路径
-  E2E 显式用例；CLAUDE.md 的 M16 口径注入（Step 5 收口节奏）。
-- 站长交互目视验收（Step 5 前置）：共享段/楼层滚入/锚点高亮/回顶/主题切换/横幅/reduce 双口径。
-
-## 11. Step 5 收口与生产部署（2026-11-12）
+## 12. Step 5 收口与生产部署（2026-11-12）
 
 - **收口前置优化（站长拍板）**：`verify:all` 的 build 步骤以 `NEXT_DIST_DIR=.next-verify` 运行——生产构建不再覆盖
   本机 dev 正在使用的 `.next`（当日实证过一次撞库：dev 报错，重启 + 清产物恢复）；eslint ignores 与 .gitignore 同步；
@@ -223,3 +234,10 @@
   **生产 LCP 公网实测（含 RTT）**：首页 1156 / 版块 608 / 帖子 1004 / 搜索 600ms，全部远低于 2.5s 预算。
 - **站长目视验收**：六项清单（共享段过渡/楼层滚入/锚点高亮与返回位置/回顶/主题交叉溶解/reduce 双口径）通过后执行
   本步（2026-11-12「基本没啥问题，可以进入step5」）。
+
+## 13. 遗留事项
+
+- P2 在案（不阻断收口）：BackToTop/SmoothAnchors 的 reduce 降级 E2E（纯参数分支，组件单测
+  已覆盖）；ContentImageFade 全页扫描/SSR 图 lazy 优化（等真实长图场景）；reveal 失败路径
+  E2E 显式用例；CLAUDE.md 的 M16 口径注入（Step 5 收口节奏）。
+- 站长交互目视验收（Step 5 前置）：共享段/楼层滚入/锚点高亮/回顶/主题切换/横幅/reduce 双口径。

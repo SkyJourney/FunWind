@@ -17,7 +17,7 @@
   ops 管线安静；**生产 LCP 公网实测（含 RTT）**：首页 1156 / 版块 608 / 帖子 1004 / 搜索 600ms，全部远低于 2.5s。
 - **收口前置优化（站长拍板）**：`verify:all` 的 build 步骤隔离产物目录 `.next-verify`（不再覆盖本机 dev 的
   `.next`）；vitest `testTimeout` 对齐 `hookTimeout`（30s）——CI 2 核 runner 上全库扫描型守卫随机撞默认 5s。
-  M16 至此收口：Step A–4.5 交付、实验与整改见 [M16 执行记录](docs/milestones/M16-motion-coverage.md) §6–§10。
+  M16 至此收口：Step A–4.5 交付、实验与整改见 [M16 执行记录](docs/milestones/M16-motion-coverage.md) §6–§13。
 
 ### Added（M15 · Step 5 收口与生产部署，2026-11-12）
 
