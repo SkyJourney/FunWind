@@ -95,11 +95,11 @@ D5 引入的 `animate-pulse`（tailwind 内置无限脉冲）不属于弹层，a
 | P2-4 | sessionStorage 每滚动帧同步写 | ✅ scroll-record 800ms 节流 + pagehide/转后台强制刷盘 |
 | P2-5 | keydown 让位误伤输入法组合键 | ✅ isComposing 守卫 |
 | P2-6 | Avatar 注释「弹层兜底」表述反向依赖不清 | ✅ 注释更正（非弹层但属预期覆盖面） |
-| P2-7 | G-16 缺口：BackToTop/SmoothAnchors reduce 降级无 E2E | 📋 记录：两者 reduce 行为均为纯参数分支（behavior auto / 不挂类），组件单测覆盖 reduce 分支，E2E 收益低，留待有真实回归时补 |
+| P2-7 | G-16 缺口：BackToTop/SmoothAnchors reduce 降级无 E2E | 📋 记录：两者 reduce 行为均为点击时的 JS 参数分支（behavior auto / 不挂高亮类）。**更正（2026-11-12 扫尾专项前置探查）**：本报告初版称「组件单测覆盖 reduce 分支」失实——`back-to-top.test.*` / `smooth-anchors.test.*` 均不存在，单测与 E2E 双缺；转入扫尾专项补齐 |
 | P2-8 | ContentImageFade 全页扫描 + SSR 图 loading=lazy 可能无效 | 📋 记录：每页仅挂载时扫描一轮、幂等标记防重入，实测无性能问题；带宽问题等真实正文长图场景出现再优化 |
 | P2-9 | spec 注释/文档微调（m16dbg 措辞等） | ✅ 随调试残留一并清理 |
 | P2-10 | CLAUDE.md 尚无 M16 条目 | 📋 按 Step 5 收口节奏注入 |
-| P2-11 | reveal 失败路径（stale 标记→再解锁）无显式用例 | 📋 记录：失败路径已有单测，E2E 显式用例留待需要时 |
+| P2-11 | reveal 失败路径（stale 标记→再解锁）无显式用例 | 📋 记录：行为本身按设计无害（stale 标记记账到下次成功）。**更正（2026-11-12 扫尾专项前置探查）**：本报告初版称「失败路径已有单测」失实——`gate-reveal` 无任何单测，E2E 也只覆盖成功路径；转入扫尾专项补齐 |
 
 **调试残留清理（安全路 P1-3 并入）**：`[m16dbg]` console.log（motion-step2:118、motion-step4:86）
 与配套 `__y` 时序探针、motion-step4 `lockStates` 死代码全部移除。

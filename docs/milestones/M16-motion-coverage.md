@@ -237,7 +237,23 @@
 
 ## 13. 遗留事项
 
-- P2 在案（不阻断收口）：BackToTop/SmoothAnchors 的 reduce 降级 E2E（纯参数分支，组件单测
-  已覆盖）；ContentImageFade 全页扫描/SSR 图 lazy 优化（等真实长图场景）；reveal 失败路径
-  E2E 显式用例；CLAUDE.md 的 M16 口径注入（Step 5 收口节奏）。
-- 站长交互目视验收（Step 5 前置）：共享段/楼层滚入/锚点高亮/回顶/主题切换/横幅/reduce 双口径。
+> **2026-11-12 扫尾专项前置探查更正**：本节初版有两处失实陈述与两条已完成项，据实修正如下。
+
+**仍是缺口（转扫尾专项）**：
+
+- BackToTop / SmoothAnchors 的 reduce 降级：**单测与 E2E 双缺**（初版称「组件单测已覆盖」失实——
+  `back-to-top.test.*` / `smooth-anchors.test.*` 均不存在）。两者 reduce 是点击时的 JS 参数分支
+  （behavior auto / 不挂 `fw-floor-hl-on`），不能套用弹层的 animationName 断言，需 emulateMedia +
+  行为断言或 scrollTo/scrollIntoView 探针。
+- GateReveal 失败路径：**无单测、E2E 只覆盖成功路径**（初版称「失败路径已有单测」失实）。
+  行为本身按设计无害：解锁失败 → 内容仍 locked → GateReveal 不渲染 → stale 标记留在 sessionStorage，
+  下次成功时消费并淡入一次（把动画记账到下一次成功）。
+- ContentImageFade：**无任何测试**；全页 `.content-md` 扫描 + 仅挂载扫一轮（无 MutationObserver）；
+  `sanitize.ts` 在 SSR 期已给所有白名单 img 设 `loading="lazy"`，组件 effect 期再设属冗余
+  （对已开始加载的请求无取消作用），真实增量是淡入类与 load/error 显影监听。优化按设计挂起
+  （等真实长图场景），但测试缺失应补。
+
+**已完成（初版误列为待办）**：
+
+- CLAUDE.md 的 M16 口径注入：已于 Step 5 完成（CLAUDE.md 当前阶段段 / 动效管线小节 / M16 增补资产明细）。
+- 站长交互目视验收：已于 Step 5 前通过（见 §12），不再是待办。
