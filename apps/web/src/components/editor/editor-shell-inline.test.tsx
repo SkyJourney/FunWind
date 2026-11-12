@@ -6,6 +6,7 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { stubUploadXhr, uploadOkBody } from "@/test/upload-xhr-double";
 import { EditorShell } from "./editor-shell";
 
 const H = "a".repeat(64);
@@ -21,25 +22,13 @@ const attachRows = () => screen.queryAllByTestId("attachment-row");
 
 afterEach(() => vi.unstubAllGlobals());
 
-const okUpload = () =>
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(
-      async () =>
-        new Response(
-          JSON.stringify({
-            fileId: 1,
-            storageKey: KEY,
-            url: URL_,
-            mime: "image/png",
-            width: 1,
-            height: 1,
-            sizeBytes: 4,
-          }),
-          { status: 200 },
-        ),
-    ),
+const okUpload = () => {
+  const xhr = stubUploadXhr();
+  xhr.autoRespond(
+    200,
+    uploadOkBody({ fileId: 1, storageKey: KEY, url: URL_, width: 1, height: 1, sizeBytes: 4 }),
   );
+};
 
 function mount(
   initial = "",

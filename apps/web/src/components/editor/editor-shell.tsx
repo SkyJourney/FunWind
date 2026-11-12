@@ -25,6 +25,7 @@ import { CropDialog } from "@/components/upload/crop-dialog";
 import type { Box } from "@/components/upload/crop-math";
 import { ImagePicker, imageFileFromClipboard } from "@/components/upload/image-picker";
 import { uploadFile } from "@/components/upload/upload-client";
+import { UploadProgress, useUploadProgress } from "@/components/upload/upload-progress";
 
 /**
  * 编辑器外壳（M6.3 第 2、4、5 步）：组合所见即所得、源码模式、预览与草稿，并通过一个隐藏字段把结果交给表单。
@@ -159,6 +160,12 @@ export function EditorShell({
   const [imagePending, setImagePending] = useState(0);
   const [attachPending, setAttachPending] = useState(0);
   const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+  // 正文插图的上行进度（M16.1 Step 1）：与附件面板同款呈现
+  const {
+    progress: imageProgress,
+    onProgress: onImageProgress,
+    resetProgress: resetImageProgress,
+  } = useUploadProgress();
   const [cropFile, setCropFile] = useState<File | null>(null);
   const richApi = useRef<InsertApi | null>(null);
   const sourceApi = useRef<InsertApi | null>(null);
@@ -284,13 +291,21 @@ export function EditorShell({
     if (forumId === undefined) return;
     setImagePending((n) => n + 1);
     setUploadNotice(preNotice);
+    resetImageProgress();
     try {
-      const r = await uploadFile({ file, purpose: "inline", forumId, crop });
+      const r = await uploadFile({
+        file,
+        purpose: "inline",
+        forumId,
+        crop,
+        onProgress: onImageProgress,
+      });
       insertImage(r.url);
     } catch (e) {
       setUploadNotice(e instanceof Error ? e.message : "上传失败，请稍后重试。");
     } finally {
       setImagePending((n) => n - 1);
+      resetImageProgress();
     }
   };
 
@@ -414,6 +429,11 @@ export function EditorShell({
             onWantCropChange={setWantCrop}
             hideControls={mode === "rich"}
           />
+          {imagePending > 0 && imageProgress && (
+            <div className="max-w-xs">
+              <UploadProgress value={imageProgress} label="图片上传" />
+            </div>
+          )}
           {uploadNotice && (
             <p role="alert" className="text-sm text-destructive">
               {uploadNotice}

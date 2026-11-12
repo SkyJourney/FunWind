@@ -6,6 +6,7 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { stubUploadXhr, uploadOkBody } from "@/test/upload-xhr-double";
 import { EditorShell } from "./editor-shell";
 
 const hidden = (c: HTMLElement) => c.querySelector<HTMLInputElement>('input[name="source"]')!;
@@ -28,25 +29,20 @@ function mount(initial = "") {
   );
 }
 
-const okUpload = () =>
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(
-      async () =>
-        new Response(
-          JSON.stringify({
-            fileId: 1,
-            storageKey: "ab/cd/x.png",
-            url: "/files/ab/cd/x.png",
-            mime: "image/png",
-            width: 1,
-            height: 1,
-            sizeBytes: 4,
-          }),
-          { status: 200 },
-        ),
-    ),
+const okUpload = () => {
+  const xhr = stubUploadXhr();
+  xhr.autoRespond(
+    200,
+    uploadOkBody({
+      fileId: 1,
+      storageKey: "ab/cd/x.png",
+      url: "/files/ab/cd/x.png",
+      width: 1,
+      height: 1,
+      sizeBytes: 4,
+    }),
   );
+};
 
 describe("EditorShell：插入图片", () => {
   it("富文本模式：上传后图片进入正文（Markdown 图片语法）", async () => {
@@ -73,10 +69,8 @@ describe("EditorShell：插入图片", () => {
   });
 
   it("上传失败：给出原因，正文保持不变", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response(JSON.stringify({ error: "type_mismatch" }), { status: 415 })),
-    );
+    const xhr = stubUploadXhr();
+    xhr.autoRespond(415, JSON.stringify({ error: "type_mismatch" }));
     const user = userEvent.setup();
     const { container } = mount("原文");
     await screen.findByRole("toolbar", { name: "编辑工具栏" });

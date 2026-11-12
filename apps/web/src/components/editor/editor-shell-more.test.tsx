@@ -6,6 +6,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { stubUploadXhr, uploadOkBody } from "@/test/upload-xhr-double";
 import { EditorShell } from "./editor-shell";
 
 vi.mock("@/components/upload/crop-dialog", () => ({
@@ -38,21 +39,17 @@ const gif = new File([new Uint8Array([71, 73, 70])], "动.gif", { type: "image/g
 
 afterEach(() => vi.unstubAllGlobals());
 
+// 上传走 XHR（M16.1 Step 1）：reply 返回响应体字符串，交给替身回应
 const reply = (url = "/files/ab/cd/z.png") =>
-  new Response(
-    JSON.stringify({
-      fileId: 1,
-      storageKey: "ab/cd/z.png",
-      url,
-      mime: "image/png",
-      width: 40,
-      height: 40,
-      sizeBytes: 4,
-    }),
-    {
-      status: 200,
-    },
-  );
+  uploadOkBody({
+    fileId: 1,
+    storageKey: "ab/cd/z.png",
+    url,
+    mime: "image/png",
+    width: 40,
+    height: 40,
+    sizeBytes: 4,
+  });
 
 function mount(extra: { form?: boolean } = {}) {
   const shell = (
@@ -79,8 +76,8 @@ function mount(extra: { form?: boolean } = {}) {
 
 describe("EditorShell：裁剪与 GIF", () => {
   it("勾选裁剪并选择 PNG：打开裁剪；确认后带着裁剪框上传并插入", async () => {
-    const fetchMock = vi.fn(async () => reply());
-    vi.stubGlobal("fetch", fetchMock);
+    const xhr = stubUploadXhr();
+    xhr.autoRespond(200, reply());
     const user = userEvent.setup();
     const { container } = mount();
     await screen.findByRole("toolbar", { name: "编辑工具栏" });
@@ -88,40 +85,40 @@ describe("EditorShell：裁剪与 GIF", () => {
     await user.upload(imageInput(), png);
     await user.click(await screen.findByRole("button", { name: "确认裁剪" }));
     await waitFor(() => expect(hidden(container).value).toContain("/files/ab/cd/z.png"));
-    const body = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as FormData;
+    const body = xhr.calls[0]!.body;
     expect(JSON.parse(body.get("crop") as string)).toEqual({ x: 1, y: 2, width: 40, height: 40 });
   });
 
   it("取消裁剪：不上传，正文不变", async () => {
-    const fetchMock = vi.fn(async () => reply());
-    vi.stubGlobal("fetch", fetchMock);
+    const xhr = stubUploadXhr();
+    xhr.autoRespond(200, reply());
     const user = userEvent.setup();
     const { container } = mount();
     await screen.findByRole("toolbar", { name: "编辑工具栏" });
     await user.click(screen.getByRole("button", { name: "裁剪后插入" }));
     await user.upload(imageInput(), png);
     await user.click(await screen.findByRole("button", { name: "取消裁剪" }));
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(xhr.calls).toHaveLength(0);
     expect(hidden(container).value).toBe("");
   });
 
   it("GIF 不裁剪：直接上传插入，并提示原因", async () => {
-    const fetchMock = vi.fn(async () => reply("/files/ab/cd/g.gif"));
-    vi.stubGlobal("fetch", fetchMock);
+    const xhr = stubUploadXhr();
+    xhr.autoRespond(200, reply("/files/ab/cd/g.gif"));
     const user = userEvent.setup();
     mount();
     await screen.findByRole("toolbar", { name: "编辑工具栏" });
     await user.click(screen.getByRole("button", { name: "裁剪后插入" }));
     await user.upload(imageInput(), gif);
     expect(await screen.findByText("GIF 不支持裁剪，已直接插入。")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(xhr.calls).toHaveLength(1);
   });
 });
 
 describe("EditorShell：粘贴与提交状态", () => {
   it("粘贴截图：拦截并上传插入；纯文本粘贴不受影响", async () => {
-    const fetchMock = vi.fn(async () => reply());
-    vi.stubGlobal("fetch", fetchMock);
+    const xhr = stubUploadXhr();
+    xhr.autoRespond(200, reply());
     const { container } = mount();
     await screen.findByRole("toolbar", { name: "编辑工具栏" });
     const root = container.firstChild as HTMLElement;
@@ -129,34 +126,28 @@ describe("EditorShell：粘贴与提交状态", () => {
       clipboardData: { items: [{ kind: "file", type: "image/png", getAsFile: () => png }] },
     });
     await waitFor(() => expect(hidden(container).value).toContain("/files/ab/cd/z.png"));
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(xhr.calls).toHaveLength(1);
     fireEvent.paste(root, {
       clipboardData: { items: [{ kind: "string", type: "text/plain", getAsFile: () => null }] },
     });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(xhr.calls).toHaveLength(1);
   });
 
   it("上传进行中禁用提交按钮，完成后恢复", async () => {
-    let finish!: (r: Response) => void;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() => new Promise<Response>((r) => (finish = r))),
-    );
+    const xhr = stubUploadXhr(); // 不自动响应：停在上传中
     const user = userEvent.setup();
     mount({ form: true });
     await screen.findByRole("toolbar", { name: "编辑工具栏" });
     const submit = screen.getByRole("button", { name: "发布" });
     await user.upload(imageInput(), png);
     await waitFor(() => expect(submit).toBeDisabled());
-    await act(async () => finish(reply()));
+    await act(async () => xhr.calls[0]!.respond(200, reply()));
     await waitFor(() => expect(submit).toBeEnabled());
   });
 
   it("输入法组合中：插入延后到 compositionend", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => reply()),
-    );
+    const xhr = stubUploadXhr();
+    xhr.autoRespond(200, reply());
     const user = userEvent.setup();
     const { container } = mount();
     await screen.findByRole("toolbar", { name: "编辑工具栏" });
