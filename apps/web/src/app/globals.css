@@ -246,6 +246,13 @@
   .fw-fade-in {
     animation: none;
   }
+  /* 弹层兜底（M16 Step 1，docs/motion-spec.md §6 第 5 条）：tw-animate-css 自身无 reduce 规则，
+     全部 in/out 弹层动画归零——内容直接呈现。子串匹配覆盖裸类与 data-[state] 变体两种形态。
+     sonner 自带 reduce 全禁、Lightbox 由库管理，两者都不使用 tw-animate 类，不受影响 */
+  [class*="animate-in"],
+  [class*="animate-out"] {
+    animation: none !important;
+  }
 }
 
 /* ===== 页面级过渡（M10.7 Step 4b）=====
