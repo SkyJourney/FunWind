@@ -214,7 +214,7 @@
   Next 重写 tsconfig 补 `.next-verify` 类型路径已入库。另：vitest `testTimeout` 对齐 `hookTimeout`（30s）——CI 2 核
   runner 上全库扫描型守卫（gate-wording-guard 5.3s / server-only-guard）随机撞默认 5s，连续两轮各红一个后统一放宽。
 - **PR #14**：CI 第一轮 verify 红（gate-wording 超时）→ 修；第二轮红（server-only-guard 超时）→ 上条根治；第三轮
-  **双作业绿（verify 9m11s / e2e 17m35s）** 合并 main（merge commit `f5a8592`，保留 M16 分步提交历史）。
+  **双作业绿（verify 9m11s / e2e 17m35s）** 合并 main（merge commit `f5a8592`，保留 M16 分步提交历史）；收尾文档推送后 main 留档 run `43193288025` success。
 - **生产部署（仅 web）**：本机 `docker build --platform linux/amd64` → save/load → inspect 核对 amd64 → tag
   `funwind-web:20261112-f5a8592`（**同日 tag 已被 M15 占用**，追加 merge commit 短哈希防覆盖回滚点）→ compose up。
   无 schema 迁移、ops 管线未触碰。回滚点 `funwind-web:20261112`（M15，545040330cd0）。
