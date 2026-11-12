@@ -2,6 +2,7 @@
 
 import { EditorContent, useEditor } from "@tiptap/react";
 import { useEffect, type ReactNode } from "react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { editorExtensions } from "@/lib/editor/markdown/extensions";
 import type { InsertApi } from "./insert-api";
 import { EditorFrame } from "./editor-frame";
@@ -98,7 +99,11 @@ export function RichEditor({
   if (!editor)
     return (
       <EditorFrame bar={<div className="h-11" />} actions={actions}>
-        <div className="min-h-48" aria-busy="true" />
+        {/* 实例未就绪的占位用骨架脉冲（M16.1 Step 2，与源码模式 M16-D5 对称）：
+            此前是空白块，富文本首屏会先死白一下 */}
+        <div className="min-h-48" aria-busy="true">
+          <Skeleton className="size-full" />
+        </div>
       </EditorFrame>
     );
   return (

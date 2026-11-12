@@ -70,6 +70,44 @@ describe("预览", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: PREVIEW_LABEL })).toBeEnabled());
   });
 
+  it("首次预览等待期显示骨架；结果区淡入一次（M16.1 Step 2）", async () => {
+    let resolve!: (v: unknown) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise((r) => (resolve = r))),
+    );
+    mountShell();
+    await clickPreview();
+    // 等待期：预览区不再凭空出现，先给骨架
+    const pending = await screen.findByRole("region", { name: "预览生成中" });
+    expect(pending).toHaveAttribute("aria-busy", "true");
+    expect(pending.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
+    await act(async () => resolve({ ok: true, json: async () => ({ html: "<p>结果</p>" }) }));
+    const section = await screen.findByRole("region", { name: "预览" });
+    expect(section.className).toContain("fw-fade-in");
+    expect(screen.queryByRole("region", { name: "预览生成中" })).toBeNull();
+  });
+
+  it("再次预览：保留上一版内容，不闪回骨架（真内容不推迟）", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ html: "<p>第一版</p>" }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    mountShell();
+    await clickPreview();
+    await screen.findByRole("region", { name: "预览" });
+    let resolve!: (v: { ok: boolean; json: () => Promise<{ html: string }> }) => void;
+    fetchMock.mockImplementationOnce(() => new Promise((r) => (resolve = r)));
+    await clickPreview();
+    expect(screen.getByRole("region", { name: "预览" })).toHaveTextContent("第一版");
+    expect(screen.queryByRole("region", { name: "预览生成中" })).toBeNull();
+    await act(async () => resolve({ ok: true, json: async () => ({ html: "<p>第二版</p>" }) }));
+    await waitFor(() =>
+      expect(screen.getByRole("region", { name: "预览" })).toHaveTextContent("第二版"),
+    );
+  });
+
   it("服务端返回错误状态：显示可读提示，不展示预览区", async () => {
     vi.stubGlobal(
       "fetch",

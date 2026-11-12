@@ -210,6 +210,44 @@ describe("EditorShell：工具栏命令与边界", () => {
     expect(hidden(container).value).toContain(":::");
   });
 
+  it("插入锁定内容：新块挂高亮类作视觉确认；加载既有门控不挂（M16.1 Step 2）", async () => {
+    const { container, unmount } = render(
+      <EditorShell
+        name="source"
+        initialSource=""
+        draftKey={null}
+        restoreDraft={false}
+        label="正文"
+      />,
+    );
+    await screen.findByRole("toolbar", { name: "编辑工具栏" });
+    expect(container.querySelector(".fw-gate-hl-on")).toBeNull();
+    await act(async () => {
+      screen.getByRole("button", { name: "插入锁定内容" }).click();
+    });
+    const gate = await waitFor(() => {
+      const el = container.querySelector<HTMLElement>(".fw-gate");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(gate.classList.contains("fw-gate-hl-on")).toBe(true);
+    unmount();
+
+    // 既有门控（打开已含锁定内容的帖子）：只渲染，不该闪高亮
+    const reopened = render(
+      <EditorShell
+        name="source"
+        initialSource={':::gate{key="g1" unlock="points" price="10"}\n旧内容\n:::'}
+        draftKey={null}
+        restoreDraft={false}
+        label="正文"
+      />,
+    );
+    await screen.findByRole("toolbar", { name: "编辑工具栏" });
+    await waitFor(() => expect(reopened.container.querySelector(".fw-gate")).not.toBeNull());
+    expect(reopened.container.querySelector(".fw-gate-hl-on")).toBeNull();
+  });
+
   it("接近上限的超长正文能载入，并原样留在隐藏字段中（未编辑）", async () => {
     const long = "这是一段很长的正文。\n".repeat(2000);
     const { container } = render(

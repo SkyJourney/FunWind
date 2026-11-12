@@ -159,7 +159,12 @@ export function EditorShell({
   const [wantCrop, setWantCrop] = useState(false);
   const [imagePending, setImagePending] = useState(0);
   const [attachPending, setAttachPending] = useState(0);
-  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+  // 上传提示分两态（M16.1 Step 2）：此前 info 与 error 共用 role="alert" + 红字，
+  // 「GIF 不支持裁剪，已直接插入」这类成功说明被渲染成错误样式，读屏也会当错误播报
+  const [uploadNotice, setUploadNotice] = useState<{
+    kind: "info" | "error";
+    text: string;
+  } | null>(null);
   // 正文插图的上行进度（M16.1 Step 1）：与附件面板同款呈现
   const {
     progress: imageProgress,
@@ -290,7 +295,7 @@ export function EditorShell({
   const uploadImage = async (file: File, crop?: Box, preNotice: string | null = null) => {
     if (forumId === undefined) return;
     setImagePending((n) => n + 1);
-    setUploadNotice(preNotice);
+    setUploadNotice(preNotice === null ? null : { kind: "info", text: preNotice });
     resetImageProgress();
     try {
       const r = await uploadFile({
@@ -302,7 +307,10 @@ export function EditorShell({
       });
       insertImage(r.url);
     } catch (e) {
-      setUploadNotice(e instanceof Error ? e.message : "上传失败，请稍后重试。");
+      setUploadNotice({
+        kind: "error",
+        text: e instanceof Error ? e.message : "上传失败，请稍后重试。",
+      });
     } finally {
       setImagePending((n) => n - 1);
       resetImageProgress();
@@ -435,8 +443,13 @@ export function EditorShell({
             </div>
           )}
           {uploadNotice && (
-            <p role="alert" className="text-sm text-destructive">
-              {uploadNotice}
+            <p
+              role={uploadNotice.kind === "error" ? "alert" : "status"}
+              className={`text-sm ${
+                uploadNotice.kind === "error" ? "text-destructive" : "text-muted-foreground"
+              }`}
+            >
+              {uploadNotice.text}
             </p>
           )}
           <AttachmentPanel
@@ -465,8 +478,23 @@ export function EditorShell({
       />
 
       {previewError && <p className="text-sm text-destructive">{previewError}</p>}
+      {/* 首次预览的等待骨架（M16.1 Step 2）：此前 busy 期只有按钮文案，预览区凭空出现。
+          再次预览时保留上一版内容不换成骨架——真内容不推迟（M10.7 口径），也避免闪一下 */}
+      {previewBusy && previewHtml === null && (
+        <section
+          aria-label="预览生成中"
+          aria-busy="true"
+          className="space-y-2 rounded-lg border bg-muted/30 p-3"
+        >
+          <Skeleton className="h-3 w-48" />
+          <Skeleton className="h-20 w-full" />
+        </section>
+      )}
       {previewHtml !== null && (
-        <section aria-label="预览" className="space-y-2 rounded-lg border bg-muted/30 p-3">
+        <section
+          aria-label="预览"
+          className="fw-fade-in space-y-2 rounded-lg border bg-muted/30 p-3"
+        >
           <p className="text-xs text-muted-foreground">
             近似预览：锁定内容以占位显示，以发布后为准。
           </p>

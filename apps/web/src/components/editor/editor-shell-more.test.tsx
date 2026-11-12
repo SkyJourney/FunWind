@@ -110,8 +110,24 @@ describe("EditorShell：裁剪与 GIF", () => {
     await screen.findByRole("toolbar", { name: "编辑工具栏" });
     await user.click(screen.getByRole("button", { name: "裁剪后插入" }));
     await user.upload(imageInput(), gif);
-    expect(await screen.findByText("GIF 不支持裁剪，已直接插入。")).toBeInTheDocument();
+    // 语义拆分（M16.1 Step 2）：这是成功说明，必须是 status 而非 alert，也不该是错误红字
+    const notice = await screen.findByRole("status");
+    expect(notice).toHaveTextContent("GIF 不支持裁剪，已直接插入。");
+    expect(notice.className).not.toContain("text-destructive");
+    expect(screen.queryByRole("alert")).toBeNull();
     expect(xhr.calls).toHaveLength(1);
+  });
+
+  it("上传失败：提示是 alert 且用错误色（与成功说明区分，M16.1 Step 2）", async () => {
+    const xhr = stubUploadXhr();
+    xhr.autoRespond(415, JSON.stringify({ error: "type_mismatch" }));
+    const user = userEvent.setup();
+    mount();
+    await screen.findByRole("toolbar", { name: "编辑工具栏" });
+    await user.upload(imageInput(), png);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("文件内容与扩展名不一致，已拒绝。");
+    expect(alert.className).toContain("text-destructive");
   });
 });
 
