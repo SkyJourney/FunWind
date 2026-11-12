@@ -22,6 +22,7 @@ import { isFollowing } from "@/lib/interact/follows";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { getCurrentUser } from "@/lib/auth/session";
 import { fileUrl } from "@/lib/files";
+import { FadeImage } from "@/components/ui/fade-image";
 import { getProfile, getUserReplies, getUserThreads } from "@/lib/queries/users";
 
 export const dynamic = "force-dynamic";
@@ -92,13 +93,12 @@ export default async function ProfilePage({
       <Card>
         <CardContent className="flex items-start gap-4 pt-6">
           {profile.avatarKey ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
+            <FadeImage
               src={fileUrl(profile.avatarKey)}
               alt={profile.username}
               width={64}
               height={64}
-              className="rounded-xl border bg-muted object-cover"
+              className="rounded-xl border object-cover"
             />
           ) : (
             <Avatar className="size-16">

@@ -20,6 +20,8 @@ import { unreadPmTotal } from "@/lib/pm/queries";
 import { getProfile, getUserThreads } from "@/lib/queries/users";
 import { unreadSummary } from "@/lib/notifications/queries";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { FadeImage } from "@/components/ui/fade-image";
+import { MotionList } from "@/lib/motion";
 import { LogoutForm } from "@/components/auth/logout-form";
 import { ThreadRow } from "@/components/content/thread-row";
 
@@ -93,8 +95,7 @@ export default async function MePage() {
       {/* 身份行 */}
       <header className="flex items-center gap-4">
         {profile?.avatarKey ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <FadeImage
             src={fileUrl(profile.avatarKey)}
             alt=""
             width={56}
@@ -159,11 +160,13 @@ export default async function MePage() {
         </p>
       ) : (
         <div className="divide-y rounded-xl border bg-card">
-          {threads.items.slice(0, 5).map((t) => (
-            <div key={t.id} className="[&>div]:border-0">
-              <ThreadRow thread={t} showForum />
-            </div>
-          ))}
+          <MotionList animate>
+            {threads.items.slice(0, 5).map((t) => (
+              <div key={t.id} className="[&>div]:border-0">
+                <ThreadRow thread={t} showForum />
+              </div>
+            ))}
+          </MotionList>
         </div>
       )}
       {threads.items.length > 0 && (

@@ -18,7 +18,7 @@ export function AdminFilterBar({
   total,
   method,
   className = "flex flex-wrap items-center gap-2 text-sm",
-  submitClassName = "rounded-lg border px-3 py-1.5 hover:bg-accent",
+  submitClassName = "rounded-lg border px-3 py-1.5 transition-colors hover:bg-accent",
 }: {
   action: string;
   children?: React.ReactNode;
@@ -57,7 +57,10 @@ export function AdminFilterBar({
         {resetHref !== undefined && (
           <Link
             href={resetHref}
-            className={cn(controlLayout, "text-xs text-muted-foreground hover:text-foreground")}
+            className={cn(
+              controlLayout,
+              "text-xs text-muted-foreground transition-colors hover:text-foreground",
+            )}
           >
             重置
           </Link>

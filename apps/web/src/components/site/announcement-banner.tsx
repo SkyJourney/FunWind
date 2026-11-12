@@ -20,6 +20,7 @@ const DISMISS_KEY = "fw-banner-dismissed";
 
 export function AnnouncementBanner({ banner }: { banner: BannerAnnouncement | null }) {
   const [dismissed, setDismissed] = useState(true); // SSR 首渲染不弹（避免水合不一致），挂载后查记忆
+  const [closing, setClosing] = useState(false); // 收起过渡（grid-rows 折叠，缓解布局跳动）
 
   useEffect(() => {
     if (!banner) return;
@@ -36,50 +37,62 @@ export function AnnouncementBanner({ banner }: { banner: BannerAnnouncement | nu
 
   if (!banner || dismissed) return null;
 
+  const dismiss = () => {
+    try {
+      window.localStorage.setItem(`${DISMISS_KEY}:${banner.id}`, "1");
+    } catch {
+      // 存储不可用：仅本次关闭
+    }
+    // 先播折叠过渡再卸载（M16 Step 2）：duration-fast 150ms + 余量
+    setClosing(true);
+    setTimeout(() => setDismissed(true), 220);
+  };
+
   return (
     <div
-      data-testid="announcement-banner"
-      data-surface="banner-announce"
-      data-fw-theme-surface
-      className="flex items-center justify-center gap-2 px-4 py-2 text-sm"
-      style={themeSurfaceStyle("banner-announce", {
-        background:
-          banner.level === "important"
-            ? "color-mix(in srgb, var(--destructive) 10%, transparent)"
-            : "var(--accent)",
-        text: banner.level === "important" ? "var(--destructive)" : "var(--accent-foreground)",
-      })}
+      className={`grid transition-[grid-template-rows] duration-fast ease-out motion-reduce:transition-none ${
+        closing ? "grid-rows-[0fr]" : "grid-rows-[1fr]"
+      }`}
     >
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 bg-cover bg-center"
-        style={{
-          backgroundImage: "var(--sf-banner-announce-content-image, none)",
-          height: "var(--sf-banner-announce-content-image-height, 100%)",
-        }}
-      />
-      <Link
-        href={`/a/${banner.id}`}
-        className="relative z-10 truncate hover:underline"
-        style={{ opacity: "calc(1 - var(--sf-banner-announce-content-hide-text, 0))" }}
-      >
-        📢 {banner.title}
-      </Link>
-      <button
-        type="button"
-        aria-label="关闭公告横幅"
-        className="relative z-10 shrink-0 text-muted-foreground hover:text-foreground"
-        onClick={() => {
-          setDismissed(true);
-          try {
-            window.localStorage.setItem(`${DISMISS_KEY}:${banner.id}`, "1");
-          } catch {
-            // 存储不可用：仅本次关闭
-          }
-        }}
-      >
-        <X className="size-4" />
-      </button>
+      <div className="min-h-0 overflow-hidden">
+        <div
+          data-testid="announcement-banner"
+          data-surface="banner-announce"
+          data-fw-theme-surface
+          className="fw-fade-in flex items-center justify-center gap-2 px-4 py-2 text-sm"
+          style={themeSurfaceStyle("banner-announce", {
+            background:
+              banner.level === "important"
+                ? "color-mix(in srgb, var(--destructive) 10%, transparent)"
+                : "var(--accent)",
+            text: banner.level === "important" ? "var(--destructive)" : "var(--accent-foreground)",
+          })}
+        >
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 bg-cover bg-center"
+            style={{
+              backgroundImage: "var(--sf-banner-announce-content-image, none)",
+              height: "var(--sf-banner-announce-content-image-height, 100%)",
+            }}
+          />
+          <Link
+            href={`/a/${banner.id}`}
+            className="relative z-10 truncate hover:underline"
+            style={{ opacity: "calc(1 - var(--sf-banner-announce-content-hide-text, 0))" }}
+          >
+            📢 {banner.title}
+          </Link>
+          <button
+            type="button"
+            aria-label="关闭公告横幅"
+            className="relative z-10 shrink-0 text-muted-foreground hover:text-foreground"
+            onClick={dismiss}
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

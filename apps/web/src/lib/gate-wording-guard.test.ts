@@ -82,5 +82,5 @@ describe("用户可见文案：不出现「门控」", () => {
         .map((t) => `${f.replace(ROOT + "/", "")}:${t.line}  ${t.text.trim().slice(0, 80)}`),
     );
     expect(hits).toEqual([]);
-  });
+  }, 30_000); // 全库 IO 扫描：本地 ~20ms，CI 2 核 runner 实测可超 5s（vitest 默认超时）——显式放宽
 });

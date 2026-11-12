@@ -116,7 +116,7 @@ export async function UserHoverCard({
         side="bottom"
         align="start"
         sideOffset={6}
-        className="z-50 w-64 rounded-xl border bg-card p-0 shadow-md"
+        className="z-50 w-64 animate-in rounded-xl border bg-card p-0 shadow-md duration-fast fade-in-0 data-[state=closed]:animate-out data-[state=closed]:fade-out-0"
       >
         {card}
       </HoverCardPrimitive.Content>

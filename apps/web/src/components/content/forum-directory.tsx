@@ -1,5 +1,7 @@
 import Link from "next/link";
 import type { Directory } from "@/lib/queries/forums";
+import { FadeImage } from "@/components/ui/fade-image";
+import { MotionList } from "@/lib/motion";
 import { themeSurfaceStyle } from "@/lib/theme/surface-style";
 
 /**
@@ -23,72 +25,72 @@ export function ForumDirectory({ dir }: { dir: Directory }) {
             </h2>
           )}
           <div className="grid gap-3 sm:grid-cols-2">
-            {forums.map((forum) => (
-              <div
-                key={forum.id}
-                data-surface="forum-band"
-                data-fw-theme-surface
-                className="forum-card-band relative flex overflow-hidden rounded-xl border bg-transparent transition-colors hover:border-primary/40"
-                style={themeSurfaceStyle("forum-band", {
-                  background: "var(--card)",
-                  borderColor: "var(--border)",
-                  borderWidth: "1px",
-                })}
-              >
-                {/* 左图区：板块图（cover）或首字符水印，右缘由遮罩渐隐（.forum-card-band 的全局样式） */}
-                <div className="forum-card-band__img relative w-[var(--band-width)] shrink-0">
-                  {forum.iconKey ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={`/files/${forum.iconKey}`}
-                      alt=""
-                      className="absolute inset-0 h-full w-full object-cover"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <>
-                      <div
-                        aria-hidden
-                        className="absolute inset-0 bg-[image:var(--gradient-brand)]"
+            <MotionList animate>
+              {forums.map((forum) => (
+                <div
+                  key={forum.id}
+                  data-surface="forum-band"
+                  data-fw-theme-surface
+                  className="forum-card-band relative flex overflow-hidden rounded-xl border bg-transparent transition-colors hover:border-primary/40"
+                  style={themeSurfaceStyle("forum-band", {
+                    background: "var(--card)",
+                    borderColor: "var(--border)",
+                    borderWidth: "1px",
+                  })}
+                >
+                  {/* 左图区：板块图（cover）或首字符水印，右缘由遮罩渐隐（.forum-card-band 的全局样式） */}
+                  <div className="forum-card-band__img relative w-[var(--band-width)] shrink-0">
+                    {forum.iconKey ? (
+                      <FadeImage
+                        src={`/files/${forum.iconKey}`}
+                        alt=""
+                        className="absolute inset-0 h-full w-full object-cover"
                       />
-                      <span
-                        aria-hidden
-                        className="absolute inset-0 grid place-items-center text-3xl font-bold text-foreground/15 select-none"
-                      >
-                        {forum.name.slice(0, 1)}
-                      </span>
-                    </>
-                  )}
-                </div>
-
-                {/* 文本区：右移的 padding 让出图区；内容纵向排布 */}
-                <div className="min-w-0 flex-1 p-4 pl-4">
-                  <Link
-                    href={`/f/${forum.id}`}
-                    className="font-medium hover:text-primary hover:underline"
-                  >
-                    {forum.name}
-                  </Link>
-                  {forum.description && (
-                    <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                      {forum.description}
-                    </p>
-                  )}
-                  <div className="mt-2 text-xs text-muted-foreground">
-                    主题 {forum.threadCount}
-                    {forum.subs.length > 0 && (
-                      <span className="ml-3 inline-flex flex-wrap gap-x-2">
-                        {forum.subs.map((s) => (
-                          <Link key={s.id} href={`/f/${s.id}`} className="hover:text-primary">
-                            ↳ {s.name}
-                          </Link>
-                        ))}
-                      </span>
+                    ) : (
+                      <>
+                        <div
+                          aria-hidden
+                          className="absolute inset-0 bg-[image:var(--gradient-brand)]"
+                        />
+                        <span
+                          aria-hidden
+                          className="absolute inset-0 grid place-items-center text-3xl font-bold text-foreground/15 select-none"
+                        >
+                          {forum.name.slice(0, 1)}
+                        </span>
+                      </>
                     )}
                   </div>
+
+                  {/* 文本区：右移的 padding 让出图区；内容纵向排布 */}
+                  <div className="min-w-0 flex-1 p-4 pl-4">
+                    <Link
+                      href={`/f/${forum.id}`}
+                      className="font-medium hover:text-primary hover:underline"
+                    >
+                      {forum.name}
+                    </Link>
+                    {forum.description && (
+                      <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                        {forum.description}
+                      </p>
+                    )}
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      主题 {forum.threadCount}
+                      {forum.subs.length > 0 && (
+                        <span className="ml-3 inline-flex flex-wrap gap-x-2">
+                          {forum.subs.map((s) => (
+                            <Link key={s.id} href={`/f/${s.id}`} className="hover:text-primary">
+                              ↳ {s.name}
+                            </Link>
+                          ))}
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </MotionList>
           </div>
         </div>
       ))}

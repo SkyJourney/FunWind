@@ -73,9 +73,10 @@ async function renderCheckinBar({ checkinAction }: SlotContext) {
   // 同构设计（M10.6d 站长反馈）：签到按钮与已签到标识占同一位置、同一尺寸档，
   // 移动端窄视口下不换行留白——左侧文字/日历自适应收缩，右侧动作位恒定存在。
   const actionSlot = status.checkedInToday ? (
+    // fw-pop：成功态首次渲染（签到后重渲染出本节点）弹一下作为成功反馈（M16 Step 4）
     <span
       aria-label="今日已签到"
-      className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-success/30 bg-success/10 px-4 text-sm font-medium text-success"
+      className="fw-pop inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-success/30 bg-success/10 px-4 text-sm font-medium text-success"
     >
       <CheckCircle2 className="size-4" aria-hidden /> 已签到
     </span>
@@ -130,7 +131,8 @@ async function renderCheckinRail({ checkinAction }: SlotContext) {
   // 与移动签到条同构（M10.6d 站长要求 PC/移动相同样式）：状态行 + 日历 + 底部动作位
   // （签到按钮 / 已签到标识同位同尺寸，签到后不留空）。
   const actionSlot = status.checkedInToday ? (
-    <span className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-xl border border-success/30 bg-success/10 text-sm font-medium text-success">
+    // fw-pop：同移动签到条，成功态首次渲染弹一下（M16 Step 4）
+    <span className="fw-pop inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-xl border border-success/30 bg-success/10 text-sm font-medium text-success">
       <CheckCircle2 className="size-4" aria-hidden /> 今日已签到
     </span>
   ) : checkinAction ? (

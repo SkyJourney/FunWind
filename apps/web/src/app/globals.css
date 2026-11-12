@@ -103,6 +103,42 @@
     transform: translateY(8px);
   }
 }
+/* ===== 正文图片显影（M16 Step 3）：视口外图片由 ContentImageFade 委托挂类 =====
+   未加载隐藏、load 后过渡显影；过渡在 reduce 下归零（直接显示）。首屏视口内图片不挂类（LCP 豁免）。 */
+.content-md img.fw-img-fade {
+  opacity: 0;
+  transition: opacity var(--fw-dur-base) var(--fw-ease-out);
+}
+.content-md img.fw-img-fade.fw-img-loaded {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .content-md img.fw-img-fade {
+    opacity: 1;
+    transition: none;
+  }
+}
+/* ===== 楼层锚点高亮（M16 Step 4）：深链直开走 :target（浏览器原生激活）；
+   点击路径由 SmoothAnchors 挂 fw-floor-hl-on（pushState 不触发 :target）===== */
+.fw-floor:target,
+.fw-floor.fw-floor-hl-on {
+  animation: fw-floor-hl var(--fw-dur-slow) var(--fw-ease-out);
+}
+@keyframes fw-floor-hl {
+  0%,
+  55% {
+    background-color: color-mix(in srgb, var(--primary) 10%, var(--card));
+  }
+  100% {
+    background-color: var(--card);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fw-floor:target,
+  .fw-floor.fw-floor-hl-on {
+    animation: none;
+  }
+}
 .fw-enter {
   animation: fw-enter var(--fw-dur-base) var(--fw-ease-out) both;
 }
@@ -245,6 +281,18 @@
   .fw-enter,
   .fw-fade-in {
     animation: none;
+  }
+  /* 弹层兜底（M16 Step 1，docs/motion-spec.md §6 第 5 条）：tw-animate-css 自身无 reduce 规则，
+     全部 in/out 弹层动画归零——内容直接呈现。子串匹配覆盖裸类与 data-[state] 变体两种形态。
+     sonner 自带 reduce 全禁、Lightbox 由库管理，两者都不使用 tw-animate 类，不受影响 */
+  [class*="animate-in"],
+  [class*="animate-out"] {
+    animation: none !important;
+  }
+  /* 元素级预设的缝隙（M16 Step 4.5）：Skeleton 的 animate-pulse 是无限循环脉冲，
+     不属弹层（上面的兜底覆盖不到），reduce 下一并归零——骨架屏静止呈现 */
+  .animate-pulse {
+    animation: none !important;
   }
 }
 

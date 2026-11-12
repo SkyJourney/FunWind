@@ -54,13 +54,14 @@ export function NotificationRow({
   }
 
   return (
+    // 已读切换不再瞬变（M16 Step 4）：行的可见变化是透明度（未读→opacity-70），圆点是底色，各按对应属性平滑过渡
     <li
-      className={`flex items-start gap-2.5 rounded-xl border bg-card px-4 py-3 ${unread ? "" : "opacity-70"}${className ? ` ${className}` : ""}`}
+      className={`flex items-start gap-2.5 rounded-xl border bg-card px-4 py-3 transition-opacity duration-fast ${unread ? "" : "opacity-70"}${className ? ` ${className}` : ""}`}
       style={style}
     >
       <span
         aria-hidden
-        className={`mt-2.5 size-2 shrink-0 rounded-full ${unread ? "bg-primary" : "bg-transparent"}`}
+        className={`mt-2.5 size-2 shrink-0 rounded-full transition-colors duration-fast ${unread ? "bg-primary" : "bg-transparent"}`}
       />
       <div className="min-w-0 flex-1">
         <p className="text-xs text-muted-foreground">

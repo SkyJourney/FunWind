@@ -28,7 +28,8 @@ export function AdminFlash({
   return (
     <p
       role={kind === "error" || kind === "warning" ? "alert" : "status"}
-      className={`flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm ${KIND_CLS[kind]}`}
+      // fw-fade-in：反馈条出现淡入（M16 Step 4）；关闭是跳转去参（零 JS），保持直接消失不做出场
+      className={`fw-fade-in flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm ${KIND_CLS[kind]}`}
     >
       <span className="min-w-0">{children}</span>
       {dismissHref && (

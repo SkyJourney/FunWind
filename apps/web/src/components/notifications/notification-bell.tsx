@@ -101,13 +101,15 @@ export function NotificationBell() {
     >
       <DropdownMenuTrigger
         aria-label={`通知（未读 ${total}）`}
-        className="relative inline-flex items-center rounded-md p-1 text-muted-foreground hover:text-foreground"
+        className="relative inline-flex items-center rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground"
       >
         <Bell className="size-4" />
         {total > 0 && (
+          // fw-pop + key={total}：未读数变化（含 0→正数首现）即重挂徽标，重播「弹一下」（M16 Step 4）
           <span
+            key={total}
             data-testid="bell-unread"
-            className="absolute -top-1 -right-1 inline-flex min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] leading-4 font-medium text-primary-foreground"
+            className="fw-pop absolute -top-1 -right-1 inline-flex min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] leading-4 font-medium text-primary-foreground"
           >
             {total > 99 ? "99+" : total}
           </span>

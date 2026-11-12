@@ -43,9 +43,16 @@ export function JsonViewerButton({ label, json }: { label: string; json: unknown
                 setCopied(false);
               }
             }}
-            className="self-start rounded-lg border px-3 py-1.5 text-sm hover:bg-accent"
+            className="self-start rounded-lg border px-3 py-1.5 text-sm transition-colors hover:bg-accent"
           >
-            {copied ? "已复制" : "复制 JSON"}
+            {/* 成功文案节点挂 fw-pop：key 重挂即重播「弹一下」（M16 Step 4） */}
+            {copied ? (
+              <span key="copied" className="fw-pop">
+                已复制
+              </span>
+            ) : (
+              "复制 JSON"
+            )}
           </button>
         </DialogContent>
       </Dialog>

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { MessageSquare } from "lucide-react";
+import { FadeImage } from "@/components/ui/fade-image";
 import { ThreadBadges } from "@/components/content/thread-row";
 import type { HomeFeedItem } from "@/lib/queries/threads";
 
@@ -62,11 +63,9 @@ export function FeedCard({
           tabIndex={-1}
           aria-hidden
         >
-          {/* eslint-disable-next-line @next/next/no-img-element -- 内容图与正文管线同口径（/files 与旧站外链），不走 next/image 优化域 */}
-          <img
+          <FadeImage
             src={item.coverUrl}
             alt=""
-            loading="lazy"
             className="aspect-[16/10] w-full rounded-lg border object-cover"
           />
         </Link>

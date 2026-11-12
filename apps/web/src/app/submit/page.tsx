@@ -1,6 +1,7 @@
 import { ArrowRight, Layers, PenLine } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { MotionList } from "@/lib/motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { getCurrentUser } from "@/lib/auth/session";
@@ -89,26 +90,28 @@ export default async function SubmitPage() {
                 </h2>
               )}
               <div className="divide-y rounded-xl border bg-card">
-                {forums.map((forum) => (
-                  <Link
-                    key={forum.id}
-                    href={`/f/${forum.id}/new`}
-                    className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-accent"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium group-hover:text-primary">{forum.name}</p>
-                      {forum.description && (
-                        <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
-                          {forum.description}
-                        </p>
-                      )}
-                    </div>
-                    <ArrowRight
-                      className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary"
-                      aria-hidden
-                    />
-                  </Link>
-                ))}
+                <MotionList animate>
+                  {forums.map((forum) => (
+                    <Link
+                      key={forum.id}
+                      href={`/f/${forum.id}/new`}
+                      className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-accent"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium group-hover:text-primary">{forum.name}</p>
+                        {forum.description && (
+                          <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
+                            {forum.description}
+                          </p>
+                        )}
+                      </div>
+                      <ArrowRight
+                        className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary"
+                        aria-hidden
+                      />
+                    </Link>
+                  ))}
+                </MotionList>
               </div>
             </div>
           ))}

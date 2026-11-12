@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Search } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
+import { MotionList } from "@/lib/motion";
 import { Button } from "@/components/ui/button";
 import { ThreadRow } from "@/components/content/thread-row";
 import { Pagination } from "@/components/content/pagination";
@@ -95,9 +96,11 @@ export default async function SearchPage({ searchParams }: Params) {
         />
       ) : (
         <div className="space-y-2">
-          {result.hits.map((h) => (
-            <ThreadRow key={h.id} thread={h} showForum forumName={tree.get(h.forumId)?.name} />
-          ))}
+          <MotionList animate={result.page === 1}>
+            {result.hits.map((h) => (
+              <ThreadRow key={h.id} thread={h} showForum forumName={tree.get(h.forumId)?.name} />
+            ))}
+          </MotionList>
         </div>
       )}
 

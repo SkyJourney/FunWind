@@ -169,9 +169,11 @@ describe("M15 Step 1 动效架构边界", () => {
     ).toBe(true);
   });
 
+  // 全仓 AST 扫描是本套件最重的单个用例（360 文件同步解析）；并行全量跑时
+  // 5s 默认超时不够（隔离 ~1.5s、并发峰值 >5s），显式放宽到 20s——断言不变。
   it("真实内核无反向依赖，外部消费者只经公开入口访问新动效模块", () => {
     expect(motionViolations(sources)).toEqual([]);
-  });
+  }, 20_000);
 
   it("真实旧兼容入口和消费者仍被扫描，但不要求本步迁移", () => {
     for (const entry of LEGACY_ENTRIES) expect(Object.hasOwn(sources, entry), entry).toBe(true);

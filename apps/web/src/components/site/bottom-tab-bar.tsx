@@ -144,7 +144,11 @@ function BottomTab({ tab }: { tab: Tab }) {
           <span className="relative">
             <Icon className="size-5" aria-hidden />
             {(tab.badge ?? 0) > 0 && (
-              <span className="absolute -top-1 -right-2 inline-flex min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] leading-4 font-medium text-primary-foreground">
+              // fw-pop + key：未读数变化即重挂徽标，重播「弹一下」（M16 Step 4，与顶栏铃铛同款）
+              <span
+                key={tab.badge ?? 0}
+                className="fw-pop absolute -top-1 -right-2 inline-flex min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] leading-4 font-medium text-primary-foreground"
+              >
                 {(tab.badge ?? 0) > 99 ? "99+" : tab.badge}
               </span>
             )}

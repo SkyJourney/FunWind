@@ -1,4 +1,5 @@
 import { MotionLink } from "@/components/site/motion-navigation";
+import { MotionList } from "@/lib/motion";
 
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { listAnnouncements } from "@/lib/announcements/queries";
@@ -27,33 +28,35 @@ export default async function AnnouncementsPage() {
         <p className="mt-8 text-sm text-muted-foreground">暂时没有公告。</p>
       ) : (
         <ul className="mt-6 space-y-3">
-          {items.map((a) => (
-            <li key={a.id} className="rounded-xl border bg-card p-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <MotionLink
-                  href={`/a/${a.id}`}
-                  direction="push"
-                  className="text-base font-medium hover:underline"
-                >
-                  {a.title}
-                </MotionLink>
-                {a.level === "important" && (
-                  <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive">
-                    重要
-                  </span>
-                )}
-                {!a.active && (
-                  <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                    已结束
-                  </span>
-                )}
-              </div>
-              <div className="mt-1 text-xs text-muted-foreground">
-                {a.startsAt}
-                {a.endsAt ? ` ~ ${a.endsAt}` : " 起长期有效"}
-              </div>
-            </li>
-          ))}
+          <MotionList animate>
+            {items.map((a) => (
+              <li key={a.id} className="rounded-xl border bg-card p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <MotionLink
+                    href={`/a/${a.id}`}
+                    direction="push"
+                    className="text-base font-medium hover:underline"
+                  >
+                    {a.title}
+                  </MotionLink>
+                  {a.level === "important" && (
+                    <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive">
+                      重要
+                    </span>
+                  )}
+                  {!a.active && (
+                    <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                      已结束
+                    </span>
+                  )}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {a.startsAt}
+                  {a.endsAt ? ` ~ ${a.endsAt}` : " 起长期有效"}
+                </div>
+              </li>
+            ))}
+          </MotionList>
         </ul>
       )}
     </main>

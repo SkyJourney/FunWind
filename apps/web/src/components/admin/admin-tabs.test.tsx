@@ -23,7 +23,7 @@ describe("后台展示组件", () => {
         .map((a) => a.getAttribute("href")),
     ).toEqual(["/admin/reports?forum=7", "/admin/reports?forum=7&tab=resolved"]);
     expect(screen.getByText("待处理")).toHaveClass(
-      "rounded-full border px-3 py-1 bg-primary text-primary-foreground",
+      "rounded-full border px-3 py-1 transition-colors bg-primary text-primary-foreground",
       { exact: true },
     );
     expect(screen.getByText("已处置")).toHaveClass("hover:bg-accent");

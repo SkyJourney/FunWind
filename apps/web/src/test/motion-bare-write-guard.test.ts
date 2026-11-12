@@ -223,4 +223,31 @@ describe("M15 Step 3 reduced-motion 收编核对", () => {
     // 页面过渡伪元素在 reduce 下全部归零
     expect(reduceBlocks).toContain("::view-transition-old(*)");
   });
+
+  it("tw-animate 弹层在 reduce 块内归零（M16 Step 1 兜底，防回归）", () => {
+    const blocks = [
+      ...globals.matchAll(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{([\s\S]*?)\n\}/g),
+    ]
+      .map((m) => m[1])
+      .join("\n");
+    const at = blocks.indexOf('[class*="animate-in"]');
+    expect(
+      at,
+      "reduce 块须包含 animate-in/out 兜底规则（子串匹配覆盖变体形态）",
+    ).toBeGreaterThanOrEqual(0);
+    expect(blocks.slice(at), "animate-out 与 animate-in 同规则").toContain(
+      '[class*="animate-out"]',
+    );
+    const body = blocks.slice(blocks.indexOf("{", at) + 1, blocks.indexOf("}", at)).trim();
+    expect(body, "弹层兜底须真归零（!important 压过 tw-animate）").toBe(
+      "animation: none !important;",
+    );
+    // Skeleton 的 animate-pulse 无限脉冲不属弹层、兜底覆盖不到，单独归零（M16 Step 4.5 P1-5）
+    const pulseAt = blocks.indexOf(".animate-pulse");
+    expect(pulseAt, "reduce 块须包含 animate-pulse 归零").toBeGreaterThanOrEqual(0);
+    const pulseBody = blocks
+      .slice(blocks.indexOf("{", pulseAt) + 1, blocks.indexOf("}", pulseAt))
+      .trim();
+    expect(pulseBody, "animate-pulse 须真归零").toBe("animation: none !important;");
+  });
 });

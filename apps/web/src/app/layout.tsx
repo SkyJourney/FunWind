@@ -12,6 +12,8 @@ import { NavKindCapture } from "@/components/site/nav-kind-capture";
 import { NavigationGuard } from "@/components/site/navigation-guard";
 import { SiteMotionProvider } from "@/components/site/motion-provider";
 import { MotionTestHarness } from "@/components/site/motion-test-harness";
+import { BackToTop } from "@/components/site/back-to-top";
+import { SmoothAnchors } from "@/components/site/smooth-anchors";
 import { getEnabledModuleIds } from "@/modules/kernel/state";
 import { getCurrentUser } from "@/lib/auth/session";
 import { avatarKeyOf } from "@/lib/queries/users";
@@ -204,11 +206,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               </footer>
             )}
             <BottomTabBar user={user ? { id: user.id } : null} pmOn={pmOn} pmUnread={pmUnread} />
+            <BackToTop />
             <MotionTestHarness />
             <Suspense fallback={null}>
               <NavKindCapture />
               <QueryToast />
               <NavigationGuard />
+              <SmoothAnchors />
             </Suspense>
             <Toaster position="top-center" />
           </SiteMotionProvider>

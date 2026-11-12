@@ -4,9 +4,20 @@ import type { ChatMessage } from "@/lib/pm/queries";
  * 聊天气泡（对话页）：服务端渲染的最新一批与客户端上滑加载的更早消息共用同一份版式。
  * `mine` 决定左右与配色；纯展示，无任何读写逻辑。
  */
-export function MessageBubble({ message, mine }: { message: ChatMessage; mine: boolean }) {
+export function MessageBubble({
+  message,
+  mine,
+  className,
+}: {
+  message: ChatMessage;
+  mine: boolean;
+  /** 追加消息的进场淡入（chat-history 上滑加载传入 fw-fade-in，M16 Step 4） */
+  className?: string;
+}) {
   return (
-    <li className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+    <li
+      className={`flex ${mine ? "justify-end" : "justify-start"}${className ? ` ${className}` : ""}`}
+    >
       <div
         className={`max-w-[78%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed ${
           mine ? "rounded-br-sm bg-primary text-primary-foreground" : "rounded-bl-sm border bg-card"

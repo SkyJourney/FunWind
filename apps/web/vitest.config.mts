@@ -9,6 +9,10 @@ export default defineConfig({
     setupFiles: ["./vitest.setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
     hookTimeout: 30_000, // 临时库 bootstrap+seed 在并发负载下允许更宽裕的准备时间
+    // 用例超时对齐 hookTimeout：全库 IO 扫描型守卫（server-only/architecture/gate-wording 等
+    // readFileSync 遍历全 src）本地毫秒级，CI 2 核 runner 实测可超 vitest 默认 5s（M16 Step 5
+    // 连续两轮各随机红一个）——统一放宽，避免每轮随机红；真正挂死的用例仍会在 30s 后报红
+    testTimeout: 30_000,
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],
