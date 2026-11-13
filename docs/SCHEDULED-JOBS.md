@@ -18,14 +18,23 @@
 | `account-deletion.drain` | 处理冷静期已到的账号注销申请 | **进程内调度器**（`SCHEDULER=on`） | 每 15 分钟 | `pnpm --filter @funwind/web account-deletion:drain` | 命名锁 |
 | `unverified-accounts.purge` | 清理超过 7 天仍未验证的注册账号，释放用户名与邮箱 | **进程内调度器**（`SCHEDULER=on`） | 每天 03:30 | `pnpm --filter @funwind/web unverified-accounts:purge [--apply]` | 命名锁（仅 `--apply`） |
 | `ops.alerts`（M14） | 扫描运维台账（`ops_runs`）近 7 天的失败记录，给 admin 角色用户发系统类告警（dedup 按运行 id 防重） | **进程内调度器**（`SCHEDULER=on`） | 每 15 分钟 | —（告警扫描无命令行入口） | 无（读-only 扫描 + 通知 dedup 幂等） |
-| 每日汇总邮件 | 给近 24 小时未登录、开了邮件汇总的用户发汇总 | **系统 cron**（每小时整点） | 脚本内部按后台配置的时刻判断，默认 20 点 | `pnpm --filter @funwind/web digest:run` | 无（靠脚本内的整点与活跃判定） |
+| `email.digest`（M17） | 给近 24 小时未登录、开了邮件汇总的用户发每日汇总 | **进程内调度器**（`SCHEDULER=on`） | 每小时整点跑，run 内按北京墙面时间比对后台配置时刻（默认 20 点） | `pnpm --filter @funwind/web digest:run [--user <id>] [--force]` | 命名锁 + **当日幂等**（同一北京日只发一封） |
 | outbox 补派 | 把消费失败而停在 outbox 里的事件补派出去 | **手动** | — | `pnpm --filter @funwind/web outbox:drain` | 无 |
 | 孤儿文件巡检 | 报告库内无引用的文件与磁盘上有而库里没有的孤儿 | **手动** | — | `pnpm db:gc-files --dry-run` | 无 |
 | 缓存计数重算 | 全量重算缓存计数 | **手动** | — | `pnpm db:recount [--check]` | 无 |
 
+**每日汇总邮件已于 M17 Step 1 迁入**（原「不迁」理由已消除）：当初的顾虑是「系统 cron 与进程内调度
+同时跑可能重复发信」——根因是未读私信计数不受 `since` 时间窗约束，同日第二次运行会给有未读私信的用户
+再发一封。M17 给 `runDigestOnce` 补了**当日幂等闸**（同一北京日已发过则跳过，`--force` 可绕过用于手动补发），
+命名锁防并发 + 当日闸防先后双跑，顾虑即消除。
+
+迁入的直接动因是实测发现它**从未真正运行过**：生产宿主机 crontab 只有一条宝塔 ACME 证书续期任务，
+从未配过 digest 条目，`email_log` 全表零 digest 记录（M17 Step 0）。接进调度器后只需 `SCHEDULER=on`
+（生产已满足），不再依赖仓库外、易漏配的 crontab。顺带修掉旧脚本用 `new Date().getHours()` 读进程本地
+时区的隐患——容器 `TZ=UTC` 时后台配的「20 点」会错位成北京凌晨 4 点；现在统一按北京墙面时间比对。
+
 没有迁入调度器的原因：
 
-- **每日汇总邮件**：它有「整点 + 24 小时活跃跳过」的判定。系统 cron 与进程内调度同时跑可能重复发信，需要先评估去重语义，所以本期不迁。
 - **outbox 补派**：目前由业务流量捎带驱动（`sweepPending`）；多实例下的互斥是 [M13](milestones/M13-launch.md) 清单第 3 条，迁入调度器是它的自然落点，**候选，未做**。
 - 其余是运维一次性操作，不需要周期运行。
 

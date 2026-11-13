@@ -370,8 +370,8 @@ export default async function SiteSettingsPage({
               </SubmitButton>
             </div>
             <p className="text-xs text-muted-foreground">
-              系统定时任务每小时运行比对；仅发给在「通知偏好」开启邮件汇总、且 24
-              小时内未登录的用户。服务器侧需配置 crontab 每小时整点运行 digest-cron 脚本。
+              站点定时任务每小时按北京时间比对；仅发给在「通知偏好」开启邮件汇总、且 24
+              小时内未登录的用户，同一日只发一封。无需在服务器另配 crontab。
             </p>
           </form>
         </CardContent>

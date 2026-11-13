@@ -186,3 +186,41 @@
 | B3「跨实例人工演练」 | 自动化在跑但**历史仅 1 条** | 保留 B3，顺带确认台账保留策略 |
 | C2「数据驱动转强制」 | 近 24h 零违规，但样本短 | C1 先行 + 延长观察窗口，覆盖后台路径 |
 | A 组 RUM | 未变（仍零真实用户监控） | 保持核心增量 |
+
+## 10. Step 1 digest 接进进程内调度器（2026-11-13）
+
+把「从未真正运行过」的每日汇总接进调度器，并先补上让它能安全迁入的前置条件。
+
+- **当日幂等闸（迁入的前置条件）**：`lib/notifications/digest.ts` 的 `runDigestOnce` 加「同一北京日
+  已发过则跳过」（`skippedToday` 计数，`--force` 可绕过用于手动补发）。根因是未读私信计数不受 `since`
+  时间窗约束（只按 `last_read_message_id` 过滤），同日第二次运行会给有未读私信的用户**再发一封**——
+  这正是 `docs/SCHEDULED-JOBS.md` 当初记载「与系统 cron 双跑可能重复发信、本期不迁」的实质原因。
+  **命名锁只防并发，不防先后双跑**，所以必须有当日闸；补上后顾虑消除。
+- **发送失败不再静默**：`DigestResult` 加 `failed` 计数（此前 `sendUserEmail` 返回 false 时什么都不记，
+  任务摘要看不出部分失败）；失败不写时间戳，下一轮可重试。
+- **任务工厂 `digestJob()`**（`lib/scheduler/tasks.ts`，键 `email.digest`）：cron `"0 * * * *"`，
+  run 内读 `getDigestHour()` 与 `nowBeijingWallTime()` 派生的北京小时比对，过闸才调 `runDigestOnce()`。
+  **不用固定每日 cron**——发送时刻是后台可配项（`admin/settings` 有表单），固定 cron 会让该配置失效。
+- **顺带修掉时区隐患**：旧脚本用 `new Date().getHours()` 读**进程本地时区**，容器 `TZ=UTC` 时后台配的
+  「20 点」会错位成北京凌晨 4 点。现在统一按北京墙面时间比对，与调度器的 `Asia/Shanghai` 约定一致。
+- **CLI 改走 `runJob` 共用命名锁**（`scripts/digest-cron.mts`，照 `account-deletion-cron.mts`）：
+  此前它直调 `runDigestOnce` **不抢锁**，与调度器同时跑会双发。现在与调度器共用同一任务同一把锁，
+  持锁时本次 skipped 且退出码 0；保留 `--user` / `--force` 手动入口；显式 `process.exit` 防连接池僵尸进程。
+- **清单与守卫**：`jobs.ts` 登记；`index.test.ts` 的键数组断言 3→4（探查预判必改，果然）。
+  **不改** `scheduler-entry-guard`、**不改** `instrumentation.ts`（任务本体在 tasks.ts，符合既有约定）。
+- **测试 +20 例**：当日幂等集成 4 例（同日二跑不重发 / 当日闸拦住而 force 放行 / 跨日正常发 /
+  失败计入 failed 且不写时间戳）、任务闸门 9 例（北京时刻比对 / **时区无关性** / 后台改时刻立即生效 /
+  手动入口免闸 / 结果映射）、脚本真起进程 5 例（**干完活自行退出** / 共用锁被跳过 / --force / --user）、
+  清单 cron 断言 1 例 + 键数组更新。
+- **一处自查纠正**：`force` 用例初版断言「force 后必然发送」是错的——首发后 `lastDigestAt=NOW()`，
+  未读通知也是 NOW()，`gt(createdAt, since)` 取不到新动态，走「零动态」分支不发。force 只绕过当日闸，
+  不会凭空造出内容。改为把时间戳挪回今日零点，才真正区分「被闸拦住」与「没有新动态」。
+- **文档同步三处**：`SCHEDULED-JOBS.md`（总表行改进程内调度器 + 重写「不迁」段为「已迁 + 动因」）、
+  `EMAIL-SCENARIOS.md:87`（删「需配 crontab / 没有迁入」）、`admin/settings/page.tsx` 表单说明
+  （改为「站点定时任务每小时按北京时间比对，同日只发一封，无需另配 crontab」）。
+- **门禁**：`pnpm verify:all` 退出 0（web **4,700**（+20）/ db 124 / content 55 / migration 278）。
+  `check:secrets` 曾拦下我测试里的 `example.test` 合成邮箱（允许清单只有 .com/.org/.net）——
+  按仓库既有约定改用 `example.com`，**没有给扫描器开例外**。
+- **E2E**：核实全仓 E2E 无 digest 功能覆盖（grep 命中的 `digest` 全是 `createHash().digest("hex")`），
+  本步不需跑 E2E；功能由单测 + 真起进程测试覆盖。
+- **生产验收待 Step 3**：接线后是否真发出，以生产 `email_log` 出现 `scene=digest` 为准（部署后核对）。

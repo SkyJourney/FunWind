@@ -1,12 +1,22 @@
-import { runDigestOnce } from "../src/lib/notifications/digest";
-import { eq } from "drizzle-orm";
-import { getWebDb, loadRootEnv, siteSettings } from "@funwind/db";
+import { loadRootEnv } from "@funwind/db";
+import { createMysqlLocks } from "../src/lib/scheduler/lock";
+import { consoleLogger, runJob } from "../src/lib/scheduler/runner";
+import { digestJob } from "../src/lib/scheduler/tasks";
 
 /**
- * S7 每日汇总定时任务（docs/EMAIL-SCENARIOS.md 第三期）：
- * 系统 crontab / launchd 每天在后台配置的时刻调用（默认建议 20:00）：
- *   pnpm --filter @funwind/web digest:run（预加载服务端 marker 兼容层）
- * 参数：--user <id> 只跑单个用户（测试）；--force 免 24h 活跃跳过（测试用）。
+ * S7 每日汇总：手动执行入口（M17 Step 1 起不再是唯一的驱动方式）。
+ * 示例：pnpm --filter @funwind/web digest:run（预加载服务端 marker 兼容层）
+ *
+ * **生产已由进程内调度器驱动**（SCHEDULER=on，任务键 email.digest，每小时整点比对后台配置时刻）。
+ * 此前本脚本是唯一入口、靠宿主机 crontab 每小时调用，而生产 crontab 从未配过该条目——
+ * 所以 digest 一封都没发出去（M17 Step 0 实测：email_log 全表零 digest 记录）。
+ *
+ * 与调度器**共用同一份任务和同一把命名锁**（照 account-deletion-cron.mts）：调度器或另一实例
+ * 正在执行时本次被跳过并以退出码 0 结束。时刻闸门与当日幂等都在任务/服务里，脚本不再自己判时刻——
+ * 旧脚本用 new Date().getHours() 读进程本地时区，容器 TZ=UTC 时后台配的「20 点」会错位成北京凌晨 4 点。
+ *
+ * 参数：--user <id> 只跑单个用户（免时刻闸）；--force 免时刻闸与当日幂等（手动补发/测试用）。
+ * 有发送失败时退出码为 1。
  */
 const argv = process.argv.slice(2);
 const userIdx = argv.indexOf("--user");
@@ -14,28 +24,20 @@ const onlyUserId = userIdx >= 0 ? Number(argv[userIdx + 1]) : undefined;
 const force = argv.includes("--force");
 
 async function main() {
-  // 时刻闸门：系统 cron 每小时整点调用本脚本，当前小时 != 后台配置时刻（site_settings("email.digest").hour，默认 20）则空转
-  if (!force && onlyUserId === undefined) {
-    loadRootEnv();
-    const [row] = await getWebDb()
-      .select({ value: siteSettings.value })
-      .from(siteSettings)
-      .where(eq(siteSettings.key, "email.digest"))
-      .limit(1);
-    const hour = (row?.value as { hour?: number } | undefined)?.hour ?? 20;
-    if (new Date().getHours() !== hour) {
-      console.log(`[digest] 当前 ${new Date().getHours()} 点 != 配置 ${hour} 点，空转`);
-      process.exit(0);
-    }
-  }
-  const r = await runDigestOnce({ onlyUserId });
-  console.log(
-    `[digest] checked=${r.checked} sent=${r.sent} skippedActive=${r.skippedActive} skippedNoEmail=${r.skippedNoEmail}`,
-  );
-  process.exit(0);
+  loadRootEnv();
+  const outcome = await runJob(digestJob({ onlyUserId, force }), {
+    locks: createMysqlLocks(),
+    log: consoleLogger,
+  });
+  if (outcome.status === "failed") process.exitCode = 1;
 }
 
-main().catch((e) => {
-  console.error("[digest] 失败：", e);
-  process.exit(1);
-});
+// 显式退出：getWebDb 的连接池会一直占着事件循环，只设 exitCode 进程不会结束（实测确认，
+// 见 account-deletion-script.int.test.ts）。用 exitCode 而非直接 exit(0)：保留失败时的非零退出码。
+main()
+  .catch((error: unknown) => {
+    console.error("[digest] worker failed");
+    console.error(error instanceof Error ? error.name : "UnknownError");
+    process.exitCode = 1;
+  })
+  .finally(() => process.exit(process.exitCode ?? 0));
