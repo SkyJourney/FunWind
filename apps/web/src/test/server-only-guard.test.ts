@@ -57,7 +57,8 @@ const SERVER_BOUNDARIES = [
   "lib/posting/edit-page.ts",
   "lib/pm/reachability.ts",
   // M14：运维任务管线的 HTTP 客户端（持有 OPS_API_TOKEN）、配置写服务、台账读取
-  ...["client", "tasks", "runs"].map((name) => `lib/ops/${name}.ts`),
+  // M17：告警邮件的防重查询与发送（读 email_log、调邮件渠道）
+  ...["client", "tasks", "runs", "alert-mail"].map((name) => `lib/ops/${name}.ts`),
 ].sort();
 
 function serverOnlyProblems(sources: Sources, required: readonly string[]) {

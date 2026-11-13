@@ -176,6 +176,22 @@ export const saveEmailSecurityAction = defineAction({
   },
 });
 
+/**
+ * 运维告警邮件的后台统一开关（M17 Step 2）：管线任务失败时除站内通知外再发邮件给管理员。
+ * 与安全类同款——站点统一控制、用户侧不可逐项关闭（`ops.run.failed` 是 mandatory 类型）。
+ * 默认开；checkbox 未勾选时参数缺席，同样用字符串缺省解析（不能用 enum，否则永远关不掉）。
+ */
+export const saveEmailOpsAction = defineAction({
+  name: "admin.settings.email_ops",
+  auth: { admin: "site.admin" },
+  input: z.object({ enabled: z.string().default("") }),
+  async run(ctx, input) {
+    await setSetting("email.ops", { enabled: input.enabled === "on" }, ctx.actor);
+    revalidatePath("/admin/settings");
+    done("email_ops");
+  },
+});
+
 /** S7 每日汇总的发送时刻（0–23 点；系统 cron 每小时调 digest-cron 脚本比对空转） */
 export const saveDigestHourAction = defineAction({
   name: "admin.settings.digest_hour",

@@ -8,6 +8,7 @@ import {
   emailChangedAlertMail,
   emailChangedConfirmMail,
   gateSoldMail,
+  opsRunFailedMail,
   passwordChangedMail,
   pmReceivedMail,
   resetPasswordMail,
@@ -177,6 +178,16 @@ export const MAIL_PREVIEWS: readonly MailPreview[] = [
     label: "测试邮件",
     group: "系统",
     build: (b) => testMail(b, { at: AT }),
+  },
+  {
+    id: "ops-run-failed",
+    label: "运维任务失败告警",
+    group: "系统",
+    build: (b) =>
+      opsRunFailedMail(
+        { task: "backup.storage", runId: 101, error: "存储目录不可写：EACCES", at: AT },
+        b,
+      ),
   },
 ];
 

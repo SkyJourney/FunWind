@@ -103,6 +103,15 @@ describe.skipIf(skipDb)("ops.alerts 告警任务（临时库）", () => {
     expect((await alertTexts()).length).toBe(1);
   });
 
+  it("并联邮件渠道：摘要含 mail 计数（M17 Step 2 接线；此前从不发邮件）", async () => {
+    await seedFailedRun(301);
+    const r = await opsAlertsJob().run();
+    expect(r.summary).toContain("notified=1");
+    // 本夹具的管理员没有邮箱 → sendUserEmail 返回 false 计入 failed（不会真发信）。
+    // 断言重点是摘要里出现 mail= 段：证明邮件渠道确实被调用了。
+    expect(r.summary).toMatch(/mail=sent:\d+\/skipped:\d+\/failed:\d+/);
+  });
+
   it("多个管理员：每人各收一条（uq_nf_dedup 是全局唯一索引，dedupKey 须含接收人）", async () => {
     await db().delete(users).where(eq(users.id, SECOND_ADMIN_ID));
     await db()

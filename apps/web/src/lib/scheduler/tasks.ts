@@ -13,6 +13,7 @@ import { roles, userRoles, users } from "@funwind/db";
 import { getWebDb } from "@funwind/db";
 import "@/modules";
 import { listFailedRuns } from "@/lib/ops/runs";
+import { sendOpsAlertMails, type OpsFailureMail } from "@/lib/ops/alert-mail";
 import { notify } from "@/lib/notifications/notify";
 import { getDigestHour } from "@/lib/notifications/email";
 import { runDigestOnce } from "@/lib/notifications/digest";
@@ -150,10 +151,12 @@ export function opsAlertsJob(overrides: Partial<JobDef> = {}): JobDef {
       }
       let notified = 0;
       const seen = new Set<string>();
+      const mailFailures: OpsFailureMail[] = [];
       for (const run of failed) {
         if (seen.has(String(run.id))) continue;
         seen.add(String(run.id));
         const task = run.taskKey ?? run.kind;
+        const error = (run.error ?? "未知原因").slice(0, 200);
         // dedupKey 必须含接收人：uq_nf_dedup 是全局唯一索引，不含 uid 时只有第一个管理员能落库，
         // 其余人被当作重放静默跳过。按 run id + uid 幂等，重扫不重复打扰。
         await notify({
@@ -161,12 +164,22 @@ export function opsAlertsJob(overrides: Partial<JobDef> = {}): JobDef {
           recipients: admins,
           targetType: "ops_run",
           targetId: run.id,
-          data: { task, runId: run.id, error: (run.error ?? "未知原因").slice(0, 200) },
+          data: { task, runId: run.id, error },
           dedupKey: (uid) => `ops-failed:${run.id}:${uid}`,
         });
         notified += 1;
+        mailFailures.push({ task, runId: run.id, error });
       }
-      return { summary: `failed=${failed.length} notified=${notified} admins=${admins.length}` };
+      // 离站触达（M17 Step 2）：站内通知之外再发邮件——站长不打开站点也能知道故障。
+      // 邮件是**附带渠道**：失败不反噬已写入的站内告警，也不把任务标记为 failed（站内才是主渠道）。
+      // 防重在 sendOpsAlertMails 内按 email_log 查（每 15 分钟重扫近 7 天，无条件发信会重复打扰）。
+      const mail = await sendOpsAlertMails(admins, mailFailures).catch(() => null);
+      const mailSummary = mail
+        ? `mail=sent:${mail.sent}/skipped:${mail.skipped}/failed:${mail.failed}`
+        : "mail=error";
+      return {
+        summary: `failed=${failed.length} notified=${notified} admins=${admins.length} ${mailSummary}`,
+      };
     },
     ...overrides,
   };
