@@ -1171,6 +1171,8 @@ export const cspReports = mysqlTable(
  * 一个 endpoint 全局唯一（推送服务侧标识一个订阅）；订阅/退订按 endpoint upsert/删除。
  * endpoint 必须 NOT NULL（schema-rules 禁可空唯一列）；p256dh/auth 是客户端密钥（base64url）。
  * 隐私：只存订阅凭据与归属用户，不存任何通知内容。
+ * lastSentAt（M18 Step 6.5）：最近一次成功投递时刻，投递成功时刷新；卫生清扫按「最后活跃」
+ * （COALESCE(lastSentAt, createdAt)）判超期，避免误删长期活跃但创建已久的订阅。
  */
 export const pushSubscriptions = mysqlTable(
   "push_subscriptions",
@@ -1184,6 +1186,8 @@ export const pushSubscriptions = mysqlTable(
     /** 客户端认证密钥（base64url） */
     auth: varchar("auth", { length: 255 }).notNull(),
     createdAt: dt("created_at").notNull(),
+    /** 最近一次成功投递时刻（从未投递为 null）；清扫按最后活跃判超期 */
+    lastSentAt: dt("last_sent_at"),
   },
   (t) => [
     primaryKey({ columns: [t.id] }),

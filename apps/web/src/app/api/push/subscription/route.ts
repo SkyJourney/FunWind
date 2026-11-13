@@ -11,13 +11,13 @@ import { subscribePush, unsubscribePush } from "@/lib/push/subscriptions";
  */
 
 const subscribeSchema = z.object({
-  endpoint: z.string().url().max(500),
+  endpoint: z.string().url().max(500).startsWith("https://"),
   p256dh: z.string().min(1).max(255),
   auth: z.string().min(1).max(255),
 });
 
 const unsubscribeSchema = z.object({
-  endpoint: z.string().url().max(500),
+  endpoint: z.string().url().max(500).startsWith("https://"),
 });
 
 export async function POST(request: Request): Promise<Response> {

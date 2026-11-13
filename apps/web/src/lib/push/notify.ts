@@ -67,9 +67,10 @@ export async function pmPushAllowed(userId: number, conversationId: number): Pro
 }
 
 /**
- * 消费者并联推送的统一入口（M18 Step 6）：站点总开关 → 用户偏好 →（私信会话频控）→ 活跃抑制，
+ * 消费者并联推送的统一入口（M18 Step 6）：站点总开关 → 用户偏好 → 活跃抑制 →（私信会话频控），
  * 全过才发。**整体 try/catch 永不抛出**——推送是站内通知的附带渠道，其故障不能让已提交的
  * 站内通知事件经 outbox 重放（镜像 pm/index.ts 邮件附带渠道的隔离口径）。
+ * 活跃抑制先于频控：活跃用户看铃铛即可，不白耗该会话当小时唯一额度（M18 Step 6.5）。
  * conversationId 仅私信传入（施加每会话每小时 1 条频控）；回复/提及不传。
  */
 export async function trySendUserPush(
@@ -81,9 +82,9 @@ export async function trySendUserPush(
   try {
     if (!(await pushEnabled())) return false;
     if (!(await userPushEnabled(userId, type))) return false;
+    if (await userActiveRecently(userId)) return false;
     if (conversationId !== undefined && !(await pmPushAllowed(userId, conversationId)))
       return false;
-    if (await userActiveRecently(userId)) return false;
     return await sendUserPush(userId, build);
   } catch (e) {
     console.error(`[notify-push] 用户 ${userId} ${type} 推送附带渠道失败:`, e);

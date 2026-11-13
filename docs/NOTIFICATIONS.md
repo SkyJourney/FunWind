@@ -16,7 +16,7 @@ flowchart LR
   T --> F[通知中心 feed<br/>读取时合并 + 统一未读数]
   F --> B[顶栏铃铛 · 下拉面板]
   F --> P[完整通知中心页面（后续）]
-  N -. 投递适配器 .-> CH[notificationChannels<br/>当前仅 in_app；email/push 预留]
+  N -. 投递适配器 .-> CH[notificationChannels<br/>in_app 写库；email/push 消费者直调]
 ```
 
 ## 2. 分类（Tab）
@@ -119,7 +119,7 @@ flowchart LR
 | 边界 | 作用 |
 |------|------|
 | `notificationTypes` | 声明通知类型：`key`、`category`、`aggregate`（是否按 group_key 聚合）、`mandatory`、`defaultChannels`、`render`（文案模板，含所需 data 字段） |
-| `notificationChannels` | 投递适配器：`key`、`deliver(notification, recipient)`。**当前只实现 `in_app`（写 `notifications`）**；邮件、推送等将来新增渠道 = 新模块注册一个适配器 |
+| `notificationChannels` | 投递适配器接口：`key`、`deliver(notification, recipient)`。**预留未启用**——`in_app` 写 `notifications` 表本体；email（M10.6）/ push（M18）均在事件消费者里**直接调用** `sendUserEmail` / `trySendUserPush`（M18 D1 沿用直调，适配器留待第三方案例再抽象） |
 
 事件到通知的映射由各模块在注册 `events` 消费者时调用 `notify({ type, recipients, actor, target, data })`；
 `notify` 负责：查偏好、聚合、写库、分发给已注册渠道。通知写入失败**不得**影响主流程（沿用事件总线的隔离语义）。
@@ -129,7 +129,7 @@ flowchart LR
 >    渲染文案收口在 `lib/notifications/render.ts`（类型→模板，同 `POINT_CHANNEL_LABELS` 模式）；
 >    渠道默认值按 §3 语义实现（无记录 = 站内开、其它渠道关），无需逐类型声明。MODULES.md 已留档。
 > 2. **`in_app` 渠道 = 写 `notifications` 表本体**（builtin 保留键），`deliver` 不再单独注册；模块自注册的
->    `notificationChannels` 是写库之外的额外投递面（M8 无实现，接口留给 email/push）。
+>    `notificationChannels` 是写库之外的额外投递面（接口预留未启用；email/push 实际走消费者直调，M18 D1）。
 > 3. **mandatory 短路偏好**：强制类型跳过偏好查询直接投递；非强制类型无偏好行 = in_app 开。
 > 4. **聚合语义**：同 groupKey 的未读行原位 UPDATE（`data.count` SQL 端递增、`data.actors` 追加最近触发者并
 >    截断、`created_at` 刷新），已读后新事件新开一行；并发的同键更新靠「未读行条件 UPDATE」原子化。

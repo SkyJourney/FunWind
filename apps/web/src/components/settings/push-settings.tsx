@@ -154,20 +154,35 @@ export function PushHeaderCell() {
   return <span className="w-28 text-center">推送</span>;
 }
 
-/** 逐类型推送开关：开启时若设备未订阅先订阅（成功才写偏好）；关闭仅关该场景，设备订阅保留 */
+/** 逐类型推送开关：开启时若设备未订阅先订阅（成功才写偏好）；关闭仅关该场景，设备订阅保留。
+ * available=false（非 D2 接线类型）显示「—」占位，避免呈现永远收不到的失准开关。 */
 export function PushCell({
   type,
   initialEnabled,
   label,
+  available = true,
 }: {
   type: string;
   initialEnabled: boolean;
   label: string;
+  available?: boolean;
 }) {
   const { supported, subscribed, busy, subscribe } = usePush();
   const [enabled, setEnabled] = useState(initialEnabled);
   const [pending, setPending] = useState(false);
   if (!supported) return null;
+  if (!available) {
+    return (
+      <div className="w-28">
+        <div
+          className="flex justify-center text-xs text-muted-foreground"
+          aria-label={`${label}（暂不支持推送）`}
+        >
+          —
+        </div>
+      </div>
+    );
+  }
 
   const toggle = async () => {
     const next = !enabled;

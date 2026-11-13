@@ -35,6 +35,7 @@ vi.mock("web-push", () => ({
 const { sendPush, trySendPush } = await import("./transport");
 const { pushEnabled, userPushEnabled, sendUserPush, trySendUserPush } = await import("./notify");
 const { cleanupStalePushSubscriptions } = await import("./subscriptions");
+const { queryPushLogs } = await import("./log-query");
 import type { PushMessage } from "./types";
 
 let tdb: TempDb;
@@ -104,10 +105,6 @@ describe.skipIf(skipDb)("用户偏好与站点开关默认值", () => {
   it("pushEnabled：无行=开；enabled=false→关", async () => {
     expect(await pushEnabled()).toBe(true); // 无行=开（镜像 email.security）
     await db()
-      .insert(notificationPreferences)
-      .values({ userId: UID, type: "x", channel: "push", enabled: true }); // 占位避免空库
-    const { siteSettings } = await import("@funwind/db");
-    await db()
       .insert(siteSettings)
       .values({ key: "push.enabled", value: { enabled: false }, updatedAt: sql`NOW()` });
     expect(await pushEnabled()).toBe(false);
@@ -115,9 +112,11 @@ describe.skipIf(skipDb)("用户偏好与站点开关默认值", () => {
 });
 
 describe.skipIf(skipDb)("sendUserPush 多设备尽力而为", () => {
-  it("无订阅返回 false，不调用 web-push", async () => {
-    expect(await sendUserPush(UID, () => msg())).toBe(false);
+  it("无订阅返回 false，不调用 web-push，build 惰性不构造", async () => {
+    const build = vi.fn(() => msg());
+    expect(await sendUserPush(UID, build)).toBe(false);
     expect(sendNotification).not.toHaveBeenCalled();
+    expect(build).not.toHaveBeenCalled(); // 无订阅不白构造 payload
   });
 
   it("有订阅则投递并写 push_log sent；多设备逐个发", async () => {
@@ -157,6 +156,19 @@ describe.skipIf(skipDb)("404/410 失效订阅即时清理", () => {
     expect(log?.status).toBe("failed");
   });
 
+  it("410 同样删除订阅行并记 failed", async () => {
+    await seedSub();
+    sendNotification.mockRejectedValue(new WebPushError("gone", 410));
+    expect(
+      await trySendPush(
+        { endpoint: "https://push.example.invalid/sub-1", p256dh: "k", auth: "a" },
+        msg(),
+        { userId: UID },
+      ),
+    ).toBe(false);
+    expect(await db().select().from(pushSubscriptions)).toHaveLength(0);
+  });
+
   it("500 等非失效错误不删订阅", async () => {
     await seedSub();
     sendNotification.mockRejectedValue(new WebPushError("server error", 500));
@@ -167,6 +179,43 @@ describe.skipIf(skipDb)("404/410 失效订阅即时清理", () => {
     ).catch(() => undefined);
     const subs = await db().select().from(pushSubscriptions);
     expect(subs).toHaveLength(1); // 非 404/410 保留
+  });
+});
+
+describe.skipIf(skipDb)("VAPID 未配置错误路径", () => {
+  it("密钥缺失 → trySendPush false + push_log 记 failed，不调 web-push", async () => {
+    await seedSub();
+    const pub = process.env.VAPID_PUBLIC_KEY;
+    const priv = process.env.VAPID_PRIVATE_KEY;
+    delete process.env.VAPID_PUBLIC_KEY;
+    delete process.env.VAPID_PRIVATE_KEY;
+    try {
+      expect(
+        await trySendPush(
+          { endpoint: "https://push.example.invalid/sub-1", p256dh: "k", auth: "a" },
+          msg(),
+          { userId: UID },
+        ),
+      ).toBe(false);
+      const [log] = await db().select().from(pushLog);
+      expect(log?.status).toBe("failed");
+      expect(log?.error).toContain("VAPID");
+      expect(sendNotification).not.toHaveBeenCalled();
+    } finally {
+      process.env.VAPID_PUBLIC_KEY = pub;
+      process.env.VAPID_PRIVATE_KEY = priv;
+    }
+  });
+});
+
+describe.skipIf(skipDb)("订阅归属与越权防护", () => {
+  it("用户 B 退订用户 A 的 endpoint → A 的行仍在（防越权删）", async () => {
+    await seedSub("https://push.example.invalid/a-sub"); // 归属 UID
+    const { unsubscribePush } = await import("./subscriptions");
+    await unsubscribePush(UID + 1, "https://push.example.invalid/a-sub"); // 他人尝试删
+    const subs = await db().select().from(pushSubscriptions);
+    expect(subs).toHaveLength(1); // A 的订阅未被删
+    expect(subs[0].userId).toBe(UID);
   });
 });
 
@@ -271,5 +320,57 @@ describe.skipIf(skipDb)("超期订阅卫生清扫（M18 Step 6）", () => {
     ).map((r) => r.e);
     expect(endpoints).not.toContain("https://push.example.invalid/old");
     expect(endpoints).toContain("https://push.example.invalid/sub-1");
+  });
+
+  it("活跃订阅（创建超期但最近成功投递）不被误删（M18 Step 6.5 P1-1）", async () => {
+    await db()
+      .insert(pushSubscriptions)
+      .values({
+        userId: UID,
+        endpoint: "https://push.example.invalid/active",
+        p256dh: "k",
+        auth: "a",
+        createdAt: sql`NOW() - INTERVAL 200 DAY`,
+        lastSentAt: sql`NOW() - INTERVAL 1 DAY`, // 最近投递活跃
+      });
+    const removed = await cleanupStalePushSubscriptions();
+    expect(removed).toBe(0);
+    const subs = await db().select().from(pushSubscriptions);
+    expect(subs).toHaveLength(1); // 活跃订阅保留
+  });
+
+  it("投递成功刷新 lastSentAt", async () => {
+    await seedSub();
+    sendNotification.mockResolvedValue({ statusCode: 201, headers: {} });
+    await sendUserPush(UID, () => msg());
+    const [sub] = await db().select().from(pushSubscriptions);
+    expect(sub.lastSentAt).not.toBeNull();
+  });
+});
+
+describe.skipIf(skipDb)("queryPushLogs 筛选（q 数字→userId / 非数字→endpoint）", () => {
+  const seedLog = (endpoint: string, userId: number) =>
+    db()
+      .insert(pushLog)
+      .values({
+        kind: "notice",
+        scene: "pm-received",
+        endpoint,
+        userId,
+        title: "t",
+        status: "sent",
+        createdAt: sql`NOW()`,
+      });
+
+  it("数字 q 精确匹配 userId；非数字 q 走 endpoint LIKE 且通配符被转义", async () => {
+    await seedLog("https://push.example.invalid/alpha", UID);
+    await seedLog("https://push.example.invalid/beta", UID + 1);
+    const byUid = await queryPushLogs({ q: String(UID) });
+    expect(byUid.total).toBe(1);
+    expect(byUid.items[0].userId).toBe(UID);
+    const byEndpoint = await queryPushLogs({ q: "alpha" });
+    expect(byEndpoint.total).toBe(1);
+    const wildcard = await queryPushLogs({ q: "%" }); // % 被转义，不匹配全部
+    expect(wildcard.total).toBe(0);
   });
 });

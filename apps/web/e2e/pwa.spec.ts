@@ -224,3 +224,35 @@ test("SW 推送扩展：push/notificationclick/pushsubscriptionchange 三监听�
   expect(icon.status()).toBe(200);
   expect(icon.headers()["content-type"]).toContain("image/png");
 });
+
+test("SW push 监听器行为：派发 push 事件真触发 showNotification（M18 Step 6.5，空监听器即红）", async ({
+  page,
+  context,
+}) => {
+  await page.goto("/");
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  const sw = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
+  // 在 SW 作用域内替身 showNotification 并派发 push 事件，断言监听器真的展示通知（非仅源码含字符串）。
+  // 无 data 的 push 事件 → 默认标题；完整 payload 解析与 notificationclick 跳转由站长真机验证。
+  const shown = await sw.evaluate(async () => {
+    const scope = self as unknown as {
+      registration: ServiceWorkerRegistration;
+      dispatchEvent: (e: Event) => boolean;
+    };
+    const reg = scope.registration;
+    let captured: { title: string } | null = null;
+    const orig = reg.showNotification.bind(reg);
+    reg.showNotification = ((title: string) => {
+      captured = { title };
+      return Promise.resolve();
+    }) as typeof reg.showNotification;
+    scope.dispatchEvent(new Event("push"));
+    await new Promise((r) => setTimeout(r, 100));
+    reg.showNotification = orig;
+    return captured;
+  });
+  expect(shown).not.toBeNull();
+  expect(shown!.title).toBe("青翼字幕组");
+});

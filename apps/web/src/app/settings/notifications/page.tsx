@@ -13,6 +13,9 @@ import {
 export const dynamic = "force-dynamic";
 export const metadata = { title: "通知偏好" };
 
+/** 已接线推送的通知类型（M18 D2 三类）；其余类型推送列显示「—」占位，不呈现失准开关 */
+const PUSH_TYPES = new Set(["post.replied", "post.mentioned", "pm.received"]);
+
 /**
  * 通知偏好（M10.6 收尾 → M18 Step 4 增推送列）：站内 + 邮件 + 推送三渠道开关。
  * 无记录 = 站内开、邮件/推送关（数据模型既定口径）。推送列由能力探测决定是否呈现（不支持则隐藏）。
@@ -76,7 +79,12 @@ export default async function NotificationSettingsPage() {
                 label={`${t.label} · 邮件通知`}
               />
             </div>
-            <PushCell type={t.type} initialEnabled={push(t.type)} label={`${t.label} · 推送通知`} />
+            <PushCell
+              type={t.type}
+              initialEnabled={push(t.type)}
+              label={`${t.label} · 推送通知`}
+              available={PUSH_TYPES.has(t.type)}
+            />
           </div>
         ))}
         {/* S7 每日汇总（email 渠道专属；发送时刻由后台配置） */}

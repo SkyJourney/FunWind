@@ -76,14 +76,16 @@ export async function subscribeDevice(): Promise<SubscribeResult> {
   }
 }
 
-/** 退订本设备：DELETE 服务端凭据 + 浏览器 unsubscribe（一步退订） */
+/** 退订本设备：DELETE 服务端凭据 + 浏览器 unsubscribe（一步退订）。
+ * 服务端删除失败则保留浏览器订阅并返回 false（供重试），不误报「已退订」。 */
 export async function unsubscribeDevice(): Promise<boolean> {
   if (!isPushSupported()) return false;
   try {
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();
     if (sub) {
-      await deletePushSubscription(sub.endpoint);
+      const res = await deletePushSubscription(sub.endpoint);
+      if (!res.ok) return false;
       await sub.unsubscribe();
     }
     return true;

@@ -69,9 +69,16 @@ export async function sendPush(
     await record({
       ...base,
       status: "sent",
-      messageId: String(res.statusCode).slice(0, 255),
+      // 推送服务 Location 头才是消息标识（状态码无追查价值）；缺失时回落状态码
+      messageId: String(res.headers?.location ?? res.statusCode).slice(0, 255),
       durationMs: Date.now() - started,
     });
+    // 刷新最后投递时刻：卫生清扫按最后活跃判超期，避免误删长期活跃订阅；失败不反噬发送
+    await getWebDb()
+      .update(pushSubscriptions)
+      .set({ lastSentAt: sql`NOW()` })
+      .where(eq(pushSubscriptions.endpoint, sub.endpoint))
+      .catch(() => undefined);
   } catch (e) {
     // 404/410 = 订阅已失效（用户退订/浏览器过期）：即时清理，避免反复投递失效 endpoint
     const statusCode = e instanceof WebPushError ? e.statusCode : undefined;
