@@ -338,3 +338,46 @@ M13 遗留「备份恢复演练签字」——**用生产最新备份恢复到�
 - **外部拨测配置**：站长执行 §1 清单，我做实证核对后勾选。**这是当前唯一仍无外部探测的故障面**。
 - **恢复演练站长签字**：演练已实测通过，等站长确认签字。
 - **digest 次日到达**：待 M17 部署后次日复核 `email_log` 的 `scene=digest`。
+
+## 13. Step 4 RUM 采集与落库（2026-11-13）
+
+从零建立真实用户侧可见性：Core Web Vitals + 前端错误采样落库，与 `scripts/lcp.ts` 单点门禁**对照而非替代**。
+
+### 交付
+
+- **新表 `rum_samples`**（照 `email_log` 范式，索引全以 `created_at` 收尾）：`kind`(vital/error) /
+  `name` / `value`(LCP/INP 毫秒、CLS×1000) / `route`(脱敏路径) / `detail`(错误摘要) / `created_at`。
+  **不存 IP/UA/堆栈/正文**。表数 56→57，迁移 `0027_last_tinkerer.sql`（只建本表，无捎带改动），
+  dev 库与 E2E 库均已迁移，`db:verify` 21 项全过。
+- **`/api/rum` 端点**：防线照 views 信标（同源→廉价限流→有上限读体→zod 校验→脱敏→落库），
+  响应照 csp-report **恒 204** 不泄露状态。复用 `readBodyBytes`/`clientIpFrom`/`rateLimit`/`isSameOrigin`/`redactUri`。
+- **采集组件 `RumBeacon`**（挂根布局，零新依赖）：原生 PerformanceObserver（LCP/CLS/INP，`buffered:true`）
+  + error/unhandledrejection 只入队 + `keepalive` fetch。**不拖慢首屏三招**：return null 零 DOM、
+  idle 延迟注册（buffered 不丢 entry）、首屏绝不发请求（仅 pagehide/转隐藏/60s 定时）。
+- **协议拆分**：`protocol.ts`（零依赖常量/类型，双栖）+ `schema.ts`（zod 校验，仅服务端）。
+
+### 我引入又修掉的真缺陷（CSP 硬红线）
+
+- **zod 被拖进每个页面的客户端 bundle**：`RumBeacon` 挂根布局且 import 带 zod 的 `schema.ts`，
+  即使只取一个常量，整个 zod 也进每页 bundle——实测多出 zod chunk 并触发 `script-src` 违规，
+  **CSP 零违规 E2E 3 条红**。拆出零依赖 `protocol.ts` 后 **11/11 全绿**。这同时是 bundle 体积回归（LCP 风险）。
+- **`redactRoute` origin 注入**：客户端传 `https://evil.test/x` 时拼 base 变成 `/https://evil.test/x`，
+  外站域名被当路径存下污染 route 维度。改为只接受单斜杠开头的站内路径，否则 `[other]`。
+
+### 自查失误（均已纠正，记录以免再犯）
+
+- **漏改表数断言**：只改了 `schema-rules.test.ts`，漏了 `bootstrap.int.test.ts` 的硬编码 56 → 门禁撞红后补改，
+  再全仓扫描确认无残留。教训：改表数要一次扫齐所有断言点。
+- **E2E 过滤子串陷阱**：用 `rum` / `rum.spec.ts` 做过滤会匹配到 `stream-fo**rum**.spec.ts`，
+  前两轮「绿」其实没跑 RUM。改用路径锚点 `e2e/rum.spec.ts` 才真正跑到。教训：过滤词要带路径锚点。
+- **E2E 库缺新表**：直接跑 playwright 不走 `test:e2e:run` 的重置编排，E2E 库无 `rum_samples` →
+  对 E2E 库幂等 bootstrap 补建。
+- **IP 测试假设错**：默认 `TRUSTED_PROXY_HOPS=0` 不信任 XFF，我传的伪造头不生效。改为显式 stubEnv，
+  并新增「默认不信任 XFF、伪造头不能绕过限额」的安全用例。
+
+### 门禁（真实输出）
+
+- `verify:all` 退 0：web **4,746** / db 124 / content 55 / migration 278。
+- **LCP 不回退**：120 / 136 / 172 / 68ms（预算 2500）。
+- **CSP 零违规** 11/11；**RUM E2E** 2/2（端点错误路径 + 采集组件 pagehide 落库，G-16 兑现）。
+- 单测：schema 8 + 端点 19 + 落库 6；边界守卫（server-only/architecture）27/27。

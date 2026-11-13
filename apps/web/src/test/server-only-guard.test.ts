@@ -59,6 +59,8 @@ const SERVER_BOUNDARIES = [
   // M14：运维任务管线的 HTTP 客户端（持有 OPS_API_TOKEN）、配置写服务、台账读取
   // M17：告警邮件的防重查询与发送（读 email_log、调邮件渠道）
   ...["client", "tasks", "runs", "alert-mail"].map((name) => `lib/ops/${name}.ts`),
+  // M17 Step 4：RUM 样本落库（写 rum_samples）
+  "lib/rum/ingest.ts",
 ].sort();
 
 function serverOnlyProblems(sources: Sources, required: readonly string[]) {
@@ -104,6 +106,9 @@ describe("服务端污染防线（G-05）", () => {
       "lib/points/labels.ts",
       "lib/theme/surface-render.ts",
       "lib/ops/executors.ts",
+      // M17 Step 4：RUM 载荷契约是双栖的（客户端构造 payload 也要用），标了会断客户端闭包
+      "lib/rum/schema.ts",
+      "lib/rum/protocol.ts",
     ]) {
       const { modules } = buildGraph({ [path]: sources[path] });
       expect(
