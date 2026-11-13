@@ -61,6 +61,8 @@ const SERVER_BOUNDARIES = [
   ...["client", "tasks", "runs", "alert-mail"].map((name) => `lib/ops/${name}.ts`),
   // M17 Step 4：RUM 样本落库（写 rum_samples）
   "lib/rum/ingest.ts",
+  // M17 Step 6：CSP 违规报告落库（写 csp_reports）
+  "lib/csp/ingest.ts",
 ].sort();
 
 function serverOnlyProblems(sources: Sources, required: readonly string[]) {

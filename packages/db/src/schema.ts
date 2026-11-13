@@ -1127,6 +1127,34 @@ export const rumSamples = mysqlTable(
 );
 
 /**
+ * CSP 违规报告（M17 Step 6）：把 /api/csp-report 收到的 Report-Only 违规落库，
+ * 从「只记日志靠 grep」变为可查询，作为 Report-Only 转强制的数据前提。
+ * 所有 URI 字段入库前已经 redactUri 脱敏（令牌段→:token、去查询串/片段、截断 200）；
+ * 不存 IP / UA / 正文。保留 90 天，写侧概率清理（照 email_log / rum_samples）。
+ */
+export const cspReports = mysqlTable(
+  "csp_reports",
+  {
+    id: bigint("id", { mode: "number", unsigned: true }).notNull().autoincrement(),
+    violatedDirective: varchar("violated_directive", { length: 64 }).notNull(),
+    effectiveDirective: varchar("effective_directive", { length: 64 }),
+    blockedUri: varchar("blocked_uri", { length: 200 }),
+    documentUri: varchar("document_uri", { length: 200 }),
+    sourceFile: varchar("source_file", { length: 200 }),
+    lineNumber: int("line_number", { unsigned: true }),
+    /** report = Report-Only 预演；enforce = 强制后（转强制后才会出现） */
+    disposition: varchar("disposition", { length: 16 }),
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    index("idx_csp_reports_time").on(t.createdAt),
+    index("idx_csp_reports_directive").on(t.violatedDirective, t.createdAt),
+    index("idx_csp_reports_document").on(t.documentUri, t.createdAt),
+  ],
+);
+
+/**
  * 运营排期方案（M11.2，schema v2.9）：通用「某段时间内临时改变某处生效值」的载体。
  *
  * 一个方案 = 一个 effect（效果注册键）+ 该 effect 的配置 + 时间窗。

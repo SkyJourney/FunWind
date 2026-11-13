@@ -409,3 +409,52 @@ M13 遗留「备份恢复演练签字」——**用生产最新备份恢复到�
 - `verify:all` 退 0：web **4,761** / db 124 / content 55 / migration 278；重复率低于基线。
 - 单测：queries 纯函数 + 集成（筛选/分页/转义/24h/p75/清扫触发与不触发）；既有 log-query/admin 测试无回归。
 - **RUM E2E 3/3**（重构后复跑）：端点错误路径、采集 pagehide 落库、后台管理员可见+非管理员被拒。
+
+## 15. Step 6 CSP 报告面与转强制评估（2026-11-13）
+
+把 Report-Only 预演收集到的违规从「只记日志靠 grep」变成**可查询落库 + 后台只读面**，并据此数据驱动地评估是否转强制。
+
+### 交付
+
+- **`csp_reports` 表**（表数 57→58）+ 迁移 `0028_wet_lord_hawal.sql`（只建本表 + 3 索引：
+  `createdAt` / `violatedDirective+createdAt` / `documentUri+createdAt`）。`schema-rules.test.ts` 与
+  `bootstrap.int.test.ts` 的表数断言**两处同步**改 58（吸取 Step 4 漏改教训，一次扫齐）。
+- **`lib/csp/ingest.ts`**（server-only）：`recordCspReports` 映射落库（`violated-directive` 缺省回退
+  `unknown`、`line-number` 解析、逐字段截断）+ **90 天写侧概率清扫**（1% 概率、`DELETE … LIMIT 1000`，
+  照 `lib/mail/transport.ts`，不依赖 SCHEDULER）。
+- **`lib/csp/queries.ts`**（server-only）：`parseCspFilter`（纯函数，非法值回退）+ `queryCspReports`
+  （复用 `lib/sql` 的 `countRows`/`pageItems` 与 `lib/paging`）+ `cspSummary`（24h 计数 + Top5 指令 groupBy）。
+- **`/admin/csp` 后台页**（`admin.logs` 权限，NAV_GROUPS 登记「CSP 报告」，过 admin-nav-guard）：
+  指令/文档筛选 + 分页 + 24h 概览 + Top 指令；表头/筛选/行单元格数据驱动渲染。
+- **`csp-report` 路由**：在既有脱敏（`redactUri`）/频控/恒 204 基础上并联 `recordCspReports` 落库；
+  读体改用共享 `readBodyBytes`（删私有 `readCapped` 副本，符合计划「勿抄私有 readCapped」）。
+- **测试**：`queries.test.ts` 纯函数单测 + `csp.int.test.ts` 集成（映射/筛选分页/24h/清扫触发与不触发）；
+  E2E `csp.spec.ts`（上报→落库→管理员可查 + 非管理员被拒，document-uri 须传完整 URL）。
+
+### 转强制评估结论（数据驱动，诚实不转）
+
+- **评估依据**：`security-headers` E2E 的零违规清单覆盖前后台主要路径，但**不含 `/admin/themes`**——
+  该页编辑器存在 `eval` 违规（E2E 曾见）。观察窗口内违规**未清零**。
+- **结论**：本期**只交报告面，不转强制**。转强制开关就是 `lib/security-headers.ts:76` 的 header key
+  （Report-Only → 强制），回滚是一行改动。待 `/admin/themes` 的 eval 违规消除（nonce 化或编辑器改造，
+  均不在本期）且观察窗口违规清零后，再凭 `/admin/csp` 数据评估转强制。
+- 不为转强制而放宽策略；nonce 化不在本期（`security-headers.ts:6-8` 已记录理由）。
+
+### 重复率棘轮：引入→提取→降到基线以下
+
+照 admin-list 既有模式写 csp 页/查询层引入重复（**+31 行/+2 clones**，1436/161 > 基线 1405/159，棘轮红）。
+按「提取/复用」消除，而非重锚定基线：
+- 抽 `admin-list.tsx` 三个共享件——`AdminDataTable`（列定义→表头、单元格数组→行）、`AdminFilterSelect`
+  （筛选下拉）、`AdminListPager`（计数行 + 分页器）；**rum 与 csp 页同改引用**，壳与渲染逻辑集中单一来源。
+- 路由删私有 `readCapped`，改复用 `readBodyBytes`（同时消除与 `read-body.ts` 的克隆）。
+- 结果 **duplicatedLines 1391 < 基线 1405、clones 157 < 159**，棘轮绿（净消除 45 行/4 clones）。
+
+### 门禁（真实输出）
+
+- `verify:all` 退 0：web **4,771** / db 124 / content 55 / migration 278；重复率 1391/157 低于基线；
+  architecture(17)/server-only(10)/admin-nav(5)/motion-architecture(156)/motion-bare-write(30)/scheduler-entry(4) 守卫全绿。
+- **CSP E2E 1/1**（重构后复跑，27.7s）：上报→落库→管理员后台可查 + 非管理员被拒。
+
+### 后续
+
+转强制评估留待违规清零（见上）。Step 6.5 两路独立审查 → Step 7 收口 + 部署（M17 各步攒到一起部署）。

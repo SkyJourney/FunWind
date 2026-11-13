@@ -12,8 +12,8 @@ import * as schema from "./schema.js";
 import { checkSchemaRules, collectTables, NULLABLE_UNIQUE_ALLOWLIST } from "./schema-rules.js";
 
 describe("schema 结构规则（真实 schema）", () => {
-  it("共 57 张表（schema v2.10 含 theme_packages、email_log、campaigns、ops_tasks、ops_triggers；M17 增 rum_samples）", () => {
-    expect(collectTables(schema)).toHaveLength(57);
+  it("共 58 张表（schema v2.10 含 theme_packages、email_log、campaigns、ops_tasks、ops_triggers；M17 增 rum_samples、csp_reports）", () => {
+    expect(collectTables(schema)).toHaveLength(58);
   });
 
   it("运行时 schema 没有任何旧站痕迹（无 legacy_* / migration_* / migrated 枚举）", () => {

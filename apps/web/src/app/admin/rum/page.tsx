@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { buildAdminQuery, parseAdminPage } from "@/lib/admin/query";
 import { pageBounds } from "@/lib/paging";
@@ -12,8 +11,12 @@ import {
 } from "@/lib/rum/queries";
 import { RUM_ERROR_NAMES, RUM_VITAL_NAMES } from "@/lib/rum/protocol";
 import { AdminFilterBar } from "@/components/admin/admin-filter-bar";
-import { AdminListMeta, AdminTable } from "@/components/admin/admin-list";
-import { Pagination } from "@/components/content/pagination";
+import {
+  AdminDataTable,
+  AdminFilterSelect,
+  AdminListPager,
+  type AdminCell,
+} from "@/components/admin/admin-list";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "真实用户监测" };
@@ -104,45 +107,23 @@ export default async function AdminRumPage({ searchParams }: Params) {
         defaultValue={filter.route ?? ""}
       >
         {selects.map((s) => (
-          <select
-            key={s.name}
-            name={s.name}
-            defaultValue={s.value}
-            aria-label={s.label}
-            className="rounded-lg border bg-background px-2.5 py-1.5 text-xs"
-          >
-            <option value="">{s.allLabel}</option>
-            {s.options.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+          <AdminFilterSelect key={s.name} {...s} />
         ))}
       </AdminFilterBar>
 
-      <AdminListMeta total={total} page={safePage} totalPages={totalPages} />
-      <Pagination
-        basePath={buildAdminQuery("/admin/rum", qs)}
+      <AdminListPager
+        total={total}
         page={safePage}
         totalPages={totalPages}
+        basePath={buildAdminQuery("/admin/rum", qs)}
       />
 
-      <AdminTable
-        colSpan={7}
+      <AdminDataTable
+        columns={COLUMNS}
         hasRows={items.length > 0}
         emptyText="暂无样本。生产环境用户浏览页面后会出现真实指标与错误。"
-        head={
-          <>
-            {COLUMNS.map((c) => (
-              <th key={c.label} className={c.className}>
-                {c.label}
-              </th>
-            ))}
-          </>
-        }
         rows={items.map((r) => {
-          const cells: { cls: string; node: ReactNode }[] = [
+          const cells: AdminCell[] = [
             { cls: "tabular-nums", node: r.id },
             { cls: "whitespace-nowrap", node: r.createdAt },
             { cls: "", node: RUM_KIND_LABEL[r.kind] ?? r.kind },
@@ -167,15 +148,7 @@ export default async function AdminRumPage({ searchParams }: Params) {
               ),
             },
           ];
-          return (
-            <tr key={r.id} className="border-t align-top">
-              {cells.map((c, i) => (
-                <td key={i} className={`px-3 py-1.5 ${c.cls}`.trim()}>
-                  {c.node}
-                </td>
-              ))}
-            </tr>
-          );
+          return { key: r.id, cells };
         })}
       />
       <p className="text-xs text-muted-foreground">
