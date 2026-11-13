@@ -1,9 +1,10 @@
 # M17 · 质量与可观测性收口
 
 - 阶段：四·运营与演进 ｜ 依赖：M13（部署上线）、M14（运维任务管线）、M15/M16（动效管线，均已收口公测）
-- 状态：🚧 **执行中**（2026-11-13：Step 0–6 已完成，见 §9–§15；Step 6.5 两路独立审查整改中；Step 7 收口部署未开始）。
-  分支 `feat/m17-quality-observability`，7 提交已推送，**尚未部署**（各步攒到一起，Step 7 统一上线）。
-  立项动因与范围草案见下；推进线已经计划模式批准（2026-11-13 站长「开始」逐 Step 授权）。
+- 状态：✅ **已收口部署**（2026-11-13：Step 0–7 全部完成，见 §9–§17；PR #16 CI 双绿合并 main `770fda8e`，
+  生产镜像 `funwind-web:20261113-770fda8e` 上线公测，回滚点 `funwind-web:20261113-1290876`）。
+  留待站长参与 / 观察期项见 §17（告警全链注入、digest 次日到达、外部拨测、恢复演练签字、CSP 转强制评估）。
+  立项动因与范围草案见下；推进线经计划模式批准（2026-11-13 站长「开始」逐 Step 授权）。
 - 立项动因：M13–M16 连续交付了「能力线」（部署 / 运维管线 / 动效管线），但**「运营可信度」欠账未清**——
   性能只有单点实测没有真实用户数据、告警触达从未验证、回滚演练从未完整做过、CSP 停在 Report-Only。
   这些是公测走向正式运营的入场券，也是三个跨里程碑长线项的收口载体。
@@ -458,4 +459,40 @@ M13 遗留「备份恢复演练签字」——**用生产最新备份恢复到�
 
 ### 后续
 
-转强制评估留待违规清零（见上）。Step 6.5 两路独立审查 → Step 7 收口 + 部署（M17 各步攒到一起部署）。
+转强制评估留待违规清零（见上）。Step 6.5 两路独立审查见 §16，Step 7 收口部署见 §17。
+
+## 16. Step 6.5 两路独立审查（2026-11-13）
+
+两路独立只读代理并审——**安全架构路**（运行时/安全/测试自身质量）与**规范文档一致性路**（实现 vs 计划/文档数字/纪律），
+主执行线亲自核实每条 P1 后整改。**0 P0 / 6 P1 / 13 P2**，报告入 `docs/reviews/2026-11-13-m17-code-review.md`。
+
+- **6 P1 全清**：① 时区卖点永真锚 → 补固定瞬间 + 进程 TZ 无关回归（**注入证伪：删 +8 偏移 datetime 立即 2 红**），
+  digest-job 改用真实墙面函数；② digest 活跃判定 `new Date(string)` 按进程时区解析（TZ=UTC 错成 32h）→ 改 `parseDbDateTime`；
+  ③ rum E2E p75 断言打偏表格单元格 → 改锚概览正值；④ server-only 守卫把 schema.ts 钉成「不得标记」（反向不变量）→
+  加 marker 并列入 SERVER_BOUNDARIES；⑤⑥ M17 头部 + ROADMAP 状态同步。
+- **12 P2 整改、1 记录**：CSP 测试 mock 落库、detail 内嵌 URL 脱敏、redactUri 百分号解码、line-number 边界、
+  共享件直接单测、守卫补全、注释同步、E2E 清单纳新页、§15 叙事精确等；恒 204 fail-fast 属有意设计记录在案。
+- **门禁**：`verify:all` 退 0（web **4783** / db 124 / content 55 / migration 278）；重复率 **1391/157 ≤ 基线**（未重锚定）；
+  受影响 E2E **15/15**（含 /admin/rum、/admin/csp 零 CSP 违规）。
+
+## 17. Step 7 收口与生产部署（2026-11-13）
+
+- **PR #16**：CI run `43393582691` **双作业绿**（verify / e2e），合并 main（merge commit `770fda8e`）。
+- **生产部署（web + 迁移，ops/nginx 未动）**：本机 `docker build --platform linux/amd64` → `save | ssh QY_HK docker load`
+  → **本机 + 服务器双重 inspect 核 amd64**（防呆）→ tag `funwind-web:20261113-770fda8e` →
+  **换容器前**容器内 `docker compose --env-file .env run --rm app pnpm db:bootstrap` 幂等应用 0027/0028
+  （用 .env 注入凭据，不接触 root 口令；种子非破坏，新增授权/设置/运维任务均 0）→ `compose up -d` 秒级换 web。
+- **迁移核实**：`rum_samples`、`csp_reports` 均已建；生产表数 **61**（58 web schema + `__drizzle_migrations`
+  + ops 管线 `ops_runs`/`ops_trigger_state`，后三者不在 web schema，属预期）。
+- **部署后核对（真实输出）**：容器 `healthy`；`/api/health` = `{status:ok, db:true, storage:true}`；
+  真实内容页 `/`、`/search`、`/login`、`/t/1`、`/f/151` 全 **200**（`/f/89` 为 section 分类容器、`/f/951`·`/t/950001`
+  为 E2E 夹具 ID 生产不存在，404 属预期非回归）；新后台页 `/admin/rum`、`/admin/csp` **307** 鉴权跳转（非 500）；
+  **CSP 仍 Report-Only**（诚实不转）；调度器登记 **4 任务**（account-deletion.drain / unverified-accounts.purge /
+  ops.alerts / **email.digest**，TZ Asia/Shanghai）；ops 管线 healthy；应用日志零异常。
+- **回滚点**：`funwind-web:20261113-1290876`（M16.1，保留不动）；回滚 = compose 换回旧 tag `up -d`。
+- **留待站长参与 / 观察期**：
+  - 告警全链无害注入（executor 参数无效在加载期跳过、不产生 failed 台账；执行期失败需安全诱发，
+    drill.restore 涉真实恢复不宜自主触发）→ 站长监督下安全触发 + 收件站长主邮箱验证（地址不入库）。
+  - digest 今日 20:00（北京）自然触发 → 站长验证收件（OBSERVABILITY §6 未勾项）。
+  - 外部拨测配置（站长执行项）、跨实例恢复演练签字。
+  - CSP 转强制评估：待 `/admin/themes` eval 违规消除且观察窗口违规清零后，凭 `/admin/csp` 数据再评估。
