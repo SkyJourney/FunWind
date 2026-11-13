@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getWebDb, notificationPreferences } from "@funwind/db";
-import { getCurrentUser } from "@/lib/auth/session";
-import { takePreferenceRateLimit } from "@/lib/auth/preference-ratelimit";
-import { isSameOrigin } from "@/lib/net/same-origin";
+import { preferenceGuard } from "@/lib/net/preference-guard";
 import { setUserPmPolicy } from "@/lib/pm/policy";
 import { setUserThemePack } from "@/lib/theme/pref";
 
@@ -32,51 +30,34 @@ const patchSchema = z.union([
 ]);
 
 export async function PATCH(request: Request): Promise<Response> {
-  if (!isSameOrigin(request)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-
-  let body: z.infer<typeof patchSchema>;
-  try {
-    body = patchSchema.parse(await request.json());
-  } catch {
-    return NextResponse.json({ error: "bad_request" }, { status: 400 });
-  }
-
-  const quota = takePreferenceRateLimit(user.id);
-  if (!quota.allowed) {
-    return NextResponse.json(
-      { error: "rate_limited" },
-      { status: 429, headers: { "Retry-After": String(quota.retryAfterSec) } },
-    );
-  }
-
-  if (body.kind === "notif") {
-    await getWebDb()
-      .insert(notificationPreferences)
-      .values({
-        userId: user.id,
-        type: body.type,
+  return preferenceGuard(request, patchSchema, async (user, body) => {
+    if (body.kind === "notif") {
+      await getWebDb()
+        .insert(notificationPreferences)
+        .values({
+          userId: user.id,
+          type: body.type,
+          channel: body.channel,
+          enabled: body.enabled,
+        })
+        .onDuplicateKeyUpdate({ set: { enabled: body.enabled } });
+      return NextResponse.json({
+        ok: true,
         channel: body.channel,
+        type: body.type,
         enabled: body.enabled,
-      })
-      .onDuplicateKeyUpdate({ set: { enabled: body.enabled } });
-    return NextResponse.json({
-      ok: true,
-      channel: body.channel,
-      type: body.type,
-      enabled: body.enabled,
-    });
-  }
-
-  if (body.kind === "themePack") {
-    const pack = body.pack;
-    if (!(await setUserThemePack(user.id, pack))) {
-      return NextResponse.json({ error: "bad_request" }, { status: 400 });
+      });
     }
-    return NextResponse.json({ ok: true, pack });
-  }
 
-  await setUserPmPolicy(user.id, body.pmPolicy);
-  return NextResponse.json({ ok: true, pmPolicy: body.pmPolicy });
+    if (body.kind === "themePack") {
+      const pack = body.pack;
+      if (!(await setUserThemePack(user.id, pack))) {
+        return NextResponse.json({ error: "bad_request" }, { status: 400 });
+      }
+      return NextResponse.json({ ok: true, pack });
+    }
+
+    await setUserPmPolicy(user.id, body.pmPolicy);
+    return NextResponse.json({ ok: true, pmPolicy: body.pmPolicy });
+  });
 }

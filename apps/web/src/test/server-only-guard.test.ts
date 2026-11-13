@@ -72,6 +72,9 @@ const SERVER_BOUNDARIES = [
   // M18 Step 2：Web Push 投递（web-push + push_log）与通知渠道（偏好/开关/频控）
   "lib/push/transport.ts",
   "lib/push/notify.ts",
+  // M18 Step 3：订阅凭据管理（写 push_subscriptions）+ 设置类写 API 共享门口链
+  "lib/push/subscriptions.ts",
+  "lib/net/preference-guard.ts",
 ].sort();
 
 function serverOnlyProblems(sources: Sources, required: readonly string[]) {

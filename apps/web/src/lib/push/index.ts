@@ -11,3 +11,4 @@ export {
   pmPushAllowed,
   userActiveRecently,
 } from "./notify";
+export { subscribePush, unsubscribePush } from "./subscriptions";
