@@ -48,8 +48,15 @@ export async function getDigestHour(): Promise<number> {
   return typeof v?.hour === "number" ? v.hour : 20;
 }
 
-/** 用户级邮件偏好：无记录 = 关 */
-export async function userEmailEnabled(userId: number, type: string): Promise<boolean> {
+/**
+ * 渠道偏好查询（email/push 共用，M18 提取）：无记录 = 关（=== true，显式 opt-in）。
+ * in_app 口径相反（无记录 = 开），不走这里。
+ */
+export async function channelPreferenceEnabled(
+  userId: number,
+  type: string,
+  channel: "email" | "push",
+): Promise<boolean> {
   const [row] = await getWebDb()
     .select({ enabled: notificationPreferences.enabled })
     .from(notificationPreferences)
@@ -57,11 +64,16 @@ export async function userEmailEnabled(userId: number, type: string): Promise<bo
       and(
         eq(notificationPreferences.userId, userId),
         eq(notificationPreferences.type, type),
-        eq(notificationPreferences.channel, "email"),
+        eq(notificationPreferences.channel, channel),
       ),
     )
     .limit(1);
   return row?.enabled === true;
+}
+
+/** 用户级邮件偏好：无记录 = 关 */
+export async function userEmailEnabled(userId: number, type: string): Promise<boolean> {
+  return channelPreferenceEnabled(userId, type, "email");
 }
 
 /**

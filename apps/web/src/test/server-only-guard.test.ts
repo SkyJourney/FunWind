@@ -69,6 +69,9 @@ const SERVER_BOUNDARIES = [
   "lib/rum/queries.ts",
   "lib/csp/queries.ts",
   "lib/sql.ts",
+  // M18 Step 2：Web Push 投递（web-push + push_log）与通知渠道（偏好/开关/频控）
+  "lib/push/transport.ts",
+  "lib/push/notify.ts",
 ].sort();
 
 function serverOnlyProblems(sources: Sources, required: readonly string[]) {
@@ -117,6 +120,8 @@ describe("服务端污染防线（G-05）", () => {
       // M17 Step 4：RUM 载荷契约的零依赖类型/常量是双栖的（客户端构造 payload 也要用），标了会断客户端闭包。
       // schema.ts（zod 校验）仅服务端，已加 server-only 并列入 SERVER_BOUNDARIES，不在此清单。
       "lib/rum/protocol.ts",
+      // M18 Step 2：Push 类型零依赖双栖（客户端订阅流程也 import），标了会断客户端闭包
+      "lib/push/types.ts",
     ]) {
       const { modules } = buildGraph({ [path]: sources[path] });
       expect(
