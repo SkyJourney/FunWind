@@ -81,6 +81,7 @@
     "sonner": "^2.0.8",
     "tailwind-merge": "^3.7.0",
     "unified": "^11.0.5",
+    "web-push": "^4.0.0",
     "yet-another-react-lightbox": "^3.32.2",
     "zod": "^4.6.7"
   },
@@ -97,6 +98,7 @@
     "@types/nodemailer": "^8.0.2",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@types/web-push": "^3.6.4",
     "@vitejs/plugin-react": "^6.1.2",
     "@vitest/coverage-v8": "^5.0.5",
     "eslint": "^10.13.0",

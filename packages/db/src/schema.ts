@@ -1058,6 +1058,28 @@ export const auditLog = mysqlTable(
 );
 
 /**
+ * 渠道审计日志共享列骨架（M18 提取，email_log / push_log 共用）：两者都是「发送成败记一行」的审计，
+ * 列结构同构——头部 id/类别/场景 + 尾部 状态/错误/服务标识/耗时/时间；各表再插入自己的收件目标与标题列。
+ * 隐私口径：不存正文（验证类正文含一次性令牌；推送 payload 含用户内容）。保留 90 天，发送侧概率清扫。
+ */
+const auditLogHead = {
+  id: bigint("id", { mode: "number", unsigned: true }).notNull().autoincrement(),
+  /** 类别（email：verify/security/notice/digest/system；push：notice） */
+  kind: varchar("kind", { length: 16 }).notNull(),
+  /** 场景标识 = 模板/通知类型 id（如 verify-email、pm-received），后台按此筛选 */
+  scene: varchar("scene", { length: 48 }).notNull(),
+};
+const auditLogTail = {
+  status: mysqlEnum("status", ["sent", "failed"]).notNull(),
+  /** 失败原因（渠道错误信息截断） */
+  error: varchar("error", { length: 500 }),
+  /** 渠道服务返回标识，便于到服务商侧追查 */
+  messageId: varchar("message_id", { length: 255 }),
+  durationMs: int("duration_ms", { unsigned: true }),
+  createdAt: dt("created_at").notNull(),
+};
+
+/**
  * 邮件发送记录（schema v2.8，邮件专项）：凡经 lib/mail 发出的邮件成败皆记一行，是邮件通道的审计日志。
  * 只存收件人 / 主题 / 场景 / 结果，**不存正文**——验证类正文含一次性令牌链接。
  * 保留期 90 天，由发送侧概率触发清理（lib/mail/transport.ts）。
@@ -1065,22 +1087,12 @@ export const auditLog = mysqlTable(
 export const emailLog = mysqlTable(
   "email_log",
   {
-    id: bigint("id", { mode: "number", unsigned: true }).notNull().autoincrement(),
-    /** 类别：verify 验证令牌 / security 安全强制 / notice 场景通知 / digest 汇总 / system 系统 */
-    kind: varchar("kind", { length: 16 }).notNull(),
-    /** 场景标识 = 模板 id（如 verify-email、pm-received），后台按此筛选 */
-    scene: varchar("scene", { length: 48 }).notNull(),
+    ...auditLogHead,
     toEmail: varchar("to_email", { length: 255 }).notNull(),
     /** 收件用户（能解析到时记录；验证邮件发往未绑定地址时为空） */
     userId: int("user_id", { unsigned: true }),
     subject: varchar("subject", { length: 255 }).notNull(),
-    status: mysqlEnum("status", ["sent", "failed"]).notNull(),
-    /** 失败原因（SMTP 错误信息截断） */
-    error: varchar("error", { length: 500 }),
-    /** SMTP 返回的 Message-ID，便于到邮件服务商侧追查 */
-    messageId: varchar("message_id", { length: 255 }),
-    durationMs: int("duration_ms", { unsigned: true }),
-    createdAt: dt("created_at").notNull(),
+    ...auditLogTail,
   },
   (t) => [
     primaryKey({ columns: [t.id] }),
@@ -1151,6 +1163,58 @@ export const cspReports = mysqlTable(
     index("idx_csp_reports_time").on(t.createdAt),
     index("idx_csp_reports_directive").on(t.violatedDirective, t.createdAt),
     index("idx_csp_reports_document").on(t.documentUri, t.createdAt),
+  ],
+);
+
+/**
+ * Web Push 设备订阅（M18 Step 1）：浏览器 PushManager.subscribe 产出的订阅凭据。
+ * 一个 endpoint 全局唯一（推送服务侧标识一个订阅）；订阅/退订按 endpoint upsert/删除。
+ * endpoint 必须 NOT NULL（schema-rules 禁可空唯一列）；p256dh/auth 是客户端密钥（base64url）。
+ * 隐私：只存订阅凭据与归属用户，不存任何通知内容。
+ */
+export const pushSubscriptions = mysqlTable(
+  "push_subscriptions",
+  {
+    id: bigint("id", { mode: "number", unsigned: true }).notNull().autoincrement(),
+    userId: int("user_id", { unsigned: true }).notNull(),
+    /** 浏览器推送服务 endpoint（全局唯一） */
+    endpoint: varchar("endpoint", { length: 500 }).notNull(),
+    /** 客户端公钥（P-256 DH，base64url） */
+    p256dh: varchar("p256dh", { length: 255 }).notNull(),
+    /** 客户端认证密钥（base64url） */
+    auth: varchar("auth", { length: 255 }).notNull(),
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    uniqueIndex("uq_push_subscriptions_endpoint").on(t.endpoint),
+    index("idx_push_subscriptions_user").on(t.userId, t.createdAt),
+  ],
+);
+
+/**
+ * Web Push 发送记录（M18 Step 1）：凡经 lib/push 发出的推送成败皆记一行，镜像 email_log。
+ * 只存 endpoint / 标题 / 场景 / 结果，**不存正文 payload**（照 email_log「不存正文」先例）。
+ * 保留期 90 天，由发送侧概率触发清理（lib/push/transport.ts）。
+ */
+export const pushLog = mysqlTable(
+  "push_log",
+  {
+    ...auditLogHead,
+    /** 目标订阅 endpoint（截断） */
+    endpoint: varchar("endpoint", { length: 500 }).notNull(),
+    /** 收件用户（能解析到时记录） */
+    userId: int("user_id", { unsigned: true }),
+    /** 通知标题（截断；不存正文） */
+    title: varchar("title", { length: 255 }).notNull(),
+    ...auditLogTail,
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    index("idx_push_log_time").on(t.createdAt),
+    index("idx_push_log_user").on(t.userId, t.createdAt),
+    index("idx_push_log_status").on(t.status, t.createdAt),
+    index("idx_push_log_scene").on(t.scene, t.createdAt),
   ],
 );
 
