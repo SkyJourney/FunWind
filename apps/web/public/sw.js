@@ -75,3 +75,92 @@ self.addEventListener("fetch", (event) => {
     })(),
   );
 });
+
+// ============================================================
+// Web Push（M18 Step 5）：push 展示通知 / notificationclick 聚焦跳转 / pushsubscriptionchange 重订阅。
+// 隐私边界不变：推送 payload 只含标题/正文/站内跳转 URL，不缓存任何个性化内容。
+// ============================================================
+
+/** VAPID 公钥（base64url）→ PushManager.subscribe 所需的 Uint8Array（与 lib/push/client.ts 同算法） */
+function urlBase64ToUint8Array(base64) {
+  const padding = "=".repeat((4 - (base64.length % 4)) % 4);
+  const normalized = (base64 + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(normalized);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i += 1) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = {};
+  }
+  const title = payload.title || "青翼字幕组";
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: payload.body || "",
+      icon: "/pwa/icon-192.png",
+      badge: "/pwa/icon-192.png",
+      data: { url: payload.url || "/" },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  // 只允许站内跳转（同源校验，防 payload 被篡改导致开放重定向）
+  const raw = (event.notification.data && event.notification.data.url) || "/";
+  let target;
+  try {
+    target = new URL(raw, self.location.origin);
+    if (target.origin !== self.location.origin) target = new URL("/", self.location.origin);
+  } catch {
+    target = new URL("/", self.location.origin);
+  }
+  const href = target.href;
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      // 已有窗口：聚焦并导航到目标；无窗口：开新窗口
+      for (const client of clients) {
+        if ("focus" in client) {
+          client.focus();
+          if ("navigate" in client) client.navigate(href);
+          return;
+        }
+      }
+      return self.clients.openWindow(href);
+    }),
+  );
+});
+
+self.addEventListener("pushsubscriptionchange", (event) => {
+  // 订阅失效/更新时重新订阅并上报新凭据（需用户已登录，SW fetch 同源自动带会话 cookie）
+  event.waitUntil(
+    (async () => {
+      try {
+        const res = await fetch("/api/push/vapid-public-key");
+        const { publicKey } = await res.json();
+        if (!publicKey) return;
+        const sub = await self.registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey),
+        });
+        const json = sub.toJSON();
+        await fetch("/api/push/subscription", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            endpoint: sub.endpoint,
+            p256dh: (json.keys && json.keys.p256dh) || "",
+            auth: (json.keys && json.keys.auth) || "",
+          }),
+        });
+      } catch {
+        // 重订阅失败不反噬；用户下次开启推送时再试
+      }
+    })(),
+  );
+});

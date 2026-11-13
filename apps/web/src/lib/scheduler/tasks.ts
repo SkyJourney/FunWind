@@ -3,8 +3,8 @@ import "server-only";
 // 定时任务是第三种使用模块内核的入口（前两种是 Server Action 与 Route Handler）。
 // 任务可能早于任何页面请求触发，此时注册表若尚未求值，任务里发出的事件会被派发进空集合并标记完成（= 丢失），
 // 积分渠道也会因不可见而失败（见 scripts/outbox-drain.ts 头注释）。
-// 注意：当前两个任务（账号注销到期处理、超期未验证清理）自己**不发事件**——注销申请 / 撤销的事件在用户操作的
-// Server Action 里发，那里由 defineAction 保证求值。所以这行对现有任务是防御性的，为以后新增会发事件的任务预留。
+// 注意：当前任务均自己**不发事件**——注销申请 / 撤销的事件在用户操作的 Server Action 里发，
+// 那里由 defineAction 保证求值。所以这行对现有任务是防御性的，为以后新增会发事件的任务预留。
 // 放在任务本体而不是调度器里：命令行脚本也直接引用本文件，脚本与服务进程行为一致。
 // 现有的 modules-import-guard 只认 route.ts 与 "use server" 文件，不认定时任务入口，
 // 所以这条由 src/test/scheduler-entry-guard.test.ts 单独钉住。
@@ -17,6 +17,7 @@ import { sendOpsAlertMails, type OpsFailureMail } from "@/lib/ops/alert-mail";
 import { notify } from "@/lib/notifications/notify";
 import { getDigestHour } from "@/lib/notifications/email";
 import { runDigestOnce } from "@/lib/notifications/digest";
+import { cleanupStalePushSubscriptions } from "@/lib/push/subscriptions";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import { processDueAccountDeletions } from "@/lib/auth/account-deletion";
 import {
@@ -194,4 +195,21 @@ async function siteAdminIds(): Promise<number[]> {
     .innerJoin(roles, eq(roles.key, userRoles.roleKey))
     .where(and(eq(roles.key, "admin"), eq(users.state, "active")));
   return rows.map((r) => r.userId);
+}
+
+// ── Web Push 订阅卫生清扫（M18 Step 6）：定期清除超期未重建的失效订阅 ──────────────────────────
+
+export const PUSH_CLEANUP_JOB_KEY = "push.cleanup";
+
+export function pushCleanupJob(overrides: Partial<JobDef> = {}): JobDef {
+  return {
+    key: PUSH_CLEANUP_JOB_KEY,
+    cron: "40 3 * * *",
+    timeoutMs: 60_000,
+    async run(): Promise<JobResult> {
+      const removed = await cleanupStalePushSubscriptions();
+      return { summary: `removed=${removed}` };
+    },
+    ...overrides,
+  };
 }

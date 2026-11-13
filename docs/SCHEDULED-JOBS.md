@@ -19,6 +19,7 @@
 | `unverified-accounts.purge` | 清理超过 7 天仍未验证的注册账号，释放用户名与邮箱 | **进程内调度器**（`SCHEDULER=on`） | 每天 03:30 | `pnpm --filter @funwind/web unverified-accounts:purge [--apply]` | 命名锁（仅 `--apply`） |
 | `ops.alerts`（M14） | 扫描运维台账（`ops_runs`）近 7 天的失败记录，给 admin 角色用户发系统类告警（dedup 按运行 id 防重） | **进程内调度器**（`SCHEDULER=on`） | 每 15 分钟 | —（告警扫描无命令行入口） | 无（读-only 扫描 + 通知 dedup 幂等） |
 | `email.digest`（M17） | 给近 24 小时未登录、开了邮件汇总的用户发每日汇总 | **进程内调度器**（`SCHEDULER=on`） | 每小时整点跑，run 内按北京墙面时间比对后台配置时刻（默认 20 点） | `pnpm --filter @funwind/web digest:run [--user <id>] [--force]` | 命名锁 + **当日幂等**（同一北京日只发一封） |
+| `push.cleanup`（M18） | 清除超期（180 天）未重建的失效推送订阅，兜底投递时 404/410 即时清理 | **进程内调度器**（`SCHEDULER=on`） | 每天 03:40 | —（清扫无命令行入口） | 命名锁 |
 | outbox 补派 | 把消费失败而停在 outbox 里的事件补派出去 | **手动** | — | `pnpm --filter @funwind/web outbox:drain` | 无 |
 | 孤儿文件巡检 | 报告库内无引用的文件与磁盘上有而库里没有的孤儿 | **手动** | — | `pnpm db:gc-files --dry-run` | 无 |
 | 缓存计数重算 | 全量重算缓存计数 | **手动** | — | `pnpm db:recount [--check]` | 无 |
@@ -51,7 +52,7 @@
 启动后服务日志里应有一行（没有就说明没启用）：
 
 ```
-[scheduler] 已登记 3 个任务：account-deletion.drain、unverified-accounts.purge、ops.alerts（时区 Asia/Shanghai）
+[scheduler] 已登记 5 个任务：account-deletion.drain、unverified-accounts.purge、ops.alerts、email.digest、push.cleanup（时区 Asia/Shanghai）
 ```
 
 ### 部署

@@ -32,6 +32,11 @@ export default defineConfig({
       APP_URL: "http://127.0.0.1:3203",
       SMTP_URL: "smtp://127.0.0.1:1025",
       MAIL_FROM: "青翼字幕组 <noreply@qingyisub.top>",
+      // Web Push（M18）：合成测试密钥（非生产秘密，类比 CI MySQL 口令）；真实送达 E2E 走 mock
+      VAPID_PUBLIC_KEY:
+        "BAShIviqQSioX1xc3mrwyYGbTL9ud6LPfHEB_Sou24-POF4xJ1KPPGEDrO3Lk3ft9BIa55bD3W_7JLx9NN20zW4",
+      VAPID_PRIVATE_KEY: "I-IDJjtpEtDBFKivPOU7kL0-w4qIBXy8OokyjHF-bQs",
+      VAPID_SUBJECT: "mailto:admin@qingyisub.top",
     },
   },
 });

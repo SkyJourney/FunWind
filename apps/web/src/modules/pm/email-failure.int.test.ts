@@ -1,7 +1,15 @@
 // @vitest-environment node
 import "@/modules";
 import { and, eq } from "drizzle-orm";
-import { DEMO, eventLog, eventOutbox, getWebDb, messages, notifications } from "@funwind/db";
+import {
+  DEMO,
+  eventLog,
+  eventOutbox,
+  getWebDb,
+  messages,
+  notificationPreferences,
+  notifications,
+} from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { loadSubject } from "@/lib/authz/subject";
 import * as email from "@/lib/notifications/email";
@@ -72,4 +80,50 @@ describe.skipIf(skipDb)("私信站内通知与邮件故障隔离", () => {
       }
     },
   );
+
+  it("push 门控故障时事件仍完成（trySendUserPush 内部隔离，不重放 outbox）", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(email, "userEmailEnabled").mockResolvedValue(false); // 邮件关，聚焦 push 路径
+    // userActiveRecently 由 notify 从 email 跨模块导入，spy 可注入故障；种 push 偏好使门控走到活跃查询
+    vi.spyOn(email, "userActiveRecently").mockRejectedValue(new Error("push 活跃查询故障"));
+    await getWebDb()
+      .insert(notificationPreferences)
+      .values({ userId: DEMO.team, type: "pm.received", channel: "push", enabled: true });
+    try {
+      const db = getWebDb();
+      const before = await db
+        .select()
+        .from(notifications)
+        .where(and(eq(notifications.userId, DEMO.team), eq(notifications.type, "pm.received")));
+      const countBefore = (before.at(-1)?.data as { count?: number } | null)?.count ?? 0;
+      const body = "push 故障隔离";
+      const result = await sendMessage(await loadSubject(DEMO.alice), DEMO.team, body);
+      expect(result.ok).toBe(true);
+      const stored = await db.select().from(messages).where(eq(messages.body, body));
+      expect(stored).toHaveLength(1);
+      const notices = await db
+        .select()
+        .from(notifications)
+        .where(and(eq(notifications.userId, DEMO.team), eq(notifications.type, "pm.received")));
+      expect((notices.at(-1)!.data as { count: number }).count).toBe(countBefore + 1);
+      const outboxRows = await db
+        .select()
+        .from(eventOutbox)
+        .where(eq(eventOutbox.eventName, "message.sent"));
+      const current = outboxRows.filter(
+        (row) => (row.payload as { messageId: number }).messageId === stored[0].id,
+      );
+      expect(current).toHaveLength(1);
+      expect(current[0].dispatchedAt).not.toBeNull(); // 事件已完成，未因 push 故障重放
+      const logs = await db.select().from(eventLog).where(eq(eventLog.eventName, "message.sent"));
+      const currentLogs = logs.filter(
+        (row) => (row.payload as { messageId: number }).messageId === stored[0].id,
+      );
+      expect(currentLogs).toHaveLength(1);
+      expect(currentLogs[0].errorJson).toBeNull();
+      expect(error).toHaveBeenCalled(); // push 门控故障被 trySendUserPush 内部捕获并记日志
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
 });

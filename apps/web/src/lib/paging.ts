@@ -23,6 +23,23 @@ export function pageLimit(raw: number | undefined, def = 50, max = 200): number 
   return Math.min(Math.max(1, Math.trunc(raw ?? def) || def), max);
 }
 
+/**
+ * 日志筛选公共解析（mail/push 共用，M18 Step 6 提取）：场景（按调用方校验器）+ 关键词去空白截断 120 + 页码。
+ * 各日志表的 status/kind 等专属筛项仍留在各自 parseFilter。
+ */
+export function parseLogFilterBase(
+  sp: Record<string, string | undefined>,
+  sceneValid: (scene: string) => boolean,
+): { scene?: string; q?: string; page: number } {
+  const scene = sp.scene?.trim();
+  const q = sp.q?.trim();
+  return {
+    scene: scene && sceneValid(scene) ? scene : undefined,
+    q: q ? q.slice(0, 120) : undefined,
+    page: parsePageParam(sp.page),
+  };
+}
+
 export interface PageBounds {
   page: number;
   totalPages: number;

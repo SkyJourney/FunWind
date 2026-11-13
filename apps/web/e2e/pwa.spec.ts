@@ -203,3 +203,56 @@ test("联网状态感知：断网给常驻提示，恢复后撤下并确认（M1
   await expect(page.getByText("网络已恢复")).toBeVisible();
   await expect(page.getByText("网络已断开")).toHaveCount(0);
 });
+
+test("SW 推送扩展：push/notificationclick/pushsubscriptionchange 三监听器就位，通知图标可达（M18 Step 5）", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/");
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  // 真实推送送达需推送服务 + 站长真机（含 iOS PWA）；这里断言 SW 推送基建已部署、图标可缓存
+  const sw = await request.get("/sw.js");
+  expect(sw.status()).toBe(200);
+  const script = await sw.text();
+  expect(script).toContain('addEventListener("push"');
+  expect(script).toContain('addEventListener("notificationclick"');
+  expect(script).toContain('addEventListener("pushsubscriptionchange"');
+  expect(script).toContain("showNotification");
+  const icon = await request.get("/pwa/icon-192.png");
+  expect(icon.status()).toBe(200);
+  expect(icon.headers()["content-type"]).toContain("image/png");
+});
+
+test("SW push 监听器行为：派发 push 事件真触发 showNotification（M18 Step 6.5，空监听器即红）", async ({
+  page,
+  context,
+}) => {
+  await page.goto("/");
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  const sw = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
+  // 在 SW 作用域内替身 showNotification 并派发 push 事件，断言监听器真的展示通知（非仅源码含字符串）。
+  // 无 data 的 push 事件 → 默认标题；完整 payload 解析与 notificationclick 跳转由站长真机验证。
+  const shown = await sw.evaluate(async () => {
+    const scope = self as unknown as {
+      registration: ServiceWorkerRegistration;
+      dispatchEvent: (e: Event) => boolean;
+    };
+    const reg = scope.registration;
+    let captured: { title: string } | null = null;
+    const orig = reg.showNotification.bind(reg);
+    reg.showNotification = ((title: string) => {
+      captured = { title };
+      return Promise.resolve();
+    }) as typeof reg.showNotification;
+    scope.dispatchEvent(new Event("push"));
+    await new Promise((r) => setTimeout(r, 100));
+    reg.showNotification = orig;
+    return captured;
+  });
+  expect(shown).not.toBeNull();
+  expect(shown!.title).toBe("青翼字幕组");
+});

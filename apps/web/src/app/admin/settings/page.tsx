@@ -5,6 +5,7 @@ import { getSiteRegisterPolicy } from "@/lib/auth/settings";
 import { applyRegisterWindow, registerAvailability } from "@/lib/auth/register-policy";
 import { getActiveRegisterWindow } from "@/lib/campaigns/service";
 import { getDigestHour, opsEmailEnabled, securityEmailEnabled } from "@/lib/notifications/email";
+import { pushEnabled } from "@/lib/push";
 import { getLimitsConfig } from "@/lib/limits/load";
 import { getSiteChrome, getSiteIdentity } from "@/lib/chrome/site-chrome";
 import { SITE_URL } from "@/lib/site";
@@ -18,6 +19,7 @@ import {
   saveEmailSecurityAction,
   saveIdentityAction,
   saveLimitsAction,
+  savePushEnabledAction,
   saveThemePackAction,
   sendTestMailAction,
 } from "./actions";
@@ -83,6 +85,7 @@ export default async function SiteSettingsPage({
     limits,
     securityMail,
     opsMail,
+    pushOn,
     digestHour,
     adminRow,
     sp,
@@ -95,6 +98,7 @@ export default async function SiteSettingsPage({
     getLimitsConfig(),
     securityEmailEnabled(),
     opsEmailEnabled(),
+    pushEnabled(),
     getDigestHour(),
     getWebDb()
       .select({ email: users.email })
@@ -372,6 +376,28 @@ export default async function SiteSettingsPage({
             <div>
               <SubmitButton className="rounded-lg border px-3 py-1.5 hover:bg-accent disabled:opacity-60">
                 保存运维告警开关
+              </SubmitButton>
+            </div>
+          </form>
+
+          <form action={savePushEnabledAction} className="space-y-2 border-t pt-4">
+            <p className="font-medium">Web Push 推送（新回复 / 提及 / 私信离站通知）</p>
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                name="enabled"
+                value="on"
+                defaultChecked={pushOn}
+                className="mt-1 size-4"
+              />
+              <span className="text-muted-foreground">
+                站点级总开关：关闭后全站不再投递推送（用户订阅与偏好保留，可一键停推）。
+                用户仍需在「设置→通知」显式开启本设备推送并按场景勾选。
+              </span>
+            </label>
+            <div>
+              <SubmitButton className="rounded-lg border px-3 py-1.5 hover:bg-accent disabled:opacity-60">
+                保存推送开关
               </SubmitButton>
             </div>
           </form>
