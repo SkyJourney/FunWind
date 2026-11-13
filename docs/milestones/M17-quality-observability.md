@@ -381,3 +381,31 @@ M13 遗留「备份恢复演练签字」——**用生产最新备份恢复到�
 - **LCP 不回退**：120 / 136 / 172 / 68ms（预算 2500）。
 - **CSP 零违规** 11/11；**RUM E2E** 2/2（端点错误路径 + 采集组件 pagehide 落库，G-16 兑现）。
 - 单测：schema 8 + 端点 19 + 落库 6；边界守卫（server-only/architecture）27/27。
+
+## 14. Step 5 RUM 数据面与保留（2026-11-13）
+
+把 Step 4 采集到的样本变成可查、可聚合、有保留期的运营数据。
+
+### 交付
+
+- **`/admin/rum` 后台页**（`admin.logs` 权限，与审计/邮件同档；NAV_GROUPS 登记「用户监测」，
+  过 admin-nav-guard）：类别/指标/路径筛选 + 分页 + 24h 概览 + 各 vital 指标 p75。
+  表头/筛选/行单元格均数据驱动渲染。只展示脱敏路径/指标值/错误摘要。
+- **`lib/rum/queries.ts`**：`parseRumFilter`（纯函数，非法值回退）+ `queryRumSamples`（分页）+
+  `rumSummary`（24h）+ `rumPercentiles`（p75，JS nearest-rank，与 perf-posting 同算法，不引 SQL 窗口函数）。
+- **90 天写侧概率清扫**（照 `lib/mail/transport.ts`：1% 概率、`DELETE … LIMIT 1000`，不依赖 SCHEDULER）。
+
+### 重复率棘轮：引入→提取→降到基线以下
+
+照 admin-list 既有模式写新页/新查询层引入了重复（+42 行/+5 clones，棘轮红）。按「提取/复用」消除：
+- 抽 `lib/sql.ts`（`escapeLike`/`countRows`/`pageItems`）与 `lib/paging.ts`（`parsePageParam`/`pageLimit`），
+  并让 `log-query.ts`/`admin/logs.ts`/`queries.ts` 全部改引用（同时降低了既有基线重复）；
+- rum 页 select/表头/行改数据驱动，打破与 mail 页的逐字同构。
+- 结果 **duplicatedLines 1399 < 基线 1405、clones 158 < 159**，棘轮绿。
+- 自查失误：移除 `desc` 导入时漏了 `rumPercentiles` 仍用它，类型/运行时报错，已补回。
+
+### 门禁（真实输出）
+
+- `verify:all` 退 0：web **4,761** / db 124 / content 55 / migration 278；重复率低于基线。
+- 单测：queries 纯函数 + 集成（筛选/分页/转义/24h/p75/清扫触发与不触发）；既有 log-query/admin 测试无回归。
+- **RUM E2E 3/3**（重构后复跑）：端点错误路径、采集 pagehide 落库、后台管理员可见+非管理员被拒。

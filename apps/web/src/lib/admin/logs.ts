@@ -1,6 +1,7 @@
-import { and, desc, eq, gte, sql, type SQL } from "drizzle-orm";
-import { auditLog, eventLog, getWebDb } from "@funwind/db";
+import { and, eq, gte, type SQL } from "drizzle-orm";
+import { auditLog, eventLog } from "@funwind/db";
 import { pageBounds } from "@/lib/paging";
+import { countRows, pageItems } from "@/lib/sql";
 
 /**
  * 审计中心查询（M9）：audit_log 与 event_log 统一筛选/分页；CSV 行生成是纯函数（单测锚定转义）。
@@ -49,19 +50,9 @@ export async function queryAuditLogs(
   if (filter.since) conds.push(gte(auditLog.createdAt, filter.since));
   const where = conds.length > 0 ? and(...conds) : undefined;
 
-  const [{ n }] = await getWebDb()
-    .select({ n: sql<number>`COUNT(*)` })
-    .from(auditLog)
-    .where(where);
-  const total = Number(n);
+  const total = await countRows(auditLog, where);
   const limit = boundedLimit(filter.limit);
-  const items = await getWebDb()
-    .select()
-    .from(auditLog)
-    .where(where)
-    .orderBy(desc(auditLog.id))
-    .limit(limit)
-    .offset(boundedOffset(total, filter, limit));
+  const items = await pageItems(auditLog, where, limit, boundedOffset(total, filter, limit));
   return { items: items as AuditLogRow[], total };
 }
 
@@ -83,19 +74,9 @@ export async function queryEventLogs(
   if (filter.since) conds.push(gte(eventLog.createdAt, filter.since));
   const where = conds.length > 0 ? and(...conds) : undefined;
 
-  const [{ n }] = await getWebDb()
-    .select({ n: sql<number>`COUNT(*)` })
-    .from(eventLog)
-    .where(where);
-  const total = Number(n);
+  const total = await countRows(eventLog, where);
   const limit = boundedLimit(filter.limit);
-  const items = await getWebDb()
-    .select()
-    .from(eventLog)
-    .where(where)
-    .orderBy(desc(eventLog.id))
-    .limit(limit)
-    .offset(boundedOffset(total, filter, limit));
+  const items = await pageItems(eventLog, where, limit, boundedOffset(total, filter, limit));
   return { items: items as EventLogRowView[], total };
 }
 

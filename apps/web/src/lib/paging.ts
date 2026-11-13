@@ -12,6 +12,17 @@ export function clampPage(page: number, totalPages: number): number {
   return Math.min(Math.max(1, whole), Math.max(1, totalPages));
 }
 
+/** 解析 ?page= 为正整数页码；非正整数/NaN/小数回退 1（各列表筛选共用，M17 Step 5 提取） */
+export function parsePageParam(raw: string | undefined): number {
+  const page = Number(raw ?? "1");
+  return Number.isInteger(page) && page > 0 ? page : 1;
+}
+
+/** 收束每页条数到 [1, max]，默认 def（各列表查询共用，M17 Step 5 提取） */
+export function pageLimit(raw: number | undefined, def = 50, max = 200): number {
+  return Math.min(Math.max(1, Math.trunc(raw ?? def) || def), max);
+}
+
 export interface PageBounds {
   page: number;
   totalPages: number;

@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { withE2eDb } from "./support/db";
+import { loginAs, USERS } from "./support/session";
 
 /**
  * RUM E2E（M17 Step 4，G-16：新业务线必须有 E2E 且至少一条错误路径）。
@@ -89,4 +90,34 @@ test("采集组件：浏览页面后导航离开（pagehide）→ LCP 样本落�
   await expect
     .poll(() => countRoute(BEACON_ROUTE, "LCP"), { timeout: 20_000, intervals: [1_000] })
     .toBeGreaterThanOrEqual(1);
+});
+
+const ADMIN_ROUTE = "/e2e-rum-admin";
+
+test("后台 /admin/rum：管理员可见样本与 p75；非管理员被拒（错误路径）", async ({
+  page,
+  context,
+}) => {
+  await withE2eDb(async (q) => {
+    await q.exec("DELETE FROM rum_samples WHERE route = ?", [ADMIN_ROUTE]);
+    for (const v of [100, 200, 300, 400]) {
+      await q.exec(
+        `INSERT INTO rum_samples (kind, name, value, route, detail, created_at)
+         VALUES ('vital', 'LCP', ?, ?, NULL, NOW())`,
+        [v, ADMIN_ROUTE],
+      );
+    }
+  });
+
+  // 非管理员：requireAdmin 拒绝（不渲染数据）
+  await loginAs(context, USERS.member);
+  await page.goto(`/admin/rum?route=${ADMIN_ROUTE}`);
+  await expect(page.getByText(ADMIN_ROUTE)).toHaveCount(0);
+
+  // 管理员：可见样本行与 p75 概览
+  await loginAs(context, USERS.admin);
+  await page.goto(`/admin/rum?route=${ADMIN_ROUTE}`);
+  await expect(page.getByText(ADMIN_ROUTE).first()).toBeVisible();
+  await expect(page.getByText(/p75：/)).toBeVisible();
+  await expect(page.getByText("300ms").first()).toBeVisible();
 });
