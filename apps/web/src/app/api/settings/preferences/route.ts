@@ -16,7 +16,7 @@ const patchSchema = z.union([
   z.object({
     kind: z.literal("notif"),
     type: z.string().min(1).max(48),
-    channel: z.enum(["in_app", "email"]),
+    channel: z.enum(["in_app", "email", "push"]),
     enabled: z.boolean(),
   }),
   z.object({

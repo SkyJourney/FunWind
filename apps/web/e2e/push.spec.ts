@@ -85,3 +85,13 @@ test("VAPID 公钥下发：返回非空公钥（E2E 配置已注入测试密钥�
   });
   expect(key.length).toBeGreaterThan(0);
 });
+
+test("设置页推送列：能力探测呈现设备闸与逐类型开关（M18 Step 4）", async ({ page, context }) => {
+  await loginAs(context, USERS.member);
+  await page.goto("/settings/notifications");
+  // 设备级订阅闸：未订阅时呈现「开启推送」（真实订阅送达由 Step 5 SW + 站长真机覆盖）
+  await expect(page.getByText("本设备推送")).toBeVisible();
+  await expect(page.getByRole("button", { name: "开启推送" })).toBeVisible();
+  // 推送表头与逐类型开关（能力探测后呈现，SSR 安全）
+  await expect(page.getByRole("switch", { name: /推送通知/ }).first()).toBeVisible();
+});

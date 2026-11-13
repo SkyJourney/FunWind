@@ -280,7 +280,7 @@ export const toggleNotifPrefAction = defineAction({
   auth: "user",
   input: z.object({
     type: z.string().min(1).max(48),
-    channel: z.enum(["in_app", "email"]).default("in_app"),
+    channel: z.enum(["in_app", "email", "push"]).default("in_app"),
     enabled: z.enum(["on", "off"]),
   }),
   async run(ctx, input) {

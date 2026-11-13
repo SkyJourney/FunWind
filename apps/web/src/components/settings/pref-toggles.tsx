@@ -19,7 +19,7 @@ export function PrefToggleButton({
   label,
 }: {
   type: string;
-  channel: "in_app" | "email";
+  channel: "in_app" | "email" | "push";
   initialEnabled: boolean;
   onLabel: string;
   offLabel: string;
