@@ -1092,6 +1092,69 @@ export const emailLog = mysqlTable(
 );
 
 /**
+ * 真实用户监测样本（M17 Step 4）：浏览器侧 Core Web Vitals 与前端错误的采样落库。
+ * 与 scripts/lcp.ts 的单点门禁**对照而非替代**——那个是构建后本机/公网单测，这里是真实用户分布。
+ *
+ * 隐私口径（照 email_log「不存正文」的先例）：
+ *  · `route` 只存**脱敏后的路径**（经 redactUri：去查询串与片段、令牌段替换为 :token、截断 200）；
+ *  · `detail` 只存错误消息摘要（去控制字符 + 截断），**不存堆栈、不存参数、不存用户输入**；
+ *  · **不存 IP**（IP 只作端点频控键）、不存 UA、不存任何可识别个人的字段。
+ * 保留期 90 天，写侧概率清扫（照 lib/mail/transport.ts）。
+ */
+export const rumSamples = mysqlTable(
+  "rum_samples",
+  {
+    id: bigint("id", { mode: "number", unsigned: true }).notNull().autoincrement(),
+    /** vital = Core Web Vitals 指标；error = 前端错误 */
+    kind: mysqlEnum("kind", ["vital", "error"]).notNull(),
+    /** 指标名（LCP/CLS/INP）或错误类型（js-error/unhandled-rejection） */
+    name: varchar("name", { length: 32 }).notNull(),
+    /** 指标值：LCP/INP 为毫秒；CLS 为分数 ×1000 取整（避免浮点列）；error 恒 0 */
+    value: int("value", { unsigned: true }).notNull(),
+    /** 脱敏后的页面路径（不含查询串与片段） */
+    route: varchar("route", { length: 200 }).notNull(),
+    /** 错误消息摘要（已去控制字符并截断）；vital 行为空 */
+    detail: varchar("detail", { length: 200 }),
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    index("idx_rum_samples_time").on(t.createdAt),
+    index("idx_rum_samples_kind").on(t.kind, t.createdAt),
+    index("idx_rum_samples_name").on(t.name, t.createdAt),
+    index("idx_rum_samples_route").on(t.route, t.createdAt),
+  ],
+);
+
+/**
+ * CSP 违规报告（M17 Step 6）：把 /api/csp-report 收到的 Report-Only 违规落库，
+ * 从「只记日志靠 grep」变为可查询，作为 Report-Only 转强制的数据前提。
+ * 所有 URI 字段入库前已经 redactUri 脱敏（令牌段→:token、去查询串/片段、截断 200）；
+ * 不存 IP / UA / 正文。保留 90 天，写侧概率清理（照 email_log / rum_samples）。
+ */
+export const cspReports = mysqlTable(
+  "csp_reports",
+  {
+    id: bigint("id", { mode: "number", unsigned: true }).notNull().autoincrement(),
+    violatedDirective: varchar("violated_directive", { length: 64 }).notNull(),
+    effectiveDirective: varchar("effective_directive", { length: 64 }),
+    blockedUri: varchar("blocked_uri", { length: 200 }),
+    documentUri: varchar("document_uri", { length: 200 }),
+    sourceFile: varchar("source_file", { length: 200 }),
+    lineNumber: int("line_number", { unsigned: true }),
+    /** report = Report-Only 预演；enforce = 强制后（转强制后才会出现） */
+    disposition: varchar("disposition", { length: 16 }),
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    index("idx_csp_reports_time").on(t.createdAt),
+    index("idx_csp_reports_directive").on(t.violatedDirective, t.createdAt),
+    index("idx_csp_reports_document").on(t.documentUri, t.createdAt),
+  ],
+);
+
+/**
  * 运营排期方案（M11.2，schema v2.9）：通用「某段时间内临时改变某处生效值」的载体。
  *
  * 一个方案 = 一个 effect（效果注册键）+ 该 effect 的配置 + 时间窗。

@@ -169,11 +169,12 @@ describe("startScheduler", () => {
 describe("任务清单自检（用真实 croner 解析表达式）", () => {
   const list = defaultJobs();
 
-  it("首批三个任务，键唯一且稳定（键同时是命名锁与日志标识，不能改名）", () => {
+  it("四个任务，键唯一且稳定（键同时是命名锁与日志标识，不能改名）", () => {
     expect(list.map((j) => j.key)).toEqual([
       "account-deletion.drain",
       "unverified-accounts.purge",
       "ops.alerts",
+      "email.digest",
     ]);
     expect(new Set(list.map((j) => j.key)).size).toBe(list.length);
   });
@@ -192,6 +193,12 @@ describe("任务清单自检（用真实 croner 解析表达式）", () => {
     const byKey = Object.fromEntries(list.map((j) => [j.key, j.cron]));
     expect(byKey["account-deletion.drain"]).toBe("*/15 * * * *");
     expect(byKey["unverified-accounts.purge"]).toBe("30 3 * * *");
+  });
+
+  it("digest 每小时整点跑，发送时刻由 run 内比对后台配置（M17 Step 1）", () => {
+    const job = list.find((j) => j.key === "email.digest")!;
+    // 固定每日 cron 会让后台可配的发送时刻失效，所以必须是每小时 + run 内闸门
+    expect(job.cron).toBe("0 * * * *");
   });
 
   it("超期清理在 03:30（北京时间）触发，而不是 UTC 的 03:30", () => {

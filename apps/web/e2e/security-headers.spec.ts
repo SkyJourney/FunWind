@@ -116,7 +116,14 @@ test.describe("CSP 违规实测（Report-Only 下的预演：以后转强制不�
     await loginAs(context, USERS.admin);
     await collectViolations(page);
     const found: string[] = [];
-    for (const p of ["/", "/admin", "/admin/authz", `/u/${USERS.admin}`]) {
+    for (const p of [
+      "/",
+      "/admin",
+      "/admin/authz",
+      "/admin/rum",
+      "/admin/csp",
+      `/u/${USERS.admin}`,
+    ]) {
       await page.goto(p);
       await page.waitForLoadState("networkidle");
       for (const v of await violations(page)) found.push(`${p}: ${v}`);

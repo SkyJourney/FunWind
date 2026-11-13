@@ -57,7 +57,18 @@ const SERVER_BOUNDARIES = [
   "lib/posting/edit-page.ts",
   "lib/pm/reachability.ts",
   // M14：运维任务管线的 HTTP 客户端（持有 OPS_API_TOKEN）、配置写服务、台账读取
-  ...["client", "tasks", "runs"].map((name) => `lib/ops/${name}.ts`),
+  // M17：告警邮件的防重查询与发送（读 email_log、调邮件渠道）
+  ...["client", "tasks", "runs", "alert-mail"].map((name) => `lib/ops/${name}.ts`),
+  // M17 Step 4：RUM 样本落库（写 rum_samples）
+  "lib/rum/ingest.ts",
+  // M17 Step 6：CSP 违规报告落库（写 csp_reports）
+  "lib/csp/ingest.ts",
+  // M17 Step 6.5：查询层与 SQL 共享件均 server-only；schema.ts 仅服务端（带 zod），
+  // 加 marker 把「客户端误引 zod 拖进每页 bundle」变成硬错误（双栖的是零依赖 protocol.ts）
+  "lib/rum/schema.ts",
+  "lib/rum/queries.ts",
+  "lib/csp/queries.ts",
+  "lib/sql.ts",
 ].sort();
 
 function serverOnlyProblems(sources: Sources, required: readonly string[]) {
@@ -103,6 +114,9 @@ describe("服务端污染防线（G-05）", () => {
       "lib/points/labels.ts",
       "lib/theme/surface-render.ts",
       "lib/ops/executors.ts",
+      // M17 Step 4：RUM 载荷契约的零依赖类型/常量是双栖的（客户端构造 payload 也要用），标了会断客户端闭包。
+      // schema.ts（zod 校验）仅服务端，已加 server-only 并列入 SERVER_BOUNDARIES，不在此清单。
+      "lib/rum/protocol.ts",
     ]) {
       const { modules } = buildGraph({ [path]: sources[path] });
       expect(

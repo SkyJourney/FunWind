@@ -3,6 +3,8 @@
  * 新增后台列表页应使用这些件 + lib/admin/query.ts，而不是再手写一遍壳。
  */
 
+import { Pagination } from "@/components/content/pagination";
+
 export function AdminListMeta({
   total,
   page,
@@ -53,5 +55,106 @@ export function AdminTable({
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** 筛选下拉：name/label/全部项文案/当前值/选项列表，供各列表页复用，避免逐字同构 */
+export function AdminFilterSelect({
+  name,
+  label,
+  allLabel,
+  value,
+  options,
+}: {
+  name: string;
+  label: string;
+  allLabel: string;
+  value: string;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <select
+      name={name}
+      defaultValue={value}
+      aria-label={label}
+      className="rounded-lg border bg-background px-2.5 py-1.5 text-xs"
+    >
+      <option value="">{allLabel}</option>
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** 计数行 + 分页器：列表页统一复用，basePath 由调用方用 buildAdminQuery 拼好 */
+export function AdminListPager({
+  total,
+  page,
+  totalPages,
+  basePath,
+}: {
+  total: number;
+  page: number;
+  totalPages: number;
+  basePath: string;
+}) {
+  return (
+    <>
+      <AdminListMeta total={total} page={page} totalPages={totalPages} />
+      <Pagination basePath={basePath} page={page} totalPages={totalPages} />
+    </>
+  );
+}
+
+/** 表头列定义 */
+export interface AdminColumn {
+  label: string;
+  className: string;
+}
+
+/** 行内单元格：cls 追加到 td 的类名，node 为渲染内容 */
+export interface AdminCell {
+  cls: string;
+  node: React.ReactNode;
+}
+
+/**
+ * 数据驱动表格：列定义渲染表头，每行单元格数组渲染行。
+ * 各列表页只描述「列 + 每行单元格」，壳与渲染逻辑集中在此，避免逐页手写同构 JSX。
+ */
+export function AdminDataTable({
+  columns,
+  rows,
+  hasRows,
+  emptyText,
+}: {
+  columns: AdminColumn[];
+  rows: { key: React.Key; cells: AdminCell[] }[];
+  hasRows: boolean;
+  emptyText?: string;
+}) {
+  return (
+    <AdminTable
+      colSpan={columns.length}
+      hasRows={hasRows}
+      emptyText={emptyText}
+      head={columns.map((c) => (
+        <th key={c.label} className={c.className}>
+          {c.label}
+        </th>
+      ))}
+      rows={rows.map((r) => (
+        <tr key={r.key} className="border-t align-top">
+          {r.cells.map((c, i) => (
+            <td key={i} className={`px-3 py-1.5 ${c.cls}`.trim()}>
+              {c.node}
+            </td>
+          ))}
+        </tr>
+      ))}
+    />
   );
 }

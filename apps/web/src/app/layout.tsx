@@ -31,6 +31,7 @@ import { THEME_PREVIEW_COOKIE, verifyThemePreview } from "@/lib/theme/preview";
 import { stopThemePreviewAction } from "@/app/theme-preview-actions";
 import { QueryToast } from "@/components/feedback/query-toast";
 import { ConnectionStatus } from "@/components/pwa/connection-status";
+import { RumBeacon } from "@/components/rum/rum-beacon";
 import { ServiceWorkerRegistration } from "@/components/pwa/service-worker-registration";
 // 模块注册表求值（注册 + 封板）：任何内核调用前加载
 import "@/modules";
@@ -153,6 +154,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <SiteMotionProvider>
             <ServiceWorkerRegistration version={swVersion()} />
             <ConnectionStatus />
+            <RumBeacon />
             <AnnouncementBanner banner={banner} />
             <SiteHeader
               user={user}

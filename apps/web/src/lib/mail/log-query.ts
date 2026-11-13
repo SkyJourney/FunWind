@@ -1,6 +1,7 @@
-import { and, desc, eq, like, sql, type SQL } from "drizzle-orm";
+import { and, eq, like, sql, type SQL } from "drizzle-orm";
 import { emailLog, getWebDb } from "@funwind/db";
-import { pageBounds } from "@/lib/paging";
+import { pageBounds, pageLimit, parsePageParam } from "@/lib/paging";
+import { countRows, escapeLike, pageItems } from "@/lib/sql";
 import type { MailKind } from "./types";
 
 /**
@@ -52,13 +53,8 @@ export function parseEmailLogFilter(sp: Record<string, string | undefined>): Ema
   if (scene && /^[a-z0-9-]{1,48}$/.test(scene)) filter.scene = scene;
   const q = sp.q?.trim();
   if (q) filter.q = q.slice(0, 120);
-  const page = Number(sp.page ?? "1");
-  filter.page = Number.isInteger(page) && page > 0 ? page : 1;
+  filter.page = parsePageParam(sp.page);
   return filter;
-}
-
-function escapeLike(s: string): string {
-  return s.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
 export async function queryEmailLogs(
@@ -74,20 +70,10 @@ export async function queryEmailLogs(
   }
   const where = conds.length > 0 ? and(...conds) : undefined;
 
-  const [{ n }] = await getWebDb()
-    .select({ n: sql<number>`COUNT(*)` })
-    .from(emailLog)
-    .where(where);
-  const total = Number(n);
-  const limit = Math.min(Math.max(1, Math.trunc(filter.limit ?? 50) || 50), 200);
+  const total = await countRows(emailLog, where);
+  const limit = pageLimit(filter.limit);
   const { offset } = pageBounds(total, filter.page ?? 1, limit);
-  const items = await getWebDb()
-    .select()
-    .from(emailLog)
-    .where(where)
-    .orderBy(desc(emailLog.id))
-    .limit(limit)
-    .offset(offset);
+  const items = await pageItems(emailLog, where, limit, offset);
   return { items: items as EmailLogRow[], total };
 }
 

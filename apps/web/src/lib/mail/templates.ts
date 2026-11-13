@@ -359,3 +359,39 @@ export function testMail(
     fields: [{ label: "发送时间", value: `${opts.at ?? nowBeijingWallTime()}（北京时间）` }],
   });
 }
+
+/**
+ * 运维任务失败告警（M17 Step 2）：管线任务失败 → 站长邮箱。
+ *
+ * 为什么需要它：`ops.alerts` 此前只调 notify() 写站内通知，**从不发邮件**——站长不打开站点就看不到。
+ * M17 Step 0 实测：11-11 两次 storage 备份失败，站内通知按时送达 2 位管理员，但 email_log 零告警邮件。
+ * 告警链路本身是好的，缺的是离站触达这一层。
+ *
+ * kind=system（后台触发）。**主题里的「运行 #<id>」是防重锚点**：右全角括号必须保留，
+ * 否则 `#1` 会子串命中 `#10`，把不同运行的告警误判为已发（见 lib/ops/alert-mail.ts）。
+ */
+export function opsRunFailedMail(
+  opts: { task: string; runId: number; error: string; at?: string },
+  brand: MailBrand = FALLBACK_BRAND,
+): MailMessage {
+  return renderMail({
+    kind: "system",
+    scene: "ops-run-failed",
+    brand,
+    title: "运维任务失败",
+    subject: `运维任务失败：${opts.task}（运行 #${opts.runId}）· ${brand.siteName}`,
+    paragraphs: [
+      `运维任务 **${opts.task}** 执行失败，需要人工确认。`,
+      "站内通知已同时送达管理员；本邮件用于离站触达，避免只在打开站点时才发现故障。",
+    ],
+    fields: [
+      { label: "任务", value: opts.task },
+      { label: "运行 id", value: `#${opts.runId}` },
+      { label: "失败原因", value: opts.error || "未知原因" },
+      { label: "告警时间", value: `${opts.at ?? nowBeijingWallTime()}（北京时间）` },
+    ],
+    action: { label: "查看运维台账", href: `${brand.siteUrl}/admin/ops` },
+    footer:
+      "本邮件由运维告警任务发出，同一次失败运行只发一封；可在后台「站点配置」关闭运维告警邮件。",
+  });
+}

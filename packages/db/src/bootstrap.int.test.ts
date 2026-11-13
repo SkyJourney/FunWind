@@ -89,7 +89,7 @@ describe.skipIf(skip)("bootstrap / seed 集成（临时库）", () => {
     }
   };
 
-  it("bootstrap 建出 schema v2.x 全部 56 张表（含 theme_packages、email_log、campaigns、ops_tasks、ops_triggers），且列级排序规则补丁生效", async () => {
+  it("bootstrap 建出 schema v2.x 全部 58 张表（含 theme_packages、email_log、campaigns、ops_tasks、ops_triggers、rum_samples、csp_reports），且列级排序规则补丁生效", async () => {
     const pool = createPool(config);
     try {
       const [tables] = await pool.query<RowDataPacket[]>(
@@ -97,7 +97,7 @@ describe.skipIf(skip)("bootstrap / seed 集成（临时库）", () => {
          WHERE TABLE_SCHEMA = ? AND TABLE_NAME <> '__drizzle_migrations'`,
         [dbName],
       );
-      expect(Number(tables[0]?.n)).toBe(56);
+      expect(Number(tables[0]?.n)).toBe(58);
       for (const p of PATCHES) {
         const [rows] = await pool.query<RowDataPacket[]>(
           `SELECT COLLATION_NAME AS c FROM information_schema.COLUMNS

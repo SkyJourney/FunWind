@@ -9,11 +9,18 @@ import {
 } from "@funwind/db";
 import { sendUserEmail } from "@/lib/notifications/email";
 import { digestMail } from "@/lib/mail";
+import { nowBeijingWallTime, parseDbDateTime } from "@/lib/datetime";
 
 /**
  * S7 每日汇总（docs/EMAIL-SCENARIOS.md 第三期）：给「开了 email 汇总偏好 + 有邮箱 + 24h 未活跃」的用户
  * 发一封动态摘要（未读私信/新回复/提及/新关注者，取自未读通知行），并更新 users.last_email_digest_at。
- * 由 scripts/digest-cron.mts 在每天配置的时刻调用（--force-user 供测试/手动触发）。
+ * 由进程内调度器的 email.digest 任务每小时比对后台配置时刻后调用（M17 Step 1 接线）；
+ * scripts/digest-cron.mts 保留为手动/测试入口，与调度器共用同一任务与同一把命名锁。
+ *
+ * **当日幂等（M17 Step 1）**：同一北京日内只发一封。此前缺这道闸，而未读私信计数不受 `since`
+ * 时间窗约束（只按 last_read_message_id 过滤），所以同日第二次运行会给有未读私信的用户**再发一封**——
+ * 这正是 docs/SCHEDULED-JOBS.md 当初记载「系统 cron 与进程内调度同时跑可能重复发信、本期不迁」的实质原因。
+ * 补上当日闸后该顾虑消除，digest 才能安全接进调度器（命名锁只防并发，不防先后双跑）。
  */
 
 const DIGEST_TYPES = ["post.replied", "post.reply_to", "post.mentioned", "user.followed"];
@@ -23,6 +30,10 @@ export interface DigestResult {
   sent: number;
   skippedActive: number;
   skippedNoEmail: number;
+  /** 当日已发过而跳过（当日幂等闸） */
+  skippedToday: number;
+  /** 发送失败（sendUserEmail 返回 false）；此前静默丢弃，任务摘要无法反映部分失败 */
+  failed: number;
 }
 
 /** digest 偏好行约定：type="email.digest"、channel=email、enabled=true */
@@ -40,10 +51,21 @@ export async function digestOptInUserIds(): Promise<number[]> {
   return rows.map((r) => r.userId);
 }
 
-export async function runDigestOnce(opts: { onlyUserId?: number } = {}): Promise<DigestResult> {
-  const result: DigestResult = { checked: 0, sent: 0, skippedActive: 0, skippedNoEmail: 0 };
+export async function runDigestOnce(
+  opts: { onlyUserId?: number; force?: boolean } = {},
+): Promise<DigestResult> {
+  const result: DigestResult = {
+    checked: 0,
+    sent: 0,
+    skippedActive: 0,
+    skippedNoEmail: 0,
+    skippedToday: 0,
+    failed: 0,
+  };
   const optIn = await digestOptInUserIds();
   const candidates = opts.onlyUserId ? optIn.filter((id) => id === opts.onlyUserId) : optIn;
+  // 北京当日（与库内 DATETIME 同语义）；force 供手动补发/测试绕过当日闸
+  const today = nowBeijingWallTime().slice(0, 10);
 
   for (const userId of candidates) {
     result.checked++;
@@ -61,10 +83,16 @@ export async function runDigestOnce(opts: { onlyUserId?: number } = {}): Promise
       result.skippedNoEmail++;
       continue;
     }
-    // 24h 内登录过 = 活跃用户，不打扰
+    // 当日幂等闸：同一北京日已发过就不再发（调度器与手动脚本先后双跑也安全）
+    if (!opts.force && user.lastDigestAt?.slice(0, 10) === today) {
+      result.skippedToday++;
+      continue;
+    }
+    // 24h 内登录过 = 活跃用户，不打扰。lastLoginAt 是库内北京墙面时间，必须经 parseDbDateTime
+    // 按 +08:00 解析——直接 new Date(string) 会按进程时区解释，TZ=UTC 容器里活跃窗口会错成 32h。
     if (
       user.lastLoginAt &&
-      Date.now() - new Date(user.lastLoginAt.replace(" ", "T")).getTime() < 24 * 3600_000
+      Date.now() - parseDbDateTime(user.lastLoginAt).getTime() < 24 * 3600_000
     ) {
       result.skippedActive++;
       continue;
@@ -124,6 +152,9 @@ export async function runDigestOnce(opts: { onlyUserId?: number } = {}): Promise
         .update(users)
         .set({ lastEmailDigestAt: sql`NOW()` })
         .where(eq(users.id, userId));
+    } else {
+      // 发送失败不写时间戳（次日同一配置时刻可重试，或 --force 手动补发），但要计数——否则任务摘要看不出部分失败
+      result.failed++;
     }
   }
   return result;

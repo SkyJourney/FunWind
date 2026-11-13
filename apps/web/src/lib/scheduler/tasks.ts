@@ -13,7 +13,11 @@ import { roles, userRoles, users } from "@funwind/db";
 import { getWebDb } from "@funwind/db";
 import "@/modules";
 import { listFailedRuns } from "@/lib/ops/runs";
+import { sendOpsAlertMails, type OpsFailureMail } from "@/lib/ops/alert-mail";
 import { notify } from "@/lib/notifications/notify";
+import { getDigestHour } from "@/lib/notifications/email";
+import { runDigestOnce } from "@/lib/notifications/digest";
+import { nowBeijingWallTime } from "@/lib/datetime";
 import { processDueAccountDeletions } from "@/lib/auth/account-deletion";
 import {
   DEFAULT_UNVERIFIED_TTL_DAYS,
@@ -35,6 +39,7 @@ export function accountDeletionBatchSize(env: NodeJS.ProcessEnv = process.env): 
 
 export const ACCOUNT_DELETION_JOB_KEY = "account-deletion.drain";
 export const UNVERIFIED_PURGE_JOB_KEY = "unverified-accounts.purge";
+export const DIGEST_JOB_KEY = "email.digest";
 
 /** 账号注销到期处理：冷静期 30 天，没有分钟级要求，每 15 分钟一轮足够 */
 export function accountDeletionJob(overrides: Partial<JobDef> = {}): JobDef {
@@ -82,6 +87,46 @@ export function unverifiedPurgeJob(
   };
 }
 
+/**
+ * S7 每日汇总（M17 Step 1 接线）。此前它只有独立脚本 scripts/digest-cron.mts，靠宿主机 crontab
+ * 每小时调用——而生产 crontab 从未配过该条目，所以 digest **一封都没发出去**（M17 Step 0 实测：
+ * email_log 全表零 digest 记录）。接进进程内调度器后只需 SCHEDULER=on（生产已满足），不再依赖仓库外的 crontab。
+ *
+ * **为什么是每小时 cron 而不是固定每日 cron**：发送时刻是后台可配项（site_settings("email.digest").hour，
+ * admin/settings 有表单）。固定 cron 会让该配置失效，所以保留「每小时跑 + run 内比对时刻」的既有语义。
+ * **时刻必须按北京墙面时间比对**：调度器按 Asia/Shanghai 触发，而旧脚本用 new Date().getHours()
+ * 读的是进程本地时区——容器 TZ=UTC 时后台配的「20 点」会错位成北京时间凌晨 4 点。
+ * 同日重复运行由 runDigestOnce 的当日幂等闸兜住（命名锁只防并发，不防先后双跑）。
+ */
+export function digestJob(
+  options: { onlyUserId?: number; force?: boolean } = {},
+  overrides: Partial<JobDef> = {},
+): JobDef {
+  return {
+    key: DIGEST_JOB_KEY,
+    cron: "0 * * * *",
+    timeoutMs: 10 * 60_000,
+    async run(): Promise<JobResult> {
+      // 手动指定用户或 force（补发/测试）时免时刻闸，与旧脚本的 --user / --force 语义一致
+      if (!options.force && options.onlyUserId === undefined) {
+        const configured = await getDigestHour();
+        const beijingHour = Number(nowBeijingWallTime().slice(11, 13));
+        if (beijingHour !== configured) {
+          return { summary: `skipped: 北京 ${beijingHour} 点 != 配置 ${configured} 点` };
+        }
+      }
+      const r = await runDigestOnce({ onlyUserId: options.onlyUserId, force: options.force });
+      return {
+        summary:
+          `checked=${r.checked} sent=${r.sent} skippedToday=${r.skippedToday} ` +
+          `skippedActive=${r.skippedActive} skippedNoEmail=${r.skippedNoEmail} failed=${r.failed}`,
+        failed: r.failed,
+      };
+    },
+    ...overrides,
+  };
+}
+
 // ── 运维告警（M14 Step 5，D11）：管线任务失败 → 通知站长 ──────────────────────────
 
 export const OPS_ALERTS_JOB_KEY = "ops.alerts";
@@ -106,10 +151,12 @@ export function opsAlertsJob(overrides: Partial<JobDef> = {}): JobDef {
       }
       let notified = 0;
       const seen = new Set<string>();
+      const mailFailures: OpsFailureMail[] = [];
       for (const run of failed) {
         if (seen.has(String(run.id))) continue;
         seen.add(String(run.id));
         const task = run.taskKey ?? run.kind;
+        const error = (run.error ?? "未知原因").slice(0, 200);
         // dedupKey 必须含接收人：uq_nf_dedup 是全局唯一索引，不含 uid 时只有第一个管理员能落库，
         // 其余人被当作重放静默跳过。按 run id + uid 幂等，重扫不重复打扰。
         await notify({
@@ -117,12 +164,22 @@ export function opsAlertsJob(overrides: Partial<JobDef> = {}): JobDef {
           recipients: admins,
           targetType: "ops_run",
           targetId: run.id,
-          data: { task, runId: run.id, error: (run.error ?? "未知原因").slice(0, 200) },
+          data: { task, runId: run.id, error },
           dedupKey: (uid) => `ops-failed:${run.id}:${uid}`,
         });
         notified += 1;
+        mailFailures.push({ task, runId: run.id, error });
       }
-      return { summary: `failed=${failed.length} notified=${notified} admins=${admins.length}` };
+      // 离站触达（M17 Step 2）：站内通知之外再发邮件——站长不打开站点也能知道故障。
+      // 邮件是**附带渠道**：失败不反噬已写入的站内告警，也不把任务标记为 failed（站内才是主渠道）。
+      // 防重在 sendOpsAlertMails 内按 email_log 查（每 15 分钟重扫近 7 天，无条件发信会重复打扰）。
+      const mail = await sendOpsAlertMails(admins, mailFailures).catch(() => null);
+      const mailSummary = mail
+        ? `mail=sent:${mail.sent}/skipped:${mail.skipped}/failed:${mail.failed}`
+        : "mail=error";
+      return {
+        summary: `failed=${failed.length} notified=${notified} admins=${admins.length} ${mailSummary}`,
+      };
     },
     ...overrides,
   };

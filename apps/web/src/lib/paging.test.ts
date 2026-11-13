@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampPage, pageBounds } from "./paging";
+import { clampPage, pageBounds, pageLimit, parsePageParam } from "./paging";
 
 describe("clampPage", () => {
   it("正常整数原样返回；越界收束到两端", () => {
@@ -40,5 +40,32 @@ describe("clampPage", () => {
       offset: 0,
     });
     expect(() => pageBounds(1, 1, 0)).toThrow(RangeError);
+  });
+});
+
+describe("parsePageParam（审查 A-P2-6：直接锚定，非仅经筛选间接覆盖）", () => {
+  it("正整数字符串解析为页码", () => {
+    expect(parsePageParam("1")).toBe(1);
+    expect(parsePageParam("42")).toBe(42);
+  });
+  it("非正整数/小数/NaN/空/缺省一律回退 1", () => {
+    for (const raw of ["0", "-3", "2.5", "abc", "", undefined, "Infinity"]) {
+      expect(parsePageParam(raw)).toBe(1);
+    }
+  });
+});
+
+describe("pageLimit（审查 A-P2-6）", () => {
+  it("缺省取 def，越界收束到 [1, max]", () => {
+    expect(pageLimit(undefined)).toBe(50);
+    expect(pageLimit(undefined, 30)).toBe(30);
+    expect(pageLimit(0)).toBe(50); // 0 → 回退 def
+    expect(pageLimit(-5)).toBe(1);
+    expect(pageLimit(1000)).toBe(200);
+    expect(pageLimit(1000, 50, 500)).toBe(500);
+  });
+  it("小数向零取整后夹取", () => {
+    expect(pageLimit(20.9)).toBe(20);
+    expect(pageLimit(0.5)).toBe(50); // trunc(0.5)=0 → 回退 def
   });
 });

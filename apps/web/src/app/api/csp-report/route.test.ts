@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetRateLimiter } from "@/lib/auth/ratelimit";
 import { POST, extractReports, redactUri } from "./route";
 
+// M17 Step 6.5（审查 A-P2-1）：mock 落库，避免单测真连开发库写 csp_reports 脏行（含 1% 概率清扫）
+vi.mock("@/lib/csp/ingest", () => ({ recordCspReports: vi.fn(async () => 0) }));
+
 const post = (body: unknown, headers: Record<string, string> = {}) =>
   POST(
     new Request("http://x/api/csp-report", {
@@ -101,6 +104,21 @@ describe("redactUri（日志里不得出现令牌与查询串）", () => {
     expect(redactUri("https://bbs.example.com/f/951?page=2")).toBe("https://bbs.example.com/f/951");
     expect(redactUri("https://bbs.example.com/t/950001")).toBe("https://bbs.example.com/t/950001");
     expect(redactUri("https://evil.test/x.png")).toBe("https://evil.test/x.png");
+  });
+
+  it("百分号编码的令牌段同样被替换（审查 A-P2-3：先解码再判不透明）", () => {
+    // 逐字符 %XX 编码一个 24 字符不透明段：raw 含 % 不匹配 OPAQUE，解码后才匹配 → 必须脱敏
+    const opaque = "AbCdEfGhIjKlMnOpQrStUvWx";
+    const encoded = [...opaque]
+      .map((c) => "%" + c.charCodeAt(0).toString(16).padStart(2, "0"))
+      .join("");
+    expect(redactUri(`https://bbs.example.com/reset/${encoded}`)).toBe(
+      "https://bbs.example.com/reset/:token",
+    );
+    // 编码后的普通短段（解码=951，<20 字符）不误伤，原样保留
+    expect(redactUri("https://bbs.example.com/f/%39%35%31")).toBe(
+      "https://bbs.example.com/f/%39%35%31",
+    );
   });
 
   it("CSP 关键字原样保留；data: / blob: 只留协议；非 URL 的值一律 [other]", () => {

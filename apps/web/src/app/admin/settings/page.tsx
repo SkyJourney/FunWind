@@ -4,7 +4,7 @@ import { requireAdmin } from "@/lib/authz/require-admin";
 import { getSiteRegisterPolicy } from "@/lib/auth/settings";
 import { applyRegisterWindow, registerAvailability } from "@/lib/auth/register-policy";
 import { getActiveRegisterWindow } from "@/lib/campaigns/service";
-import { getDigestHour, securityEmailEnabled } from "@/lib/notifications/email";
+import { getDigestHour, opsEmailEnabled, securityEmailEnabled } from "@/lib/notifications/email";
 import { getLimitsConfig } from "@/lib/limits/load";
 import { getSiteChrome, getSiteIdentity } from "@/lib/chrome/site-chrome";
 import { SITE_URL } from "@/lib/site";
@@ -14,6 +14,7 @@ import { ActionGroup } from "@/components/ui/action-group";
 import { SubmitButton } from "@/components/ui/submit-button";
 import {
   saveDigestHourAction,
+  saveEmailOpsAction,
   saveEmailSecurityAction,
   saveIdentityAction,
   saveLimitsAction,
@@ -81,6 +82,7 @@ export default async function SiteSettingsPage({
     policy,
     limits,
     securityMail,
+    opsMail,
     digestHour,
     adminRow,
     sp,
@@ -92,6 +94,7 @@ export default async function SiteSettingsPage({
     getSiteRegisterPolicy(),
     getLimitsConfig(),
     securityEmailEnabled(),
+    opsEmailEnabled(),
     getDigestHour(),
     getWebDb()
       .select({ email: users.email })
@@ -351,6 +354,28 @@ export default async function SiteSettingsPage({
             </div>
           </form>
 
+          <form action={saveEmailOpsAction} className="space-y-2 border-t pt-4">
+            <p className="font-medium">运维告警邮件（备份 / 恢复演练等管线任务失败）</p>
+            <label className="flex items-start gap-2">
+              <input
+                type="checkbox"
+                name="enabled"
+                value="on"
+                defaultChecked={opsMail}
+                className="mt-1 size-4"
+              />
+              <span className="text-muted-foreground">
+                任务失败时除站内通知外，再给管理员发一封邮件——不打开站点也能知道故障。
+                同一次失败运行只发一封；关闭后仍保留站内通知。
+              </span>
+            </label>
+            <div>
+              <SubmitButton className="rounded-lg border px-3 py-1.5 hover:bg-accent disabled:opacity-60">
+                保存运维告警开关
+              </SubmitButton>
+            </div>
+          </form>
+
           <form action={saveDigestHourAction} className="space-y-2 border-t pt-4">
             <p className="font-medium">每日汇总发送时刻</p>
             <div className="flex items-end gap-3">
@@ -370,8 +395,8 @@ export default async function SiteSettingsPage({
               </SubmitButton>
             </div>
             <p className="text-xs text-muted-foreground">
-              系统定时任务每小时运行比对；仅发给在「通知偏好」开启邮件汇总、且 24
-              小时内未登录的用户。服务器侧需配置 crontab 每小时整点运行 digest-cron 脚本。
+              站点定时任务每小时按北京时间比对；仅发给在「通知偏好」开启邮件汇总、且 24
+              小时内未登录的用户，同一日只发一封。无需在服务器另配 crontab。
             </p>
           </form>
         </CardContent>

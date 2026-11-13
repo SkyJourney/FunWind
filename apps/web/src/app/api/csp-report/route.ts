@@ -1,10 +1,12 @@
 import { clientIpFrom } from "@/lib/net/client-ip";
 import { rateLimit } from "@/lib/auth/ratelimit";
+import { readBodyBytes } from "@/lib/net/read-body";
+import { recordCspReports } from "@/lib/csp/ingest";
 
 /**
- * CSP 违规报告收集（M5.6 S4）。浏览器对 Report-Only 策略的违规会 POST 到这里。
+ * CSP 违规报告收集（M5.6 S4；M17 Step 6 落库）。浏览器对 Report-Only 策略的违规会 POST 到这里。
  * 公开端点，所以：流式体积上限、URI 脱敏（去掉令牌与查询串）、逐字段截断并剔除控制字符（防日志注入）、频控、永远 204（不泄露任何状态）。
- * 只记一行日志，不落库。想看报告：grep 服务日志里的 `[csp-report]`。
+ * 记一行日志 **并落库 csp_reports**（已脱敏），后台 /admin/csp 可查询，作为 Report-Only 转强制的数据前提。
  */
 
 const MAX_BODY = 16 * 1024;
@@ -51,7 +53,16 @@ export function redactUri(value: unknown): string {
   if (url.protocol !== "http:" && url.protocol !== "https:") return url.protocol;
   const path = url.pathname
     .split("/")
-    .map((seg) => (OPAQUE_SEGMENT.test(seg) ? ":token" : seg))
+    .map((seg) => {
+      // 先尝试百分号解码再判不透明段，避免编码后的令牌（%61%62…）绕过脱敏；非法编码保留原值
+      let decoded = seg;
+      try {
+        decoded = decodeURIComponent(seg);
+      } catch {
+        // 保留原值
+      }
+      return OPAQUE_SEGMENT.test(decoded) ? ":token" : seg;
+    })
     .join("/");
   return `${url.origin}${path}`.slice(0, 200);
 }
@@ -84,43 +95,21 @@ export function extractReports(payload: unknown): Record<string, string>[] {
   return out;
 }
 
-/**
- * 按字节上限流式读取请求体：超过上限立即取消读取并返回 null。
- * 只检查 Content-Length 不够——分块传输（chunked）或不带该头的请求会被 `req.text()` 整个读进内存。
- */
-async function readCapped(req: Request, max: number): Promise<string | null> {
-  if (!req.body) return "";
-  const reader = req.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > max) {
-      await reader.cancel();
-      return null;
-    }
-    chunks.push(value);
-  }
-  return Buffer.concat(chunks).toString("utf8");
-}
-
 export async function POST(req: Request) {
   const done = new Response(null, { status: 204 });
   const ip = clientIpFrom(req.headers);
   // 每个 IP（取不到时共用一个桶）每分钟最多处理 30 份；超出静默丢弃，不能让这个端点变成刷日志的入口
   if (!rateLimit(`csp-report:${ip ?? "-"}`, 30, 60_000).allowed) return done;
-  const declared = Number(req.headers.get("content-length") ?? 0);
-  if (declared > MAX_BODY) return done; // 快速拒绝；真正的上限由下面的流式读取保证
   try {
-    const text = await readCapped(req, MAX_BODY);
-    if (text === null) return done;
-    for (const row of extractReports(JSON.parse(text))) {
-      console.warn(`[csp-report] ${JSON.stringify(row)}`);
-    }
+    // 复用共享流式读体件（含 Content-Length 快速拒绝 + 逐块计数超限取消），不再私有抄一份
+    const body = await readBodyBytes(req, MAX_BODY);
+    if (body === null) return done;
+    const rows = extractReports(JSON.parse(body.toString("utf8")));
+    for (const row of rows) console.warn(`[csp-report] ${JSON.stringify(row)}`);
+    // 落库失败不反噬：外层 catch 兜底仍 204；日志已在上面留下
+    await recordCspReports(rows);
   } catch {
-    // 畸形报告直接忽略
+    // 畸形报告 / 落库异常直接忽略
   }
   return done;
 }

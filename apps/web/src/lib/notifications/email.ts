@@ -22,7 +22,22 @@ export async function securityEmailEnabled(): Promise<boolean> {
   return v?.enabled !== false;
 }
 
-/** S7 发送时刻（0–23 点；系统 cron 每小时运行 digest-cron 比对），默认 20 点 */
+/**
+ * 运维告警邮件的后台统一开关（M17 Step 2）：与安全强制类同款——站点统一控制，不进用户偏好
+ * （`ops.run.failed` 是 mandatory 类型，用户侧偏好清单里没有它）。
+ * **默认开**：告警的价值就在于「不打开站点也能知道」，默认关等于没接线。
+ */
+export async function opsEmailEnabled(): Promise<boolean> {
+  const [row] = await getWebDb()
+    .select({ value: siteSettings.value })
+    .from(siteSettings)
+    .where(eq(siteSettings.key, "email.ops"))
+    .limit(1);
+  const v = row?.value as { enabled?: boolean } | undefined;
+  return v?.enabled !== false;
+}
+
+/** S7 发送时刻（0–23 点；进程内调度器 email.digest 每小时按北京墙面时间比对，M17 Step 1），默认 20 点 */
 export async function getDigestHour(): Promise<number> {
   const [row] = await getWebDb()
     .select({ value: siteSettings.value })
