@@ -1,10 +1,10 @@
 # M18 · Web Push 推送渠道
 
 - 阶段：四·运营与演进 ｜ 依赖：M8（通知中心后端）、M11（PWA 底座）、M16.1（离线深化，SW 扩展的前置）
-- 状态：🚧 **执行中**（2026-11-13：Step 1–6 已完成，分支 `feat/m18-web-push` 六提交已推送；
-  Step 6.5 两路独立审查整改中；Step 7 收口部署未开始）。推进线经计划模式批准（站长「开始/继续」逐 Step 授权），
-  D1–D6 已定稿执行（D1 直接调用 / D2 三类 / D3 push_log / D4 站点总开关 / D5 CSP 后协 / D6 先行推进）。
-  立项动因与事实底座 W1–W12 见下；**尚未部署**（VAPID 生产密钥待站长生成，Step 7 统一上线）。
+- 状态：✅ **已收口部署**（2026-11-13：Step 0–7 全部完成，见 §8；PR #17 CI 双绿合并 main `2c2fe4fc`，
+  生产镜像 `funwind-web:20261113-2c2fe4fc` 上线公测，回滚点 `funwind-web:20261113-770fda8e`）。
+  D1–D6 定稿执行（D1 直接调用 / D2 三类 / D3 push_log / D4 站点总开关 / D5 CSP 后协 / D6 先行推进）；
+  VAPID 生产密钥服务器现场生成（私钥不入库）。留待站长真机送达验证与观察期项见 §8。
 - 立项动因：M13 遗留明列「不做人机验证、Web Push（遗留事项，视重启后反馈立项）」
   （`docs/milestones/M13-launch.md:107`）。站内通知与邮件双渠道已实现，**推送是通知触达的最后一块**；
   公测期用户回流依赖「有新回复/私信时能被叫回来」，站内铃铛只在打开/聚焦时拉取（无实时推送）。
@@ -87,8 +87,47 @@
 - **浏览器兼容**：iOS Safari 需 PWA 安装后才支持 Web Push；不支持时优雅隐藏推送列，不报错。
 - **送达不可控**：推送服务（FCM/Mozilla/Windows）由浏览器决定，失败不反噬业务（镜像邮件的尽力而为）。
 
-## 7. 立项遗留
+## 7. 立项遗留（已于 Step 0–7 闭环）
 
-- 本文推进线**未经计划模式批准**，D1–D6 未决；启动前须先走前置探查 + 计划模式（M16 同款流程）。
-- 真实送达验证需要站长在真机（含 iOS PWA）配合，不能只靠 Playwright mock。
-- 启动时机建议参考 M17 的公测回流数据（D6）。
+- ~~推进线未经计划模式批准，D1–D6 未决~~ → 已经计划模式批准、D1–D6 定稿执行（见 §8）。
+- 真实送达验证需站长真机（含 iOS PWA）配合，不能只靠 Playwright mock → **留待观察期**（见 §8）。
+- ~~启动时机参考 M17 公测回流数据~~ → D6 站长拍板先行推进。
+
+## 8. 执行记录（2026-11-13，Step 0–7 收口部署）
+
+> 推进线经计划模式批准（站长「开始/继续」逐 Step 授权）；D1–D6 定稿执行。本节为收口留档。
+
+### Step 1–6 交付（分支 feat/m18-web-push，六提交 b873704..271ac5e9）
+
+- **Step 1 基建**：push_subscriptions + push_log（表数 58→60，迁移 0029）；web-push 协议库；VAPID 只 env 不入库。
+- **Step 2 投递管线 lib/push**：transport（404/410 即时清理 + push_log + 90 天概率清扫 + 失败不反噬）/ notify（trySendUserPush 站点开关+偏好+频控+活跃抑制，永不抛出）。
+- **Step 3 订阅 API**：POST/DELETE /api/push/subscription（preferenceGuard 门口链，endpoint https-only）+ VAPID 公钥下发。
+- **Step 4 客户端 + UI**：能力探测 SSR 安全、设备订阅闸、逐类型开关（仅 D2 三类）、一步退订、不支持优雅隐藏。
+- **Step 5 SW 三监听器**：push / notificationclick（同源校验防开放重定向）/ pushsubscriptionchange（重订阅）。
+- **Step 6 接线 + 治理**：消费者并联三类（post.replied/post.mentioned/pm.received）、站点总开关三件套、/admin/push 审计页、push.cleanup 调度。
+
+### Step 6.5 两路独立审查（d8c5559）
+
+**0 P0 / 6 P1 全清 / 9 P2 整改 + 2 记录**。核心整改：活跃订阅误删（last_sent_at + 迁移 0030 + COALESCE 最后活跃判据，**注入证伪**）、
+SW push 行为测试（Worker.evaluate 真触发 showNotification，空监听器即红）、push outbox 隔离故障注入测试。
+报告：`docs/reviews/2026-11-13-m18-code-review.md`。
+
+### Step 7 收口部署
+
+- **PR #17** CI 双绿（run `43442181794`，verify/e2e）→ 合并 main（merge `2c2fe4fc`）。
+- **amd64 防呆**：本机 + 服务器双重 inspect 均 amd64 → tag `funwind-web:20261113-2c2fe4fc`。
+- **迁移**：换容器前容器内 bootstrap 幂等应用 0029/0030（表数 61→**63**，push 两表 + last_sent_at 列就位）。
+- **VAPID 生产密钥服务器现场生成写入 .env**（私钥不回显、不入库，权限 600 保持）；compose env_file 整体注入，无需改 compose。
+- `compose up -d` 换 web。**回滚点 `funwind-web:20261113-770fda8e`（M17）**。
+- **部署后核对（真实输出）**：容器 healthy；`/api/health`={ok,db:true,storage:true}；公测五页（/、/search、/login、/t/1、/f/151）全 200；
+  `/admin/push` 307 鉴权跳转；VAPID 公钥端点返回现场公钥；调度器 **5 任务**（含 push.cleanup，TZ Asia/Shanghai）；日志零异常。
+
+### 门禁（真实输出）
+
+- `verify:all` 退 0：web **4809** / db 124 / content 55 / migration 278；重复率 **1398/158 ≤ 基线**（未重锚定）。
+- pwa+push E2E **8/8**（含 SW push 行为测试）。
+
+### 留待站长 / 观察期
+
+- **真机（含 iOS PWA）真实送达验证**：订阅 → 三类通知 → 收推送 → 点击跳转 → 一步退订（Playwright mock 不可替代）。
+- 外部拨测配置、跨实例恢复演练签字（M17 遗留观察期项）。
