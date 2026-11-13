@@ -14,8 +14,8 @@ import { redactUri } from "../csp-report/route";
  * 处理顺序照 views 信标：同源 → 廉价限流（内存内）→ 有上限读体 → 校验 → 脱敏 → 落库。
  * 限流先于读体，超限请求不付出解析成本。
  *
- * 隐私：route 经 redactUri（令牌段 → :token、去查询串与片段）；detail 去控制字符并截断；
- * **IP 只作频控键，不落库**；不存 UA、不存堆栈、不存任何可识别个人的字段。
+ * 隐私：route 经 redactUri（令牌段 → :token、去查询串与片段）；detail 去控制字符、
+ * 脱敏内嵌 http(s) URL（去令牌/查询串）并截断；**IP 只作频控键，不落库**；不存 UA、不存堆栈、不存任何可识别个人的字段。
  */
 const BODY_MAX_BYTES = 8192;
 const IP_PER_MINUTE = 60;
@@ -41,8 +41,15 @@ const redactRoute = (path: string): string => {
   return out.startsWith(ROUTE_BASE) ? out.slice(ROUTE_BASE.length) : "[other]";
 };
 
-/** 控制字符一律换空格（防日志/存储注入），再截断 */
-const cleanDetail = (v: string): string => v.replace(/[\x00-\x1f\x7f]/g, " ").slice(0, DETAIL_MAX);
+/** 错误消息里常内嵌 URL（如 fetch 失败带 /reset/<令牌>）；先脱敏这些 URL 再截断 */
+const URL_IN_TEXT = /https?:\/\/[^\s"'<>]+/g;
+
+/** 控制字符一律换空格（防日志/存储注入），内嵌 http(s) URL 走 redactUri 去令牌/查询串，再截断 */
+const cleanDetail = (v: string): string =>
+  v
+    .replace(/[\x00-\x1f\x7f]/g, " ")
+    .replace(URL_IN_TEXT, (m) => redactUri(m))
+    .slice(0, DETAIL_MAX);
 
 export async function POST(request: Request): Promise<Response> {
   if (!isSameOrigin(request)) return done();

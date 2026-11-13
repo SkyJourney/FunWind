@@ -192,7 +192,7 @@ export const saveEmailOpsAction = defineAction({
   },
 });
 
-/** S7 每日汇总的发送时刻（0–23 点；系统 cron 每小时调 digest-cron 脚本比对空转） */
+/** S7 每日汇总的发送时刻（0–23 点；进程内调度器 email.digest 每小时按北京墙面时间比对，M17 Step 1） */
 export const saveDigestHourAction = defineAction({
   name: "admin.settings.digest_hour",
   auth: { admin: "site.admin" },

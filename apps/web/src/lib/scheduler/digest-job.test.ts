@@ -70,14 +70,26 @@ describe("时刻闸门按北京时间比对", () => {
     expect(r.summary).toContain("配置 20 点");
   });
 
-  it("同一 UTC 瞬间在不同进程时区下判定一致（时区无关性）", async () => {
-    // 闸门只读 nowBeijingWallTime 的北京墙面串，不读 Date.getHours()——
-    // 所以无论容器 TZ 是 UTC 还是 Asia/Shanghai，同一瞬间的判定都相同。
-    getDigestHour.mockResolvedValue(4);
-    wallTime.mockReturnValue("2026-11-13 04:00:00");
-    const r = await digestJob().run();
-    expect(runDigestOnce).toHaveBeenCalledTimes(1);
-    expect(r.summary).toContain("sent=2");
+  it("同一 UTC 瞬间在不同进程时区下判定一致（时区无关性，用真实墙面函数而非 mock）", async () => {
+    // 固定瞬间 UTC 2026-11-13 04:00 = 北京 12:00，配置 12 点 → 应执行。
+    // 闸门若误用进程本地 getHours()，TZ=UTC 时判 4 点 ≠ 12 点而空转 → 红。
+    // 墙面函数自身的 +08:00 正确性由 datetime.test.ts 锚定；这里钉「任务确实读北京墙面而非本地时区」。
+    const { nowBeijingWallTime: realWall } =
+      await vi.importActual<typeof import("@/lib/datetime")>("@/lib/datetime");
+    wallTime.mockImplementation((atMs?: number) => realWall(atMs));
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.UTC(2026, 10, 13, 4, 0, 0));
+    getDigestHour.mockResolvedValue(12);
+    const prev = process.env.TZ;
+    try {
+      process.env.TZ = "UTC";
+      const r = await digestJob().run();
+      expect(runDigestOnce).toHaveBeenCalledTimes(1);
+      expect(r.summary).toContain("sent=2");
+    } finally {
+      clock.mockRestore();
+      if (prev === undefined) delete process.env.TZ;
+      else process.env.TZ = prev;
+    }
   });
 
   it("后台改时刻后立即生效（每次 run 都读配置，不缓存）", async () => {

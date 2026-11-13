@@ -9,7 +9,7 @@ import {
 } from "@funwind/db";
 import { sendUserEmail } from "@/lib/notifications/email";
 import { digestMail } from "@/lib/mail";
-import { nowBeijingWallTime } from "@/lib/datetime";
+import { nowBeijingWallTime, parseDbDateTime } from "@/lib/datetime";
 
 /**
  * S7 每日汇总（docs/EMAIL-SCENARIOS.md 第三期）：给「开了 email 汇总偏好 + 有邮箱 + 24h 未活跃」的用户
@@ -88,10 +88,11 @@ export async function runDigestOnce(
       result.skippedToday++;
       continue;
     }
-    // 24h 内登录过 = 活跃用户，不打扰
+    // 24h 内登录过 = 活跃用户，不打扰。lastLoginAt 是库内北京墙面时间，必须经 parseDbDateTime
+    // 按 +08:00 解析——直接 new Date(string) 会按进程时区解释，TZ=UTC 容器里活跃窗口会错成 32h。
     if (
       user.lastLoginAt &&
-      Date.now() - new Date(user.lastLoginAt.replace(" ", "T")).getTime() < 24 * 3600_000
+      Date.now() - parseDbDateTime(user.lastLoginAt).getTime() < 24 * 3600_000
     ) {
       result.skippedActive++;
       continue;
@@ -152,7 +153,7 @@ export async function runDigestOnce(
         .set({ lastEmailDigestAt: sql`NOW()` })
         .where(eq(users.id, userId));
     } else {
-      // 发送失败不写时间戳（下一轮可重试），但要计数——否则任务摘要看不出部分失败
+      // 发送失败不写时间戳（次日同一配置时刻可重试，或 --force 手动补发），但要计数——否则任务摘要看不出部分失败
       result.failed++;
     }
   }

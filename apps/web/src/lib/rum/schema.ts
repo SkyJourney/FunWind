@@ -1,3 +1,4 @@
+import "server-only";
 import { z } from "zod";
 import { RUM_ERROR_NAMES, RUM_MAX_SAMPLES, RUM_VALUE_MAX, RUM_VITAL_NAMES } from "./protocol";
 

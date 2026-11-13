@@ -44,7 +44,8 @@ export interface OpsAlertMailResult {
  *
  * **为什么查 email_log 而不是进程内 rateLimit**：告警任务每 15 分钟重扫近 7 天的失败记录，
  * 而 `rateLimit` 是进程级滑动窗口、重启即失忆——用它做主防重会导致重启后把整周的失败再发一遍。
- * `email_log` 是持久事实，且已有 (scene, user, status) 索引，零 schema 变更（照 lib/mail/recall.ts 范式）。
+ * `email_log` 是持久事实，已有 (scene,createdAt)/(userId,createdAt)/(status,createdAt) 三个前缀索引
+ * （表小，该查询可接受），零 schema 变更（照 lib/mail/recall.ts 范式）。
  *
  * **主题锚点必须带右全角括号**：`%运行 #1%` 会子串命中 `#10`、`#11`…，把不同运行的告警误判为已发。
  * 带上右括号后 `#1）` 不再匹配 `#10）`。模板主题格式与本查询是一对契约，改一处必须改另一处。

@@ -98,6 +98,16 @@ describe("脱敏（本端点最易静默出错处）", () => {
     expect(out).not.toMatch(/[\r\n]/);
   });
 
+  it("error 的 detail 内嵌令牌 URL 被脱敏（审查 A-P2-2）", async () => {
+    const token = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcdE";
+    const detail = `Failed to fetch https://bbs.example.com/reset/${token}?x=secret 后续文本`;
+    await post(payload([{ kind: "error", name: "js-error", value: 0, route: "/x", detail }]));
+    const out = String(rows()[0]!.detail);
+    expect(out).not.toContain(token);
+    expect(out).not.toContain("secret");
+    expect(out).toContain("/reset/:token");
+  });
+
   it("vital 行不带 detail（即使客户端夹带）", async () => {
     await post(payload([vital({ detail: "夹带" })]));
     expect(rows()[0]!.detail).toBeNull();

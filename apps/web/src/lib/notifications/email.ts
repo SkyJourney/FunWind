@@ -37,7 +37,7 @@ export async function opsEmailEnabled(): Promise<boolean> {
   return v?.enabled !== false;
 }
 
-/** S7 发送时刻（0–23 点；系统 cron 每小时运行 digest-cron 比对），默认 20 点 */
+/** S7 发送时刻（0–23 点；进程内调度器 email.digest 每小时按北京墙面时间比对，M17 Step 1），默认 20 点 */
 export async function getDigestHour(): Promise<number> {
   const [row] = await getWebDb()
     .select({ value: siteSettings.value })

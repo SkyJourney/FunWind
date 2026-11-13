@@ -53,7 +53,16 @@ export function redactUri(value: unknown): string {
   if (url.protocol !== "http:" && url.protocol !== "https:") return url.protocol;
   const path = url.pathname
     .split("/")
-    .map((seg) => (OPAQUE_SEGMENT.test(seg) ? ":token" : seg))
+    .map((seg) => {
+      // 先尝试百分号解码再判不透明段，避免编码后的令牌（%61%62…）绕过脱敏；非法编码保留原值
+      let decoded = seg;
+      try {
+        decoded = decodeURIComponent(seg);
+      } catch {
+        // 保留原值
+      }
+      return OPAQUE_SEGMENT.test(decoded) ? ":token" : seg;
+    })
     .join("/");
   return `${url.origin}${path}`.slice(0, 200);
 }

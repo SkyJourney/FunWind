@@ -17,14 +17,17 @@ const SWEEP_PROBABILITY = 0.01;
 export type CspReportRow = Record<string, string>;
 
 function toRow(r: CspReportRow) {
-  const line = Number(r["line-number"]);
+  // line-number：空/缺省 → null（Number("")=0 会误落 0）；非整数或超 INT UNSIGNED 上限 → null，
+  // 避免攻击者用超大值毒化整批 insert（外层 catch 兜底 204，但本批会丢）
+  const rawLine = r["line-number"];
+  const line = rawLine ? Number(rawLine) : NaN;
   return {
     violatedDirective: (r["violated-directive"] ?? "unknown").slice(0, 64),
     effectiveDirective: r["effective-directive"]?.slice(0, 64) ?? null,
     blockedUri: r["blocked-uri"]?.slice(0, 200) ?? null,
     documentUri: r["document-uri"]?.slice(0, 200) ?? null,
     sourceFile: r["source-file"]?.slice(0, 200) ?? null,
-    lineNumber: Number.isInteger(line) && line >= 0 ? line : null,
+    lineNumber: Number.isInteger(line) && line >= 0 && line <= 4_294_967_295 ? line : null,
     disposition: r["disposition"]?.slice(0, 16) ?? null,
   };
 }

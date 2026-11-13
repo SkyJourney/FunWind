@@ -118,6 +118,10 @@ test("后台 /admin/rum：管理员可见样本与 p75；非管理员被拒（�
   await loginAs(context, USERS.admin);
   await page.goto(`/admin/rum?route=${ADMIN_ROUTE}`);
   await expect(page.getByText(ADMIN_ROUTE).first()).toBeVisible();
-  await expect(page.getByText(/p75：/)).toBeVisible();
-  await expect(page.getByText("300ms").first()).toBeVisible();
+  // p75 概览须反映分位数计算（算法精确值由 queries.test.ts 的 percentile 单测钉死）。
+  // 锚定概览段落内的 LCP 正值——而非表格单元格（value=300 的行也渲染 "300ms"，旧断言打偏）；
+  // percentile 若恒返回 0，概览会显示 "LCP 0ms" 而使本断言红。beacon 异步补样本不影响「正值」判定。
+  const overview = page.locator("p").filter({ hasText: "p75：" });
+  await expect(overview).toBeVisible();
+  await expect(overview.getByText(/LCP [1-9]\d*ms/)).toBeVisible();
 });

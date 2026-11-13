@@ -83,4 +83,25 @@ describe("nowBeijingWallTime", () => {
   it("输出 YYYY-MM-DD HH:MM:SS 形态", () => {
     expect(nowBeijingWallTime()).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
   });
+
+  it("固定瞬间锚定 +08:00 偏移（删偏移即红，钉住 M17 Step 1 时区卖点）", () => {
+    // UTC 2026-01-01 00:00:00 → 北京 2026-01-01 08:00:00；若退回 UTC 墙面会得 00:00:00
+    expect(nowBeijingWallTime(Date.UTC(2026, 0, 1, 0, 0, 0))).toBe("2026-01-01 08:00:00");
+    // 跨日边界：UTC 2026-12-31 20:00 → 北京 2027-01-01 04:00
+    expect(nowBeijingWallTime(Date.UTC(2026, 11, 31, 20, 0, 0))).toBe("2027-01-01 04:00:00");
+  });
+
+  it("北京墙面值与进程时区无关（TZ=UTC 容器仍输出北京时刻，误用本地 getHours 即红）", () => {
+    const instant = Date.UTC(2026, 0, 1, 0, 0, 0);
+    const prev = process.env.TZ;
+    try {
+      process.env.TZ = "UTC";
+      expect(nowBeijingWallTime(instant)).toBe("2026-01-01 08:00:00");
+      process.env.TZ = "Asia/Shanghai";
+      expect(nowBeijingWallTime(instant)).toBe("2026-01-01 08:00:00");
+    } finally {
+      if (prev === undefined) delete process.env.TZ;
+      else process.env.TZ = prev;
+    }
+  });
 });

@@ -80,6 +80,19 @@ describe.skipIf(skipDb)("recordCspReports 落库映射", () => {
       .from(cspReports);
     expect(Number(n)).toBe(0);
   });
+
+  it("line-number 空值与超 INT UNSIGNED 上限均为 null，边界值保留（审查 A-P2-5）", async () => {
+    await recordCspReports([
+      report({ "line-number": "" }),
+      report({ "line-number": "99999999999" }),
+      report({ "line-number": "4294967295" }),
+    ]);
+    const rows = await db()
+      .select({ l: cspReports.lineNumber })
+      .from(cspReports)
+      .orderBy(cspReports.id);
+    expect(rows.map((r) => r.l)).toEqual([null, null, 4294967295]);
+  });
 });
 
 describe.skipIf(skipDb)("queryCspReports 筛选分页 + cspSummary", () => {
