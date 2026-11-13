@@ -2,6 +2,7 @@ import { defineModule } from "../kernel/types";
 import { NOTIFICATION_TYPE_SPECS } from "@/lib/notifications/render";
 import { notify } from "@/lib/notifications/notify";
 import { securityEmailEnabled, sendUserEmail, userEmailEnabled } from "@/lib/notifications/email";
+import { trySendUserPush } from "@/lib/push";
 import { appealResultMail, gateSoldMail, restrictionMail, contentApprovedMail } from "@/lib/mail";
 import { getForumModerators } from "@/lib/authz/service";
 import { publicUserDeleted } from "@/lib/identity-expr";
@@ -78,6 +79,16 @@ export const notificationsModule = defineModule({
               ? { floor: r.floor }
               : { title: title ?? "", threadId: p.threadId },
         });
+        // 推送附带渠道（M18 Step 6）：仅 post.replied（D2 三类之一）；trySendUserPush 永不抛出，不重放事件
+        if (r.type === "post.replied") {
+          await trySendUserPush(r.userId, "post.replied", () => ({
+            kind: "notice",
+            scene: "post-replied",
+            title: "新回复",
+            body: `你的主题「${title ?? ""}」有新回复`,
+            url: `/t/${p.threadId}`,
+          }));
+        }
       }
     },
     "post.mentioned": async (p) => {
@@ -88,6 +99,21 @@ export const notificationsModule = defineModule({
         targetType: "post",
         targetId: p.postId,
         data: {},
+      });
+      // 推送附带渠道（M18 Step 6）：post.mentioned（D2 三类之一）；惰性查 threadId 构造跳转
+      await trySendUserPush(p.mentionedUserId, "post.mentioned", async () => {
+        const [post] = await getWebDb()
+          .select({ threadId: posts.threadId })
+          .from(posts)
+          .where(eq(posts.id, p.postId))
+          .limit(1);
+        return {
+          kind: "notice",
+          scene: "post-mentioned",
+          title: "新提及",
+          body: "有人在帖子中提及了你",
+          url: post ? `/t/${post.threadId}` : "/",
+        };
       });
     },
     "reaction.added": async (p) => {

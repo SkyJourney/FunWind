@@ -75,6 +75,8 @@ const SERVER_BOUNDARIES = [
   // M18 Step 3：订阅凭据管理（写 push_subscriptions）+ 设置类写 API 共享门口链
   "lib/push/subscriptions.ts",
   "lib/net/preference-guard.ts",
+  // M18 Step 6：推送发送记录查询（读 push_log）
+  "lib/push/log-query.ts",
 ].sort();
 
 function serverOnlyProblems(sources: Sources, required: readonly string[]) {

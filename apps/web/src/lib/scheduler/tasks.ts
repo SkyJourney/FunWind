@@ -17,6 +17,7 @@ import { sendOpsAlertMails, type OpsFailureMail } from "@/lib/ops/alert-mail";
 import { notify } from "@/lib/notifications/notify";
 import { getDigestHour } from "@/lib/notifications/email";
 import { runDigestOnce } from "@/lib/notifications/digest";
+import { cleanupStalePushSubscriptions } from "@/lib/push/subscriptions";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import { processDueAccountDeletions } from "@/lib/auth/account-deletion";
 import {
@@ -194,4 +195,21 @@ async function siteAdminIds(): Promise<number[]> {
     .innerJoin(roles, eq(roles.key, userRoles.roleKey))
     .where(and(eq(roles.key, "admin"), eq(users.state, "active")));
   return rows.map((r) => r.userId);
+}
+
+// ── Web Push 订阅卫生清扫（M18 Step 6）：定期清除超期未重建的失效订阅 ──────────────────────────
+
+export const PUSH_CLEANUP_JOB_KEY = "push.cleanup";
+
+export function pushCleanupJob(overrides: Partial<JobDef> = {}): JobDef {
+  return {
+    key: PUSH_CLEANUP_JOB_KEY,
+    cron: "40 3 * * *",
+    timeoutMs: 60_000,
+    async run(): Promise<JobResult> {
+      const removed = await cleanupStalePushSubscriptions();
+      return { summary: `removed=${removed}` };
+    },
+    ...overrides,
+  };
 }

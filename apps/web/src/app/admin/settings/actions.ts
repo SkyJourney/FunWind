@@ -192,6 +192,19 @@ export const saveEmailOpsAction = defineAction({
   },
 });
 
+/** Web Push 站点级总开关（M18 Step 6，D4）：出问题可一键停推，镜像 email.security 三件套。
+ * checkbox 未勾选时参数缺席——用字符串缺省解析，不能用 enum（safeParse 失败→404，开关永远关不掉）。 */
+export const savePushEnabledAction = defineAction({
+  name: "admin.settings.push_enabled",
+  auth: { admin: "site.admin" },
+  input: z.object({ enabled: z.string().default("") }),
+  async run(ctx, input) {
+    await setSetting("push.enabled", { enabled: input.enabled === "on" }, ctx.actor);
+    revalidatePath("/admin/settings");
+    done("push_enabled");
+  },
+});
+
 /** S7 每日汇总的发送时刻（0–23 点；进程内调度器 email.digest 每小时按北京墙面时间比对，M17 Step 1） */
 export const saveDigestHourAction = defineAction({
   name: "admin.settings.digest_hour",

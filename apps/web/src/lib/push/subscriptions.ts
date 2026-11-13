@@ -1,6 +1,6 @@
 import "server-only";
 import { and, eq, sql } from "drizzle-orm";
-import { getWebDb, pushSubscriptions } from "@funwind/db";
+import { affectedRowsOf, getWebDb, pushSubscriptions } from "@funwind/db";
 import type { PushSubscriptionKeys } from "./types";
 
 /**
@@ -37,4 +37,19 @@ export async function unsubscribePush(userId: number, endpoint: string): Promise
         eq(pushSubscriptions.endpoint, endpoint.slice(0, 500)),
       ),
     );
+}
+
+/**
+ * 订阅卫生清扫保留期（天）：超期未重建的订阅视为可能失效（浏览器卸载 / 订阅过期）。
+ * 404/410 即时清理只覆盖「投递时发现失效」的订阅；长期未投递（用户关了全部场景）的失效订阅靠本清扫兜底。
+ * 用户重新开启推送即重建订阅，可恢复。
+ */
+export const PUSH_SUBSCRIPTION_RETENTION_DAYS = 180;
+
+/** 清除超期订阅（小批量 LIMIT 避免长事务）；返回删除行数 */
+export async function cleanupStalePushSubscriptions(): Promise<number> {
+  const result = await getWebDb().execute(
+    sql`DELETE FROM push_subscriptions WHERE created_at < NOW() - INTERVAL ${sql.raw(String(PUSH_SUBSCRIPTION_RETENTION_DAYS))} DAY LIMIT 1000`,
+  );
+  return affectedRowsOf(result);
 }

@@ -1,5 +1,5 @@
 import "server-only";
-import webpush from "web-push";
+import { sendNotification, setVapidDetails, WebPushError } from "web-push";
 import { eq, sql } from "drizzle-orm";
 import { getWebDb, pushLog, pushSubscriptions } from "@funwind/db";
 import type { PushMessage, PushSubscriptionKeys } from "./types";
@@ -29,7 +29,7 @@ function ensureVapid(): boolean {
   const privateKey = process.env.VAPID_PRIVATE_KEY ?? "";
   if (!publicKey || !privateKey) return false;
   if (!vapidReady) {
-    webpush.setVapidDetails(
+    setVapidDetails(
       process.env.VAPID_SUBJECT ?? "mailto:admin@qingyisub.top",
       publicKey,
       privateKey,
@@ -62,7 +62,7 @@ export async function sendPush(
     throw new Error("VAPID 密钥未配置，跳过推送");
   }
   try {
-    const res = await webpush.sendNotification(
+    const res = await sendNotification(
       { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
       JSON.stringify({ title: message.title, body: message.body, url: message.url }),
     );
@@ -74,7 +74,7 @@ export async function sendPush(
     });
   } catch (e) {
     // 404/410 = 订阅已失效（用户退订/浏览器过期）：即时清理，避免反复投递失效 endpoint
-    const statusCode = e instanceof webpush.WebPushError ? e.statusCode : undefined;
+    const statusCode = e instanceof WebPushError ? e.statusCode : undefined;
     if (statusCode === 404 || statusCode === 410) {
       await deleteSubscription(sub.endpoint);
     }

@@ -8,6 +8,7 @@ export {
   pushEnabled,
   userPushEnabled,
   sendUserPush,
+  trySendUserPush,
   pmPushAllowed,
   userActiveRecently,
 } from "./notify";

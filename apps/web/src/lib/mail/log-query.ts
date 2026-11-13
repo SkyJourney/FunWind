@@ -1,6 +1,6 @@
 import { and, eq, like, sql, type SQL } from "drizzle-orm";
 import { emailLog, getWebDb } from "@funwind/db";
-import { pageBounds, pageLimit, parsePageParam } from "@/lib/paging";
+import { pageBounds, pageLimit, parseLogFilterBase } from "@/lib/paging";
 import { countRows, escapeLike, pageItems } from "@/lib/sql";
 import type { MailKind } from "./types";
 
@@ -49,11 +49,10 @@ export function parseEmailLogFilter(sp: Record<string, string | undefined>): Ema
   if (sp.status === "sent" || sp.status === "failed") filter.status = sp.status;
   if (sp.kind && (MAIL_KINDS as readonly string[]).includes(sp.kind))
     filter.kind = sp.kind as MailKind;
-  const scene = sp.scene?.trim();
-  if (scene && /^[a-z0-9-]{1,48}$/.test(scene)) filter.scene = scene;
-  const q = sp.q?.trim();
-  if (q) filter.q = q.slice(0, 120);
-  filter.page = parsePageParam(sp.page);
+  const base = parseLogFilterBase(sp, (s) => /^[a-z0-9-]{1,48}$/.test(s));
+  if (base.scene) filter.scene = base.scene;
+  if (base.q) filter.q = base.q;
+  filter.page = base.page;
   return filter;
 }
 

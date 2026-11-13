@@ -35,7 +35,10 @@ export async function userPushEnabled(userId: number, type: string): Promise<boo
  * 任一设备送达即返回 true。发送失败由 transport 记录（push_log + 日志），整体 try/catch 永不抛出。
  * build 惰性构造 payload——仅在确有订阅时调用，避免无订阅用户白构造。
  */
-export async function sendUserPush(userId: number, build: () => PushMessage): Promise<boolean> {
+export async function sendUserPush(
+  userId: number,
+  build: () => PushMessage | Promise<PushMessage>,
+): Promise<boolean> {
   try {
     const subs = await getWebDb()
       .select({
@@ -46,7 +49,7 @@ export async function sendUserPush(userId: number, build: () => PushMessage): Pr
       .from(pushSubscriptions)
       .where(eq(pushSubscriptions.userId, userId));
     if (subs.length === 0) return false;
-    const message = build();
+    const message = await build();
     let anySent = false;
     for (const sub of subs) {
       if (await trySendPush(sub, message, { userId })) anySent = true;
@@ -61,6 +64,31 @@ export async function sendUserPush(userId: number, build: () => PushMessage): Pr
 /** 私信频控：同一会话对同一收件人每小时最多 1 条（独立桶，不与邮件共享额度，镜像 pmEmailAllowed） */
 export async function pmPushAllowed(userId: number, conversationId: number): Promise<boolean> {
   return rateLimit(`push-pm:${userId}:${conversationId}`, 1, 60 * 60_000).allowed;
+}
+
+/**
+ * 消费者并联推送的统一入口（M18 Step 6）：站点总开关 → 用户偏好 →（私信会话频控）→ 活跃抑制，
+ * 全过才发。**整体 try/catch 永不抛出**——推送是站内通知的附带渠道，其故障不能让已提交的
+ * 站内通知事件经 outbox 重放（镜像 pm/index.ts 邮件附带渠道的隔离口径）。
+ * conversationId 仅私信传入（施加每会话每小时 1 条频控）；回复/提及不传。
+ */
+export async function trySendUserPush(
+  userId: number,
+  type: string,
+  build: () => PushMessage | Promise<PushMessage>,
+  conversationId?: number,
+): Promise<boolean> {
+  try {
+    if (!(await pushEnabled())) return false;
+    if (!(await userPushEnabled(userId, type))) return false;
+    if (conversationId !== undefined && !(await pmPushAllowed(userId, conversationId)))
+      return false;
+    if (await userActiveRecently(userId)) return false;
+    return await sendUserPush(userId, build);
+  } catch (e) {
+    console.error(`[notify-push] 用户 ${userId} ${type} 推送附带渠道失败:`, e);
+    return false;
+  }
 }
 
 // 活跃抑制直接复用 email.ts 的 userActiveRecently（渠道无关），此处再导出方便消费者单一入口取齐三关

@@ -8,6 +8,7 @@ import {
   userEmailEnabled,
 } from "@/lib/notifications/email";
 import { pmReceivedMail } from "@/lib/mail";
+import { trySendUserPush } from "@/lib/push";
 import { getWebDb, messages, users } from "@funwind/db";
 
 /**
@@ -33,6 +34,27 @@ export const pmModule = defineModule({
         data: { conversationId: p.conversationId },
       });
 
+      // 附带渠道共享快照（邮件 + 推送，M18）：查询失败降级为默认值，不阻断渠道、不重放站内通知事件。
+      let senderName = "用户";
+      let preview = "";
+      try {
+        const [sender] = await getWebDb()
+          .select({ username: users.username })
+          .from(users)
+          .where(eq(users.id, p.senderId))
+          .limit(1);
+        const [latest] = await getWebDb()
+          .select({ body: messages.body })
+          .from(messages)
+          .where(eq(messages.conversationId, p.conversationId))
+          .orderBy(desc(messages.id))
+          .limit(1);
+        senderName = sender?.username ?? "用户";
+        preview = latest?.body ?? "";
+      } catch {
+        // 快照查询失败：用默认值，渠道仍尝试发送
+      }
+
       // 邮件是站内通知的附带渠道；它的偏好/活跃查询故障不能让已提交的站内通知事件重放。
       try {
         // S4（docs/EMAIL-SCENARIOS.md）：偏好 + 会话频控 + 未活跃三关全过才发
@@ -41,26 +63,8 @@ export const pmModule = defineModule({
           (await pmEmailAllowed(p.recipientId, p.conversationId)) &&
           !(await userActiveRecently(p.recipientId))
         ) {
-          const [sender] = await getWebDb()
-            .select({ username: users.username })
-            .from(users)
-            .where(eq(users.id, p.senderId))
-            .limit(1);
-          const [latest] = await getWebDb()
-            .select({ body: messages.body })
-            .from(messages)
-            .where(eq(messages.conversationId, p.conversationId))
-            .orderBy(desc(messages.id))
-            .limit(1);
           await sendUserEmail(p.recipientId, ({ brand }) =>
-            pmReceivedMail(
-              {
-                senderName: sender?.username ?? "用户",
-                preview: latest?.body ?? "",
-                conversationId: p.conversationId,
-              },
-              brand,
-            ),
+            pmReceivedMail({ senderName, preview, conversationId: p.conversationId }, brand),
           );
         }
       } catch (error) {
@@ -74,6 +78,20 @@ export const pmModule = defineModule({
           error,
         );
       }
+
+      // 推送附带渠道（M18 Step 6）：独立于邮件，trySendUserPush 内部三关 + try/catch 永不抛出。
+      await trySendUserPush(
+        p.recipientId,
+        "pm.received",
+        () => ({
+          kind: "notice",
+          scene: "pm-received",
+          title: "新私信",
+          body: `${senderName}：${preview.replace(/\s+/g, " ").slice(0, 80)}`,
+          url: `/messages?conv=${p.conversationId}`,
+        }),
+        p.conversationId,
+      );
     },
   },
 });

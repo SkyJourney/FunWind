@@ -3,8 +3,15 @@
  * Web Push 投递管线集成测试（M18 Step 2）· 真实临时库 + mock web-push。
  * 钉住：偏好「无行=关」、站点开关「无行=开」、多设备尽力而为、404/410 即时清理、90 天概率清扫。
  */
-import { sql } from "drizzle-orm";
-import { getWebDb, notificationPreferences, pushLog, pushSubscriptions } from "@funwind/db";
+import { eq, sql } from "drizzle-orm";
+import {
+  getWebDb,
+  notificationPreferences,
+  pushLog,
+  pushSubscriptions,
+  sessions,
+  siteSettings,
+} from "@funwind/db";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 
@@ -20,11 +27,14 @@ const { sendNotification, WebPushError } = vi.hoisted(() => {
   return { sendNotification: vi.fn(), WebPushError };
 });
 vi.mock("web-push", () => ({
-  default: { sendNotification, setVapidDetails: vi.fn(), WebPushError },
+  sendNotification,
+  setVapidDetails: vi.fn(),
+  WebPushError,
 }));
 
 const { sendPush, trySendPush } = await import("./transport");
-const { pushEnabled, userPushEnabled, sendUserPush } = await import("./notify");
+const { pushEnabled, userPushEnabled, sendUserPush, trySendUserPush } = await import("./notify");
+const { cleanupStalePushSubscriptions } = await import("./subscriptions");
 import type { PushMessage } from "./types";
 
 let tdb: TempDb;
@@ -73,6 +83,8 @@ afterEach(async () => {
   await db()
     .delete(notificationPreferences)
     .where(sql`1 = 1`);
+  await db().delete(siteSettings).where(eq(siteSettings.key, "push.enabled"));
+  await db().delete(sessions).where(eq(sessions.userId, UID));
   sendNotification.mockReset();
   vi.restoreAllMocks();
 });
@@ -189,5 +201,75 @@ describe.skipIf(skipDb)("90 天写侧概率清扫", () => {
     await sendUserPush(UID, () => msg());
     scenes = (await db().select({ s: pushLog.scene }).from(pushLog)).map((r) => r.s);
     expect(scenes).toContain("old");
+  });
+});
+
+describe.skipIf(skipDb)("trySendUserPush 消费者门控（M18 Step 6）", () => {
+  it("站点总开关关闭 → 不发（即便偏好开 + 有订阅）", async () => {
+    await db()
+      .insert(siteSettings)
+      .values({ key: "push.enabled", value: { enabled: false }, updatedAt: sql`NOW()` });
+    await seedPref("pm.received", true);
+    await seedSub();
+    sendNotification.mockResolvedValue({ statusCode: 201 });
+    expect(await trySendUserPush(UID, "pm.received", () => msg(), 1)).toBe(false);
+    expect(sendNotification).not.toHaveBeenCalled();
+  });
+
+  it("偏好无行 = 关 → 不发", async () => {
+    await seedSub();
+    sendNotification.mockResolvedValue({ statusCode: 201 });
+    expect(await trySendUserPush(UID, "pm.received", () => msg(), 1)).toBe(false);
+    expect(sendNotification).not.toHaveBeenCalled();
+  });
+
+  it("偏好开 + 有订阅 + 未活跃 → 发；同一会话频控第二次拦", async () => {
+    await seedPref("pm.received", true);
+    await seedSub();
+    sendNotification.mockResolvedValue({ statusCode: 201 });
+    expect(await trySendUserPush(UID, "pm.received", () => msg(), 7)).toBe(true);
+    expect(sendNotification).toHaveBeenCalledTimes(1);
+    // 同一会话 1 小时内第二次 → 频控拦截（独立桶，不与邮件共享）
+    expect(await trySendUserPush(UID, "pm.received", () => msg(), 7)).toBe(false);
+    expect(sendNotification).toHaveBeenCalledTimes(1);
+  });
+
+  it("30 分钟内活跃 → 不发（活跃抑制）", async () => {
+    await seedPref("pm.received", true);
+    await seedSub();
+    await db()
+      .insert(sessions)
+      .values({
+        id: "push-active-session",
+        userId: UID,
+        createdAt: sql`NOW()`,
+        expiresAt: sql`NOW() + INTERVAL 2 HOUR`,
+        lastSeenAt: sql`NOW()`,
+      });
+    sendNotification.mockResolvedValue({ statusCode: 201 });
+    expect(await trySendUserPush(UID, "pm.received", () => msg(), 8)).toBe(false);
+    expect(sendNotification).not.toHaveBeenCalled();
+  });
+});
+
+describe.skipIf(skipDb)("超期订阅卫生清扫（M18 Step 6）", () => {
+  it("删超期订阅、保留新订阅", async () => {
+    await db()
+      .insert(pushSubscriptions)
+      .values({
+        userId: UID,
+        endpoint: "https://push.example.invalid/old",
+        p256dh: "k",
+        auth: "a",
+        createdAt: sql`NOW() - INTERVAL 200 DAY`,
+      });
+    await seedSub(); // 新订阅
+    const removed = await cleanupStalePushSubscriptions();
+    expect(removed).toBe(1);
+    const endpoints = (
+      await db().select({ e: pushSubscriptions.endpoint }).from(pushSubscriptions)
+    ).map((r) => r.e);
+    expect(endpoints).not.toContain("https://push.example.invalid/old");
+    expect(endpoints).toContain("https://push.example.invalid/sub-1");
   });
 });
