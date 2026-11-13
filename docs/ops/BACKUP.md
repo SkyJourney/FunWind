@@ -106,39 +106,75 @@ MySQL 8.4 容器默认 `log_bin=ON`，binlog 落在数据卷 `funwind-mysql-data
 > 5.7 只认 `--expire-logs-days`（整数天），写成秒级参数会让 mysqld 直接
 > `unknown variable` 启动失败（已实测 mysql:5.7.44 报此错）。
 
-## 4. 恢复演练（本机已实测的命令序列）
+## 4. 恢复演练（已实测的命令序列）
 
 > 演练目标：备份 → **临时实例**恢复 → 对账全过 → 再考虑切换。绝不直接覆盖线上库。
 
+> **路径勘误（M17 Step 3 实测修正）**：本节旧版命令指向 `/opt/funwind/backups/mysql/` 与
+> `/opt/funwind/backups/storage`——那是 **M13 宿主机 crontab 时代**的路径，M14 换成 ops 容器后
+> 已不再写入，那里只剩 2026-11-08 的遗留文件。**照旧命令做演练会把 5 天前的旧备份当「最新」**。
+> 真实落盘位置由 ops 容器挂载决定（`docker inspect funwind-ops` 可查）：
+> `/var/lib/docker/volumes/funwind-backup-files/_data/{db,storage}/`，文件名含完整时间戳与随机后缀。
+> 另：存储备份是 **`.tgz` 归档而非目录**，旧版用 `find` 比对目录的写法不适用，已改为归档清单比对。
+
 ```sh
+# ⑩ 先定位最新备份（不要用文档里的示例文件名，每次都在变）
+ssh QY_HK 'B=/var/lib/docker/volumes/funwind-backup-files/_data; ls -lt $B/db/ | head -3; ls -lt $B/storage/ | head -3'
+# 台账 ops_runs 的 path 字段也记录了每次备份的真实路径，可交叉核对：
+#   SELECT kind, status, path, size_bytes FROM qingyisub.ops_runs ORDER BY id DESC LIMIT 6;
+
 # ① 起临时 MySQL 8.4（同版本！跨大版本恢复不受支持）
 docker run -d --name funwind-restore-test -e MYSQL_ROOT_PASSWORD=<临时口令> \
   -p 127.0.0.1:33622:3306 mysql:8.4 --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
-# 等待就绪（healthcheck 变 healthy，约 30–60s）
+# 等待就绪：docker exec funwind-restore-test mysqladmin ping -uroot -p'<临时口令>'
 
-# ② 建库并导入（注意 --default-character-set 与备份一致）
+# ② 取备份并校验完整性（在本机做演练时先 scp 下来，sha256 必须与生产一致）
+scp QY_HK:/var/lib/docker/volumes/funwind-backup-files/_data/db/<最新文件>.sql.gz /tmp/
+ssh QY_HK 'sha256sum /var/lib/docker/volumes/funwind-backup-files/_data/db/<最新文件>.sql.gz'
+shasum -a 256 /tmp/<最新文件>.sql.gz   # 两个哈希必须相同
+
+# ③ 建库并导入（注意 --default-character-set 与备份一致）
 docker exec funwind-restore-test mysql -uroot -p'<临时口令>' \
   -e "CREATE DATABASE qingyisub CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
-gzip -dc /opt/funwind/backups/mysql/db-qingyisub-<时间戳>.sql.gz | \
+gzip -dc /tmp/<最新文件>.sql.gz | \
   docker exec -i funwind-restore-test mysql -uroot -p'<临时口令>' --default-character-set=utf8mb4 qingyisub
 
-# ③ 对账（21 项：积分台账/outbox/结构完整性/……；用仓库脚本，env 指向临时实例）
-NEW_DB_HOST=127.0.0.1 NEW_DB_PORT=33622 NEW_DB_PASSWORD=<临时口令> NEW_DB_NAME=qingyisub \
+# ④ 对账（21 项：积分台账/outbox/结构完整性/……；用仓库脚本，env 指向临时实例）
+NEW_DB_HOST=127.0.0.1 NEW_DB_PORT=33622 NEW_DB_USER=root NEW_DB_PASSWORD=<临时口令> NEW_DB_NAME=qingyisub \
   pnpm --filter @funwind/db verify
 
-# ④ 幂等 bootstrap 冒烟（迁移版本对齐 + 三列 _bin 校验，已恢复库应全部「跳过」）
-NEW_DB_HOST=127.0.0.1 NEW_DB_PORT=33622 NEW_DB_PASSWORD=<临时口令> NEW_DB_NAME=qingyisub pnpm db:bootstrap
+# ⑤ 幂等 bootstrap 冒烟（迁移版本对齐 + 三列 _bin 校验，已恢复库应全部「跳过」）
+NEW_DB_HOST=127.0.0.1 NEW_DB_PORT=33622 NEW_DB_USER=root NEW_DB_PASSWORD=<临时口令> NEW_DB_NAME=qingyisub \
+  pnpm db:bootstrap
 
-# ⑤ 存储镜像核对（文件清单 diff 应为空）
-diff <(cd <生产 storage 卷路径> && find . -type f -not -path './.cache/*' -not -path './.tmp/*' | sort) \
-     <(cd /opt/funwind/backups/storage && find . -type f -not -path './.cache/*' -not -path './.tmp/*' | sort)
+# ⑥ 存储镜像核对（归档清单 vs 生产卷清单，逐条 diff 应为空；再抽样做字节级校验）
+ssh QY_HK 'B=/var/lib/docker/volumes/funwind-backup-files/_data/storage/<最新>.tgz; \
+  S=/var/lib/docker/volumes/funwind-storage/_data; \
+  tar -tzf "$B" | grep -v "/$" | sed "s|^\./||" | sort > /tmp/bak.txt; \
+  (cd "$S" && find . -type f -not -path "./.cache/*" -not -path "./.tmp/*" | sed "s|^\./||" | sort) > /tmp/prod.txt; \
+  diff /tmp/bak.txt /tmp/prod.txt && echo "(清单一致)"; \
+  for f in $(head -3 /tmp/prod.txt); do \
+    a=$(sha256sum "$S/$f" | cut -d" " -f1); \
+    b=$(tar -xzOf "$B" "./$f" | sha256sum | cut -d" " -f1); \
+    [ "$a" = "$b" ] && echo "OK $f" || echo "MISMATCH $f"; done; \
+  rm -f /tmp/bak.txt /tmp/prod.txt'
 
-# ⑥ 清理演练实例
-docker rm -f funwind-restore-test
+# ⑦ 清理演练实例与本机临时文件（不要留临时 MySQL 占资源）
+docker rm -f funwind-restore-test && rm -f /tmp/<最新文件>.sql.gz
 ```
 
 实测记录（2026-11-08，本机对 dev 库 `qysub_next`）：dump 4.5MB → 导入 55 表/10763 用户 →
 `db:verify` 21 项全过 → 假名账号（さくら/サクラ）字节级无损 → bootstrap 三列 `_bin` 全部「已跳过」。
+
+**实测记录（2026-11-13，M17 Step 3，对生产备份跨实例演练）**：
+最新备份 `db-qingyisub-2026-11-13-031000-001937-a6c3d7.sql.gz`（4,767,862 字节）→
+scp 到本机后 **sha256 与生产双向一致**（`84e62057…b02e`）→ 临时 MySQL 8.4（本机 33622）→
+**导入 3 秒、59 张表**（drizzle schema 56 + 管线自治 3：`ops_runs`/`ops_trigger_state`/`backup_runs`）、
+**10763 用户** → **`db:verify` 21 项全过**（含三列 `utf8mb4_bin` 精确比较、积分余额=台账之和无负余额、
+孤儿引用全 0、outbox 无滞留）→ **bootstrap 幂等**：三列 `_bin` 全部「patch 跳过」、新增授权/设置/运维任务全 0
+（证明备份与当前迁移版本对齐）→ **存储镜像**：归档与生产卷各 **2048 个文件、清单逐条一致**，
+抽样 3 个文件字节级 sha256 全 OK → 演练实例与本机临时文件已清理（容器 0 / 端口 0 / 目录已删）。
+备份保留策略实测正常：db 与 storage **各 9 份**。
 
 ### 真实故障时的切换（演练通过后才做）
 
