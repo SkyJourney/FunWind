@@ -203,3 +203,24 @@ test("联网状态感知：断网给常驻提示，恢复后撤下并确认（M1
   await expect(page.getByText("网络已恢复")).toBeVisible();
   await expect(page.getByText("网络已断开")).toHaveCount(0);
 });
+
+test("SW 推送扩展：push/notificationclick/pushsubscriptionchange 三监听器就位，通知图标可达（M18 Step 5）", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/");
+  await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+  });
+  // 真实推送送达需推送服务 + 站长真机（含 iOS PWA）；这里断言 SW 推送基建已部署、图标可缓存
+  const sw = await request.get("/sw.js");
+  expect(sw.status()).toBe(200);
+  const script = await sw.text();
+  expect(script).toContain('addEventListener("push"');
+  expect(script).toContain('addEventListener("notificationclick"');
+  expect(script).toContain('addEventListener("pushsubscriptionchange"');
+  expect(script).toContain("showNotification");
+  const icon = await request.get("/pwa/icon-192.png");
+  expect(icon.status()).toBe(200);
+  expect(icon.headers()["content-type"]).toContain("image/png");
+});
