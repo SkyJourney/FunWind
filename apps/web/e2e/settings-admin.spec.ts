@@ -31,6 +31,8 @@ test("邀请码：生成 → 列表可用 → 撤销 → 消失", async ({ brows
   await loginAs(ctx, USERS.admin);
   const admin = await ctx.newPage();
 
+  // 防前次失败残留累积污染计数（批次码固定，失败重跑会叠加）——先清本批次旧码
+  await withE2eDb(async (q) => q.exec("DELETE FROM invite_codes WHERE batch = 'e2e 批次'"));
   await admin.goto("/admin/invites");
   await expect(admin.getByRole("heading", { name: "邀请码" })).toBeVisible();
   const before = await admin.getByText("可用", { exact: true }).count();

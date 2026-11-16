@@ -182,6 +182,10 @@ export const saveHolidayRuleAction = defineAction({
       // G-19：版本冲突 → 带草稿回表单，不静默换用最新版本
       holidayFail("err=conflict", draft);
     }
+    if (result.code === "bad-input") {
+      // 节日 params 语义校验（zod）统一用稳定码；页面有专门文案
+      holidayFail("err=bad-items", draft);
+    }
     holidayFail(`err=${encodeURIComponent(result.message ?? "规则保存失败，请重试")}`, draft);
   },
 });

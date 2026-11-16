@@ -124,7 +124,7 @@ export default async function CampaignsAdminPage(props: { searchParams: Promise<
   await requireAdmin("site.admin");
   const sp = await props.searchParams;
   const savedText = flashText(FLASH, sp.ok);
-  const errText = sp.err ? (textOf(ERR_TEXT, sp.err) ?? sp.err) : undefined;
+  const errText = sp.err ? (textOf(ERR_TEXT, sp.err) ?? "操作失败，请重试。") : undefined;
   const [{ items }, catalog, logoPool, heroPool, taskList] = await Promise.all([
     listCampaigns(),
     getThemeCatalog(),
@@ -208,6 +208,11 @@ export default async function CampaignsAdminPage(props: { searchParams: Promise<
       {errText && (
         <AdminFlash kind="error" dismissHref="/admin/campaigns">
           {errText}
+        </AdminFlash>
+      )}
+      {sp.err === "bad-items" && (
+        <AdminFlash kind="error" dismissHref="/admin/campaigns">
+          装扮内容格式无效：请检查各行的效果与目标。
         </AdminFlash>
       )}
       {sp.ok && sp.ok.startsWith("tasks-") && (

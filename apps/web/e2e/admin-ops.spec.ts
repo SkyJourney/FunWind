@@ -240,14 +240,14 @@ test("节日装扮规则（M19 归位排期页）：表单回显种子规则、�
   for (const select of effectSelects) await select.selectOption("");
   await form.locator('input[name="durationDays"]').fill("14");
   await form.getByRole("button", { name: "保存规则" }).click();
-  await expect(page.getByRole("alert").filter({ hasText: "至少配置一项装扮内容" })).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: "装扮内容格式无效" })).toBeVisible();
   await expect(form.locator('input[name="durationDays"]')).toHaveValue("14"); // 草稿未清空
 
   // 语义校验失败二：目标语法无效（HTML5 拦不住，服务端语义校验）
   await form.locator('select[name="itemEffect"]').first().selectOption("theme.pack");
   await form.locator('input[name="itemTarget"]').first().fill("Bad Pack!");
   await form.getByRole("button", { name: "保存规则" }).click();
-  await expect(page.getByRole("alert").filter({ hasText: "目标语法无效" })).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: "装扮内容格式无效" })).toBeVisible();
   await expect(form.locator('input[name="itemTarget"]').first()).toHaveValue("Bad Pack!");
 
   // 修正并保存：持久化 + 审计（ops.task.update）+ revision+1
