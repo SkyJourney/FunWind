@@ -1,7 +1,7 @@
 # FunWind 路线图
 
 > 里程碑制推进：先骨架后功能，预留插入点，逐模块完善。
-> 模块编号（M01–M15）见 [LEGACY-FEATURE-MAP.md](LEGACY-FEATURE-MAP.md)；里程碑编号（M1–M18）见本文与 `docs/milestones/`。
+> 模块编号（M01–M15）见 [LEGACY-FEATURE-MAP.md](LEGACY-FEATURE-MAP.md)；里程碑编号（M1–M22）见本文与 `docs/milestones/`。
 > 状态：✅ 完成 · 🚧 进行中 · 🟡 工程已交付、待人工验收/最终收口 · ⬜ 未开始
 
 ## 已完成的前置工作（里程碑制之前）
@@ -48,6 +48,10 @@
 | [M16.1](milestones/M16.1-tail-cleanup.md)               | **扫尾专项**（上传真实进度 fetch→XHR + 附件占位行 + 头像显影、编辑器反馈补齐（uploadNotice 语义/预览淡入/富文本骨架/门控插入高亮）、离线深化（SW 缓存版本/更新提示/在线状态感知）、M16 残值测试补齐（三组件单测与 reduce E2E）） | 跨模块（交互反馈）                       | 四·运营与演进 | ✅ 已收口（2026-11-13 部署公测：PR #15 CI 双作业绿合并 main；首轮 CI 红暴露返回滚动恢复真竞态并修复（4s→6s + 稳定提前收尾）；两路审查无 P0、8 项 P1 全清（§11）；生产实测 SW 版本化端到端打通、断网提示生效、LCP 564–948ms（§12）；执行记录 §6–§12；明确留白不变） |
 | [M17](milestones/M17-quality-observability.md)               | **质量与可观测性收口**（真实用户性能与错误可见性从零建立、CSP 违规报告可查询化与转强制评估、M13 三项长线欠账签字：告警触达验证 / 完整回滚演练 / 生产检查单；不引入监控 SaaS 硬依赖、不改运维拓扑） | 跨模块（运营可信度）                       | 四·运营与演进 | ✅ 已收口（2026-11-13 部署公测：PR #16 CI 双绿合并 main `770fda8e`；Step 0–7 完成（§9–§17），两路审查 0 P0 / 6 P1 全清（§16），生产镜像 `funwind-web:20261113-770fda8e` 部署与核对通过（§17）；告警全链注入 / digest 次日 / 外部拨测 / 恢复演练签字 / CSP 转强制评估留观察期） |
 | [M18](milestones/M18-web-push.md)               | **Web Push 推送渠道**（通知第三渠道：VAPID 密钥 + push_subscriptions 表 + 订阅/退订 API + 客户端 opt-in 流程 + SW 三监听器 + 投递管线镜像邮件模式；显式 opt-in、不默认开启、不做站内实时推送） | 通知触达                       | 四·运营与演进 | ✅ 已收口（2026-11-13 部署公测：PR #17 CI 双绿合并 main 2c2fe4fc；Step 0–7 完成（§8），两路审查 0 P0 / 6 P1 全清（§8），生产镜像 funwind-web:20261113-2c2fe4fc 部署与核对通过；D1–D6 定稿——直接调用/三类/push_log/站点总开关/CSP 后协/先行推进；表数 58→60，VAPID 生产密钥服务器现场生成私钥不入库；真机送达验证留观察期） |
+| [M19](milestones/M19-admin-console-reorg.md)    | **后台管理重塑**（按功能重塑 IA：review 并入 contents、品牌池 logo+hero 合一「品牌素材」、站点框架拆入站点配置、节日装扮归位运营排期、users/[uid] 三签；菜单 6 组 24 项 + 反向守卫制度化 + title/label 拉齐；列表统一分页库（默认 20/档位 10·20·50·100）+ 密度切换 + 日期范围/关键词/targetType 筛选扩展；Flash 键名全面统一 `?ok/?err` + 手写回显清账 + UserPicker 搜索化 + 死码清理） | 跨模块（管理后台）             | 四·运营与演进 | 🚧 进行中（2026-11-16 立项并开工；D1–D4 + Q1–Q4 已拍板） |
+| [M20](milestones/M20-admin-api-tokens.md)       | **管理 Access Token 与管理 REST API v1**（admin_api_tokens 表 + `Authorization: Bearer` 守卫 + 撤权联动吊销（仿封禁删会话）+ 统一响应信封/错误码注册表 + `/api/manage/**` v1 读端点 + token/sessions/email_tokens 清理 cron；大纲版，开工前细化并拍板 D1–D5） | 管理面/平台                    | 四·运营与演进 | ⬜ 已立项（大纲） |
+| [M21](milestones/M21-admin-mcp.md)              | **管理 MCP**（薄壳套壳 `/api/manage/**`：stdio 本地 server + env 注入 Access Token；首批读工具五件套——统计/用户/内容/审计/日志；不做远程暴露、不绕过 API；依赖 M20） | 管理面/平台                    | 四·运营与演进 | ⬜ 已立项（大纲） |
+| [M22](milestones/M22-rss-feeds.md)              | **RSS/Atom 订阅输出**（`/feeds/latest` + `/feeds/forum/[fid]`，游客可读红线（restricted 版块零泄露）+ RSS 2.0/Atom 双格式 + ETag 缓存 + `<link rel="alternate">` 发现；独立小里程碑可插队） | 内容触达                       | 四·运营与演进 | ⬜ 已立项（大纲） |
 
 依赖关系：
 
@@ -59,7 +63,12 @@ M1 ─ M2 ─ M3 ─ M4 ─ M5 ─ M5.5 ─ M5.6 ─ M6 ─ M7 ─ M8 ── M9 
 
 M13 ─┬─ M14（运维任务管线）
      └─ M15（统一动效管线）
+
+M19（后台管理重塑）─ M20（管理 API + Access Token）─ M21（管理 MCP）；M22（RSS/Atom）独立可插队
 ```
+
+> 2026-11-16 编排（站长拍板）：顺序 **M19 → M20 → M21**，M22 随时插队；M20/M21/M22 为大纲版里程碑文档，
+> 开工前须细化为可开工版并经站长确认（含各自决策项拍板）。
 
 > M14（运维任务管线）与 M15（统一动效管线）相互独立，顺序由站长定（2026-11-09 编排：建议 M14 先行）；
 > M14 建议在 M13 上线门禁（备份恢复演练签字）收口后开工，M15 无此约束。上线后立项的里程碑采用
