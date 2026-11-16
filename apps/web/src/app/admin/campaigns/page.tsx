@@ -1,5 +1,6 @@
 import { AdminFlash } from "@/components/admin/admin-flash";
 import { Card, CardContent } from "@/components/ui/card";
+import { SubmitButton } from "@/components/ui/submit-button";
 import { getHeroPoolRaw } from "@/lib/brand/hero-pool";
 import { getLogoPoolRaw } from "@/lib/brand/logo-pool";
 import { requireAdmin } from "@/lib/authz/require-admin";
@@ -8,9 +9,13 @@ import { decodeCampaignDraft, type CampaignDraft } from "@/lib/campaigns/draft";
 import { CAMPAIGN_EFFECTS, type CampaignEffect } from "@/lib/campaigns/effects";
 import { joinChoice } from "@/lib/campaigns/input";
 import { listCampaigns, type CampaignListItem } from "@/lib/campaigns/list";
+import { listOpsTasks } from "@/lib/ops/tasks";
 import { getThemeCatalog } from "@/lib/theme/catalog";
+import { setTaskEnabledAction } from "@/app/admin/ops/actions";
 import { CampaignForm, type ChoiceGroup } from "./campaign-form";
 import { CampaignSection } from "./campaign-list";
+import { HolidayRuleForm } from "./holiday-form";
+import { saveHolidayRuleAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "运营排期" };
@@ -20,6 +25,8 @@ const FLASH: Record<string, string> = {
   updated: "排期方案已保存。",
   toggled: "排期方案状态已更新。",
   deleted: "排期方案已删除。",
+  holiday:
+    "节日装扮规则已保存。任务启用后，管线每日自检会确保当前或下一年窗口的排期方案存在（已生成的方案不会被覆盖，可在本页微调）。",
 };
 
 /** 键类型取自写服务的失败码：服务新增失败码而这里没补文案，类型检查就会报错（G-15） */
@@ -73,12 +80,41 @@ function draftOf(item: CampaignListItem): CampaignDraft {
   };
 }
 
-type SearchParams = { saved?: string; err?: string; edit?: string; draft?: string };
+type SearchParams = {
+  saved?: string;
+  err?: string;
+  edit?: string;
+  draft?: string;
+  holidayErr?: string;
+  holidayDraft?: string;
+  /** 节日任务启停回执（setTaskEnabledAction back 到本页时） */
+  tasks?: string;
+};
+
+/** 节日装扮表单失败草稿（G-19）：与排期表单的 draft 参数区分 */
+function holidayDraftOf(raw: string | undefined): Record<string, string> | null {
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      Object.values(parsed).every((v) => typeof v === "string" || Array.isArray(v))
+    ) {
+      return parsed as Record<string, string>;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
 
 /**
  * 运营排期（M11.2）：按 effect 分区的方案列表 + 新建/编辑表单。门禁 site.admin；
  * 同一 effect 的多个方案按优先级决定谁生效，不同 effect 互不压制。
  * 前台读取链有 ≤30 秒的缓存收敛窗口（与其他站点配置一致），后台保存会即时失效本进程缓存。
+ * 节日装扮规则卡（M19 Q4 自运维页归位）：campaign.holiday 任务存在时渲染——
+ * 管线每日自检据此自动生成/撤下节日排期方案，规则本身在本卡维护。
  */
 export default async function CampaignsAdminPage(props: { searchParams: Promise<SearchParams> }) {
   // 入口鉴权约定：第一个 await 必须是 requireAdmin（admin-entry-guard 静态守护）
@@ -86,12 +122,28 @@ export default async function CampaignsAdminPage(props: { searchParams: Promise<
   const sp = await props.searchParams;
   const savedText = textOf(FLASH, sp.saved);
   const errText = sp.err ? (textOf(ERR_TEXT, sp.err) ?? "操作失败，请重试。") : undefined;
-  const [{ items }, catalog, logoPool, heroPool] = await Promise.all([
+  const [{ items }, catalog, logoPool, heroPool, taskList] = await Promise.all([
     listCampaigns(),
     getThemeCatalog(),
     getLogoPoolRaw(),
     getHeroPoolRaw(),
+    listOpsTasks(),
   ]);
+
+  // 节日装扮规则卡：任务存在才渲染；草稿（上次失败的表单内容）优先回填（G-19）
+  const holidayTask = taskList.find((t) => t.executor === "campaign.holiday") ?? null;
+  const holidayParams = holidayTask
+    ? {
+        calendar: (holidayTask.params["calendar"] as string) ?? "lunar",
+        month: Number(holidayTask.params["month"] ?? 1),
+        day: Number(holidayTask.params["day"] ?? 1),
+        beforeDays: Number(holidayTask.params["beforeDays"] ?? 0),
+        durationDays: Number(holidayTask.params["durationDays"] ?? 7),
+        items:
+          (holidayTask.params["items"] as { effect: string; target: string }[] | undefined) ?? [],
+      }
+    : null;
+  const holidayDraft = holidayDraftOf(sp.holidayDraft);
 
   const libraryOptions: Record<string, { value: string; label: string }[]> = {
     "theme.pack": catalog.map((pack) => ({ value: pack.id, label: `${pack.label}（${pack.id}）` })),
@@ -155,6 +207,57 @@ export default async function CampaignsAdminPage(props: { searchParams: Promise<
           {errText}
         </AdminFlash>
       )}
+      {sp.holidayErr && (
+        <AdminFlash kind="error" dismissHref="/admin/campaigns">
+          {sp.holidayErr === "conflict"
+            ? "规则已被他人修改（版本冲突）：下方表单保留了你的修改，请核对当前配置后重新保存。"
+            : sp.holidayErr === "bad-items"
+              ? "装扮内容格式无效：请检查各行的效果与目标。"
+              : sp.holidayErr}
+        </AdminFlash>
+      )}
+      {sp.tasks && (
+        <AdminFlash kind="success" dismissHref="/admin/campaigns">
+          任务已{sp.tasks === "enabled" ? "启用" : "停用"}
+          ，管线热加载后生效（管线不可达时由周期对账兜底）。
+        </AdminFlash>
+      )}
+
+      {/* 节日装扮规则（campaign.holiday 任务存在时渲染；M19 Q4 自运维页归位） */}
+      {holidayTask && holidayParams && (
+        <div className="rounded-xl border bg-card p-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className="text-sm font-semibold">节日装扮规则</h3>
+            <span
+              className={`rounded px-1.5 py-0.5 text-xs ${
+                holidayTask.enabled
+                  ? "bg-success/10 text-success"
+                  : "bg-muted text-muted-foreground"
+              }`}
+            >
+              任务{holidayTask.enabled ? "启用中" : "已停用"}（每日 09:00 自检）
+            </span>
+          </div>
+          <HolidayRuleForm
+            action={saveHolidayRuleAction}
+            taskId={holidayTask.id}
+            revision={holidayTask.revision}
+            params={holidayParams}
+            draft={holidayDraft}
+          />
+          {!holidayTask.enabled && holidayTask.id > 0 && (
+            <form action={setTaskEnabledAction} className="mt-3">
+              <input type="hidden" name="id" value={holidayTask.id} />
+              <input type="hidden" name="enabled" value="1" />
+              <input type="hidden" name="back" value="/admin/campaigns" />
+              <SubmitButton className="rounded-md border px-2.5 py-1 text-xs hover:bg-accent">
+                启用任务（每日自检 + 手动触发）
+              </SubmitButton>
+            </form>
+          )}
+        </div>
+      )}
+
       <Card>
         <CardContent className="pt-5">
           <h3 className="mb-3 text-sm font-semibold">
