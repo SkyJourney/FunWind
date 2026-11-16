@@ -1,0 +1,27 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`品牌素材页：kind 配置注入 > LOGO 徽标显示数据库里该包当前的名称；删除的包退回 id；无 pack 不显示徽标 1`] = `
+<p
+  className="mt-0.5 text-xs"
+>
+  <span
+    className="rounded bg-accent px-1 text-accent-foreground"
+  >
+    复刻·青翼2010
+     自带
+  </span>
+</p>
+`;
+
+exports[`品牌素材页：kind 配置注入 > LOGO 徽标显示数据库里该包当前的名称；删除的包退回 id；无 pack 不显示徽标 2`] = `
+<p
+  className="mt-0.5 text-xs"
+>
+  <span
+    className="rounded bg-accent px-1 text-accent-foreground"
+  >
+    旧春节
+     自带
+  </span>
+</p>
+`;

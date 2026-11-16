@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-type AdminTab = { key: string; label: ReactNode; href: string };
+export type AdminTab = { key: string; label: ReactNode; href: string };
 
 /** 后台服务端页签：链接与激活项由页面决定，只复用既有导航的 DOM 与样式。 */
 export function AdminTabs({

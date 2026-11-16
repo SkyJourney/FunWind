@@ -491,6 +491,7 @@ for (const width of LAYOUT_WIDTHS) {
 
         // 所有后台越权入口都检查，不把菜单隐藏等同于页面已鉴权。
         const adminPaths = [
+          "/admin/brand",
           "/admin/logo",
           "/admin/hero",
           "/admin/decor",

@@ -182,7 +182,7 @@ export function BrandPoolAdmin({
                       </ConfirmSubmit>
                       <noscript>
                         <a
-                          href={`?confirm-remove=${encodeURIComponent(item.file)}`}
+                          href={`${basePath}${basePath.includes("?") ? "&" : "?"}confirm-remove=${encodeURIComponent(item.file)}`}
                           className="mt-1 block text-center text-xs text-warning underline"
                         >
                           无脚本模式移除

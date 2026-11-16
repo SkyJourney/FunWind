@@ -23,7 +23,7 @@ test("admin：像素超限被拒 → 合法横幅上传入池 → 首页渲染 �
   request,
 }) => {
   await loginAs(page.context(), USERS.admin);
-  await page.goto("/admin/hero");
+  await page.goto("/admin/brand?kind=hero");
 
   // 超尺寸：1921×100 超过 1920×1080 上限 → ?err=oversize 文案回显，不入池
   await page.getByLabel(/名称/).fill("E2E 太宽横幅");
@@ -35,7 +35,7 @@ test("admin：像素超限被拒 → 合法横幅上传入池 → 首页渲染 �
       .toBuffer(),
   });
   await page.getByRole("button", { name: "上传入池" }).click();
-  await page.waitForURL("**/admin/hero?err=oversize");
+  await page.waitForURL("**/admin/brand?kind=hero&err=oversize");
   await expect(page.getByText(/像素超过 1920×1080/)).toBeVisible();
 
   // 合法横幅：入池设当前（高亮提示）
@@ -48,7 +48,7 @@ test("admin：像素超限被拒 → 合法横幅上传入池 → 首页渲染 �
       .toBuffer(),
   });
   await page.getByRole("button", { name: "上传入池" }).click();
-  await page.waitForURL("**/admin/hero?added=*");
+  await page.waitForURL("**/admin/brand?kind=hero&added=*");
   await expect(page.getByText("已入池并设为当前")).toBeVisible();
 
   // 首页出现 Hero；公开路由 200
@@ -57,10 +57,10 @@ test("admin：像素超限被拒 → 合法横幅上传入池 → 首页渲染 �
   expect((await request.get("/brand/hero")).status()).toBe(200);
 
   // 移除（确认对话框）→ 首页不再渲染，公开路由 404
-  await page.goto("/admin/hero");
+  await page.goto("/admin/brand?kind=hero");
   await page.getByRole("button", { name: "移除" }).click();
   await page.getByRole("button", { name: "确认" }).click();
-  await page.waitForURL("**/admin/hero");
+  await page.waitForURL("**/admin/brand?kind=hero");
   await expect(page.getByText("池还是空的")).toBeVisible();
 
   await page.goto("/");

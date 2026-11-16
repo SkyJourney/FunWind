@@ -156,6 +156,6 @@ export async function POST(request: Request): Promise<Response> {
   if (!created) return redirectTo(`err=${errorCode}${warning}`);
   revalidatePath("/admin/themes");
   revalidatePath("/admin/decor");
-  revalidatePath("/admin/logo");
+  revalidatePath("/admin/brand");
   return redirectTo(`saved=imported&id=${encodeURIComponent(id)}${warning}`);
 }
