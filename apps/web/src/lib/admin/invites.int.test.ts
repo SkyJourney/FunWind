@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { auditLog, getWebDb, inviteCodes } from "@funwind/db";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
-import { generateInvites, listInvites, revokeInvite } from "./invites";
+import { listInvitesPage, generateInvites, listInvites, revokeInvite } from "./invites";
 
 let tdb: TempDb;
 const ACTOR = { userId: 90004, ip: "127.0.0.1" };
@@ -65,5 +65,20 @@ describe.skipIf(skipDb)("邀请码管理（M10.6b）", () => {
     expect((await listInvites()).find((x) => x.code === b)?.status).toBe("used");
 
     expect(await revokeInvite(ACTOR, "ZZZZ-ZZZZ-ZZZZ")).toEqual({ ok: false, code: "not_found" });
+  });
+
+  it("M19：创建时间范围筛选（since/until）", async () => {
+    const mine = await listInvitesPage({ status: "all", batch: "it-批次", page: 1 });
+    expect(mine.total).toBe(3);
+    const bounded = await listInvitesPage({
+      status: "all",
+      batch: "it-批次",
+      since: "2000-01-01",
+      until: "2999-12-31 23:59:59",
+      page: 1,
+    });
+    expect(bounded.total).toBe(3);
+    const before = await listInvitesPage({ status: "all", until: "2000-01-01 00:00:00", page: 1 });
+    expect(before.total).toBe(0);
   });
 });

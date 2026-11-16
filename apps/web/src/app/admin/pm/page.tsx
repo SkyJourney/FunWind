@@ -4,33 +4,56 @@ import { requireAdmin } from "@/lib/authz/require-admin";
 import { listPmMessagesPage, pmStats } from "@/lib/pm/admin";
 import { deleteMessageAction } from "./actions";
 import { fmtDateTime } from "@/lib/admin/format";
-import { buildAdminQuery, parseAdminPage } from "@/lib/admin/query";
+import { buildAdminQuery, parseAdminListParams, parseAdminPage } from "@/lib/admin/query";
 import { AdminFlash } from "@/components/admin/admin-flash";
 import { AdminFilterBar } from "@/components/admin/admin-filter-bar";
+import { AdminDateRange } from "@/components/admin/admin-date-range";
+import { AdminListPager } from "@/components/admin/admin-list";
 import { UserPicker } from "@/components/admin/user-picker";
-import { Pagination } from "@/components/content/pagination";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "私信管理" };
 
-/** 私信管理（M10 补做；M9.5 重做）：筛选下推 SQL（uid 等值 / 用户名精确反查）+ 分页 + 统计缓存。 */
+/** 私信管理（M10 补做；M9.5 重做；M19 S4 加时间范围与每页条数）：筛选下推 SQL + 分页 + 统计缓存。
+ *  messages 表无时间/发送者索引（仅 idx_msg_conv），量级小可接受。 */
 export default async function AdminPmPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; deleted?: string; q?: string; page?: string }>;
+  searchParams: Promise<{
+    error?: string;
+    deleted?: string;
+    q?: string;
+    from?: string;
+    to?: string;
+    size?: string;
+    page?: string;
+  }>;
 }) {
   await requireAdmin();
   const sp = await searchParams;
   const q = typeof sp.q === "string" ? sp.q : "";
+  const { size, from, to } = parseAdminListParams(sp);
   const page = parseAdminPage(sp.page, "number-or-one");
 
-  const [{ items, page: safePage, totalPages, unknownUser }, stats] = await Promise.all([
-    listPmMessagesPage({ q, page }),
+  const [{ items, total, page: safePage, totalPages, unknownUser }, stats] = await Promise.all([
+    listPmMessagesPage({
+      q,
+      since: from,
+      until: to ? `${to} 23:59:59` : undefined,
+      page,
+      perPage: size,
+    }),
     pmStats(),
   ]);
 
+  const query = {
+    ...(q ? { q } : {}),
+    ...(from ? { from } : {}),
+    ...(to ? { to } : {}),
+    ...(size !== 20 ? { size } : {}),
+  };
   const baseQuery = (over: Record<string, string> = {}) =>
-    buildAdminQuery("/admin/pm", { q }, over);
+    buildAdminQuery("/admin/pm", query, over);
 
   const emptyText = unknownUser
     ? `没有名为「${q}」的用户（支持用户名精确匹配或数字 uid）。`
@@ -67,6 +90,7 @@ export default async function AdminPmPage({
       <AdminFilterBar action="/admin/pm" resetHref="/admin/pm">
         {/* UserPicker 自带输入（name=q 与筛选参数对齐），datalist 提供候选 */}
         <UserPicker name="q" label="发送者筛选（用户名或 uid）" placeholder="发送者用户名 / uid" />
+        <AdminDateRange from={from} to={to} />
       </AdminFilterBar>
 
       <ul className="space-y-2">
@@ -115,7 +139,13 @@ export default async function AdminPmPage({
         )}
       </ul>
 
-      <Pagination basePath={baseQuery({})} page={safePage} totalPages={totalPages} />
+      <AdminListPager
+        total={total}
+        page={safePage}
+        totalPages={totalPages}
+        basePath={baseQuery({})}
+        controls={{ action: "/admin/pm", current: query, size }}
+      />
     </div>
   );
 }

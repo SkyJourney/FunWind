@@ -4,12 +4,13 @@ import { requireAdmin } from "@/lib/authz/require-admin";
 import { dismissReportBulkAction, handleReportAction } from "./actions";
 import { listReportPage } from "@/lib/reports/service";
 import { fmtDateTime } from "@/lib/admin/format";
-import { buildAdminQuery, parseAdminPage } from "@/lib/admin/query";
+import { buildAdminQuery, parseAdminListParams, parseAdminPage } from "@/lib/admin/query";
 import { AdminTabs } from "@/components/admin/admin-tabs";
 import { AdminFilterBar } from "@/components/admin/admin-filter-bar";
+import { AdminDateRange } from "@/components/admin/admin-date-range";
+import { AdminListPager } from "@/components/admin/admin-list";
 import { ForumSelect } from "@/components/admin/forum-select";
 import { AdminFlash } from "@/components/admin/admin-flash";
-import { Pagination } from "@/components/content/pagination";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "举报处理" };
@@ -18,6 +19,10 @@ type Params = {
   searchParams: Promise<{
     tab?: string;
     forum?: string;
+    q?: string;
+    from?: string;
+    to?: string;
+    size?: string;
     page?: string;
     error?: string;
     resolved?: string;
@@ -31,7 +36,8 @@ const TABS = [
   { key: "dismissed" as const, label: "已忽略" },
 ];
 
-/** 举报队列（M9.5 重做）：状态 tab + 板块筛选 + 分页 + 批量忽略（说明统一回给举报人）。 */
+/** 举报队列（M9.5 重做；M19 S4 加关键词/日期与每页条数）：状态 tab + 板块 + 标题关键词 +
+ *  举报时间范围 + 分页 + 批量忽略（说明统一回给举报人）。卡片列表无密度切换。 */
 export default async function AdminReportsPage({ searchParams }: Params) {
   await requireAdmin("admin.reports");
   const sp = await searchParams;
@@ -39,6 +45,8 @@ export default async function AdminReportsPage({ searchParams }: Params) {
     ? (sp.tab as "pending" | "resolved" | "dismissed")
     : "pending";
   const forumId = Number(sp.forum ?? "0") || undefined;
+  const q = typeof sp.q === "string" && sp.q ? sp.q : undefined;
+  const { size, from, to } = parseAdminListParams(sp);
   const page = parseAdminPage(sp.page, "number-or-one");
 
   const {
@@ -46,9 +54,24 @@ export default async function AdminReportsPage({ searchParams }: Params) {
     total,
     page: safePage,
     totalPages,
-  } = await listReportPage({ status: tab, forumId, page });
+  } = await listReportPage({
+    status: tab,
+    forumId,
+    q,
+    since: from,
+    until: to ? `${to} 23:59:59` : undefined,
+    page,
+    perPage: size,
+  });
 
-  const query = { ...(tab !== "pending" ? { tab } : {}), ...(forumId ? { forum: forumId } : {}) };
+  const query = {
+    ...(tab !== "pending" ? { tab } : {}),
+    ...(forumId ? { forum: forumId } : {}),
+    ...(q ? { q } : {}),
+    ...(from ? { from } : {}),
+    ...(to ? { to } : {}),
+    ...(size !== 20 ? { size } : {}),
+  };
   const baseQuery = (over: Record<string, string> = {}) =>
     buildAdminQuery("/admin/reports", query, over);
 
@@ -80,6 +103,8 @@ export default async function AdminReportsPage({ searchParams }: Params) {
         method="get"
         hidden={{ tab: tab !== "pending" ? tab : undefined }}
         resetHref={tab === "pending" ? "/admin/reports" : `/admin/reports?tab=${tab}`}
+        placeholder="被举报内容标题关键词"
+        defaultValue={q ?? ""}
         total={<span className="ml-auto text-xs text-muted-foreground">共 {total} 条</span>}
       >
         <ForumSelect
@@ -89,6 +114,7 @@ export default async function AdminReportsPage({ searchParams }: Params) {
           allLabel="全部板块"
           className="rounded-lg border border-input bg-background px-2 py-1.5 text-sm"
         />
+        <AdminDateRange from={from} to={to} />
       </AdminFilterBar>
 
       {items.length === 0 ? (
@@ -201,7 +227,13 @@ export default async function AdminReportsPage({ searchParams }: Params) {
         </ul>
       )}
 
-      <Pagination basePath={baseQuery({})} page={safePage} totalPages={totalPages} />
+      <AdminListPager
+        total={total}
+        page={safePage}
+        totalPages={totalPages}
+        basePath={baseQuery({})}
+        controls={{ action: "/admin/reports", current: query, size }}
+      />
     </div>
   );
 }

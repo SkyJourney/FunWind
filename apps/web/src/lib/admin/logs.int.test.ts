@@ -1,10 +1,10 @@
 // @vitest-environment node
 /** 审计中心查询与 CSV 生成（M9）：筛选、分页、RFC 4180 转义。 */
 import { sql } from "drizzle-orm";
-import { auditLog, getWebDb } from "@funwind/db";
+import { auditLog, getWebDb, users } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
-import { csvRows, queryAuditLogs, queryEventLogs } from "./logs";
+import { csvRows, queryAuditLogs, queryEventLogs, resolveActorId } from "./logs";
 
 let tdb: TempDb;
 const db = () => getWebDb();
@@ -89,5 +89,25 @@ describe.skipIf(skipDb)("审计中心查询（M9）", () => {
     expect(lines[2]).toBe(
       '2,2026-10-26 11:00:00,restriction.create,,user,90005,"含,逗号""引号""\n换行"',
     );
+  });
+
+  it("M19：until 上界、targetType 筛选（audit）与 event 的 until", async () => {
+    // 种子两条 audit：10:00 与 11:00 —— 上界 10:30 只命中第一条
+    const morning = await queryAuditLogs({ until: "2026-10-26 10:30:00" });
+    expect(morning.total).toBe(1);
+    expect(morning.items[0].action).toBe("points.adjust");
+    const byType = await queryAuditLogs({ targetType: "user" });
+    expect(byType.total).toBe(2);
+    expect((await queryAuditLogs({ targetType: "thread" })).total).toBe(0);
+    // event 在 12:00 —— 上界 11:30 应为空
+    expect((await queryEventLogs({ until: "2026-10-26 11:30:00" })).total).toBe(0);
+  });
+
+  it("M19：resolveActorId——纯数字走 uid、用户名精确反查、未知/空返回 undefined", async () => {
+    const [u] = await db().select({ id: users.id, name: users.username }).from(users).limit(1);
+    expect(await resolveActorId(String(u.id))).toBe(u.id);
+    expect(await resolveActorId(u.name)).toBe(u.id);
+    expect(await resolveActorId("不存在的人xyz")).toBeUndefined();
+    expect(await resolveActorId("   ")).toBeUndefined();
   });
 });

@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, gte, like, lte, sql } from "drizzle-orm";
 import { getWebDb, posts, reports, threads, users } from "@funwind/db";
 import type { ConfigActor } from "@/lib/audit";
 import { writeAudit } from "@/lib/audit";
@@ -187,21 +187,32 @@ export interface ReportQueueItem {
   createdAt: string;
 }
 
-/** 举报队列分页参数（M9.5）：状态 tab + 板块筛选 */
+/** 举报队列分页参数（M9.5；M19 S4 加关键词与日期范围）：
+ *  状态 tab + 板块 + 被举报内容标题关键词 + 举报时间范围（idx_reports_status 支撑状态+时间） */
 export type ReportPageFilters = {
   status: "pending" | "resolved" | "dismissed";
   forumId?: number;
+  /** 被举报内容标题关键词（包含匹配） */
+  q?: string;
+  /** 举报时间下界（含） */
+  since?: string;
+  /** 举报时间上界（含当天——调用方传 `${date} 23:59:59`） */
+  until?: string;
   page: number;
   perPage?: number;
 };
 
-/** 举报队列（M9.5 改分页）：SQL where（状态 + 板块）+ COUNT，替代无上限拉取 */
+/** 举报队列（M9.5 改分页）：SQL where（状态 + 板块 + 关键词 + 时间）+ COUNT，替代无上限拉取 */
 export async function listReportPage(
   filters: ReportPageFilters,
 ): Promise<{ items: ReportQueueItem[]; total: number; page: number; totalPages: number }> {
   const perPage = filters.perPage ?? 20;
   const conds = [eq(reports.status, filters.status)];
   if (filters.forumId) conds.push(eq(threads.forumId, filters.forumId));
+  const q = filters.q?.trim();
+  if (q) conds.push(like(threads.title, `%${q}%`));
+  if (filters.since) conds.push(gte(reports.createdAt, filters.since));
+  if (filters.until) conds.push(lte(reports.createdAt, filters.until));
   const where = and(...conds);
 
   const [countRow] = await getWebDb()

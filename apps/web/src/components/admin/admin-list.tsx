@@ -100,7 +100,7 @@ export function AdminFilterSelect({
 /** 密度切换目标链接：默认档（cozy）不进 URL，保持「默认值不出现在 query」纪律 */
 function densityHref(
   action: string,
-  current: Record<string, string | undefined>,
+  current: Record<string, string | number | undefined>,
   density: AdminDensity,
 ): string {
   return buildAdminQuery(action, { ...current, density: density === "cozy" ? "" : density });
@@ -111,9 +111,10 @@ export interface AdminPagerControls {
   /** 每页条数表单的 GET 提交目标（当前列表页路径） */
   action: string;
   /** 需要随切档保留的当前筛选（不含 page/size/density；空值字段自动跳过） */
-  current: Record<string, string | undefined>;
+  current: Record<string, string | number | undefined>;
   size: number;
-  density: AdminDensity;
+  /** 卡片列表页可省（密度只对表格行有意义），省略时不渲染密度切换 */
+  density?: AdminDensity;
 }
 
 /** 计数行 + 分页器：列表页统一复用，basePath 由调用方用 buildAdminQuery 拼好。
@@ -164,31 +165,33 @@ export function AdminListPager({
                 </button>
               </noscript>
             </form>
-            <span className="flex items-center gap-1">
-              密度
-              <Link
-                href={densityHref(controls.action, controls.current, "compact")}
-                aria-current={controls.density === "compact" ? "true" : undefined}
-                className={`rounded border px-1.5 py-0.5 ${
-                  controls.density === "compact"
-                    ? "bg-accent font-medium text-foreground"
-                    : "hover:bg-accent"
-                }`}
-              >
-                紧凑
-              </Link>
-              <Link
-                href={densityHref(controls.action, controls.current, "cozy")}
-                aria-current={controls.density === "cozy" ? "true" : undefined}
-                className={`rounded border px-1.5 py-0.5 ${
-                  controls.density === "cozy"
-                    ? "bg-accent font-medium text-foreground"
-                    : "hover:bg-accent"
-                }`}
-              >
-                舒适
-              </Link>
-            </span>
+            {controls.density && (
+              <span className="flex items-center gap-1">
+                密度
+                <Link
+                  href={densityHref(controls.action, controls.current, "compact")}
+                  aria-current={controls.density === "compact" ? "true" : undefined}
+                  className={`rounded border px-1.5 py-0.5 ${
+                    controls.density === "compact"
+                      ? "bg-accent font-medium text-foreground"
+                      : "hover:bg-accent"
+                  }`}
+                >
+                  紧凑
+                </Link>
+                <Link
+                  href={densityHref(controls.action, controls.current, "cozy")}
+                  aria-current={controls.density === "cozy" ? "true" : undefined}
+                  className={`rounded border px-1.5 py-0.5 ${
+                    controls.density === "cozy"
+                      ? "bg-accent font-medium text-foreground"
+                      : "hover:bg-accent"
+                  }`}
+                >
+                  舒适
+                </Link>
+              </span>
+            )}
           </div>
         )}
       </div>

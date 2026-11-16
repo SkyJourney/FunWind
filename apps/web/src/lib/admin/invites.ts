@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { alias } from "drizzle-orm/mysql-core";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import { getWebDb, inviteCodes, users } from "@funwind/db";
 import { writeAudit, type DbTx } from "@/lib/audit";
 import { pageBounds } from "@/lib/paging";
@@ -51,11 +51,15 @@ export type InvitePageFilters = {
   status: InviteStatusFilter;
   /** 批次关键词（包含匹配） */
   batch?: string;
+  /** 创建时间下界（含；M19 S4） */
+  since?: string;
+  /** 创建时间上界（含当天——调用方传 `${date} 23:59:59`） */
+  until?: string;
   page: number;
   perPage?: number;
 };
 
-/** 邀请码分页（M9.5）：状态/批次筛选下推 SQL（状态在 SQL 侧用同一套 used/expired 口径表达） */
+/** 邀请码分页（M9.5；M19 S4 加创建时间范围）：状态/批次/时间筛选下推 SQL（状态在 SQL 侧用同一套 used/expired 口径表达） */
 export async function listInvitesPage(filters: InvitePageFilters): Promise<{
   items: InviteRow[];
   total: number;
@@ -75,6 +79,8 @@ export async function listInvitesPage(filters: InvitePageFilters): Promise<{
     );
   const batch = filters.batch?.trim();
   if (batch) conds.push(sql`${inviteCodes.batch} LIKE ${`%${batch}%`}`);
+  if (filters.since) conds.push(gte(inviteCodes.createdAt, filters.since));
+  if (filters.until) conds.push(lte(inviteCodes.createdAt, filters.until));
   const where = conds.length > 0 ? and(...conds) : undefined;
 
   const creator = alias(users, "invite_creator");

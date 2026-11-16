@@ -3,14 +3,15 @@ import { Ticket } from "lucide-react";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { listInvitesPage } from "@/lib/admin/invites";
 import { fmtDateTime } from "@/lib/admin/format";
-import { buildAdminQuery, parseAdminPage } from "@/lib/admin/query";
+import { buildAdminQuery, parseAdminListParams, parseAdminPage } from "@/lib/admin/query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 import { EmptyState } from "@/components/empty-state";
 import { AdminFlash } from "@/components/admin/admin-flash";
+import { AdminDateRange } from "@/components/admin/admin-date-range";
+import { AdminListPager } from "@/components/admin/admin-list";
 import { CopyCode } from "@/components/admin/copy-code";
-import { Pagination } from "@/components/content/pagination";
 import { generateInvitesAction, revokeInviteAction, revokeInviteBatchAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +51,9 @@ export default async function InvitesAdminPage({
     err?: string;
     status?: string;
     batch?: string;
+    from?: string;
+    to?: string;
+    size?: string;
     page?: string;
   }>;
 }) {
@@ -60,6 +64,7 @@ export default async function InvitesAdminPage({
     ? (sp.status as "all" | "available" | "used" | "expired")
     : "all";
   const batch = typeof sp.batch === "string" ? sp.batch : "";
+  const { size, from, to } = parseAdminListParams(sp);
   const page = parseAdminPage(sp.page, "number-or-one");
 
   const {
@@ -67,11 +72,21 @@ export default async function InvitesAdminPage({
     total,
     page: safePage,
     totalPages,
-  } = await listInvitesPage({ status, batch, page });
+  } = await listInvitesPage({
+    status,
+    batch,
+    since: from,
+    until: to ? `${to} 23:59:59` : undefined,
+    page,
+    perPage: size,
+  });
 
   const query = {
     ...(status !== "all" ? { status } : {}),
     ...(batch ? { batch } : {}),
+    ...(from ? { from } : {}),
+    ...(to ? { to } : {}),
+    ...(size !== 20 ? { size } : {}),
   };
   const baseQuery = (over: Record<string, string> = {}) =>
     buildAdminQuery("/admin/invites", query, over);
@@ -158,7 +173,7 @@ export default async function InvitesAdminPage({
             </Link>
           ))}
         </nav>
-        <form action="/admin/invites" method="get" className="flex items-center gap-1.5">
+        <form action="/admin/invites" method="get" className="flex flex-wrap items-center gap-1.5">
           {status !== "all" && <input type="hidden" name="status" value={status} />}
           <input
             name="batch"
@@ -166,6 +181,7 @@ export default async function InvitesAdminPage({
             placeholder="批次关键词"
             className="w-36 rounded-lg border bg-background px-2.5 py-1.5 text-xs"
           />
+          <AdminDateRange from={from} to={to} />
           <button type="submit" className="rounded-lg border px-3 py-1.5 text-xs hover:bg-accent">
             筛选
           </button>
@@ -252,7 +268,13 @@ export default async function InvitesAdminPage({
         </Card>
       )}
 
-      <Pagination basePath={baseQuery({})} page={safePage} totalPages={totalPages} />
+      <AdminListPager
+        total={total}
+        page={safePage}
+        totalPages={totalPages}
+        basePath={baseQuery({})}
+        controls={{ action: "/admin/invites", current: query, size }}
+      />
     </div>
   );
 }

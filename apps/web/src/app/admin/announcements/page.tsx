@@ -1,22 +1,20 @@
 import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 import Link from "next/link";
-import { count, desc, isNull, or, sql } from "drizzle-orm";
+import { and, count, desc, isNull, or, sql } from "drizzle-orm";
 import { announcements, getWebDb } from "@funwind/db";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { fmtDateTime } from "@/lib/admin/format";
-import { buildAdminQuery, parseAdminPage } from "@/lib/admin/query";
+import { buildAdminQuery, parseAdminListParams, parseAdminPage } from "@/lib/admin/query";
 import { pageBounds } from "@/lib/paging";
 import { AdminFlash } from "@/components/admin/admin-flash";
 import { AdminFilterBar } from "@/components/admin/admin-filter-bar";
-import { Pagination } from "@/components/content/pagination";
+import { AdminListPager } from "@/components/admin/admin-list";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { createAnnouncementAction, editAnnouncementAction, endAnnouncementAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "公告" };
-
-const PER_PAGE = 20;
 
 type Params = {
   searchParams: Promise<Record<string, string | undefined>>;
@@ -33,33 +31,35 @@ function statusOf(a: { startsAt: string; endsAt: string | null }): {
   return { label: "生效中", cls: "bg-success/10 text-success" };
 }
 
-/** 公告管理（M9；M9.5 重做：编辑能力、分页、时间统一、状态徽标。M19 Q3：站点框架迁至 /admin/settings）。 */
+/** 公告管理（M9；M9.5 重做：编辑能力、分页、时间统一、状态徽标。M19 Q3：站点框架迁至
+ *  /admin/settings；S4 加标题关键词与每页条数）。 */
 export default async function AdminAnnouncementsPage({ searchParams }: Params) {
   await requireAdmin();
   const sp = await searchParams;
   const requestedPage = parseAdminPage(sp.page, "number-or-one");
   const status = sp.status === "active" || sp.status === "ended" ? sp.status : undefined;
+  const q = typeof sp.q === "string" && sp.q ? sp.q : undefined;
+  const { size } = parseAdminListParams(sp);
   // 编辑模式：?edit=id 时顶部表单预填
   const editId = Number(sp.edit ?? "0") || null;
 
-  const where =
+  const statusWhere =
     status === "ended"
       ? sql`${announcements.endsAt} IS NOT NULL AND ${announcements.endsAt} <= NOW()`
       : status === "active"
         ? or(isNull(announcements.endsAt), sql`${announcements.endsAt} > NOW()`)
         : undefined;
+  const where = q ? and(statusWhere, sql`${announcements.title} LIKE ${`%${q}%`}`) : statusWhere;
 
-  const [countRow] = await Promise.all([
-    getWebDb().select({ n: count() }).from(announcements).where(where),
-  ]);
-  const total = Number(countRow[0]?.n ?? 0);
-  const { page, totalPages, offset } = pageBounds(total, requestedPage, PER_PAGE);
+  const [countRow] = await getWebDb().select({ n: count() }).from(announcements).where(where);
+  const total = Number(countRow?.n ?? 0);
+  const { page, totalPages, offset } = pageBounds(total, requestedPage, size);
   const rows = await getWebDb()
     .select()
     .from(announcements)
     .where(where)
     .orderBy(desc(announcements.id))
-    .limit(PER_PAGE)
+    .limit(size)
     .offset(offset);
   const editing = editId ? (rows.find((a) => a.id === editId) ?? null) : null;
 
@@ -70,8 +70,13 @@ export default async function AdminAnnouncementsPage({ searchParams }: Params) {
   }).find(([k]) => sp[k] === "1")?.[1];
   const flashErr = sp.err ?? undefined;
 
+  const query = {
+    ...(status ? { status } : {}),
+    ...(q ? { q } : {}),
+    ...(size !== 20 ? { size } : {}),
+  };
   const baseQuery = (over: Record<string, string> = {}) =>
-    buildAdminQuery("/admin/announcements", { status }, over);
+    buildAdminQuery("/admin/announcements", query, over);
 
   // datetime-local 预填值（DB "YYYY-MM-DD HH:MM:SS" → "YYYY-MM-DDTHH:MM"）
   const toLocalInput = (d: string | null) => (d ? d.replace(" ", "T").slice(0, 16) : "");
@@ -185,7 +190,12 @@ export default async function AdminAnnouncementsPage({ searchParams }: Params) {
         <CardHeader>
           <CardTitle className="flex flex-wrap items-center justify-between gap-2">
             <span>公告列表（共 {total} 条）</span>
-            <AdminFilterBar action="/admin/announcements" resetHref="/admin/announcements">
+            <AdminFilterBar
+              action="/admin/announcements"
+              resetHref="/admin/announcements"
+              placeholder="标题关键词"
+              defaultValue={q ?? ""}
+            >
               <select
                 name="status"
                 defaultValue={status ?? ""}
@@ -251,7 +261,13 @@ export default async function AdminAnnouncementsPage({ searchParams }: Params) {
               <li className="py-4 text-center text-sm text-muted-foreground">暂无公告</li>
             )}
           </ul>
-          <Pagination basePath={baseQuery({})} page={page} totalPages={totalPages} />
+          <AdminListPager
+            total={total}
+            page={page}
+            totalPages={totalPages}
+            basePath={baseQuery({})}
+            controls={{ action: "/admin/announcements", current: query, size }}
+          />
         </CardContent>
       </Card>
     </div>
