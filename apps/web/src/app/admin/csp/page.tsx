@@ -1,5 +1,5 @@
 import { requireAdmin } from "@/lib/authz/require-admin";
-import { buildAdminQuery, parseAdminPage } from "@/lib/admin/query";
+import { buildAdminQuery, parseAdminListParams, parseAdminPage } from "@/lib/admin/query";
 import { pageBounds } from "@/lib/paging";
 import { cspSummary, parseCspFilter, queryCspReports } from "@/lib/csp/queries";
 import { AdminFilterBar } from "@/components/admin/admin-filter-bar";
@@ -14,8 +14,6 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "CSP 报告" };
 
 type Params = { searchParams: Promise<Record<string, string | undefined>> };
-
-const PER_PAGE = 50;
 
 /** 常见 CSP 指令（筛选用；实际值以报告为准） */
 const DIRECTIVES = [
@@ -52,12 +50,17 @@ export default async function AdminCspPage({ searchParams }: Params) {
   const sp = await searchParams;
   const filter = parseCspFilter(sp);
   filter.page = parseAdminPage(sp.page);
-  filter.limit = PER_PAGE;
+  const { size, density } = parseAdminListParams(sp);
+  filter.limit = size;
 
   const [{ items, total }, summary] = await Promise.all([queryCspReports(filter), cspSummary()]);
-  const { page: safePage, totalPages } = pageBounds(total, filter.page ?? 1, PER_PAGE);
-  const qs = { directive: filter.directive, document: filter.document };
-
+  const { page: safePage, totalPages } = pageBounds(total, filter.page ?? 1, size);
+  const qs = {
+    ...(filter.directive ? { directive: filter.directive } : {}),
+    ...(filter.document ? { document: filter.document } : {}),
+    ...(size !== 20 ? { size } : {}),
+    ...(density !== "cozy" ? { density } : {}),
+  };
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -96,6 +99,7 @@ export default async function AdminCspPage({ searchParams }: Params) {
         page={safePage}
         totalPages={totalPages}
         basePath={buildAdminQuery("/admin/csp", qs)}
+        controls={{ action: "/admin/csp", current: qs, size, density }}
       />
 
       <AdminDataTable
@@ -127,6 +131,7 @@ export default async function AdminCspPage({ searchParams }: Params) {
           ];
           return { key: r.id, cells };
         })}
+        density={density}
       />
       <p className="text-xs text-muted-foreground">
         当前 CSP 仍为

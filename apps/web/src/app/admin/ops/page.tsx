@@ -5,7 +5,7 @@ import { opsServiceHealth } from "@/lib/ops/client";
 import { listOpsRunPage, listOpsTriggerStates, listSuccessfulRuns } from "@/lib/ops/runs";
 import { getBackupRetention, listOpsTasks } from "@/lib/ops/tasks";
 import { parseDbDateTime } from "@/lib/datetime";
-import { parseAdminPage } from "@/lib/admin/query";
+import { parseAdminListParams, parseAdminPage } from "@/lib/admin/query";
 import { OpsRunLedger } from "./parts/run-ledger";
 import { OpsTaskList } from "./parts/task-list";
 import { fmtSize, NOW_MS } from "./parts/shared";
@@ -35,11 +35,12 @@ export default async function AdminOpsPage({ searchParams }: Params) {
   await requireAdmin();
   const sp = await searchParams;
   const page = parseAdminPage(sp.page);
+  const { size } = parseAdminListParams(sp);
   const [taskList, triggerStates, runPage, dbRuns, storageRuns, svcHealth, policy] =
     await Promise.all([
       listOpsTasks(),
       listOpsTriggerStates(),
-      listOpsRunPage(page),
+      listOpsRunPage(page, size),
       listSuccessfulRuns("db", 1),
       listSuccessfulRuns("storage", 1),
       opsServiceHealth(),
@@ -197,7 +198,9 @@ export default async function AdminOpsPage({ searchParams }: Params) {
       <OpsRunLedger
         runs={runs}
         page={page}
-        hasMore={runPage.hasMore}
+        total={runPage.total}
+        totalPages={runPage.totalPages}
+        pageSize={size}
         runningCount={runningCount}
         ledgerMissing={runPage.ledgerMissing}
       />

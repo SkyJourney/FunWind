@@ -124,9 +124,11 @@ export default async function AdminLogsPage({ searchParams }: Params) {
         defaultValue={action ?? ""}
         hidden={{
           tab: tab !== "audit" ? tab : undefined,
-          from,
-          to,
           targetType: tab === "audit" ? targetType : undefined,
+          // from/to 由下方 AdminDateRange 输入承载——hidden 重复同名会让 GET 提交产生双值，
+          // Next 把重复键归并成数组后日期校验失败即静默丢筛选（M19 S4 实测踩坑）
+          ...(size !== 20 ? { size: String(size) } : {}),
+          ...(density !== "cozy" ? { density } : {}),
         }}
         total={<span className="ml-auto text-xs text-muted-foreground">共 {result.total} 条</span>}
       >

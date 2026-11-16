@@ -11,12 +11,12 @@ import { getModeratedForumIds } from "@/lib/authz/service";
 import { listPollPage } from "@/lib/poll/admin";
 import { closePollAction, deletePollAction, reopenPollAction } from "./actions";
 import { fmtDateTime } from "@/lib/admin/format";
-import { buildAdminQuery, parseAdminPage } from "@/lib/admin/query";
+import { buildAdminQuery, parseAdminListParams, parseAdminPage } from "@/lib/admin/query";
 import { AdminTabs } from "@/components/admin/admin-tabs";
 import { AdminFilterBar } from "@/components/admin/admin-filter-bar";
 import { ForumSelect } from "@/components/admin/forum-select";
 import { AdminFlash } from "@/components/admin/admin-flash";
-import { Pagination } from "@/components/content/pagination";
+import { AdminListPager } from "@/components/admin/admin-list";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "投票管理" };
@@ -25,6 +25,7 @@ type Params = {
   searchParams: Promise<{
     tab?: string;
     forum?: string;
+    size?: string;
     page?: string;
     error?: string;
     closed?: string;
@@ -48,6 +49,7 @@ export default async function AdminPollPage({ searchParams }: Params) {
   const tab = TABS.some((t) => t.key === sp.tab) ? (sp.tab as "all" | "open" | "closed") : "all";
   const forumId = Number(sp.forum ?? "0") || undefined;
   const page = parseAdminPage(sp.page, "number-or-one");
+  const { size } = parseAdminListParams(sp);
 
   const subject = await getCurrentSubject();
   const isSiteAdmin = (await checkPermission(subject, "site.admin")).allowed;
@@ -63,13 +65,18 @@ export default async function AdminPollPage({ searchParams }: Params) {
     status: tab,
     forumId,
     page,
+    perPage: size,
     moderated,
   });
   // 无 JS 回退（M10.6d 惯例）：?confirm-delete=<pollId> 渲染页顶原生确认段
   const confirmDeleteId = Number(sp["confirm-delete"]);
   const confirmDelete = items.find((p) => p.pollId === confirmDeleteId);
 
-  const query = { ...(tab !== "all" ? { tab } : {}), ...(forumId ? { forum: forumId } : {}) };
+  const query = {
+    ...(tab !== "all" ? { tab } : {}),
+    ...(forumId ? { forum: forumId } : {}),
+    ...(size !== 20 ? { size } : {}),
+  };
   const baseQuery = (over: Record<string, string> = {}) =>
     buildAdminQuery("/admin/poll", query, over);
 
@@ -218,7 +225,13 @@ export default async function AdminPollPage({ searchParams }: Params) {
         </ul>
       )}
 
-      <Pagination basePath={baseQuery({})} page={safePage} totalPages={totalPages} />
+      <AdminListPager
+        total={total}
+        page={safePage}
+        totalPages={totalPages}
+        basePath={baseQuery({})}
+        controls={{ action: "/admin/poll", current: query, size }}
+      />
     </div>
   );
 }

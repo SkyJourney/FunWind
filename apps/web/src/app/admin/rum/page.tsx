@@ -1,5 +1,5 @@
 import { requireAdmin } from "@/lib/authz/require-admin";
-import { buildAdminQuery, parseAdminPage } from "@/lib/admin/query";
+import { buildAdminQuery, parseAdminListParams, parseAdminPage } from "@/lib/admin/query";
 import { pageBounds } from "@/lib/paging";
 import {
   RUM_KINDS,
@@ -22,8 +22,6 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "用户监测" };
 
 type Params = { searchParams: Promise<Record<string, string | undefined>> };
-
-const PER_PAGE = 50;
 
 /** 指标值展示：LCP/INP 毫秒；CLS 为 ×1000 值还原；error 无数值语义 */
 function displayValue(kind: string, name: string, value: number): string {
@@ -53,15 +51,22 @@ export default async function AdminRumPage({ searchParams }: Params) {
   const sp = await searchParams;
   const filter = parseRumFilter(sp);
   filter.page = parseAdminPage(sp.page);
-  filter.limit = PER_PAGE;
+  const { size, density } = parseAdminListParams(sp);
+  filter.limit = size;
 
   const [{ items, total }, summary, p75] = await Promise.all([
     queryRumSamples(filter),
     rumSummary(),
     rumPercentiles(),
   ]);
-  const { page: safePage, totalPages } = pageBounds(total, filter.page ?? 1, PER_PAGE);
-  const qs = { kind: filter.kind, name: filter.name, route: filter.route };
+  const { page: safePage, totalPages } = pageBounds(total, filter.page ?? 1, size);
+  const qs = {
+    ...(filter.kind ? { kind: filter.kind } : {}),
+    ...(filter.name ? { name: filter.name } : {}),
+    ...(filter.route ? { route: filter.route } : {}),
+    ...(size !== 20 ? { size } : {}),
+    ...(density !== "cozy" ? { density } : {}),
+  };
   const selects = [
     {
       name: "kind",
@@ -116,6 +121,7 @@ export default async function AdminRumPage({ searchParams }: Params) {
         page={safePage}
         totalPages={totalPages}
         basePath={buildAdminQuery("/admin/rum", qs)}
+        controls={{ action: "/admin/rum", current: qs, size, density }}
       />
 
       <AdminDataTable
@@ -150,6 +156,7 @@ export default async function AdminRumPage({ searchParams }: Params) {
           ];
           return { key: r.id, cells };
         })}
+        density={density}
       />
       <p className="text-xs text-muted-foreground">
         只存脱敏路径 / 指标值 / 错误摘要，不存 IP / UA / 堆栈 / 正文；保留 90 天，超期自动清理。 p75

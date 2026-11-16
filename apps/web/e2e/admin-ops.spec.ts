@@ -342,11 +342,12 @@ test("台账分页：第二页出现更早的记录（翻页不改变 anyRunning
     for (let i = 0; i < 30; i++) ids.push(await insertRun(q, { status: "failed" }));
   });
   await page.goto(PAGE);
-  await expect(page.getByText("运行台账（第 1 页")).toBeVisible();
+  await expect(page.getByText("运行台账（每页 20 条）")).toBeVisible();
   await page
     .locator('nav[aria-label="分页"]')
     .getByRole("link", { name: "2", exact: true })
     .click();
   await expect(page).toHaveURL(/page=2/);
-  await expect(page.getByText("运行台账（第 2 页")).toBeVisible();
+  await expect(page).toHaveURL(/page=2/);
+  await expect(page.getByText("运行台账（每页 20 条）")).toBeVisible();
 });

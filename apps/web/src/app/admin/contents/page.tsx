@@ -10,12 +10,12 @@ import {
   type ContentStateFilter,
 } from "@/lib/moderation/contents";
 import { fmtDateTime } from "@/lib/admin/format";
-import { buildAdminQuery, parseAdminPage } from "@/lib/admin/query";
+import { buildAdminQuery, parseAdminListParams, parseAdminPage } from "@/lib/admin/query";
 import { AdminTabs } from "@/components/admin/admin-tabs";
 import { AdminFilterBar } from "@/components/admin/admin-filter-bar";
 import { AdminFlash } from "@/components/admin/admin-flash";
 import { ForumSelect } from "@/components/admin/forum-select";
-import { Pagination } from "@/components/content/pagination";
+import { AdminListPager } from "@/components/admin/admin-list";
 import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { EmptyState } from "@/components/empty-state";
@@ -68,6 +68,7 @@ export default async function AdminContentsPage({
     forum?: string;
     state?: string;
     page?: string;
+    size?: string;
     error?: string;
     approved?: string;
     rejected?: string;
@@ -97,6 +98,7 @@ export default async function AdminContentsPage({
     ? (sp.state as ContentStateFilter)
     : "all";
   const page = parseAdminPage(sp.page, "number-or-one");
+  const { size } = parseAdminListParams(sp);
 
   // 作用域：site.admin / admin.recycle 看全站；版主看所辖版块
   const scopeForumIds = isSiteAdmin.allowed || hasRecycle.allowed ? null : moderated;
@@ -112,6 +114,7 @@ export default async function AdminContentsPage({
     forumId,
     state,
     page,
+    perPage: size,
     scopeForumIds,
     // 待审核态是审核队列：按提交时间正序（先到先审，M19 自 review 页合并）
     order: state === "pending" ? "queue" : undefined,
@@ -122,6 +125,7 @@ export default async function AdminContentsPage({
     ...(q ? { q } : {}),
     ...(forumId ? { forum: forumId } : {}),
     ...(state !== "all" ? { state } : {}),
+    ...(size !== 20 ? { size } : {}),
   };
   const baseQuery = (over: Record<string, string> = {}) =>
     buildAdminQuery("/admin/contents", query, over);
@@ -203,6 +207,7 @@ export default async function AdminContentsPage({
           hidden={{
             kind: kind === "reply" ? "reply" : undefined,
             state: state !== "all" ? state : undefined,
+            ...(size !== 20 ? { size: String(size) } : {}),
           }}
         >
           <ForumSelect
@@ -482,7 +487,13 @@ export default async function AdminContentsPage({
         </form>
       )}
 
-      <Pagination basePath={baseQuery({})} page={safePage} totalPages={totalPages} />
+      <AdminListPager
+        total={total}
+        page={safePage}
+        totalPages={totalPages}
+        basePath={baseQuery({})}
+        controls={{ action: "/admin/contents", current: query, size }}
+      />
     </div>
   );
 }

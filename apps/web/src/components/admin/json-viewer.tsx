@@ -19,7 +19,7 @@ export function JsonViewerButton({ label, json }: { label: string; json: unknown
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="rounded border px-1.5 py-0.5 text-xs text-primary hover:bg-accent"
+        className="rounded border px-1.5 py-0.5 text-xs whitespace-nowrap text-primary hover:bg-accent"
       >
         {label}
       </button>

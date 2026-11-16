@@ -3,9 +3,9 @@ import { Users } from "lucide-react";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { listAdminUsersPage } from "@/lib/authz/restrictions-admin";
 import { fmtDateTime } from "@/lib/admin/format";
-import { buildAdminQuery, parseAdminPage } from "@/lib/admin/query";
+import { buildAdminQuery, parseAdminListParams, parseAdminPage } from "@/lib/admin/query";
 import { AdminFilterBar } from "@/components/admin/admin-filter-bar";
-import { Pagination } from "@/components/content/pagination";
+import { AdminListPager } from "@/components/admin/admin-list";
 import { EmptyState } from "@/components/empty-state";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +18,8 @@ type Params = {
     lifecycle?: string;
     credential?: string;
     sort?: string;
+    size?: string;
+    density?: string;
     page?: string;
   }>;
 };
@@ -58,13 +60,16 @@ export default async function AdminUsersPage({ searchParams }: Params) {
     ? (sp.sort as "recent" | "id" | "threads")
     : "recent";
   const page = parseAdminPage(sp.page, "number-or-one");
+  const { size, density } = parseAdminListParams(sp);
+  // 本表原形态为 px-3 py-2（与其他表格的 py-1.5 不同）——cozy 档保持原样
+  const cell = density === "compact" ? "px-2.5 py-1" : "px-3 py-2";
 
   const {
     items,
     total,
     page: safePage,
     totalPages,
-  } = await listAdminUsersPage({ q, status, lifecycle, credential, sort }, page);
+  } = await listAdminUsersPage({ q, status, lifecycle, credential, sort, perPage: size }, page);
 
   const query = {
     q,
@@ -72,6 +77,8 @@ export default async function AdminUsersPage({ searchParams }: Params) {
     lifecycle: lifecycle !== "active" ? lifecycle : undefined,
     credential: credential !== "all" ? credential : undefined,
     sort: sort !== "recent" ? sort : undefined,
+    size: size !== 20 ? size : undefined,
+    density: density !== "cozy" ? density : undefined,
   };
 
   return (
@@ -82,6 +89,10 @@ export default async function AdminUsersPage({ searchParams }: Params) {
           resetHref="/admin/users"
           placeholder="用户名 / uid"
           defaultValue={q}
+          hidden={{
+            ...(size !== 20 ? { size: String(size) } : {}),
+            ...(density !== "cozy" ? { density } : {}),
+          }}
         >
           <select
             name="lifecycle"
@@ -161,19 +172,19 @@ export default async function AdminUsersPage({ searchParams }: Params) {
             <tbody>
               {items.map((u) => (
                 <tr key={u.id} className="border-t last:border-b-0">
-                  <td className="px-3 py-2">
+                  <td className={cell}>
                     <Link href={`/admin/users/${u.id}`} className="font-medium hover:text-primary">
                       {u.username}
                     </Link>
                     <span className="ml-1.5 text-xs text-muted-foreground">uid {u.id}</span>
                   </td>
-                  <td className="px-3 py-2 text-xs whitespace-nowrap text-muted-foreground">
+                  <td className={`${cell} text-xs whitespace-nowrap text-muted-foreground`}>
                     {fmtDateTime(u.createdAt)}
                   </td>
-                  <td className="px-3 py-2 text-xs tabular-nums">
+                  <td className={`${cell} text-xs tabular-nums`}>
                     {Number(u.threadCount ?? 0)} / {Number(u.postCount ?? 0)}
                   </td>
-                  <td className="px-3 py-2 text-xs">
+                  <td className={`${cell} text-xs`}>
                     <div className="flex flex-wrap gap-1.5">
                       {u.state === "deleted" ? (
                         <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
@@ -213,7 +224,7 @@ export default async function AdminUsersPage({ searchParams }: Params) {
                       )}
                     </div>
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td className={`${cell} text-right`}>
                     <Link
                       href={`/admin/users/${u.id}`}
                       className="text-xs text-primary hover:underline"
@@ -228,10 +239,12 @@ export default async function AdminUsersPage({ searchParams }: Params) {
         </div>
       )}
 
-      <Pagination
-        basePath={buildAdminQuery("/admin/users", query)}
+      <AdminListPager
+        total={total}
         page={safePage}
         totalPages={totalPages}
+        basePath={buildAdminQuery("/admin/users", query)}
+        controls={{ action: "/admin/users", current: query, size, density }}
       />
     </div>
   );

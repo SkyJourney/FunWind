@@ -56,7 +56,7 @@ test("公告创建、编辑、下线均在对应事务写审计", async ({ brows
     await page.goto("/admin/announcements");
     await expect(page.getByText("发布公告", { exact: true })).toBeVisible();
 
-    await page.getByPlaceholder("标题").fill(title);
+    await page.getByPlaceholder("标题", { exact: true }).fill(title);
     await page.getByPlaceholder("正文（Markdown）").fill("E2E 审计回归正文。");
     await page.getByLabel("开始时间（默认现在）").fill("2099-01-01T00:00");
     await page.getByLabel("受众").selectOption("members");
@@ -80,7 +80,7 @@ test("公告创建、编辑、下线均在对应事务写审计", async ({ brows
 
     await row.getByRole("link", { name: "编辑" }).click();
     await page.waitForURL(new RegExp(`\\?edit=${announcementId}$`));
-    await page.getByPlaceholder("标题").fill(editedTitle);
+    await page.getByPlaceholder("标题", { exact: true }).fill(editedTitle);
     await page.getByPlaceholder("正文（Markdown）").fill("E2E 审计回归正文已编辑。");
     await page.getByRole("button", { name: "保存修改" }).click();
     await page.waitForURL("**/admin/announcements?updated=1");

@@ -309,6 +309,41 @@ async function auditManagementQueues(
 ): Promise<void> {
   const teamPending = fixture.threads.teamPending!;
   const publicPending = fixture.threads.publicPending!;
+  // M19 S4：多尺寸/密度与新增筛选的布局场景（users 表格密度 + logs 日期/目标类型筛选栏）
+  // 两页均需 admin.users/admin.logs 专属权限，mod（team）角色 404——只在 admin 视角跑
+  if (role === "admin") {
+    await audit.step(`${role}-users-list-controls`, async () => {
+      await page.goto(
+        `/admin/users?size=50&density=compact${role === "mod" ? "&status=restricted" : ""}`,
+      );
+      await expect(
+        page.getByRole("combobox", { name: "每页条数" }).locator("option:checked"),
+      ).toHaveText("50");
+      await expect(page.getByRole("link", { name: "紧凑" })).toHaveAttribute(
+        "aria-current",
+        "true",
+      );
+      await expect(page.locator("tbody tr").first()).toBeVisible();
+      await audit.capture(`${role}-users-list-controls`, {
+        roots: ADMIN_ROOT,
+        buttons: ADMIN_BUTTONS,
+        // cozy 为默认档不进 URL——密度切换的存在性用 size 选择器与「舒适」链接文本断言
+        // :has-text 不是标准 CSS（querySelectorAll 不认）——舒适链接用 href 定位（compact 档目标含 density=compact，反向排除即舒适）
+        required: ['select[name="size"]', 'a[href$="density=compact"], a[href="/admin/users"]'],
+      });
+    });
+    await audit.step(`${role}-logs-filters`, async () => {
+      await page.goto("/admin/logs?from=2026-01-01&to=2026-12-31&size=50");
+      await expect(page.getByLabel("开始日期")).toHaveValue("2026-01-01");
+      await expect(page.getByLabel("结束日期")).toHaveValue("2026-12-31");
+      await expect(page.getByRole("combobox", { name: "按目标类型筛选" })).toBeVisible();
+      await audit.capture(`${role}-logs-filters`, {
+        roots: ADMIN_ROOT,
+        buttons: ADMIN_BUTTONS,
+        required: ['input[name="from"]', 'select[name="targetType"]'],
+      });
+    });
+  }
   // M19：审核队列并入 /admin/contents（?state=pending），场景锚点随之迁移
   await audit.step(`${role}-contents-pending-queue-thread`, async () => {
     await page.goto("/admin/contents?forum=904&kind=thread&state=pending");

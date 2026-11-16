@@ -101,7 +101,10 @@ export default async function AdminReportsPage({ searchParams }: Params) {
       <AdminFilterBar
         action="/admin/reports"
         method="get"
-        hidden={{ tab: tab !== "pending" ? tab : undefined }}
+        hidden={{
+          tab: tab !== "pending" ? tab : undefined,
+          ...(size !== 20 ? { size: String(size) } : {}),
+        }}
         resetHref={tab === "pending" ? "/admin/reports" : `/admin/reports?tab=${tab}`}
         placeholder="被举报内容标题关键词"
         defaultValue={q ?? ""}

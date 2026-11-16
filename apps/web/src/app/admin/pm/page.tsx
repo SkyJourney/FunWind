@@ -87,7 +87,11 @@ export default async function AdminPmPage({
         <span className="self-center text-xs text-muted-foreground">（统计缓存 60 秒）</span>
       </div>
 
-      <AdminFilterBar action="/admin/pm" resetHref="/admin/pm">
+      <AdminFilterBar
+        action="/admin/pm"
+        resetHref="/admin/pm"
+        hidden={size !== 20 ? { size: String(size) } : undefined}
+      >
         {/* UserPicker 自带输入（name=q 与筛选参数对齐），datalist 提供候选 */}
         <UserPicker name="q" label="发送者筛选（用户名或 uid）" placeholder="发送者用户名 / uid" />
         <AdminDateRange from={from} to={to} />

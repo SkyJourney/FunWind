@@ -175,6 +175,7 @@ export default async function InvitesAdminPage({
         </nav>
         <form action="/admin/invites" method="get" className="flex flex-wrap items-center gap-1.5">
           {status !== "all" && <input type="hidden" name="status" value={status} />}
+          {size !== 20 && <input type="hidden" name="size" value={String(size)} />}
           <input
             name="batch"
             defaultValue={batch}

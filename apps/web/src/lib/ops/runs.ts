@@ -1,6 +1,7 @@
 import "server-only";
 
 import { sql } from "drizzle-orm";
+import { pageBounds } from "@/lib/paging";
 import { getWebDb } from "@funwind/db";
 
 /**
@@ -74,42 +75,55 @@ export async function listOpsTriggerStates(): Promise<OpsTriggerStateRow[] | nul
   }));
 }
 
-/** 分页读取；多取一条判断 hasMore，避免为总数多发一次查询 */
-const PAGE_SIZE = 25;
+/** 每页条数档位默认（M19：默认并入 20，?size= 档位白名单由页面解析后透传） */
+export const OPS_RUN_PAGE_SIZE = 20;
+const PAGE_SIZE_MAX = 100;
 
 export interface OpsRunPage {
   rows: OpsRunRow[];
-  hasMore: boolean;
+  /** 真实总数（M19：COUNT，供台账页脚展示） */
+  total: number;
+  /** 真实总页数（M19：COUNT + pageBounds 对齐全站分页语义；台账缺失时为 1） */
+  totalPages: number;
   /** 台账里是否有执行中的记录（不限当前页：轮询判定不能依赖翻到第几页） */
   anyRunning: boolean;
   /** 台账表不存在（管线未部署或尚未完成首次引导） */
   ledgerMissing: boolean;
 }
 
-/** 运行台账分页（page 从 1 起）；表不存在时 ledgerMissing=true（零表韧性，M14 F12）。 */
-export async function listOpsRunPage(page: number): Promise<OpsRunPage> {
+/** 运行台账分页（page 从 1 起）；表不存在时 ledgerMissing=true（零表韧性，M14 F12）。
+ *  M19：伪总页数（page+hasMore）改为真 COUNT+pageBounds，与全站列表分页语义对齐。 */
+export async function listOpsRunPage(
+  page: number,
+  perPage: number = OPS_RUN_PAGE_SIZE,
+): Promise<OpsRunPage & { hasMore?: boolean }> {
   const safePage = Math.max(1, Math.floor(page) || 1);
+  const pageSize = Math.min(Math.max(1, Math.floor(perPage) || OPS_RUN_PAGE_SIZE), PAGE_SIZE_MAX);
   try {
-    const [listed, running] = await Promise.all([
+    const [listed, running, counted] = await Promise.all([
       getWebDb().execute(sql`
         SELECT id, kind, task_key AS taskKey, trigger_source AS triggerSource, status, path,
                size_bytes AS sizeBytes, detail, error, started_at AS startedAt, finished_at AS finishedAt
-        FROM ops_runs ORDER BY id DESC LIMIT ${PAGE_SIZE + 1} OFFSET ${(safePage - 1) * PAGE_SIZE}
+        FROM ops_runs ORDER BY id DESC LIMIT ${pageSize} OFFSET ${(safePage - 1) * pageSize}
       `),
       getWebDb().execute(
         sql`SELECT EXISTS(SELECT 1 FROM ops_runs WHERE status = 'running') AS anyRunning`,
       ),
+      getWebDb().execute(sql`SELECT COUNT(*) AS total FROM ops_runs`),
     ]);
     const raw = rowsOf(listed);
+    const total = Number(rowsOf(counted)[0]?.total ?? 0);
+    const { totalPages } = pageBounds(total, safePage, pageSize);
     return {
-      rows: raw.slice(0, PAGE_SIZE).map(mapRunRow),
-      hasMore: raw.length > PAGE_SIZE,
+      rows: raw.map(mapRunRow),
+      total,
+      totalPages,
       anyRunning: Number(rowsOf(running)[0]?.anyRunning ?? 0) === 1,
       ledgerMissing: false,
     };
   } catch (e) {
     if (isMissingTable(e))
-      return { rows: [], hasMore: false, anyRunning: false, ledgerMissing: true };
+      return { rows: [], total: 0, totalPages: 1, anyRunning: false, ledgerMissing: true };
     throw e;
   }
 }
