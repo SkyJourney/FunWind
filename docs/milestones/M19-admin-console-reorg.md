@@ -1,6 +1,8 @@
 # M19 · 后台管理重塑（IA 重塑 + 拆分合并 + 多尺寸列表 + 筛选基建 + 一致性清账）
 
-- 阶段：四·运营与演进 ｜ 依赖：无（M18 已收口）｜ 状态：🚧 **进行中**（2026-11-16 立项并开工，分支 `feat/m19-admin-console-reorg`）
+- 阶段：四·运营与演进 ｜ 依赖：无（M18 已收口）｜
+  状态：🟡 **工程交付完成**（2026-11-17 S0–S5 全部收口，提交至 `39dce10e`，执行记录见 §9；
+  verify:all 与全量 E2E 收口门禁 + PR 合并后转 ✅，站长真机清单留观察期）
 - 立项动因：站长 2026-11-16 两轮指示——①「整个后台管理的菜单和功能做一次规整，现在用起来有点混乱」，
   列表要有**多尺寸显示效果**、**更多筛选项**；根因认知：「菜单乱也跟不断地加功能有关，现在正好是根据功能重塑后台的一次好时机，
   正好也把列表的样式和统一的组件搞起来，后续菜单就更统一和规整了」；②计划评审追加：「后台菜单的内容，也可以根据功能重新梳理规划，
@@ -173,6 +175,51 @@ appeals 摘双重容器；空态统一 EmptyState（F19 清单）。**UserPicker
 - points.gate_fee_rate、punch.reward「读但无人写」→ M20 决策补 UI 或声明 SQL-only。
 - Firefox 真机回归、站长真机清单 → 收口后观察期。
 
-## 9. 执行记录（开工后回写）
+## 9. 执行记录（2026-11-16/17，S0–S5 全部收口）
 
-> 按 S0–S5 增补：每 Step 记录交付、门禁实测、审查整改与部署。
+> 分支 `feat/m19-admin-console-reorg`，8 个提交逐 Step 留痕；每步收口跑相关 E2E + 架构守卫，全量门禁在收口节。
+
+### 提交清单
+
+| Step | 提交 | 内容 |
+|---|---|---|
+| S0 | `424164a3` | ROADMAP M19–M22 四行 + 本文 v2 修订（Q1–Q5+D1–D4 决策记录） |
+| S1-1 | `e3c6be0a` | review→contents 合并 + ConfirmSubmit 误拦修复 + E2E/矩阵迁移 |
+| S1-2 | `eb9423dd` | 品牌素材页 ?kind= 页签 + pool-actions 回跳安全化 |
+| S1-3 | `caebe6c2` | 站点框架入 settings + announcement-audit 补页脚用例 |
+| S1-4 | `ff630beb` | 节日装扮归位 campaigns（回执并入 FLASH 表） |
+| S1-5 | `743dfa65` | users/[uid] 三签 + users 域七动作回跳带 tab |
+| S2 | `77edb993` | 菜单 IA v2 + 图标全量 + title 拉齐 + 三条守卫断言 |
+| S3 | `ab5353f2` | parseAdminListParams + DateRange + density + Pager controls |
+| S4-A/B | `7427a0e9`/`f215bb85`/`709e6bbc` | 五页补筛选 + 14 页 size/density 接线 + ops 真分页 |
+| S5 | `39dce10e` | Flash ?ok/?err 统一 + 空态/回显收编 + UserPicker 搜索化 + 死码清理 |
+
+### 过程发现与修复的存量缺陷
+
+1. **ConfirmSubmit 表单级误拦**（S1-1 钓出）：确认门监听整表单 submit，共享表单里点「批量通过」会误弹
+   「批量驳回」确认框且确认后以驳回 formAction 提交——即 M9.5 起 review 页批量通过在真实浏览器从未
+   可用（只有 mock 单测无 E2E）。修复为仅拦 `event.submitter === 本按钮`，补共享表单回归测试。
+2. **回跳硬拼 `?`**：threadFlagsAction 在已带 query 的 back 上硬拼产生畸形 URL → `appendQueryParam`
+   统一（S1-1 引入，后续 S1-3/S1-4/S1-5 复用）。
+3. **GET 表单双值**（S4 钓出）：FilterBar 的 hidden from/to 与 AdminDateRange 可见输入同名，GET 提交
+   产生同名双值，Next 归并成数组后日期校验静默失效——hidden 改为仅透传 size/density，日期输入独占承载。
+4. **审计日志「查看」按钮中等视口折行**（六档矩阵新场景 admin-logs-filters 首扫发现）→ whitespace-nowrap。
+
+### 门禁实测（收口节，2026-11-17）
+
+- `pnpm test` 全量单测（含临时库集成）exit 0；`pnpm --filter @funwind/web typecheck` 0 错；
+  pre-commit（lint-staged prettier + 全 workspace eslint）逐提交全绿。
+- 六档布局矩阵 18/18（含 S4 新增 users-list-controls / logs-filters 两场景，限 admin 视角）；
+  视觉基线重录后双向 10/10；admin-lists E2E 3/3（size/密度 URL 保持、logs 筛选+CSV 透传、
+  invites 日期两态、UserPicker 候选下拉真实点击）。
+- Step5 相关 13 个 E2E 全量重置库实测全绿（announcement/badges/points/emojis/governance/email/
+  ops/campaigns/moderation/admin-lists/settings-admin/admin-mail/hero）；全量 E2E 与 verify:all
+  见下方收口门禁。
+
+### 遗留（移交与观察期）
+
+- 死权限点删除（vote.create/vote.view/tag.edit/tag.manage）→ **M20**（随 schema 变更）。
+- register.mode、ops.backup.policy 读兼容键清理条件 → M20 设计时定。
+- points.gate_fee_rate、punch.reward「读但无人写」→ M20 决策补 UI 或声明 SQL-only。
+- Firefox 真机回归、站长真机清单勾选 → 观察期。
+- dev 冒烟 E2E（3200）与全量 prod E2E 未在本节单列的用例随收口门禁一并跑。

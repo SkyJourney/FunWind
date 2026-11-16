@@ -5,6 +5,35 @@
 
 ## [Unreleased]
 
+### Added（M19 · 后台管理重塑——IA 拆分合并 + 多尺寸列表 + 一致性清账，2026-11-17）
+
+- **功能重塑（Q1–Q4，页面 27→24 路由入口）**：内容审核并入内容管理（待审队列先到先审正序 + 批量
+  通过/驳回 + 恢复 + 封禁终态彻底删除，`/admin/review` 旧路由永久跳转）；LOGO+首页横幅池合一
+  `/admin/brand?kind=`（decor 尊重 906dd710 拍板维持二级页）；站点框架（导航/友链/页脚）自公告页拆入
+  站点配置新「站点框架」签；节日装扮规则卡自运维页归位运营排期页；用户详情页 10 区块重组三签
+  （概览/治理/活动与审计，`?tab=` 与台账分页共存）。
+- **菜单 IA v2**：6 组 24 项按功能域重排（总览/内容治理/用户与权限/站点运营/外观与品牌/系统与观测），
+  申诉复核/品牌素材升为菜单项；`ICON_BY_HREF` 抽出 `admin-nav-icons.ts` 全量登记；8 处页面 title 拉齐
+  菜单短名；admin-nav-guard 新增三条断言——页面→菜单反向守卫（SECONDARY_PAGES/REDIRECT_PAGES
+  允许清单）、label===title、图标全覆盖，漏登记直接 CI 红。
+- **列表多尺寸/密度**：`parseAdminListParams`（size 档位 10/20/50/100 白名单、density compact/cozy、
+  日期范围校验）+ AdminDateRange + AdminDataTable 密度变体 + AdminListPager 可选 controls
+  （每页条数 GET 表单 + 密度链接切换，缺省渲染与原形态一致）；14 个列表页接线（默认统一 20：
+  logs 系 50→20、ops 25→20），ops 运行台账伪总页数改真 COUNT+pageBounds。
+- **五页补筛选**：审计日志（actor 用户名反查 UserPicker + 日期范围 + targetType 下拉 + CSV 同步透传）、
+  举报（标题关键词+日期）、私信（日期）、公告（标题关键词）、邀请码（创建日期）；服务层 since/until
+  下推 SQL + 四个集成测试。
+- **一致性清账（Q5）**：Flash 回执键全后台统一 `?ok=<key>`/`?err=<code|文案>`（`lib/admin/flash.ts`
+  flashText 表驱动 + 原文回落）；手写回显收编 AdminFlash、块级空态收编 EmptyState、appeals 双重容器
+  摘除；UserPicker 输入即搜（`/api/admin/users/search` + 客户端候选下拉，提交 username 语义不变）；
+  死码清理（listInvites / emojis move×2 + list-reorder / fmtDate / canApply×2 /
+  saveThemePackAction→setDefaultThemePackAction）。
+- **顺带修复**：ConfirmSubmit 表单级误拦其他提交按钮（M9.5 起「批量通过」在真实浏览器会误弹批量驳回
+  确认框且以错误 formAction 提交——E2E 补批量审核用例时钓出）；threadFlagsAction 回跳硬拼 `?` 畸形
+  URL；GET 表单 hidden 与可见输入同名（from/to）双值致日期筛选静默失效；审计日志「查看」按钮中等
+  视口折行。执行记录见 [M19](docs/milestones/M19-admin-console-reorg.md)；E2E admin-lists 新增 +
+  六档矩阵 18 场景；门禁 verify:all / 全量 E2E / 六档 / 视觉双向实测记录见里程碑 §9。
+
 ### Added（M16.1 · 扫尾专项收口与生产部署，2026-11-13）
 
 - **PR #15 CI 双作业绿（verify 9m21s / e2e 17m12s，第二轮）合并 main**（merge commit `1290876`）；
