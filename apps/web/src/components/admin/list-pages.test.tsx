@@ -108,9 +108,6 @@ vi.mock("@/app/admin/announcements/actions", () => ({
   createAnnouncementAction: vi.fn(),
   editAnnouncementAction: vi.fn(),
   endAnnouncementAction: vi.fn(),
-  saveFooterAction: vi.fn(),
-  saveLinksAction: vi.fn(),
-  saveNavAction: vi.fn(),
 }));
 
 const pages = {

@@ -24,6 +24,8 @@ import {
   sendTestMailAction,
 } from "./actions";
 import { RegisterPolicyCard } from "./register-policy-card";
+import { ChromeRowsEditor } from "@/components/admin/chrome-rows-editor";
+import { saveFooterAction, saveLinksAction, saveNavAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "站点配置" };
@@ -38,6 +40,9 @@ const FLASH: Record<string, string> = {
   theme_logo:
     "全站默认主题已保存，并已把 LOGO 切换为该主题自带图——需要时可在「LOGO 管理」独立改回任意一枚。",
   theme_no_logo: "全站默认主题已保存（此主题无自带 LOGO，LOGO 保持不变）。",
+  nav: "导航项已保存并即时生效。",
+  links: "友情链接已保存并即时生效。",
+  footer: "页脚已保存并即时生效。",
 };
 
 const MAIL_ERROR: Record<string, string> = {
@@ -75,7 +80,14 @@ const ROLE_FIELDS = [
 export default async function SiteSettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ saved?: string; err?: string; mail_error?: string; warn?: string }>;
+  searchParams: Promise<{
+    saved?: string;
+    err?: string;
+    mail_error?: string;
+    warn?: string;
+    navErr?: string;
+    linksErr?: string;
+  }>;
 }) {
   // 入口鉴权约定：第一个 await 必须是 requireAdmin（admin-entry-guard 静态守护）
   const admin = await requireAdmin("site.admin");
@@ -140,6 +152,7 @@ export default async function SiteSettingsPage({
           ["register", "注册策略"],
           ["email", "邮件"],
           ["limits", "发帖频控"],
+          ["chrome", "站点框架"],
         ].map(([id, label]) => (
           <a
             key={id}
@@ -186,6 +199,22 @@ export default async function SiteSettingsPage({
           className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
         >
           未知的主题包，请重新选择。
+        </p>
+      )}
+      {sp.navErr && (
+        <p
+          role="alert"
+          className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
+        >
+          导航项校验未通过：{sp.navErr}
+        </p>
+      )}
+      {sp.linksErr && (
+        <p
+          role="alert"
+          className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
+        >
+          友链校验未通过：{sp.linksErr}
         </p>
       )}
 
@@ -508,6 +537,66 @@ export default async function SiteSettingsPage({
               </SubmitButton>
             </div>
           </form>
+        </CardContent>
+      </Card>
+
+      {/* 站点框架（M19 Q3 自公告页迁入）：导航/友链/页脚三键独立保存，即时生效 */}
+      <Card id="chrome">
+        <CardHeader>
+          <CardTitle>站点框架</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 lg:grid-cols-3">
+            <form action={saveNavAction} className="space-y-2">
+              <p className="text-sm font-medium">导航项</p>
+              <ChromeRowsEditor
+                name="navRaw"
+                initialRows={chrome.nav}
+                hrefPlaceholder="/f/951"
+                addLabel="添加导航项"
+              />
+              <SubmitButton
+                className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+                pendingText="…"
+              >
+                保存导航
+              </SubmitButton>
+            </form>
+
+            <form action={saveLinksAction} className="space-y-2">
+              <p className="text-sm font-medium">友情链接</p>
+              <ChromeRowsEditor
+                name="linksRaw"
+                initialRows={chrome.links}
+                hrefPlaceholder="https://…"
+                addLabel="添加友链"
+              />
+              <SubmitButton
+                className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+                pendingText="…"
+              >
+                保存友链
+              </SubmitButton>
+            </form>
+
+            <form action={saveFooterAction} className="space-y-2">
+              <p className="text-sm font-medium">页脚</p>
+              <textarea
+                name="footerText"
+                rows={5}
+                maxLength={300}
+                className="w-full rounded-lg border bg-background px-2.5 py-1.5 text-sm"
+                defaultValue={chrome.footerText}
+                placeholder="版权/备案/联系方式等纯文本"
+              />
+              <SubmitButton
+                className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+                pendingText="…"
+              >
+                保存页脚
+              </SubmitButton>
+            </form>
+          </div>
         </CardContent>
       </Card>
     </div>

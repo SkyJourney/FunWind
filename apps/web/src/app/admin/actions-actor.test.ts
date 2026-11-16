@@ -279,6 +279,35 @@ const adminCases = [
     ],
   },
   {
+    // M19 Q3：站点框架自公告页迁入站点配置——三键各自独立保存
+    action: settings.saveNavAction,
+    service: mocks.setSetting,
+    permission: "site.admin",
+    fields: { navRaw: "首页,/\n文档,/docs" },
+    args: [
+      "site.nav",
+      [
+        { label: "首页", href: "/" },
+        { label: "文档", href: "/docs" },
+      ],
+      adminActor,
+    ],
+  },
+  {
+    action: settings.saveLinksAction,
+    service: mocks.setSetting,
+    permission: "site.admin",
+    fields: { linksRaw: "朋友,https://a.example" },
+    args: ["site.links", [{ label: "朋友", href: "https://a.example" }], adminActor],
+  },
+  {
+    action: settings.saveFooterAction,
+    service: mocks.setSetting,
+    permission: "site.admin",
+    fields: { footerText: "© E2E" },
+    args: ["site.footer", { text: "© E2E" }, adminActor],
+  },
+  {
     // 复选框：勾选提交 "on"，未勾选整个字段缺席
     action: settings.saveRegisterPolicyAction,
     service: mocks.setSetting,

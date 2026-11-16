@@ -22,6 +22,7 @@ import { tryApplyThemePackLogo } from "@/lib/theme/apply-pack-logo";
  * 保存前整体过 limitsConfigSchema 校验——写坏配置会整体回落默认值（load.ts 口径），必须在这里拦住。
  * 邮件组（M10.6 收尾）：SMTP 凭据按红线留在 env 不入库，后台只做状态展示与测试发信；注册与邮箱验证要求并入 register.policy（M11.3）。
  * 全站默认主题（M11）：site.theme + 主题↔LOGO 联动（docs/THEME-SYSTEM.md §5）。
+ * 站点框架（M19 Q3 自公告页迁入）：导航/友链/页脚三卡（site.nav/links/footer）。
  */
 
 const done = (key: string): never => redirect(`/admin/settings?saved=${key}`);
@@ -242,3 +243,80 @@ export const sendTestMailAction = defineAction({
     done("mail_sent");
   },
 });
+
+// —— 站点框架（M19 Q3 自公告页迁入）：导航/友链/页脚三键各自独立保存；setSetting 自带审计 ——
+
+const navInput = z.object({
+  navRaw: z.string().max(4000).default(""),
+});
+export const saveNavAction = defineAction({
+  name: "admin.site.nav",
+  auth: { admin: "site.admin" },
+  input: navInput,
+  async run(ctx, input) {
+    const parsed = parseLinesChecked(input.navRaw, { hrefMustBePath: true });
+    if (parsed.error) redirect(`/admin/settings?navErr=${encodeURIComponent(parsed.error)}`);
+    await setSetting("site.nav", parsed.items, ctx.actor);
+    invalidateSiteChrome();
+    revalidatePath("/", "layout");
+    done("nav");
+  },
+});
+
+const linksInput = z.object({
+  linksRaw: z.string().max(6000).default(""),
+});
+export const saveLinksAction = defineAction({
+  name: "admin.site.links",
+  auth: { admin: "site.admin" },
+  input: linksInput,
+  async run(ctx, input) {
+    const parsed = parseLinesChecked(input.linksRaw, { hrefMustBePath: false });
+    if (parsed.error) redirect(`/admin/settings?linksErr=${encodeURIComponent(parsed.error)}`);
+    await setSetting("site.links", parsed.items, ctx.actor);
+    invalidateSiteChrome();
+    revalidatePath("/", "layout");
+    done("links");
+  },
+});
+
+const footerInput = z.object({ footerText: z.string().max(300).default("") });
+export const saveFooterAction = defineAction({
+  name: "admin.site.footer",
+  auth: { admin: "site.admin" },
+  input: footerInput,
+  async run(ctx, input) {
+    await setSetting("site.footer", { text: input.footerText }, ctx.actor);
+    invalidateSiteChrome();
+    revalidatePath("/", "layout");
+    done("footer");
+  },
+});
+
+/** 「标签, 路径/URL」逐行解析；非法行报行号（M9.5 条目化编辑配套） */
+function parseLinesChecked(
+  raw: string,
+  opts: { hrefMustBePath: boolean },
+): { items: { label: string; href: string }[]; error: string | null } {
+  const items: { label: string; href: string }[] = [];
+  const lines = raw.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line.length === 0) continue;
+    const idx = line.indexOf(",");
+    if (idx <= 0 || idx === line.length - 1) {
+      return { items: [], error: `第 ${i + 1} 行格式不对：应为「名称,路径」（半角逗号分隔）` };
+    }
+    const label = line.slice(0, idx).trim();
+    const href = line.slice(idx + 1).trim();
+    if (opts.hrefMustBePath && !href.startsWith("/")) {
+      return { items: [], error: `第 ${i + 1} 行路径必须以 / 开头（导航项只能是站内路径）` };
+    }
+    if (!opts.hrefMustBePath && !(href.startsWith("/") || href.startsWith("http"))) {
+      return { items: [], error: `第 ${i + 1} 行链接必须是站内路径（/ 开头）或 http(s):// 链接` };
+    }
+    items.push({ label, href });
+    if (items.length >= 20) break;
+  }
+  return { items, error: null };
+}
