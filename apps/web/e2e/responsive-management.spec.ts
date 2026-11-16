@@ -168,6 +168,17 @@ async function auditHideDialog(
   });
 }
 
+/** 品牌素材管理页路径（M19：logo/hero 合一 /admin/brand?kind=；decor 维持独立二级页） */
+const brandAdminPath = (kind: BrandPoolKind): string =>
+  kind === "decor" ? "/admin/decor" : `/admin/brand?kind=${kind}`;
+
+/** 上传动作回执 URL 断言（品牌页回跳参数：品牌页带 kind query，decor 首参为 ?） */
+const brandUrlRe = (kind: BrandPoolKind, param: string): RegExp => {
+  const base = brandAdminPath(kind);
+  const sep = base.includes("?") ? "&" : "\\?";
+  return new RegExp(`${base.replace("?", "\\?")}${sep}${param}$`);
+};
+
 /** 只用服务端生成的安全文件名定位自有池卡片，不依赖种子池为空。 */
 function brandCard(page: Page, file: string): Locator {
   return page.locator(`[data-slot="card"]:has(input[name="file"][value="${file}"])`);
@@ -175,7 +186,7 @@ function brandCard(page: Page, file: string): Locator {
 
 /** 真实确认移除会失效 chrome 缓存；同 URL 返回后还须等待卡片消失，不能只等导航。 */
 async function removeBrandItem(page: Page, kind: BrandPoolKind, file: string): Promise<void> {
-  await page.goto(`/admin/${kind}`);
+  await page.goto(brandAdminPath(kind));
   const card = brandCard(page, file);
   await card.getByRole("button", { name: "移除", exact: true }).click();
   const dialog = page.getByRole("dialog");
@@ -207,7 +218,7 @@ async function cleanupBrandPool(
       before.active &&
       removed.items.some((item) => item.file === before.active)
     ) {
-      await page.goto(`/admin/${kind}`);
+      await page.goto(brandAdminPath(kind));
       // 在真实设当前提交前再次核对；收尾过程中出现他人的选择就保留它。
       if ((await fixture.readBrandPool(kind)).active === null) {
         await submit(
@@ -240,7 +251,7 @@ async function auditNonemptyBrandPool(
       const names = fixture.brandAssetNames(kind);
       for (const name of names) {
         expect(name).toMatch(/^[A-Za-z0-9]{40}$/);
-        await page.goto(`/admin/${kind}`);
+        await page.goto(brandAdminPath(kind));
         await page.getByLabel("名称", { exact: true }).fill(name);
         await page.getByLabel(/PNG 文件/).setInputFiles({
           name: `${kind}.png`,
@@ -248,7 +259,7 @@ async function auditNonemptyBrandPool(
           buffer: png,
         });
         await submit(page, page.getByRole("button", { name: "上传入池", exact: true }));
-        await expect(page).toHaveURL(new RegExp(`/admin/${kind}\\?added=${kind}-[a-z0-9]+\\.png$`));
+        await expect(page).toHaveURL(brandUrlRe(kind, `added=${kind}-[a-z0-9]+\\.png`));
         await fixture.trackBrandPoolFiles(kind);
       }
       const pool = await fixture.readBrandPool(kind);
@@ -391,12 +402,16 @@ async function auditManagementQueues(
   }
   if (width < 1024) {
     await audit.step(`${role}-admin-drawer-open`, async () => {
-      await page.goto("/admin/review?forum=904&kind=thread");
+      await page.goto("/admin/contents?forum=904&kind=thread&state=pending");
       await page.getByRole("button", { name: "后台菜单", exact: true }).click();
       const drawer = page.getByRole("dialog", { name: "后台导航", exact: true });
       await expect(drawer).toBeVisible();
-      await expect(drawer.getByRole("link", { name: "内容审核", exact: true })).toBeVisible();
+      // M19 菜单 v2：内容审核并入内容管理（旧项不再出现）；品牌素材/主题管理按角色过滤
       await expect(drawer.getByRole("link", { name: "内容管理", exact: true })).toBeVisible();
+      await expect(drawer.getByRole("link", { name: "内容审核", exact: true })).toHaveCount(0);
+      await expect(drawer.getByRole("link", { name: "品牌素材", exact: true })).toHaveCount(
+        role === "admin" ? 1 : 0,
+      );
       await expect(drawer.getByRole("link", { name: "主题管理", exact: true })).toHaveCount(
         role === "admin" ? 1 : 0,
       );
@@ -529,7 +544,7 @@ for (const width of LAYOUT_WIDTHS) {
           ["decor", "主题素材"],
         ] as const) {
           await audit.step(`admin-${kind}-before-selection`, async () => {
-            await page.goto(`/admin/${kind}`);
+            await page.goto(brandAdminPath(kind));
             await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
             await audit.capture(`admin-${kind}-before-selection`, {
               roots: ADMIN_ROOT,
@@ -581,7 +596,7 @@ for (const width of LAYOUT_WIDTHS) {
               buffer: Buffer.from("E2E 非 PNG 魔数"),
             });
             await submit(page, page.getByRole("button", { name: "上传入池", exact: true }));
-            await expect(page).toHaveURL(new RegExp(`/admin/${kind}\\?err=bad_type$`));
+            await expect(page).toHaveURL(brandUrlRe(kind, "err=bad_type"));
             const flash = page
               .locator(`${ADMIN_ROOT} p[role='alert'], ${ADMIN_ROOT} p[role='status']`)
               .filter({ hasText: "仅支持 PNG" });

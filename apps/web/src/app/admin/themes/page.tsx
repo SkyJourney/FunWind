@@ -22,7 +22,7 @@ import {
 } from "./actions";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "主题包" };
+export const metadata = { title: "主题管理" };
 
 const FLASH: Record<string, string> = {
   created: "主题包已创建。",

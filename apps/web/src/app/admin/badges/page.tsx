@@ -11,7 +11,7 @@ import { fmtDateTime } from "@/lib/admin/format";
 import { grantBadgeAction, revokeBadgeAction } from "./actions";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "荣誉徽章" };
+export const metadata = { title: "徽章" };
 
 const inputCls =
   "rounded-lg border bg-background px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring";

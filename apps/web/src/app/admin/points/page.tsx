@@ -10,7 +10,7 @@ import { UserPicker } from "@/components/admin/user-picker";
 import { adjustPointsAction, saveRewardAction } from "./actions";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "积分管理" };
+export const metadata = { title: "积分" };
 
 const numField =
   "w-28 rounded-lg border bg-background px-3 py-1.5 text-sm tabular-nums outline-none focus:ring-2 focus:ring-ring";

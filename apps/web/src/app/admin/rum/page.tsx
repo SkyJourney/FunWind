@@ -19,7 +19,7 @@ import {
 } from "@/components/admin/admin-list";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "真实用户监测" };
+export const metadata = { title: "用户监测" };
 
 type Params = { searchParams: Promise<Record<string, string | undefined>> };
 

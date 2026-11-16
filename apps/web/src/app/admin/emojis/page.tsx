@@ -21,7 +21,7 @@ import {
 } from "./actions";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "表情管理" };
+export const metadata = { title: "表情" };
 
 type Params = {
   searchParams: Promise<Record<string, string | undefined>>;

@@ -35,53 +35,62 @@ interface NavEntry {
     | { moderate: true };
 }
 
+/**
+ * 菜单 IA v2（M19 S2，按功能域 6 组 24 项；Q1-Q4 重塑后的页面全集）：
+ * 内容审核并入内容管理、品牌池合一（品牌素材）、站点框架入站点配置、节日装扮归运营排期；
+ * 申诉复核自用户列表文字链升为菜单项；decor 尊重 906dd710 拍板维持二级页（见 admin-nav-guard 反向守卫）。
+ */
 const NAV_GROUPS: { label: string; items: NavEntry[] }[] = [
   {
     label: "总览",
     items: [{ href: "/admin/dashboard", label: "看板", need: { admin: "admin.logs" } }],
   },
   {
-    label: "内容",
+    label: "内容治理",
     items: [
-      { href: "/admin/review", label: "内容审核", need: { moderate: true } },
       { href: "/admin/contents", label: "内容管理", need: { moderate: true } },
+      { href: "/admin/forums", label: "板块管理", need: { admin: "site.admin" } },
       { href: "/admin/reports", label: "举报处理", need: { admin: "admin.reports" } },
       { href: "/admin/poll", label: "投票管理", need: { moderate: true } },
       { href: "/admin/pm", label: "私信管理", need: { admin: "site.admin" } },
     ],
   },
   {
-    label: "用户",
+    label: "用户与权限",
     items: [
       { href: "/admin/users", label: "用户管理", need: { admin: "admin.users" } },
       { href: "/admin/authz", label: "角色与授权", need: { admin: "admin.roles" } },
-    ],
-  },
-  {
-    label: "系统",
-    items: [
-      { href: "/admin/announcements", label: "公告", need: { admin: "site.admin" } },
+      { href: "/admin/appeals", label: "申诉复核", need: { admin: "admin.users" } },
       { href: "/admin/points", label: "积分", need: { admin: "admin.points" } },
       { href: "/admin/badges", label: "徽章", need: { admin: "admin.badges" } },
-      { href: "/admin/logs", label: "审计日志", need: { admin: "admin.logs" } },
-      { href: "/admin/mail", label: "邮件", need: { admin: "admin.logs" } },
-      { href: "/admin/rum", label: "用户监测", need: { admin: "admin.logs" } },
-      { href: "/admin/csp", label: "CSP 报告", need: { admin: "admin.logs" } },
-      { href: "/admin/push", label: "推送记录", need: { admin: "admin.logs" } },
-      { href: "/admin/ops", label: "运维", need: { admin: "site.admin" } },
+      { href: "/admin/invites", label: "邀请码", need: { admin: "site.admin" } },
     ],
   },
   {
-    label: "站点管理",
+    label: "站点运营",
+    items: [
+      { href: "/admin/announcements", label: "公告", need: { admin: "site.admin" } },
+      { href: "/admin/campaigns", label: "运营排期", need: { admin: "site.admin" } },
+      { href: "/admin/emojis", label: "表情", need: { admin: "emoji.manage" } },
+    ],
+  },
+  {
+    label: "外观与品牌",
     items: [
       { href: "/admin/themes", label: "主题管理", need: { admin: "site.admin" } },
-      { href: "/admin/campaigns", label: "运营排期", need: { admin: "site.admin" } },
-      { href: "/admin/forums", label: "板块管理", need: { admin: "site.admin" } },
-      { href: "/admin/emojis", label: "表情", need: { admin: "emoji.manage" } },
+      { href: "/admin/brand", label: "品牌素材", need: { admin: "site.admin" } },
+    ],
+  },
+  {
+    label: "系统与观测",
+    items: [
       { href: "/admin/settings", label: "站点配置", need: { admin: "site.admin" } },
-      { href: "/admin/invites", label: "邀请码", need: { admin: "site.admin" } },
-      { href: "/admin/logo", label: "LOGO 管理", need: { admin: "site.admin" } },
-      { href: "/admin/hero", label: "首页横幅", need: { admin: "site.admin" } },
+      { href: "/admin/logs", label: "审计日志", need: { admin: "admin.logs" } },
+      { href: "/admin/mail", label: "邮件", need: { admin: "admin.logs" } },
+      { href: "/admin/push", label: "推送记录", need: { admin: "admin.logs" } },
+      { href: "/admin/rum", label: "用户监测", need: { admin: "admin.logs" } },
+      { href: "/admin/csp", label: "CSP 报告", need: { admin: "admin.logs" } },
+      { href: "/admin/ops", label: "运维", need: { admin: "site.admin" } },
     ],
   },
 ];
