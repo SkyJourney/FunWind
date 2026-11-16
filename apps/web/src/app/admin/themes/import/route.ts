@@ -157,5 +157,5 @@ export async function POST(request: Request): Promise<Response> {
   revalidatePath("/admin/themes");
   revalidatePath("/admin/decor");
   revalidatePath("/admin/brand");
-  return redirectTo(`saved=imported&id=${encodeURIComponent(id)}${warning}`);
+  return redirectTo(`ok=imported&id=${encodeURIComponent(id)}${warning}`);
 }

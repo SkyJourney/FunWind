@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { USERS, loginAs } from "./support/session";
+import { withE2eDb } from "./support/db";
 
 /**
  * 站点配置 E2E（M10.6b）：邀请码生成→撤销→已用保护由界面走查；robots/sitemap 公开可达且边界正确。

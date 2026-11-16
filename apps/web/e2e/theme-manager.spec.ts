@@ -44,8 +44,8 @@ test("管理员创建并编辑主题包：草稿预览与 definition 同步提�
       .toBuffer(),
   });
   await page.getByRole("button", { name: "上传入池" }).click();
-  await page.waitForURL("**/admin/decor?added=*");
-  const decorFile = new URL(page.url()).searchParams.get("added")!;
+  await page.waitForURL("**/admin/decor?ok=added*");
+  const decorFile = new URL(page.url()).searchParams.get("ok")!.slice("added=".length);
   expect(decorFile).toMatch(/^decor-[a-f0-9]{32}\.png$/);
 
   await page.goto("/admin/themes");
@@ -102,7 +102,7 @@ test("管理员创建并编辑主题包：草稿预览与 definition 同步提�
 
   await page.getByRole("button", { name: "保存主题包" }).click();
   await expect(page).toHaveURL(
-    (url) => url.pathname === `/admin/themes/${THEME_ID}` && url.searchParams.get("saved") === "1",
+    (url) => url.pathname === `/admin/themes/${THEME_ID}` && url.searchParams.get("ok") === "1",
   );
   await expect(page.getByText("主题包配置已保存。")).toBeVisible();
   const stored = await withE2eDb((q) =>
@@ -328,7 +328,7 @@ test("主题管理后台入口可见；编辑区内嵌素材库可上传并选�
   // 保存后 revision +1 且引用写入
   await page.getByRole("button", { name: "保存主题包" }).click();
   await expect(page).toHaveURL(
-    (url) => url.pathname === `/admin/themes/${THEME_ID}` && url.searchParams.get("saved") === "1",
+    (url) => url.pathname === `/admin/themes/${THEME_ID}` && url.searchParams.get("ok") === "1",
   );
   const [afterSave] = await withE2eDb((q) =>
     q.query<{ revision: number }>("SELECT revision FROM theme_packages WHERE id = ?", [THEME_ID]),
@@ -415,8 +415,7 @@ test("保存冲突保留完整草稿与原版本；明确载入最新内容后�
     await otherPage.getByTestId("theme-fill-solid-color").fill("#654321");
     await otherPage.getByRole("button", { name: "保存主题包" }).click();
     await expect(otherPage).toHaveURL(
-      (url) =>
-        url.pathname === `/admin/themes/${THEME_ID}` && url.searchParams.get("saved") === "1",
+      (url) => url.pathname === `/admin/themes/${THEME_ID}` && url.searchParams.get("ok") === "1",
     );
     expect(otherErrors).toEqual([]);
   } finally {
@@ -482,7 +481,7 @@ test("保存冲突保留完整草稿与原版本；明确载入最新内容后�
   await page.getByLabel("说明", { exact: true }).fill("载入新版本后重新编辑");
   await page.getByRole("button", { name: "保存主题包" }).click();
   await expect(page).toHaveURL(
-    (url) => url.pathname === `/admin/themes/${THEME_ID}` && url.searchParams.get("saved") === "1",
+    (url) => url.pathname === `/admin/themes/${THEME_ID}` && url.searchParams.get("ok") === "1",
   );
   const stored = await readStored();
   expect(stored.revision).toBe(concurrent.revision + 1);

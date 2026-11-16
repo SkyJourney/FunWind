@@ -47,7 +47,7 @@ test("私信管理：发送 → 管理页可见 → 删除（正文标记 + 审�
     .getByRole("button", { name: "删除" })
     .click();
   await adminPage.getByRole("button", { name: "确认" }).click();
-  await expect(adminPage).toHaveURL(/\/admin\/pm\?deleted=1/);
+  await expect(adminPage).toHaveURL(/\/admin\/pm\?ok=deleted/);
   await expect(adminPage.getByText(/已由管理员删除：E2E 删除理由/)).toBeVisible();
 
   // 审计留痕
@@ -90,7 +90,7 @@ test("投票管理：关闭投票 → 已截止标记；删除投票 → 主题�
     await row.getByRole("button", { name: "删除", exact: true }).click();
     // M9.5：删除确认文案带影响面（选项数/票数），弹窗确认
     await adminPage.getByRole("dialog").getByRole("button", { name: "确认" }).click();
-    await expect(adminPage).toHaveURL(/\/admin\/poll\?deleted=1/);
+    await expect(adminPage).toHaveURL(/\/admin\/poll\?ok=deleted/);
 
     // 主题回普通帖（投票块消失、kind 回 normal）
     await page.goto(`/t/${tid}`);

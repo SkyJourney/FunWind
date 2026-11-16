@@ -60,7 +60,7 @@ async function draftPrimary(page: Page): Promise<string | undefined> {
 }
 
 const isSaved = (url: URL) =>
-  url.pathname === `/admin/themes/${PACK}` && url.searchParams.get("saved") === "1";
+  url.pathname === `/admin/themes/${PACK}` && url.searchParams.get("ok") === "1";
 
 /** 站点首页上，浅色档下当前生效的 --primary */
 async function sitePrimary(page: Page): Promise<string> {
