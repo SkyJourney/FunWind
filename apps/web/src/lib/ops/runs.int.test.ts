@@ -63,7 +63,8 @@ describe.skipIf(skipDb)("运行台账与触发器状态读取（临时库）", (
   it("表不存在（管线未部署）：分页带 ledgerMissing、状态返回 null", async () => {
     expect(await listOpsRunPage(1)).toEqual({
       rows: [],
-      hasMore: false,
+      total: 0,
+      totalPages: 1,
       anyRunning: false,
       ledgerMissing: true,
     });
@@ -83,10 +84,11 @@ describe.skipIf(skipDb)("运行台账与触发器状态读取（临时库）", (
       ]);
       expect(page1.anyRunning).toBe(true);
 
-      // 第 2 页：没有更多数据，但 anyRunning 仍为 true（不能依赖翻到第几页）
+      // 第 2 页：真实总页数对齐（M19 COUNT+pageBounds），anyRunning 仍为 true（不能依赖翻到第几页）
       const page2 = await listOpsRunPage(2);
       expect(page2.rows).toEqual([]);
-      expect(page2.hasMore).toBe(false);
+      expect(page2.total).toBe(2);
+      expect(page2.totalPages).toBe(1);
       expect(page2.anyRunning).toBe(true);
 
       await getWebDb().execute(sql`UPDATE ops_runs SET status = 'success' WHERE id = 2`);

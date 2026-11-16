@@ -41,7 +41,7 @@ export default async function AdminPmPage({
       since: from,
       until: to ? `${to} 23:59:59` : undefined,
       page,
-      perPage: size,
+      perPage: size !== 20 ? size : undefined,
     }),
     pmStats(),
   ]);

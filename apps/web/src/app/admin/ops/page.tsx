@@ -40,7 +40,7 @@ export default async function AdminOpsPage({ searchParams }: Params) {
     await Promise.all([
       listOpsTasks(),
       listOpsTriggerStates(),
-      listOpsRunPage(page, size),
+      listOpsRunPage(page, size !== 20 ? size : undefined),
       listSuccessfulRuns("db", 1),
       listSuccessfulRuns("storage", 1),
       opsServiceHealth(),

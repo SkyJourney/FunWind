@@ -65,7 +65,7 @@ export default async function AdminPollPage({ searchParams }: Params) {
     status: tab,
     forumId,
     page,
-    perPage: size,
+    perPage: size !== 20 ? size : undefined,
     moderated,
   });
   // 无 JS 回退（M10.6d 惯例）：?confirm-delete=<pollId> 渲染页顶原生确认段

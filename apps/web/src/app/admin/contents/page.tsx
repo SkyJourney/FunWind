@@ -114,7 +114,7 @@ export default async function AdminContentsPage({
     forumId,
     state,
     page,
-    perPage: size,
+    perPage: size !== 20 ? size : undefined,
     scopeForumIds,
     // 待审核态是审核队列：按提交时间正序（先到先审，M19 自 review 页合并）
     order: state === "pending" ? "queue" : undefined,

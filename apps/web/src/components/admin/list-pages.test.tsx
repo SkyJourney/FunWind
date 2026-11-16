@@ -24,6 +24,8 @@ const mocks = vi.hoisted(() => ({
   invites: vi.fn(),
   audit: vi.fn(),
   events: vi.fn(),
+  actor: vi.fn(),
+  targetTypes: vi.fn(),
   pm: vi.fn(),
   stats: vi.fn(),
   mail: vi.fn(),
@@ -46,7 +48,12 @@ vi.mock("@/lib/poll/admin", () => ({ listPollPage: mocks.polls }));
 vi.mock("@/lib/moderation/contents", () => ({ listContentsPage: mocks.contents }));
 vi.mock("@/lib/authz/restrictions-admin", () => ({ listAdminUsersPage: mocks.users }));
 vi.mock("@/lib/admin/invites", () => ({ listInvitesPage: mocks.invites }));
-vi.mock("@/lib/admin/logs", () => ({ queryAuditLogs: mocks.audit, queryEventLogs: mocks.events }));
+vi.mock("@/lib/admin/logs", () => ({
+  queryAuditLogs: mocks.audit,
+  queryEventLogs: mocks.events,
+  resolveActorId: mocks.actor,
+  listAuditTargetTypes: mocks.targetTypes,
+}));
 vi.mock("@/lib/pm/admin", () => ({ listPmMessagesPage: mocks.pm, pmStats: mocks.stats }));
 vi.mock("@/lib/chrome/site-chrome", () => ({ getSiteChrome: mocks.chrome }));
 vi.mock("@/lib/mail/log-query", async (original) => ({
@@ -144,6 +151,8 @@ beforeEach(() => {
     mocks.mail,
   ])
     fn.mockResolvedValue(query);
+  mocks.actor.mockResolvedValue(undefined);
+  mocks.targetTypes.mockResolvedValue([]);
   mocks.stats.mockResolvedValue({ conversations: 0, messages: 0, today: 0 });
   mocks.summary.mockResolvedValue({ sent: 0, failed: 0 });
   mocks.chrome.mockResolvedValue({ nav: [], links: [], footerText: "" });
@@ -206,7 +215,13 @@ describe("最高重复四页的 URL 与筛选 DOM 快照", () => {
       "gap-2",
       "text-sm",
     );
-    expect([...new FormData(form as HTMLFormElement).entries()]).toEqual([["forum", "7"]]);
+    // M19 S4：日期范围与关键词空输入也在表单里（空值提交，服务端回落默认）
+    expect([...new FormData(form as HTMLFormElement).entries()]).toEqual([
+      ["forum", "7"],
+      ["from", ""],
+      ["to", ""],
+      ["q", ""],
+    ]);
     expect(screen.getByText("该状态下没有举报。")).toBeInTheDocument();
   });
 
@@ -421,7 +436,7 @@ describe("其余页面 query/page 的兼容性", () => {
     await show("logs", { action: "thread created", actor: "7", page: "2" });
     expect(screen.getByRole("link", { name: "下一页" })).toHaveAttribute(
       "href",
-      "/admin/logs?tab=audit&action=thread+created&actor=7&page=3",
+      "/admin/logs?action=thread+created&actor=7&page=3",
     );
     expect(navLinks("日志类型")).toEqual([
       ["审计日志", "/admin/logs"],
