@@ -39,6 +39,9 @@ export function ConfirmSubmit({
     const form = button.current?.form;
     if (!form) return;
     const onSubmit = (event: SubmitEvent) => {
+      // 只拦截本按钮发起的提交：共享表单里的其他提交按钮（如批量条的「批量通过」formAction）
+      // 不被确认门拦住——M19 修复 M9.5 遗留缺陷（点批量通过会误弹批量驳回确认框）。
+      if (event.submitter !== button.current) return;
       if (confirmed.current) return;
       event.preventDefault();
       setOpen(true);

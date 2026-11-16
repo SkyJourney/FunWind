@@ -6,7 +6,6 @@ import { GUEST_SUBJECT } from "@/lib/authz/types";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import * as contents from "./contents/actions";
-import * as review from "./review/actions";
 import * as poll from "./poll/actions";
 import * as reports from "./reports/actions";
 import * as pm from "./pm/actions";
@@ -20,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   hide: vi.fn(),
   disable: vi.fn(),
   flags: vi.fn(),
+  deletePost: vi.fn(),
   closePoll: vi.fn(),
   deletePoll: vi.fn(),
   reopenPoll: vi.fn(),
@@ -56,6 +56,7 @@ vi.mock("@/lib/moderation/review", () => ({
   disableContent: mocks.disable,
 }));
 vi.mock("@/lib/moderation/contents", () => ({ setThreadFlags: mocks.flags }));
+vi.mock("@/lib/posting/mutate", () => ({ deletePost: mocks.deletePost }));
 vi.mock("@/lib/poll/admin", () => ({
   closePoll: mocks.closePoll,
   deletePoll: mocks.deletePoll,
@@ -147,34 +148,24 @@ const memberCases = [
     args: [subject, 73, { locked: true }, memberActor],
   },
   {
-    action: review.approveReviewAction,
-    service: mocks.approve,
-    fields: { postId: "57" },
-    args: [subject, 57, memberActor],
-  },
-  {
-    action: review.rejectReviewAction,
-    service: mocks.reject,
-    fields: { postId: "57", reason },
-    args: [subject, 57, reason, memberActor],
-  },
-  {
-    action: review.hidePostAction,
-    service: mocks.hide,
-    fields: { postId: "57", reason },
-    args: [subject, 57, reason, memberActor],
-  },
-  {
-    action: review.approveReviewBulkAction,
+    // M19：批量审核自 review/actions 并入 contents；单条通过/驳回同页已有，不重复登记
+    action: contents.approveReviewBulkAction,
     service: mocks.approve,
     fields: { postIds: "57" },
     args: [subject, 57, memberActor],
   },
   {
-    action: review.rejectReviewBulkAction,
+    action: contents.rejectReviewBulkAction,
     service: mocks.reject,
     fields: { postIds: "57", reason },
     args: [subject, 57, reason, memberActor],
+  },
+  {
+    // M19 新增：封禁终态的彻底删除（disabled → deleted）
+    action: contents.purgeContentAction,
+    service: mocks.deletePost,
+    fields: { postId: "57", reason },
+    args: [subject, { postId: 57, reason }],
   },
   {
     action: poll.closePollAction,

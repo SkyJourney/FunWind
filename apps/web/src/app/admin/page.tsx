@@ -7,7 +7,8 @@ export const dynamic = "force-dynamic";
 
 /**
  * 后台首页跳转（M9.5 站长反馈：入口默认进看板）：按权限派生落点——
- * 站点权限（admin.logs 是看板菜单的门槛）→ 看板；纯版主 → 内容审核队列；其余 → 角色与授权。
+ * 站点权限（admin.logs 是看板菜单的门槛）→ 看板；纯版主 → 内容管理待审队列（M19：审核并入 contents）；
+ * 其余 → 角色与授权。
  * 总门与布局相同：站点管理员或任一版块版主，避免可见入口与实际可达范围分离。
  */
 export default async function AdminIndex() {
@@ -18,6 +19,10 @@ export default async function AdminIndex() {
     getModeratedForumIds(subject),
   ]);
   redirect(
-    canLogs.allowed ? "/admin/dashboard" : moderated.length > 0 ? "/admin/review" : "/admin/authz",
+    canLogs.allowed
+      ? "/admin/dashboard"
+      : moderated.length > 0
+        ? "/admin/contents?state=pending"
+        : "/admin/authz",
   );
 }

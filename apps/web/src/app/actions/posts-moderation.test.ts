@@ -60,9 +60,9 @@ const cases = [
     service: vi.mocked(approveReview),
     fields: { postId: "57" },
     args: [subject, 57, actor],
-    success: "/admin/review?approved=1",
-    errorPath: "/admin/review",
-    paths: ["/admin/review", "/admin/contents"],
+    success: "/admin/contents?state=pending&approved=1",
+    errorPath: "/admin/contents",
+    paths: ["/admin/contents"],
   },
   {
     name: "驳回",
@@ -70,9 +70,9 @@ const cases = [
     service: vi.mocked(rejectReview),
     fields: { postId: "57", reason },
     args: [subject, 57, reason, actor],
-    success: "/admin/review?rejected=1",
+    success: "/admin/contents?state=pending&rejected=1",
     errorPath: "/admin/contents",
-    paths: ["/admin/review", "/admin/contents"],
+    paths: ["/admin/contents"],
   },
   {
     name: "封禁",
@@ -82,7 +82,7 @@ const cases = [
     args: [subject, 57, reason, actor],
     success: "/admin/contents?disabled=1",
     errorPath: "/admin/contents",
-    paths: ["/admin/contents", "/admin/review"],
+    paths: ["/admin/contents"],
   },
 ];
 

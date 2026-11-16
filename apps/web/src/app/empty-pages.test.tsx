@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SearchPage from "./search/page";
 import FollowsPage from "./follows/page";
-import ReviewPage from "./admin/review/page";
+import ContentsPage from "./admin/contents/page";
 import AdminPollPage from "./admin/poll/page";
 
 const mocks = vi.hoisted(() => ({
@@ -14,8 +14,7 @@ const mocks = vi.hoisted(() => ({
   feed: vi.fn(),
   moderator: vi.fn(),
   moderated: vi.fn(),
-  review: vi.fn(),
-  removed: vi.fn(),
+  contents: vi.fn(),
   polls: vi.fn(),
 }));
 vi.mock("@/lib/authz/subject", () => ({
@@ -42,14 +41,20 @@ vi.mock("@/lib/authz/service", () => ({
   // 投票页读 site.admin 决定作用域；测试主体非 admin → moderated 口径
   checkPermission: vi.fn(async () => ({ allowed: false, via: "deny" as const })),
 }));
-vi.mock("@/lib/moderation/review", () => ({
-  listReviewPage: mocks.review,
+vi.mock("@/lib/moderation/contents", () => ({
+  listContentsPage: mocks.contents,
 }));
 vi.mock("@/lib/poll/admin", () => ({ listPollPage: mocks.polls }));
 vi.mock("@/app/actions/posts", () => ({ restorePostAction: vi.fn() }));
-vi.mock("./admin/review/actions", () => ({
-  approveReviewAction: vi.fn(),
-  rejectReviewAction: vi.fn(),
+vi.mock("./admin/contents/actions", () => ({
+  approveContentAction: vi.fn(),
+  approveReviewBulkAction: vi.fn(),
+  disableContentAction: vi.fn(),
+  hideContentAction: vi.fn(),
+  purgeContentAction: vi.fn(),
+  rejectContentAction: vi.fn(),
+  rejectReviewBulkAction: vi.fn(),
+  threadFlagsAction: vi.fn(),
 }));
 vi.mock("./admin/poll/actions", () => ({
   closePollAction: vi.fn(),
@@ -75,7 +80,7 @@ describe("页面空态", () => {
     });
     mocks.moderator.mockResolvedValue(undefined);
     mocks.moderated.mockResolvedValue([904]);
-    mocks.review.mockResolvedValue({ items: [], total: 0 });
+    mocks.contents.mockResolvedValue({ items: [], total: 0, page: 1, totalPages: 1 });
     mocks.polls.mockResolvedValue({ items: [], total: 0 });
   });
 
@@ -96,14 +101,12 @@ describe("页面空态", () => {
     expect(mocks.feed).toHaveBeenCalledWith({ userId: 1 }, 1, "all");
   });
 
-  it.each([
-    ["pending", "所辖板块没有待审核的内容。"],
-    ["removed", "所辖板块没有已删除或屏蔽的内容。"],
-  ])("审核 %s 空态保留版主作用域", async (tab, text) => {
-    render(await ReviewPage({ searchParams: Promise.resolve({ tab }) }));
-    expect(screen.getByText(text)).toBeInTheDocument();
-    expect(mocks.moderator).toHaveBeenCalledOnce();
-    expect(mocks.review).toHaveBeenCalledWith({ userId: 1 }, { tab, page: 1 });
+  it("内容管理待审队列空态保留版主作用域（M19：审核并入 contents）", async () => {
+    render(await ContentsPage({ searchParams: Promise.resolve({ state: "pending" }) }));
+    expect(screen.getByText("没有匹配条件的内容。")).toBeInTheDocument();
+    expect(mocks.contents).toHaveBeenCalledWith(
+      expect.objectContaining({ state: "pending", order: "queue", page: 1 }),
+    );
   });
 
   it("投票空态保留版主作用域", async () => {

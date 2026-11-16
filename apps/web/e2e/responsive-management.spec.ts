@@ -298,40 +298,42 @@ async function auditManagementQueues(
 ): Promise<void> {
   const teamPending = fixture.threads.teamPending!;
   const publicPending = fixture.threads.publicPending!;
-  await audit.step(`${role}-review-pending-queue`, async () => {
-    await page.goto("/admin/review?forum=904&kind=thread");
+  // M19：审核队列并入 /admin/contents（?state=pending），场景锚点随之迁移
+  await audit.step(`${role}-contents-pending-queue-thread`, async () => {
+    await page.goto("/admin/contents?forum=904&kind=thread&state=pending");
     const row = page.locator(`li:has(input[name="postIds"][value="${teamPending.first}"])`);
     await expect(row).toBeVisible();
     await expect(row.getByRole("button", { name: "通过", exact: true })).toBeVisible();
     await expect(row.getByRole("button", { name: "驳回", exact: true })).toBeVisible();
-    await row.getByRole("checkbox").check();
+    // 直接定位批量勾选框（行内还有锁定/精华 checkbox，getByRole 会命中多个）
+    await row.locator('input[name="postIds"]').check();
     await row.locator('input[name="reason"]').fill(LONG_REASON);
-    await page.locator('#bulk-review-form input[name="reason"]').fill(LONG_REASON);
-    await audit.capture(`${role}-review-pending-queue`, {
+    await page.locator('#bulk-contents-form input[name="reason"]').fill(LONG_REASON);
+    await audit.capture(`${role}-contents-pending-queue-thread`, {
       roots: ADMIN_ROOT,
       buttons: ADMIN_BUTTONS,
-      required: ["#bulk-review-form", `input[name="postIds"][value="${teamPending.first}"]`],
+      required: ["#bulk-contents-form", `input[name="postIds"][value="${teamPending.first}"]`],
       regions: [
         {
-          name: "review-row",
+          name: "pending-row",
           selector: `li:has(input[name="postIds"][value="${teamPending.first}"])`,
         },
-        { name: "review-bulk-actions", selector: "#bulk-review-form" },
+        { name: "pending-bulk-actions", selector: "#bulk-contents-form" },
       ],
     });
   });
-  await audit.step(`${role}-review-reply-queue`, async () => {
-    await page.goto("/admin/review?forum=904&kind=reply");
+  await audit.step(`${role}-contents-pending-queue-reply`, async () => {
+    await page.goto("/admin/contents?forum=904&kind=reply&state=pending");
     const row = page.locator(`li:has(input[name="postIds"][value="${teamPending.pendingReply}"])`);
     await expect(row).toBeVisible();
     await row.locator('input[name="reason"]').fill(LONG_REASON);
-    await audit.capture(`${role}-review-reply-queue`, {
+    await audit.capture(`${role}-contents-pending-queue-reply`, {
       roots: ADMIN_ROOT,
       buttons: ADMIN_BUTTONS,
       required: [`input[name="postIds"][value="${teamPending.pendingReply}"]`],
       regions: [
         {
-          name: "review-reply",
+          name: "pending-reply",
           selector: `li:has(input[name="postIds"][value="${teamPending.pendingReply}"])`,
         },
       ],
@@ -370,23 +372,22 @@ async function auditManagementQueues(
     });
   }
   if (role === "mod") {
-    for (const route of ["review", "contents"] as const) {
-      await audit.step(`mod-${route}-outside-scope-empty`, async () => {
-        await page.goto(
-          `/admin/${route}?forum=954&kind=thread${route === "contents" ? `&q=${encodeURIComponent(fixture.marker)}` : ""}`,
-        );
-        await expect(page.locator(`${ADMIN_ROOT} a[href="/t/${publicPending.id}"]`)).toHaveCount(0);
-        await expect(
-          page.locator(
-            `${ADMIN_ROOT} li input[name="postId"], ${ADMIN_ROOT} li input[name="postIds"]`,
-          ),
-        ).toHaveCount(0);
-        await audit.capture(`mod-${route}-outside-scope-empty`, {
-          roots: ADMIN_ROOT,
-          buttons: ADMIN_BUTTONS,
-        });
+    // M19：审核页并入 contents 后，版外空态只对 contents 断言（review 旧路由是永久跳转）
+    await audit.step(`mod-contents-outside-scope-empty`, async () => {
+      await page.goto(
+        `/admin/contents?forum=954&kind=thread&q=${encodeURIComponent(fixture.marker)}`,
+      );
+      await expect(page.locator(`${ADMIN_ROOT} a[href="/t/${publicPending.id}"]`)).toHaveCount(0);
+      await expect(
+        page.locator(
+          `${ADMIN_ROOT} li input[name="postId"], ${ADMIN_ROOT} li input[name="postIds"]`,
+        ),
+      ).toHaveCount(0);
+      await audit.capture(`mod-contents-outside-scope-empty`, {
+        roots: ADMIN_ROOT,
+        buttons: ADMIN_BUTTONS,
       });
-    }
+    });
   }
   if (width < 1024) {
     await audit.step(`${role}-admin-drawer-open`, async () => {

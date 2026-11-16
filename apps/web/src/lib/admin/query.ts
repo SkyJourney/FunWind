@@ -20,6 +20,15 @@ export function buildAdminQuery(
 }
 
 /**
+ * 在可能已带 query 的回跳路径上追加一个键值对（管理 Action 回跳用）。
+ * back 由页面 baseQuery 生成、可能已含 `?`，硬拼 `?` 会产出畸形 URL——统一走这里。
+ */
+export function appendQueryParam(path: string, key: string, value: string): string {
+  const sep = path.includes("?") ? "&" : "?";
+  return `${path}${sep}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+}
+
+/**
  * 页码解析：默认拒绝非正整数；既有列表用 number-or-one 保留 Number(raw) || 1 的接受面，
  * 小数 / 负数 / Infinity 继续交给原服务层的分页策略处理，不在展示层改变取整或夹取行为。
  */

@@ -1,10 +1,10 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { forums, getWebDb, posts, threads, users } from "@funwind/db";
 import { publicUsername } from "@/lib/identity-expr";
 import { pageBounds } from "@/lib/paging";
 
 /**
- * 内容管理查询（M9.5 §9.2-A）：后台跨主题/回帖的**定位**能力——
+ * 内容管理查询（M9.5 §9.2-A；M19 吸收审核队列）：后台跨主题/回帖的**定位**能力——
  * 标题/正文关键词 + 板块 + 六态筛选 + 分页，服务层按版主作用域过滤（admin.recycle 持全站视角）。
  * 主题与回帖共用一套状态机与操作，行内动作按 kind 分派。
  */
@@ -22,6 +22,11 @@ export type ContentListFilters = {
   perPage?: number;
   /** 版主所辖版块（空数组 = 无权限）；null = 全站视角（admin.recycle / site.admin） */
   scopeForumIds: number[] | null;
+  /**
+   * 排序语义：默认 recent（最新在前，倒序）；待审核队列传 "queue"——按提交时间正序（先到先审，
+   * M19 自 review 队列合并而来）。
+   */
+  order?: "recent" | "queue";
 };
 
 export interface ContentListItem {
@@ -134,6 +139,8 @@ export async function listContentsPage(
           .where(where);
   const total = Number(countRow[0]?.total ?? 0);
   const { page, totalPages, offset } = pageBounds(total, filters.page, perPage);
+  // 队列语义（state=pending）按提交时间正序（先到先审）；其余保持最新在前。
+  const primary = filters.order === "queue" ? asc : desc;
   const rows =
     filters.kind === "thread"
       ? await base
@@ -142,7 +149,7 @@ export async function listContentsPage(
           .innerJoin(forums, eq(forums.id, threads.forumId))
           .leftJoin(users, eq(users.id, threads.authorId))
           .where(where)
-          .orderBy(desc(threads.createdAt), desc(threads.id))
+          .orderBy(primary(threads.createdAt), primary(threads.id))
           .limit(perPage)
           .offset(offset)
       : await base
@@ -152,7 +159,7 @@ export async function listContentsPage(
           .innerJoin(forums, eq(forums.id, threads.forumId))
           .leftJoin(users, eq(users.id, posts.authorId))
           .where(where)
-          .orderBy(desc(posts.createdAt), desc(posts.id))
+          .orderBy(primary(posts.createdAt), primary(posts.id))
           .limit(perPage)
           .offset(offset);
 
