@@ -105,7 +105,7 @@ export default async function ForumEditPage({
           role="alert"
           className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
         >
-          {ERR_TEXT[sp.err] ?? "操作失败，请重试。"}
+          {ERR_TEXT[sp.err] ?? sp.err}
         </p>
       )}
 

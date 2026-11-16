@@ -176,7 +176,7 @@ const brandAdminPath = (kind: BrandPoolKind): string =>
 const brandUrlRe = (kind: BrandPoolKind, param: string): RegExp => {
   const base = brandAdminPath(kind);
   const sep = base.includes("?") ? "&" : "\\?";
-  return new RegExp(`${base.replace("?", "\\?")}${sep}${param}$`);
+  return new RegExp(`${base.replace("?", "\\?")}${sep}${param.replace(/=/g, "(?:=|%3D)")}$`);
 };
 
 /** 只用服务端生成的安全文件名定位自有池卡片，不依赖种子池为空。 */
@@ -259,7 +259,7 @@ async function auditNonemptyBrandPool(
           buffer: png,
         });
         await submit(page, page.getByRole("button", { name: "上传入池", exact: true }));
-        await expect(page).toHaveURL(brandUrlRe(kind, `added=${kind}-[a-z0-9]+\\.png`));
+        await expect(page).toHaveURL(brandUrlRe(kind, `ok=added=${kind}-[a-z0-9]+\\.png`));
         await fixture.trackBrandPoolFiles(kind);
       }
       const pool = await fixture.readBrandPool(kind);
@@ -727,7 +727,7 @@ for (const width of LAYOUT_WIDTHS) {
               .locator('form:has(input[name="icon"])')
               .getByRole("button", { name: /上传|更换/, exact: true }),
           );
-          await expect(page).toHaveURL(/iconErr=/);
+          await expect(page).toHaveURL(/err=/);
           await expect(
             page.locator(`${ADMIN_ROOT} p[role='alert']`).filter({ hasText: "板块图" }),
           ).toBeVisible();
