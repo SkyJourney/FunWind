@@ -1,8 +1,9 @@
 # M19 · 后台管理重塑（IA 重塑 + 拆分合并 + 多尺寸列表 + 筛选基建 + 一致性清账）
 
 - 阶段：四·运营与演进 ｜ 依赖：无（M18 已收口）｜
-  状态：🟡 **工程交付完成**（2026-11-17 S0–S5 全部收口，提交至 `39dce10e`，执行记录见 §9；
-  verify:all 与全量 E2E 收口门禁 + PR 合并后转 ✅，站长真机清单留观察期）
+  状态：✅ **已收口**（2026-11-17 S0–S5 全部交付至 `2599f911`，执行记录见 §9；
+  verify:all 全绿实测（lint/tsc/单测/构建/重复棘轮 1343<1405）+ 全量 E2E prod 533/dev 8 全绿实测；
+  PR 待站长推送合并，站长真机清单留观察期）
 - 立项动因：站长 2026-11-16 两轮指示——①「整个后台管理的菜单和功能做一次规整，现在用起来有点混乱」，
   列表要有**多尺寸显示效果**、**更多筛选项**；根因认知：「菜单乱也跟不断地加功能有关，现在正好是根据功能重塑后台的一次好时机，
   正好也把列表的样式和统一的组件搞起来，后续菜单就更统一和规整了」；②计划评审追加：「后台菜单的内容，也可以根据功能重新梳理规划，
@@ -213,8 +214,11 @@ appeals 摘双重容器；空态统一 EmptyState（F19 清单）。**UserPicker
   视觉基线重录后双向 10/10；admin-lists E2E 3/3（size/密度 URL 保持、logs 筛选+CSV 透传、
   invites 日期两态、UserPicker 候选下拉真实点击）。
 - Step5 相关 13 个 E2E 全量重置库实测全绿（announcement/badges/points/emojis/governance/email/
-  ops/campaigns/moderation/admin-lists/settings-admin/admin-mail/hero）；全量 E2E 与 verify:all
-  见下方收口门禁。
+  ops/campaigns/moderation/admin-lists/settings-admin/admin-mail/hero）。
+- **收口门禁终局实测（2026-11-17）**：verify:all 全绿（第七轮，含行数门禁四文件拆分修正后）；
+  全量 E2E prod 533 + dev 8 全绿（第三轮，前两轮暴露的 E2E 断言旧键残留全部收尾：decor/hero added
+  解析、theme 三 spec predicate、error-redirects 落点、import int 断言、responsive brandUrlRe %3D
+  容错、forums/[fid] err 原文回落保留板块图校验详情）。过程提交 `6e6e4a2`/`aa8f4610`/`275ab9f7`/`2599f911`。
 
 ### 遗留（移交与观察期）
 
