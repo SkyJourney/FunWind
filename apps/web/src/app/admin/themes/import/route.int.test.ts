@@ -163,7 +163,7 @@ describe.skipIf(skipDb)("主题包导入（临时库 + 临时存储）", () => {
   it("成功导入重映射明暗档与内容图，保留 PWA，全程不改变两个池的 active", async () => {
     const spies = cleanupSpies();
     const query = await importPack();
-    expect(Object.fromEntries(query)).toEqual({ saved: "imported", id: packId });
+    expect(Object.fromEntries(query)).toEqual({ ok: "imported", id: packId });
     expect(spies.removeDecor).not.toHaveBeenCalled();
     expect(spies.removeLogo).not.toHaveBeenCalled();
     expect(spies.restoreDecor).not.toHaveBeenCalled();
@@ -238,7 +238,7 @@ describe.skipIf(skipDb)("主题包导入（临时库 + 临时存储）", () => {
     expect(parseThemePackArchive(bytes).definition.tokens).toEqual(FULL_TOKENS);
 
     expect(Object.fromEntries(await importBytes(bytes))).toEqual({
-      saved: "imported",
+      ok: "imported",
       id: packId,
     });
     const imported = await packs.getThemePack(packId);
@@ -389,7 +389,7 @@ describe.skipIf(skipDb)("主题包导入（临时库 + 临时存储）", () => {
       const spies = cleanupSpies();
       const query = Object.fromEntries(await importPack());
       expect(query).toEqual(
-        outcome === "created" ? { saved: "imported", id: packId } : { err: "enabled-limit" },
+        outcome === "created" ? { ok: "imported", id: packId } : { err: "enabled-limit" },
       );
       expect((await decor.getDecorPoolRaw()).active).toBe(concurrentDecor);
       expect((await logo.getLogoPoolRaw()).active).toBe(concurrentLogo);
@@ -447,13 +447,13 @@ describe.skipIf(skipDb)("主题包导入（临时库 + 临时存储）", () => {
       expect((await logo.getLogoPoolRaw()).active).toBe(oldLogo);
       return result;
     });
-    expect(Object.fromEntries(await importPack())).toEqual({ saved: "imported", id: packId });
+    expect(Object.fromEntries(await importPack())).toEqual({ ok: "imported", id: packId });
   });
 
   it("导入前 active 为空时仍保持为空，不擅自激活主题素材", async () => {
     await decor.setActiveDecor(null, actor);
     await logo.setActiveLogo(null, actor);
-    expect(Object.fromEntries(await importPack())).toEqual({ saved: "imported", id: packId });
+    expect(Object.fromEntries(await importPack())).toEqual({ ok: "imported", id: packId });
     expect((await decor.getDecorPoolRaw()).active).toBeNull();
     expect((await logo.getLogoPoolRaw()).active).toBeNull();
     expect(console.error).not.toHaveBeenCalled();
