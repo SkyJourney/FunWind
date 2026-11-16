@@ -52,6 +52,8 @@ export default async function AdminAppealsPage() {
                     <form action={resolveUserAppealAction} className="flex flex-wrap gap-2">
                       <input type="hidden" name="userId" value={appeal.userId} />
                       <input type="hidden" name="appealId" value={appeal.id} />
+                      {/* 处理后落在该用户的治理签（申诉记录所在分区，M19 三签） */}
+                      <input type="hidden" name="tab" value="governance" />
                       <select
                         name="status"
                         aria-label="申诉处理决定"

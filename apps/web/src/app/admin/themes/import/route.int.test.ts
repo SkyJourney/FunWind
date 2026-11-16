@@ -207,7 +207,7 @@ describe.skipIf(skipDb)("主题包导入（临时库 + 临时存储）", () => {
     expect((await logo.getLogoPoolRaw()).active).toBe(oldLogo);
     expect(revalidatePath).toHaveBeenCalledWith("/admin/themes");
     expect(revalidatePath).toHaveBeenCalledWith("/admin/decor");
-    expect(revalidatePath).toHaveBeenCalledWith("/admin/logo");
+    expect(revalidatePath).toHaveBeenCalledWith("/admin/brand");
     expect(console.error).not.toHaveBeenCalled();
   });
 
