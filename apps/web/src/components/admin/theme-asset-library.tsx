@@ -6,7 +6,6 @@ import { useThemeRequest } from "@/components/admin/use-theme-request";
 import { ThemeFeedback, ThemeUploadButton } from "@/components/admin/theme-workspace-ui";
 import { ActionGroup } from "@/components/ui/action-group";
 import { controlLayout } from "@/components/ui/control-layout";
-import type { SurfaceCapabilities } from "@/lib/theme/surface-schema";
 
 /**
  * 主题工作区内嵌素材库（M11.1 Step 7）：decor 素材的上传 / 预览 / 删除 / 选用集中在这里，
@@ -182,15 +181,3 @@ export function ThemeAssetLibrary({
     </section>
   );
 }
-
-/** 判断当前区域能否应用为图片底纹（存在 fill 能力即允许切换为 image 类型） */
-export function canApplyAsFill(caps: readonly string[] | undefined): boolean {
-  return caps?.includes("fill") ?? false;
-}
-
-/** 判断当前区域是否有内容插槽图片位 */
-export function canApplyAsContent(caps: readonly string[] | undefined): boolean {
-  return caps?.includes("contentSlot") ?? false;
-}
-
-export type AssetApplyCapability = Pick<SurfaceCapabilities, "fill" | "contentSlot">;

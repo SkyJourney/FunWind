@@ -6,6 +6,7 @@ import { MAX_ISSUES_SHOWN, parseIssues } from "@/lib/theme/issues";
 import { getDecorUsage, getThemePack, parseThemePackAssets } from "@/lib/theme/packs";
 import { SURFACES, type ThemePackDefinition } from "@/lib/theme/surface-schema";
 import { AdminFlash } from "@/components/admin/admin-flash";
+import { flashText } from "@/lib/admin/flash";
 import { describeIssue } from "@/components/admin/theme/issue-text";
 import { ThemePackEditorForm } from "@/components/admin/theme-pack-editor-form";
 import { ThemeLogoManager } from "@/components/admin/theme-logo-manager";
@@ -33,7 +34,7 @@ const ERR_TEXT: Record<string, string> = {
  */
 export default async function ThemePackEditPage(props: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ saved?: string; err?: string; ack?: string; issue?: string | string[] }>;
+  searchParams: Promise<{ ok?: string; err?: string; ack?: string; issue?: string | string[] }>;
 }) {
   // 入口鉴权约定：第一个 await 必须是 requireAdmin（admin-entry-guard 静态守护）
   const actor = await requireAdmin("site.admin");
@@ -62,12 +63,14 @@ export default async function ThemePackEditPage(props: {
         </p>
       </header>
 
-      {sp.saved && (
+      {sp.ok && (
         <AdminFlash kind="success" dismissHref={`/admin/themes/${pack.id}`}>
           主题包配置已保存。
         </AdminFlash>
       )}
-      {sp.err && <AdminFlash kind="error">{ERR_TEXT[sp.err] ?? "保存失败，请重试。"}</AdminFlash>}
+      {sp.err && (
+        <AdminFlash kind="error">{flashText(ERR_TEXT, sp.err, "保存失败，请重试。")}</AdminFlash>
+      )}
       {issues.length > 0 && (
         <ul
           aria-label="未通过校验的项"
@@ -115,7 +118,7 @@ export default async function ThemePackEditPage(props: {
         description={pack.description}
         initialDefinition={pack.definition as ThemePackDefinition}
         error={sp.err}
-        saved={Boolean(sp.saved)}
+        saved={Boolean(sp.ok)}
         ack={sp.ack}
         surfaces={SURFACES.map((surface) => ({
           id: surface.id,

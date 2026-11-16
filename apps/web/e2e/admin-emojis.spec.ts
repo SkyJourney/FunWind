@@ -77,10 +77,10 @@ test("admin 全流程：建组 → 上传 → /emoji 可访问 → 改名/关键
   // 建两个组（B 用于删除用例；A/B 用于排序）
   await page.locator('input[name="name"][placeholder="新分组名"]').fill(GROUP_A);
   await page.getByRole("button", { name: "新建分组" }).click();
-  await expect(page).toHaveURL(/saved=group-created/);
+  await expect(page).toHaveURL(/ok=group-created/);
   await page.locator('input[name="name"][placeholder="新分组名"]').fill(GROUP_B);
   await page.getByRole("button", { name: "新建分组" }).click();
-  await expect(page).toHaveURL(/saved=group-created/);
+  await expect(page).toHaveURL(/ok=group-created/);
   const groupA = await withE2eDb(async (q) => {
     const rows = await q.query<{ id: number }>("SELECT id FROM emoji_groups WHERE name = ?", [
       GROUP_A,
@@ -94,7 +94,7 @@ test("admin 全流程：建组 → 上传 → /emoji 可访问 → 改名/关键
     .getByLabel("选择表情文件（可多选）")
     .setInputFiles({ name: "表情一.png", mimeType: "image/png", buffer: await solidPng(96) });
   await page.getByRole("button", { name: "上传表情" }).click();
-  await expect(page).toHaveURL(new RegExp(`group=${groupA}&saved=upload`));
+  await expect(page).toHaveURL(new RegExp(`group=${groupA}&ok=upload`));
   const row = page.locator('[data-testid="emoji-grid"] tbody tr', {
     has: page.locator('img[alt="表情一"]'),
   });
@@ -110,7 +110,7 @@ test("admin 全流程：建组 → 上传 → /emoji 可访问 → 改名/关键
   await page.getByLabel(`表情 #${id1} 的名称`).fill("E2E 改名表情");
   await page.getByLabel(`表情 #${id1} 的搜索关键词`).fill("e2e 测试 关键词");
   await row.getByRole("button", { name: "保存" }).click();
-  await expect(page).toHaveURL(/saved=emoji-renamed/);
+  await expect(page).toHaveURL(/ok=emoji-renamed/);
   await expect(
     page.locator('[data-testid="emoji-grid"] tbody tr', {
       has: page.locator(`img[alt="E2E 改名表情"]`),
@@ -122,14 +122,14 @@ test("admin 全流程：建组 → 上传 → /emoji 可访问 → 改名/关键
     .getByLabel("选择表情文件（可多选）")
     .setInputFiles({ name: "表情二.png", mimeType: "image/png", buffer: PNG_1X1 });
   await page.getByRole("button", { name: "上传表情" }).click();
-  await expect(page).toHaveURL(/saved=upload/);
+  await expect(page).toHaveURL(/ok=upload/);
   const renamedRow = page.locator('[data-testid="emoji-grid"] tbody tr', {
     has: page.locator(`img[alt="E2E 改名表情"]`),
   });
   // 把「E2E 改名表情」的排序值改为 0（原值更高），保存后它排到最前
   await renamedRow.getByLabel(/排序值/).fill("0");
   await renamedRow.getByRole("button", { name: "保存" }).click();
-  await expect(page).toHaveURL(/saved=emoji-renamed/);
+  await expect(page).toHaveURL(/ok=emoji-renamed/);
   const firstName = await page
     .locator('[data-testid="emoji-grid"] tbody tr')
     .first()
@@ -206,7 +206,7 @@ test("admin 全流程：建组 → 上传 → /emoji 可访问 → 改名/关键
   }
   await Promise.all([concurrentMutation, concurrentSave]);
   // Server Action 的 click Promise 只保证事件派发；显式等 redirect，确保事务+审计已提交后再读日志。
-  await expect(concurrentPage).toHaveURL(/saved=emoji-renamed/);
+  await expect(concurrentPage).toHaveURL(/ok=emoji-renamed/);
   const [latestUpdateAudit] = await withE2eDb((q) =>
     q.query<{ beforeName: string | null }>(
       "SELECT JSON_UNQUOTE(JSON_EXTRACT(before_json, '$.name')) AS beforeName FROM audit_log WHERE action = ? AND target_type = ? AND target_id = ? ORDER BY id DESC LIMIT 1",
@@ -224,7 +224,7 @@ test("admin 全流程：建组 → 上传 → /emoji 可访问 → 改名/关键
     })
     .getByRole("button", { name: "停用" })
     .click();
-  await expect(page).toHaveURL(/saved=emoji-toggled/);
+  await expect(page).toHaveURL(/ok=emoji-toggled/);
   await expect(
     page
       .locator('[data-testid="emoji-grid"] tbody tr', {
@@ -246,14 +246,14 @@ test("admin 全流程：建组 → 上传 → /emoji 可访问 → 改名/关键
   const emptyGroupName = `${GROUP_B} 空删`;
   await page.locator('input[name="name"][placeholder="新分组名"]').fill(emptyGroupName);
   await page.getByRole("button", { name: "新建分组" }).click();
-  await expect(page).toHaveURL(/saved=group-created/);
+  await expect(page).toHaveURL(/ok=group-created/);
   const emptyGroupId = await groupIdOf(emptyGroupName);
   await page
     .locator('[data-testid="group-list"] li', { hasText: emptyGroupName })
     .getByRole("button", { name: "删除" })
     .click();
   await page.getByRole("button", { name: "确认" }).click();
-  await expect(page).toHaveURL(/saved=group-deleted/);
+  await expect(page).toHaveURL(/ok=group-deleted/);
   await expect(
     page.locator('[data-testid="group-list"] li', { hasText: emptyGroupName }),
   ).toHaveCount(0);
@@ -275,7 +275,7 @@ test("分组标题图：admin 上传 → 列表显示 + /files 可访问 + 审�
     .getByLabel(`分组「${GROUP_A}」的标题图`)
     .setInputFiles({ name: "标题图.png", mimeType: "image/png", buffer: await solidPng(96) });
   await row.getByRole("button", { name: "上传标题图" }).click();
-  await expect(page).toHaveURL(/saved=group-icon/);
+  await expect(page).toHaveURL(/ok=group-icon/);
   const iconSrc = await row.locator('img[src^="/files/"]').getAttribute("src");
   expect(iconSrc).toBeTruthy();
   expect((await request.get(iconSrc!)).status()).toBe(200);

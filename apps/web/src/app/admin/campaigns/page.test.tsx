@@ -84,7 +84,7 @@ const ACTIONS_SRC = readFileSync(
   "utf8",
 );
 const savedCodesInActions = () =>
-  new Set([...ACTIONS_SRC.matchAll(/[?&]saved=([a-z_-]+)/g)].map((match) => match[1]));
+  new Set([...ACTIONS_SRC.matchAll(/[?&]ok=([a-z_-]+)/g)].map((match) => match[1]));
 
 describe("运营排期页：回执码与文案成对（G-15）", () => {
   it.each(Object.entries(ERROR_TEXT))("失败码 %s 渲染专门提示", async (code, text) => {
@@ -107,13 +107,13 @@ describe("运营排期页：回执码与文案成对（G-15）", () => {
   });
 
   it.each(Object.entries(SAVED_TEXT))("成功回执 %s 有专门文案", async (saved, text) => {
-    render(await page({ saved }));
+    render(await page({ ok: saved }));
     expect(screen.getByRole("status")).toHaveTextContent(text);
   });
 
   it("未知成功回执与原型属性名不显示任何提示", async () => {
     for (const saved of ["no-such-code", "toString"]) {
-      const { unmount } = render(await page({ saved }));
+      const { unmount } = render(await page({ ok: saved }));
       expect(screen.queryByRole("status")).toBeNull();
       expect(screen.queryByRole("alert")).toBeNull();
       unmount();

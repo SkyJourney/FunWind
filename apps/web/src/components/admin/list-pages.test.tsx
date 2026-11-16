@@ -179,7 +179,7 @@ function navLinks(label: string) {
 
 describe("最高重复四页的 URL 与筛选 DOM 快照", () => {
   it("举报默认 tab 的新增键跟在 forum 后；切换/重置/分页/flash 不带旧页码", async () => {
-    const { container } = await show("reports", { forum: "7", page: "2", error: "错误" });
+    const { container } = await show("reports", { forum: "7", page: "2", err: "错误" });
     expect(navLinks("举报状态")).toMatchInlineSnapshot(`
       [
         [

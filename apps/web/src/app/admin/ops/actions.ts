@@ -36,7 +36,9 @@ export const triggerTaskAction = defineAction({
     if (result.ok) await recordManualTrigger(check.task.taskKey, result.runId, ctx.actor);
     revalidatePath(OPS_PAGE);
     if (result.ok)
-      redirect(`${OPS_PAGE}?queued=${result.runId}&task=${encodeURIComponent(check.task.taskKey)}`);
+      redirect(
+        `${OPS_PAGE}?ok=queued=${result.runId}&task=${encodeURIComponent(check.task.taskKey)}`,
+      );
     redirect(`${OPS_PAGE}?err=${encodeURIComponent(result.message)}`);
   },
 });
@@ -60,7 +62,7 @@ export const setTaskEnabledAction = defineAction({
     revalidatePath(OPS_PAGE);
     if (result.ok)
       redirect(
-        `${input.back}${input.back.includes("?") ? "&" : "?"}tasks=${input.enabled === "1" ? "enabled" : "disabled"}`,
+        `${input.back}${input.back.includes("?") ? "&" : "?"}ok=tasks-${input.enabled === "1" ? "enabled" : "disabled"}`,
       );
     const message =
       result.code === "conflict"
@@ -88,7 +90,7 @@ export const saveBackupPolicyAction = defineAction({
       ctx.actor,
     );
     revalidatePath(OPS_PAGE);
-    if (result.ok) redirect(`${OPS_PAGE}?policy=saved`);
+    if (result.ok) redirect(`${OPS_PAGE}?ok=policy`);
     redirect(`${OPS_PAGE}?err=${encodeURIComponent(result.message ?? "保留策略保存失败")}`);
   },
 });

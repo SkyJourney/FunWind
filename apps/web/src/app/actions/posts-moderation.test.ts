@@ -60,7 +60,7 @@ const cases = [
     service: vi.mocked(approveReview),
     fields: { postId: "57" },
     args: [subject, 57, actor],
-    success: "/admin/contents?state=pending&approved=1",
+    success: "/admin/contents?state=pending&ok=approved",
     errorPath: "/admin/contents",
     paths: ["/admin/contents"],
   },
@@ -70,7 +70,7 @@ const cases = [
     service: vi.mocked(rejectReview),
     fields: { postId: "57", reason },
     args: [subject, 57, reason, actor],
-    success: "/admin/contents?state=pending&rejected=1",
+    success: "/admin/contents?state=pending&ok=rejected",
     errorPath: "/admin/contents",
     paths: ["/admin/contents"],
   },
@@ -80,7 +80,7 @@ const cases = [
     service: vi.mocked(disableContent),
     fields: { postId: "57", reason },
     args: [subject, 57, reason, actor],
-    success: "/admin/contents?disabled=1",
+    success: "/admin/contents?ok=disabled",
     errorPath: "/admin/contents",
     paths: ["/admin/contents"],
   },
@@ -132,7 +132,7 @@ describe.each(cases)("前台公开审核动作：$name", (entry) => {
       entry.service.mockResolvedValue({ ok: false, code, message });
       const result = entry.action(form(entry.fields));
       if (entry.errorPath) {
-        await expectRedirect(result, `${entry.errorPath}?error=${encodeURIComponent(message)}`);
+        await expectRedirect(result, `${entry.errorPath}?err=${encodeURIComponent(message)}`);
       } else {
         await expect(result).rejects.toMatchObject({ digest: "NEXT_HTTP_ERROR_FALLBACK;404" });
       }

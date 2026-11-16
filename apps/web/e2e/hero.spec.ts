@@ -48,7 +48,7 @@ test("admin：像素超限被拒 → 合法横幅上传入池 → 首页渲染 �
       .toBuffer(),
   });
   await page.getByRole("button", { name: "上传入池" }).click();
-  await page.waitForURL("**/admin/brand?kind=hero&added=*");
+  await page.waitForURL("**/admin/brand?kind=hero&ok=added*");
   await expect(page.getByText("已入池并设为当前")).toBeVisible();
 
   // 首页出现 Hero；公开路由 200

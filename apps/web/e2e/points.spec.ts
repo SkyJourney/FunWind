@@ -76,7 +76,7 @@ test("后台规则配置：发帖奖励改为 5 → 发帖入账 5", async ({ pa
     await page.goto("/admin/points");
     await page.getByLabel("发帖奖励").fill("5");
     await page.getByRole("button", { name: "保存规则" }).click();
-    await expect(page).toHaveURL(/\/admin\/points\?saved=1/);
+    await expect(page).toHaveURL(/\/admin\/points\?ok=saved/);
     await expect(page.getByText("奖励规则已保存")).toBeVisible();
 
     // 用独立 context 以 member 发帖（奖励入 member 账户）
@@ -116,7 +116,7 @@ test("管理员手工调整：强制备注、余额变化、audit_log 留痕", a
   await page.getByRole("button", { name: "执行调整" }).click();
   // M9.5：调整加了二次确认（可负数扣分，保护等级对齐删除类操作）
   await page.getByRole("dialog").getByRole("button", { name: "确认" }).click();
-  await expect(page).toHaveURL(/\/admin\/points\?adjusted=1/);
+  await expect(page).toHaveURL(/\/admin\/points\?ok=adjusted/);
   await expect(page.getByText("调整已入账")).toBeVisible();
 
   await expect

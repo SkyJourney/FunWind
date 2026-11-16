@@ -26,7 +26,7 @@ test("站点框架（M19 迁至站点配置）：页脚保存 → 审计 + 前�
     await page.getByRole("link", { name: "站点框架" }).click();
     await page.getByPlaceholder("版权/备案/联系方式等纯文本").fill(text);
     await page.getByRole("button", { name: "保存页脚" }).click();
-    await page.waitForURL("**/admin/settings?saved=footer*");
+    await page.waitForURL("**/admin/settings?ok=footer*");
     await expect(page.getByText("页脚已保存并即时生效。")).toBeVisible();
 
     // 前台全站页脚出现新文案（保存页脚失效 chrome 缓存，重取时带上刚补的友链）
@@ -37,7 +37,7 @@ test("站点框架（M19 迁至站点配置）：页脚保存 → 审计 + 前�
     await page.goto("/admin/settings");
     await page.getByPlaceholder("版权/备案/联系方式等纯文本").fill("");
     await page.getByRole("button", { name: "保存页脚" }).click();
-    await page.waitForURL("**/admin/settings?saved=footer*");
+    await page.waitForURL("**/admin/settings?ok=footer*");
     if (!prevLinks[0]) {
       await withE2eDb(async (q) => q.exec("DELETE FROM site_settings WHERE `key` = 'site.links'"));
     }
@@ -61,7 +61,7 @@ test("公告创建、编辑、下线均在对应事务写审计", async ({ brows
     await page.getByLabel("开始时间（默认现在）").fill("2099-01-01T00:00");
     await page.getByLabel("受众").selectOption("members");
     await page.getByRole("button", { name: "发布", exact: true }).click();
-    await page.waitForURL("**/admin/announcements?created=1");
+    await page.waitForURL("**/admin/announcements?ok=created");
 
     const created = await withE2eDb((q) =>
       q.query<{ id: number }>("SELECT id FROM announcements WHERE title = ?", [title]),
@@ -83,7 +83,7 @@ test("公告创建、编辑、下线均在对应事务写审计", async ({ brows
     await page.getByPlaceholder("标题", { exact: true }).fill(editedTitle);
     await page.getByPlaceholder("正文（Markdown）").fill("E2E 审计回归正文已编辑。");
     await page.getByRole("button", { name: "保存修改" }).click();
-    await page.waitForURL("**/admin/announcements?updated=1");
+    await page.waitForURL("**/admin/announcements?ok=updated");
 
     const editedRow = page.getByRole("listitem").filter({ hasText: editedTitle });
     await expect(editedRow).toContainText("未开始");
@@ -99,7 +99,7 @@ test("公告创建、编辑、下线均在对应事务写审计", async ({ brows
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
     await dialog.getByRole("button", { name: "确认" }).click();
-    await page.waitForURL("**/admin/announcements?ended=1");
+    await page.waitForURL("**/admin/announcements?ok=ended");
     await expect(page.getByRole("listitem").filter({ hasText: editedTitle })).toContainText(
       "已结束",
     );

@@ -701,7 +701,7 @@ for (const width of LAYOUT_WIDTHS) {
               .locator('form:has(input[name="icon"])')
               .getByRole("button", { name: "上传", exact: true }),
           );
-          await expect(page).toHaveURL(/iconSaved=1/);
+          await expect(page).toHaveURL(/ok=icon-saved/);
           const icon = page.locator('[data-slot="card"] img[src^="/files/"]').first();
           const src = await icon.getAttribute("src");
           expect(src).toMatch(/^\/files\//);

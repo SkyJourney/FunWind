@@ -9,10 +9,16 @@ import { AdminFlash } from "@/components/admin/admin-flash";
 import { AdminFilterBar } from "@/components/admin/admin-filter-bar";
 import { AdminDateRange } from "@/components/admin/admin-date-range";
 import { AdminListPager } from "@/components/admin/admin-list";
+import { flashText } from "@/lib/admin/flash";
 import { UserPicker } from "@/components/admin/user-picker";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "私信管理" };
+
+/** 回执键 → 文案（M19 Q5：URL 键统一 ok/err，文案逐条登记防漏） */
+const PM_OK: Record<string, string> = {
+  deleted: "消息已删除（审计已记录）。",
+};
 
 /** 私信管理（M10 补做；M9.5 重做；M19 S4 加时间范围与每页条数）：筛选下推 SQL + 分页 + 统计缓存。
  *  messages 表无时间/发送者索引（仅 idx_msg_conv），量级小可接受。 */
@@ -20,8 +26,8 @@ export default async function AdminPmPage({
   searchParams,
 }: {
   searchParams: Promise<{
-    error?: string;
-    deleted?: string;
+    err?: string;
+    ok?: string;
     q?: string;
     from?: string;
     to?: string;
@@ -63,14 +69,14 @@ export default async function AdminPmPage({
 
   return (
     <div className="space-y-4">
-      {sp.error && (
-        <AdminFlash kind="error" dismissHref={baseQuery({ error: "" })}>
-          {sp.error}
+      {sp.err && (
+        <AdminFlash kind="error" dismissHref={baseQuery({ err: "" })}>
+          {sp.err}
         </AdminFlash>
       )}
-      {sp.deleted && (
-        <AdminFlash kind="success" dismissHref={baseQuery({ deleted: "" })}>
-          消息已删除（审计已记录）。
+      {sp.ok && (
+        <AdminFlash kind="success" dismissHref={baseQuery({ ok: "" })}>
+          {flashText(PM_OK, sp.ok, "操作完成。")}
         </AdminFlash>
       )}
 

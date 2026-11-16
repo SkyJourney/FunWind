@@ -20,9 +20,10 @@ import {
   saveIdentityAction,
   saveLimitsAction,
   savePushEnabledAction,
-  saveThemePackAction,
+  setDefaultThemePackAction,
   sendTestMailAction,
 } from "./actions";
+import { flashText } from "@/lib/admin/flash";
 import { RegisterPolicyCard } from "./register-policy-card";
 import { ChromeRowsEditor } from "@/components/admin/chrome-rows-editor";
 import { saveFooterAction, saveLinksAction, saveNavAction } from "./actions";
@@ -81,12 +82,9 @@ export default async function SiteSettingsPage({
   searchParams,
 }: {
   searchParams: Promise<{
-    saved?: string;
+    ok?: string;
     err?: string;
-    mail_error?: string;
     warn?: string;
-    navErr?: string;
-    linksErr?: string;
   }>;
 }) {
   // 入口鉴权约定：第一个 await 必须是 requireAdmin（admin-entry-guard 静态守护）
@@ -127,8 +125,9 @@ export default async function SiteSettingsPage({
   // 开放注册窗口生效时访客可注册，警示不应出现（M11.4 §2.2 F1）
   const registrationClosed =
     registerAvailability(applyRegisterWindow(policy, registerWindow !== null)).kind === "closed";
-  const flash = sp.saved ? FLASH[sp.saved] : undefined;
-  const mailError = sp.mail_error ? MAIL_ERROR[sp.mail_error] : undefined;
+  const flash = flashText(FLASH, sp.ok);
+  const mailError = sp.err && Object.hasOwn(MAIL_ERROR, sp.err) ? MAIL_ERROR[sp.err] : undefined;
+  // 校验类失败（limits/theme/导航/友链）与邮件码共用 ?err=：非邮件码时按原文渲染
   // env 未配置 ≠ 配了本机默认：判真展示（M9.5 站长反馈「无法区分没配和配了本机」）
   const smtpConfigured =
     typeof process.env.SMTP_URL === "string" && process.env.SMTP_URL.trim().length > 0;
@@ -185,36 +184,16 @@ export default async function SiteSettingsPage({
           {mailError}
         </p>
       )}
-      {sp.err === "limits" && (
+      {sp.err && !mailError && (
         <p
           role="alert"
           className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
         >
-          频控配置校验未通过（每个角色项必须写全且不超上限），请检查后重试。
-        </p>
-      )}
-      {sp.err === "theme" && (
-        <p
-          role="alert"
-          className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
-        >
-          未知的主题包，请重新选择。
-        </p>
-      )}
-      {sp.navErr && (
-        <p
-          role="alert"
-          className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
-        >
-          导航项校验未通过：{sp.navErr}
-        </p>
-      )}
-      {sp.linksErr && (
-        <p
-          role="alert"
-          className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
-        >
-          友链校验未通过：{sp.linksErr}
+          {sp.err === "limits"
+            ? "频控配置校验未通过（每个角色项必须写全且不超上限），请检查后重试。"
+            : sp.err === "theme"
+              ? "未知的主题包，请重新选择。"
+              : sp.err}
         </p>
       )}
 
@@ -273,7 +252,7 @@ export default async function SiteSettingsPage({
           <CardTitle>全站默认主题</CardTitle>
         </CardHeader>
         <CardContent>
-          <form action={saveThemePackAction} className="space-y-2 text-sm">
+          <form action={setDefaultThemePackAction} className="space-y-2 text-sm">
             {catalog.map((pack) => (
               <label key={pack.id} className="flex items-start gap-2">
                 <input

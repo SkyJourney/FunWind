@@ -4,11 +4,17 @@ import { badgeDictionary, recentBadgeGrants, userBadgesOf } from "@/lib/badges/s
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 import { EmptyState } from "@/components/empty-state";
+import { flashText } from "@/lib/admin/flash";
 import { AdminFlash } from "@/components/admin/admin-flash";
 import { AdminFilterBar } from "@/components/admin/admin-filter-bar";
 import { UserPicker } from "@/components/admin/user-picker";
 import { fmtDateTime } from "@/lib/admin/format";
 import { grantBadgeAction, revokeBadgeAction } from "./actions";
+
+const BADGES_OK: Record<string, string> = {
+  granted: "已授予（当事人会收到通知；审计与事件各一条）。",
+  revoked: "已收回（当事人会收到通知；审计与事件各一条）。",
+};
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "徽章" };
@@ -20,7 +26,7 @@ const inputCls =
 export default async function AdminBadgesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; granted?: string; revoked?: string; uid?: string }>;
+  searchParams: Promise<{ err?: string; ok?: string; uid?: string }>;
 }) {
   await requireAdmin("admin.badges");
   const sp = await searchParams;
@@ -33,19 +39,14 @@ export default async function AdminBadgesPage({
 
   return (
     <div className="space-y-6">
-      {sp.error && (
+      {sp.err && (
         <AdminFlash kind="error" dismissHref="/admin/badges">
-          {sp.error}
+          {sp.err}
         </AdminFlash>
       )}
-      {sp.granted && (
+      {sp.ok && (
         <AdminFlash kind="success" dismissHref="/admin/badges">
-          已授予（当事人会收到通知；审计与事件各一条）。
-        </AdminFlash>
-      )}
-      {sp.revoked && (
-        <AdminFlash kind="success" dismissHref="/admin/badges">
-          已收回（当事人会收到通知；审计与事件各一条）。
+          {flashText(BADGES_OK, sp.ok, "操作完成。")}
         </AdminFlash>
       )}
 

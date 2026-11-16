@@ -38,8 +38,12 @@ test("logs：日期范围 + targetType + actor 用户名反查；CSV 链接同�
   await expect(page.getByLabel("开始日期")).toHaveValue("2026-01-01");
   await expect(page.getByLabel("结束日期")).toHaveValue("2099-12-31");
   await expect(page.getByRole("combobox", { name: "按目标类型筛选" })).toBeVisible();
-  // actor 用户名反查：demo_admin 为种子管理员；提交后 URL 记住用户名（服务端解析为 uid）
-  await page.getByLabel("actor（用户名或 uid）").fill("demo_admin");
+  // actor 用户名反查（M19 D4 搜索化）：输入片段 → 候选下拉 → 选中 demo_admin
+  const actorBox = page.getByLabel("actor（用户名或 uid）");
+  await actorBox.fill("demo_adm");
+  await expect(page.getByRole("option", { name: "demo_admin (uid 90004)" })).toBeVisible();
+  await page.getByRole("option", { name: "demo_admin (uid 90004)" }).click();
+  await expect(actorBox).toHaveValue("demo_admin");
   await page.getByRole("button", { name: "筛选" }).click();
   await expect(page).toHaveURL(
     /from=2026-01-01&to=2099-12-31.*actor=demo_admin|actor=demo_admin.*from=2026-01-01/,

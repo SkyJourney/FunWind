@@ -2,6 +2,8 @@ import Link from "next/link";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { listPendingUserAppeals } from "@/lib/authz/appeals";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState } from "@/components/empty-state";
+import { Scale } from "lucide-react";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { fmtDateTime } from "@/lib/admin/format";
 import { resolveUserAppealAction } from "../users/actions";
@@ -13,7 +15,8 @@ export default async function AdminAppealsPage() {
   await requireAdmin("admin.users");
   const appeals = await listPendingUserAppeals();
   return (
-    <main className="mx-auto max-w-5xl space-y-4 px-4 py-8 sm:px-6">
+    // M19：摘除双重容器（AdminShell 已提供 max-w-5xl，此处原再包一层 <main>，全后台唯一）
+    <div className="space-y-4">
       <header>
         <h1 className="text-2xl font-bold tracking-tight">申诉复核</h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -26,7 +29,7 @@ export default async function AdminAppealsPage() {
         </CardHeader>
         <CardContent>
           {appeals.length === 0 ? (
-            <p className="text-sm text-muted-foreground">当前没有待处理申诉。</p>
+            <EmptyState icon={Scale} title="当前没有待处理申诉。" />
           ) : (
             <ul className="divide-y">
               {appeals.map((appeal) => (
@@ -80,6 +83,6 @@ export default async function AdminAppealsPage() {
           )}
         </CardContent>
       </Card>
-    </main>
+    </div>
   );
 }

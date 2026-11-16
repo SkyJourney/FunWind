@@ -133,7 +133,7 @@ test("后台全站默认：保存即生效 + 主题绑定的 LOGO 联动设为�
     await adminPage.getByRole("radio", { name: new RegExp(PACK.name) }).check();
     await adminPage.getByRole("button", { name: "保存默认主题" }).click();
     // 主题绑定的 LOGO 联动设为当前，flash 走 theme_logo 分支
-    await adminPage.waitForURL("**/admin/settings?saved=theme_logo");
+    await adminPage.waitForURL("**/admin/settings?ok=theme_logo");
     await expect(adminPage.getByText("已把 LOGO 切换为该主题自带图")).toBeVisible();
     expect((await adminPage.request.get("/brand/logo")).status()).toBe(200);
     await adminPage.goto("/admin/brand?kind=logo");
@@ -168,7 +168,7 @@ test("后台全站默认：保存即生效 + 主题绑定的 LOGO 联动设为�
     await adminPage.getByRole("radio", { name: /现代浅色/ }).check();
     await adminPage.getByRole("button", { name: "保存默认主题" }).click();
     // default 包不带 LOGO（unchanged）：专用跳转参数与文案，明确告知 LOGO 保持不变
-    await adminPage.waitForURL("**/admin/settings?saved=theme_no_logo");
+    await adminPage.waitForURL("**/admin/settings?ok=theme_no_logo");
     await expect(
       adminPage.getByText("全站默认主题已保存（此主题无自带 LOGO，LOGO 保持不变）。", {
         exact: true,

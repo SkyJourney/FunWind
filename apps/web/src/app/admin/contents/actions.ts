@@ -34,9 +34,9 @@ export const disableContentAction = defineAction({
   async run(ctx, input) {
     const subject = await getCurrentSubject();
     const r = await disableContent(subject, input.postId, input.reason, ctx.actor);
-    if (!r.ok) redirect(`/admin/contents?error=${encodeURIComponent(r.message)}`);
+    if (!r.ok) redirect(`/admin/contents?err=${encodeURIComponent(r.message)}`);
     revalidatePath("/admin/contents");
-    redirect("/admin/contents?disabled=1");
+    redirect("/admin/contents?ok=disabled");
   },
 });
 
@@ -48,9 +48,9 @@ export const approveContentAction = defineAction({
   async run(ctx, input) {
     const subject = await getCurrentSubject();
     const r = await approveReview(subject, input.postId, ctx.actor);
-    if (!r.ok) redirect(appendQueryParam(input.back, "error", r.message));
+    if (!r.ok) redirect(appendQueryParam(input.back, "err", r.message));
     revalidatePath("/admin/contents");
-    redirect(appendQueryParam(input.back, "approved", "1"));
+    redirect(appendQueryParam(input.back, "ok", "approved"));
   },
 });
 
@@ -62,9 +62,9 @@ export const rejectContentAction = defineAction({
   async run(ctx, input) {
     const subject = await getCurrentSubject();
     const r = await rejectReview(subject, input.postId, input.reason, ctx.actor);
-    if (!r.ok) redirect(appendQueryParam(input.back, "error", r.message));
+    if (!r.ok) redirect(appendQueryParam(input.back, "err", r.message));
     revalidatePath("/admin/contents");
-    redirect(appendQueryParam(input.back, "rejected", "1"));
+    redirect(appendQueryParam(input.back, "ok", "rejected"));
   },
 });
 
@@ -76,9 +76,9 @@ export const hideContentAction = defineAction({
   async run(ctx, input) {
     const subject = await getCurrentSubject();
     const r = await hidePost(subject, input.postId, input.reason, ctx.actor);
-    if (!r.ok) redirect(`/admin/contents?error=${encodeURIComponent(r.message)}`);
+    if (!r.ok) redirect(`/admin/contents?err=${encodeURIComponent(r.message)}`);
     revalidatePath("/admin/contents");
-    redirect("/admin/contents?hidden=1");
+    redirect("/admin/contents?ok=hidden");
   },
 });
 
@@ -93,11 +93,11 @@ export const purgeContentAction = defineAction({
   async run(ctx, input) {
     const subject = await getCurrentSubject();
     const r = await deletePost(subject, { postId: input.postId, reason: input.reason });
-    if (!r.ok) redirect(appendQueryParam(input.back, "error", r.message));
+    if (!r.ok) redirect(appendQueryParam(input.back, "err", r.message));
     revalidatePath("/admin/contents");
     revalidatePath(`/t/${r.threadId}`);
     if (r.kind === "thread") revalidatePath(`/f/${r.forumId}`);
-    redirect(appendQueryParam(input.back, "purged", "1"));
+    redirect(appendQueryParam(input.back, "ok", "purged"));
   },
 });
 
@@ -127,10 +127,10 @@ export const threadFlagsAction = defineAction({
       },
       ctx.actor,
     );
-    if (!r.ok) redirect(appendQueryParam(input.back, "error", r.message));
+    if (!r.ok) redirect(appendQueryParam(input.back, "err", r.message));
     revalidatePath("/admin/contents");
     revalidatePath(`/t/${input.threadId}`);
-    redirect(appendQueryParam(input.back, "saved", "thread-flags"));
+    redirect(appendQueryParam(input.back, "ok", "thread-flags"));
   },
 });
 
@@ -167,7 +167,7 @@ export const approveReviewBulkAction = defineAction({
         ),
       );
     }
-    redirect(appendQueryParam(input.back, "approved", String(ok)));
+    redirect(appendQueryParam(input.back, "ok", `approved=${ok}`));
   },
 });
 
@@ -193,6 +193,6 @@ export const rejectReviewBulkAction = defineAction({
         ),
       );
     }
-    redirect(appendQueryParam(input.back, "rejected", String(ok)));
+    redirect(appendQueryParam(input.back, "ok", `rejected=${ok}`));
   },
 });

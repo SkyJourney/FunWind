@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fmtDate, fmtDateTime } from "./format";
+import { fmtDateTime } from "./format";
 
 /**
  * 后台时间格式化（M9.5）：DB「YYYY-MM-DD HH:mm:ss」→ zh-CN Intl 口径；null/undefined → 占位符。
@@ -16,10 +16,5 @@ describe("lib/admin/format", () => {
     expect(fmtDateTime(null)).toBe("—");
     expect(fmtDateTime(undefined)).toBe("—");
     expect(fmtDateTime("")).toBe("—");
-  });
-
-  it("fmtDate：只取日期部分", () => {
-    expect(fmtDate("2026-05-01 10:00:00")).toBe("2026/5/1");
-    expect(fmtDate(null)).toBe("—");
   });
 });

@@ -40,11 +40,6 @@ export interface InviteRow {
 /** datetime(mode:"string") 是 "YYYY-MM-DD HH:MM:SS"；转 ISO 才能可靠 parse */
 const ts = (s: string): number => new Date(s.replace(" ", "T")).getTime();
 
-/** 最近 100 条（含创建人/使用人名）；状态 = 已用 > 已过期 > 可用。保留给旧调用兼容 */
-export async function listInvites(): Promise<InviteRow[]> {
-  return (await listInvitesPage({ status: "all", page: 1, perPage: 100 })).items;
-}
-
 export type InviteStatusFilter = "all" | "available" | "used" | "expired";
 
 export type InvitePageFilters = {

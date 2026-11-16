@@ -104,7 +104,7 @@ export const createAnnouncementAction = defineAction({
     await sweepPending();
     revalidatePath("/admin/announcements");
     revalidatePath("/");
-    redirect(`/admin/announcements?created=1`);
+    redirect(`/admin/announcements?ok=created`);
   },
 });
 
@@ -147,7 +147,7 @@ export const editAnnouncementAction = defineAction({
     if (!found) redirect(`/admin/announcements?err=${encodeURIComponent("公告不存在")}`);
     revalidatePath("/admin/announcements");
     revalidatePath("/");
-    redirect(`/admin/announcements?updated=1`);
+    redirect(`/admin/announcements?ok=updated`);
   },
 });
 
@@ -180,6 +180,6 @@ export const endAnnouncementAction = defineAction({
     if (!found) redirect(`/admin/announcements?err=${encodeURIComponent("公告不存在")}`);
     revalidatePath("/admin/announcements");
     revalidatePath("/");
-    redirect(`/admin/announcements?ended=1`);
+    redirect(`/admin/announcements?ok=ended`);
   },
 });

@@ -39,7 +39,7 @@ test("后台授予 → 资料页徽章卡 → 帖子页作者行图标", async (
   await page.getByRole("button", { name: "授予" }).click();
   // M9.5：授予加了二次确认
   await page.getByRole("dialog").getByRole("button", { name: "确认" }).click();
-  await expect(page).toHaveURL(/\/admin\/badges\?granted=1/);
+  await expect(page).toHaveURL(/\/admin\/badges\?ok=granted/);
   await expect(page.getByText("已授予")).toBeVisible();
 
   // 资料页：profile.header 徽章卡
@@ -71,7 +71,7 @@ test("重复授予：带可读错误跳回", async ({ page, context }) => {
   await page.getByRole("button", { name: "授予" }).click();
   // M9.5：授予有二次确认（重复授予的报错在确认提交后由服务端返回）
   await page.getByRole("dialog").getByRole("button", { name: "确认" }).click();
-  await expect(page).toHaveURL(/\/admin\/badges\?error=/);
+  await expect(page).toHaveURL(/\/admin\/badges\?err=/);
   await expect(page.getByText("该用户已持有此徽章")).toBeVisible();
 });
 

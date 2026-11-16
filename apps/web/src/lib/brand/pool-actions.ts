@@ -47,7 +47,7 @@ export async function uploadToBrandPool(
   if (!r.ok) redirect(appendQueryParam(basePath, "err", r.code));
   revalidatePath(basePath.split("?")[0]!);
   // 带 added 回跳：新入池项高亮（M9.5）
-  redirect(appendQueryParam(basePath, "added", r.pool.active ?? ""));
+  redirect(appendQueryParam(basePath, "ok", `added=${r.pool.active ?? ""}`));
 }
 
 export async function activateInBrandPool(

@@ -6,6 +6,7 @@ import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { ActionGroup } from "@/components/ui/action-group";
 import { controlLayout } from "@/components/ui/control-layout";
+import { AdminFlash } from "@/components/admin/admin-flash";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "角色与授权" };
@@ -13,23 +14,16 @@ export const metadata = { title: "角色与授权" };
 export default async function AuthzPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ err?: string }>;
 }) {
   // 第一个 await：局部渲染可能跳过 layout，页面自己必须鉴权（admin-entry-guard.test.ts 守护）
   await requireAdmin("admin.roles");
-  const { error } = await searchParams;
+  const { err: error } = await searchParams;
   const roles = await listRoles();
 
   return (
     <div className="space-y-8">
-      {error && (
-        <p
-          role="alert"
-          className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-        >
-          {error}
-        </p>
-      )}
+      {error && <AdminFlash kind="error">{error}</AdminFlash>}
 
       <section>
         <h2 className="mb-3 border-b pb-1 font-semibold">角色</h2>

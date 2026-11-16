@@ -1,5 +1,8 @@
 import { AdminFlash } from "@/components/admin/admin-flash";
+import { flashText } from "@/lib/admin/flash";
 import { Card, CardContent } from "@/components/ui/card";
+import { EmptyState } from "@/components/empty-state";
+import { CalendarClock } from "lucide-react";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { getHeroPoolRaw } from "@/lib/brand/hero-pool";
 import { getLogoPoolRaw } from "@/lib/brand/logo-pool";
@@ -81,7 +84,7 @@ function draftOf(item: CampaignListItem): CampaignDraft {
 }
 
 type SearchParams = {
-  saved?: string;
+  ok?: string;
   err?: string;
   edit?: string;
   draft?: string;
@@ -120,8 +123,8 @@ export default async function CampaignsAdminPage(props: { searchParams: Promise<
   // 入口鉴权约定：第一个 await 必须是 requireAdmin（admin-entry-guard 静态守护）
   await requireAdmin("site.admin");
   const sp = await props.searchParams;
-  const savedText = textOf(FLASH, sp.saved);
-  const errText = sp.err ? (textOf(ERR_TEXT, sp.err) ?? "操作失败，请重试。") : undefined;
+  const savedText = flashText(FLASH, sp.ok);
+  const errText = sp.err ? (textOf(ERR_TEXT, sp.err) ?? sp.err) : undefined;
   const [{ items }, catalog, logoPool, heroPool, taskList] = await Promise.all([
     listCampaigns(),
     getThemeCatalog(),
@@ -207,18 +210,9 @@ export default async function CampaignsAdminPage(props: { searchParams: Promise<
           {errText}
         </AdminFlash>
       )}
-      {sp.holidayErr && (
-        <AdminFlash kind="error" dismissHref="/admin/campaigns">
-          {sp.holidayErr === "conflict"
-            ? "规则已被他人修改（版本冲突）：下方表单保留了你的修改，请核对当前配置后重新保存。"
-            : sp.holidayErr === "bad-items"
-              ? "装扮内容格式无效：请检查各行的效果与目标。"
-              : sp.holidayErr}
-        </AdminFlash>
-      )}
-      {sp.tasks && (
+      {sp.ok && sp.ok.startsWith("tasks-") && (
         <AdminFlash kind="success" dismissHref="/admin/campaigns">
-          任务已{sp.tasks === "enabled" ? "启用" : "停用"}
+          任务已{sp.ok === "tasks-enabled" ? "启用" : "停用"}
           ，管线热加载后生效（管线不可达时由周期对账兜底）。
         </AdminFlash>
       )}
@@ -267,9 +261,7 @@ export default async function CampaignsAdminPage(props: { searchParams: Promise<
         </CardContent>
       </Card>
       {items.length === 0 ? (
-        <p className="rounded-xl border border-dashed bg-card/50 px-6 py-10 text-center text-sm text-muted-foreground">
-          还没有排期方案。
-        </p>
+        <EmptyState icon={CalendarClock} title="还没有排期方案。" />
       ) : (
         CAMPAIGN_EFFECTS.map((effect) => {
           const rows = items.filter((item) => item.effect === effect.key);

@@ -24,7 +24,7 @@ export const generateInvitesAction = defineAction({
     revalidatePath("/admin/invites");
     // 带批次回跳：列表按批次筛选并高亮，新码可直接定位与复制（M9.5）
     const batchQ = input.batch ? `&batch=${encodeURIComponent(input.batch)}` : "";
-    redirect(`/admin/invites?saved=${input.count}${batchQ}`);
+    redirect(`/admin/invites?ok=generated=${input.count}${batchQ}`);
   },
 });
 
@@ -49,6 +49,6 @@ export const revokeInviteBatchAction = defineAction({
     const r = await revokeInvitesByBatch({ userId: ctx.userId, ip: ctx.ip }, input.batch);
     if (!r.ok) redirect(ERR_HOP("not_found"));
     revalidatePath("/admin/invites");
-    redirect(`/admin/invites?revoked=${r.revoked}&batch=${encodeURIComponent(input.batch)}`);
+    redirect(`/admin/invites?ok=revoked=${r.revoked}&batch=${encodeURIComponent(input.batch)}`);
   },
 });

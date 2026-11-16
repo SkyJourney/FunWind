@@ -235,7 +235,7 @@ test("已封禁用户可通过密码提交申诉，管理员能查看并登记�
     await adminPage.getByPlaceholder("处理结果（必填）").fill("E2E 人工复核已通过。");
     await adminPage.getByRole("button", { name: "保存结果" }).click();
     await expect(adminPage).toHaveURL(
-      new RegExp(`/admin/users/${USERS.banned}\\?tab=governance&appeal=resolved$`),
+      new RegExp(`/admin/users/${USERS.banned}\\?\?tab=governance&ok=appeal$`),
     );
     await expect(adminPage.getByText("处理结果：E2E 人工复核已通过。")).toBeVisible();
   } finally {

@@ -150,7 +150,7 @@ export const uploadForumIconAction = defineAction({
     const r = await processForumIcon(bytes, storageDir);
     if (!r.ok) {
       redirect(
-        `${input.back || `/admin/forums/${input.fid}`}?iconErr=${encodeURIComponent(r.message)}`,
+        `${input.back || `/admin/forums/${input.fid}`}?err=${encodeURIComponent(r.message)}`,
       );
     }
     const { forums, getWebDb } = await import("@funwind/db");
@@ -171,7 +171,7 @@ export const uploadForumIconAction = defineAction({
     revalidatePath("/admin/forums");
     revalidatePath(`/admin/forums/${input.fid}`);
     revalidatePath("/boards");
-    redirect(`${input.back || `/admin/forums/${input.fid}`}?iconSaved=1`);
+    redirect(`${input.back || `/admin/forums/${input.fid}`}?ok=icon-saved`);
   },
 });
 
@@ -201,6 +201,6 @@ export const removeForumIconAction = defineAction({
     revalidatePath("/admin/forums");
     revalidatePath(`/admin/forums/${input.fid}`);
     revalidatePath("/boards");
-    redirect(`${input.back || `/admin/forums/${input.fid}`}?iconRemoved=1`);
+    redirect(`${input.back || `/admin/forums/${input.fid}`}?ok=icon-removed`);
   },
 });

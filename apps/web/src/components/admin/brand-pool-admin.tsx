@@ -13,7 +13,7 @@ type FormAction = (formData: FormData) => Promise<void>;
 /** 管理页 searchParams 形状（logo / hero 共用） */
 export interface BrandPoolSearchParams {
   err?: string;
-  added?: string;
+  ok?: string;
   "confirm-remove"?: string;
 }
 
@@ -38,7 +38,7 @@ export interface BrandPoolAdminProps {
   removeDescription: string;
   /** 池项附加徽标（如 LOGO 的「〈主题〉自带」） */
   itemBadge?: (item: BrandItem) => ReactNode;
-  sp: { err?: string; added?: string; "confirm-remove"?: string };
+  sp: { err?: string; ok?: string; "confirm-remove"?: string };
   actions: { upload: FormAction; setActive: FormAction; remove: FormAction };
 }
 
@@ -85,7 +85,7 @@ export function BrandPoolAdmin({
           {errText[sp.err] ?? "操作失败，请重试。"}
         </AdminFlash>
       )}
-      {sp.added && (
+      {sp.ok?.startsWith("added=") && (
         <AdminFlash kind="success" dismissHref={basePath}>
           已入池并设为当前（下方高亮项）。切换其他项请用「设为当前」。
         </AdminFlash>

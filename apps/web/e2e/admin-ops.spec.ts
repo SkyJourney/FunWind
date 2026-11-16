@@ -196,7 +196,7 @@ test("任务启停：停用带确认、写审计（G-20 旁路写）、恢复启
   const dialog = page.getByRole("dialog", { name: "停用该任务？" });
   await expect(dialog).toBeVisible();
   await dialog.getByRole("button", { name: "确认", exact: true }).click();
-  await expect(page).toHaveURL(/tasks=disabled/);
+  await expect(page).toHaveURL(/ok=tasks-disabled/);
   await expect(page.getByRole("status").filter({ hasText: "任务已停用" })).toBeVisible();
   // 库：enabled=0、revision+1（G-20 旁路写）；审计在
   const audits = await withE2eDb(async (q) =>
@@ -212,7 +212,7 @@ test("任务启停：停用带确认、写审计（G-20 旁路写）、恢复启
     .getByRole("dialog", { name: "启用该任务？" })
     .getByRole("button", { name: "确认", exact: true })
     .click();
-  await expect(page).toHaveURL(/tasks=enabled/);
+  await expect(page).toHaveURL(/ok=tasks-enabled/);
   const state = await withE2eDb(async (q) =>
     q.query<{ enabled: number }>("SELECT enabled FROM ops_tasks WHERE task_key = 'backup.db'"),
   );
@@ -315,7 +315,7 @@ test("节日装扮任务默认停用：规则卡在排期页启用；停用任�
   // 排期页规则卡内的启用引导 → 启用成功回显（back 留在排期页）
   await page.goto("/admin/campaigns");
   await page.getByRole("button", { name: "启用任务（每日自检 + 手动触发）" }).click();
-  await expect(page).toHaveURL(/\/admin\/campaigns\?tasks=enabled/);
+  await expect(page).toHaveURL(/\/admin\/campaigns\?ok=tasks-enabled/);
   await expect(page.getByRole("status").filter({ hasText: "任务已启用" })).toBeVisible();
   // 管线未部署：运维页立即执行可点但被拒（错误回显，G-15）
   await page.goto(PAGE);
@@ -332,7 +332,7 @@ test("节日装扮任务默认停用：规则卡在排期页启用；停用任�
     .getByRole("dialog", { name: "停用该任务？" })
     .getByRole("button", { name: "确认", exact: true })
     .click();
-  await expect(page).toHaveURL(/tasks=disabled/);
+  await expect(page).toHaveURL(/ok=tasks-disabled/);
 });
 
 test("台账分页：第二页出现更早的记录（翻页不改变 anyRunning 判定）", async ({ page, context }) => {

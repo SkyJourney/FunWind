@@ -75,10 +75,10 @@ export const createRestrictionAction = defineAction({
                     : r.code === "last_admin"
                       ? "不能封禁最后一位有效站点管理员"
                       : "用户不存在";
-      redirect(appendQueryParam(back, "error", msg));
+      redirect(appendQueryParam(back, "err", msg));
     }
     revalidatePath(back);
-    redirect(appendQueryParam(back, "restricted", "1"));
+    redirect(appendQueryParam(back, "ok", "restricted"));
   },
 });
 
@@ -97,10 +97,10 @@ export const liftRestrictionAction = defineAction({
     const back = backOf(input.userId, input.tab);
     if (!r.ok) {
       const msg = r.code === "reason_required" ? "必须填写解除说明" : "限制不存在或已过期";
-      redirect(appendQueryParam(back, "error", msg));
+      redirect(appendQueryParam(back, "err", msg));
     }
     revalidatePath(back);
-    redirect(appendQueryParam(back, "lifted", "1"));
+    redirect(appendQueryParam(back, "ok", "lifted"));
   },
 });
 
@@ -140,11 +140,11 @@ export const assignRoleAction = defineAction({
         );
       }
     } catch (e) {
-      if (e instanceof AdminError) redirect(appendQueryParam(back, "error", e.message));
+      if (e instanceof AdminError) redirect(appendQueryParam(back, "err", e.message));
       throw e;
     }
     revalidatePath(back);
-    redirect(appendQueryParam(back, "role", "1"));
+    redirect(appendQueryParam(back, "ok", "role"));
   },
 });
 
@@ -169,11 +169,11 @@ export const revokeRoleAction = defineAction({
         await revokeUserRole(ctx.actor, input.userId, input.roleKey, input.scopeId, input.reason);
       }
     } catch (e) {
-      if (e instanceof AdminError) redirect(appendQueryParam(back, "error", e.message));
+      if (e instanceof AdminError) redirect(appendQueryParam(back, "err", e.message));
       throw e;
     }
     revalidatePath(back);
-    redirect(appendQueryParam(back, "role", "1"));
+    redirect(appendQueryParam(back, "ok", "role"));
   },
 });
 
@@ -188,9 +188,9 @@ export const revokeUserSessionAction = defineAction({
   async run(ctx, input) {
     const back = backOf(input.userId, input.tab);
     const result = await revokeUserSessionByAdmin(ctx.actor, input.userId, input.sessionId);
-    if (!result.ok) redirect(appendQueryParam(back, "error", "会话已不存在或已被吊销"));
+    if (!result.ok) redirect(appendQueryParam(back, "err", "会话已不存在或已被吊销"));
     revalidatePath(back);
-    redirect(appendQueryParam(back, "session", "revoked"));
+    redirect(appendQueryParam(back, "ok", "session"));
   },
 });
 
@@ -210,12 +210,12 @@ export const resolveUserAppealAction = defineAction({
       await resolveUserAppeal(ctx.actor, input.appealId, input.status, input.result);
     } catch (error) {
       if (error instanceof AppealError) {
-        redirect(appendQueryParam(back, "error", "申诉已处理或不存在，请刷新页面"));
+        redirect(appendQueryParam(back, "err", "申诉已处理或不存在，请刷新页面"));
       }
       throw error;
     }
     revalidatePath(back);
-    redirect(appendQueryParam(back, "appeal", "resolved"));
+    redirect(appendQueryParam(back, "ok", "appeal"));
   },
 });
 
@@ -234,7 +234,7 @@ export const changeUserEmailAction = defineAction({
   }),
   async run(ctx, input) {
     const back = backOf(input.userId, input.tab);
-    const fail = (message: string): never => redirect(appendQueryParam(back, "error", message));
+    const fail = (message: string): never => redirect(appendQueryParam(back, "err", message));
     const email = input.email.trim();
     if (email === "" || !isValidEmail(email)) return fail("邮箱格式不正确");
 
@@ -271,6 +271,8 @@ export const changeUserEmailAction = defineAction({
       { userId: input.userId },
     );
     revalidatePath(back);
-    redirect(appendQueryParam(back, "emailChanged", sent ? "sent" : "failed"));
+    redirect(
+      appendQueryParam(back, sent ? "ok" : "warn", sent ? "email-changed" : "email-send-failed"),
+    );
   },
 });

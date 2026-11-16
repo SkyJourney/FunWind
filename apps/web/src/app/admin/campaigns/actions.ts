@@ -64,7 +64,7 @@ export const createCampaignAction = defineAction({
     const result = await createCampaign(toFields(input, nowBeijingWallTime()), ctx.actor);
     if (!result.ok) failTo(result.code, input);
     revalidatePath("/admin/campaigns");
-    redirect("/admin/campaigns?saved=created");
+    redirect("/admin/campaigns?ok=created");
   },
 });
 
@@ -81,7 +81,7 @@ export const updateCampaignAction = defineAction({
     const result = await updateCampaign(input.id, input.revision, toFields(input, ""), ctx.actor);
     if (!result.ok) failTo(result.code, input);
     revalidatePath("/admin/campaigns");
-    redirect("/admin/campaigns?saved=updated");
+    redirect("/admin/campaigns?ok=updated");
   },
 });
 
@@ -93,7 +93,7 @@ export const toggleCampaignAction = defineAction({
     const result = await setCampaignEnabled(input.id, input.enabled === "1", ctx.actor);
     if (!result.ok) redirect(`/admin/campaigns?err=${result.code}`);
     revalidatePath("/admin/campaigns");
-    redirect("/admin/campaigns?saved=toggled");
+    redirect("/admin/campaigns?ok=toggled");
   },
 });
 
@@ -105,7 +105,7 @@ export const deleteCampaignAction = defineAction({
     const result = await deleteCampaign(input.id, ctx.actor);
     if (!result.ok) redirect(`/admin/campaigns?err=${result.code}`);
     revalidatePath("/admin/campaigns");
-    redirect("/admin/campaigns?saved=deleted");
+    redirect("/admin/campaigns?ok=deleted");
   },
 });
 
@@ -177,14 +177,11 @@ export const saveHolidayRuleAction = defineAction({
       ctx.actor,
     );
     revalidatePath("/admin/campaigns");
-    if (result.ok) redirect("/admin/campaigns?saved=holiday");
+    if (result.ok) redirect("/admin/campaigns?ok=holiday");
     if (result.code === "conflict") {
       // G-19：版本冲突 → 带草稿回表单，不静默换用最新版本
-      holidayFail("holidayErr=conflict", draft);
+      holidayFail("err=conflict", draft);
     }
-    holidayFail(
-      `holidayErr=${encodeURIComponent(result.message ?? "规则保存失败，请重试")}`,
-      draft,
-    );
+    holidayFail(`err=${encodeURIComponent(result.message ?? "规则保存失败，请重试")}`, draft);
   },
 });

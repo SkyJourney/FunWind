@@ -9,7 +9,10 @@ import { pageBounds } from "@/lib/paging";
 import { AdminFlash } from "@/components/admin/admin-flash";
 import { AdminFilterBar } from "@/components/admin/admin-filter-bar";
 import { AdminListPager } from "@/components/admin/admin-list";
+import { flashText } from "@/lib/admin/flash";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState } from "@/components/empty-state";
+import { Megaphone } from "lucide-react";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { createAnnouncementAction, editAnnouncementAction, endAnnouncementAction } from "./actions";
 
@@ -18,6 +21,13 @@ export const metadata = { title: "公告" };
 
 type Params = {
   searchParams: Promise<Record<string, string | undefined>>;
+};
+
+/** 回执键 → 文案（M19 Q5） */
+const ANNOUNCEMENTS_OK: Record<string, string> = {
+  created: "公告已发布（铃铛对全部受众出现未读）。",
+  updated: "公告已保存修改。",
+  ended: "公告已下线。",
 };
 
 function statusOf(a: { startsAt: string; endsAt: string | null }): {
@@ -63,11 +73,7 @@ export default async function AdminAnnouncementsPage({ searchParams }: Params) {
     .offset(offset);
   const editing = editId ? (rows.find((a) => a.id === editId) ?? null) : null;
 
-  const flash = Object.entries({
-    created: "公告已发布（铃铛对全部受众出现未读）。",
-    updated: "公告已保存修改。",
-    ended: "公告已下线。",
-  }).find(([k]) => sp[k] === "1")?.[1];
+  const flash = flashText(ANNOUNCEMENTS_OK, sp.ok);
   const flashErr = sp.err ?? undefined;
 
   const query = {
@@ -257,9 +263,7 @@ export default async function AdminAnnouncementsPage({ searchParams }: Params) {
                 </li>
               );
             })}
-            {rows.length === 0 && (
-              <li className="py-4 text-center text-sm text-muted-foreground">暂无公告</li>
-            )}
+            {rows.length === 0 && <EmptyState icon={Megaphone} title="暂无公告。" />}
           </ul>
           <AdminListPager
             total={total}

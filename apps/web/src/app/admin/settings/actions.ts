@@ -25,13 +25,13 @@ import { tryApplyThemePackLogo } from "@/lib/theme/apply-pack-logo";
  * 站点框架（M19 Q3 自公告页迁入）：导航/友链/页脚三卡（site.nav/links/footer）。
  */
 
-const done = (key: string): never => redirect(`/admin/settings?saved=${key}`);
+const done = (key: string): never => redirect(`/admin/settings?ok=${key}`);
 
 /**
  * 全站默认主题包：保存后触发联动——有自带 LOGO 的包自动入池并设为当前（幂等），无图不触碰 LOGO 池；
  * 素材缺失等只影响联动结果（flash 文案区分），不阻断主题保存本身。
  */
-export const saveThemePackAction = defineAction({
+export const setDefaultThemePackAction = defineAction({
   name: "admin.settings.theme",
   auth: { admin: "site.admin" },
   input: z.object({ pack: z.string().max(32) }),
@@ -49,7 +49,7 @@ export const saveThemePackAction = defineAction({
         : logo.status === "unchanged"
           ? "theme_no_logo"
           : "theme";
-    redirect(`/admin/settings?saved=${saved}${logo.status === "failed" ? "&warn=logo" : ""}`);
+    redirect(`/admin/settings?ok=${saved}${logo.status === "failed" ? "&warn=logo" : ""}`);
   },
 });
 
@@ -231,13 +231,13 @@ export const sendTestMailAction = defineAction({
       .where(eq(usersTable.id, ctx.userId!))
       .limit(1);
     if (!row?.email) {
-      redirect("/admin/settings?mail_error=no_email");
+      redirect("/admin/settings?err=no_email");
     }
     const brand = await getMailBrand();
     try {
       await sendMail(row.email, testMail(brand), { userId: ctx.userId });
     } catch {
-      redirect("/admin/settings?mail_error=send");
+      redirect("/admin/settings?err=send");
     }
     revalidatePath("/admin/settings");
     done("mail_sent");
@@ -255,7 +255,8 @@ export const saveNavAction = defineAction({
   input: navInput,
   async run(ctx, input) {
     const parsed = parseLinesChecked(input.navRaw, { hrefMustBePath: true });
-    if (parsed.error) redirect(`/admin/settings?navErr=${encodeURIComponent(parsed.error)}`);
+    if (parsed.error)
+      redirect(`/admin/settings?err=${encodeURIComponent(`导航项校验未通过：${parsed.error}`)}`);
     await setSetting("site.nav", parsed.items, ctx.actor);
     invalidateSiteChrome();
     revalidatePath("/", "layout");
@@ -272,7 +273,8 @@ export const saveLinksAction = defineAction({
   input: linksInput,
   async run(ctx, input) {
     const parsed = parseLinesChecked(input.linksRaw, { hrefMustBePath: false });
-    if (parsed.error) redirect(`/admin/settings?linksErr=${encodeURIComponent(parsed.error)}`);
+    if (parsed.error)
+      redirect(`/admin/settings?err=${encodeURIComponent(`友链校验未通过：${parsed.error}`)}`);
     await setSetting("site.links", parsed.items, ctx.actor);
     invalidateSiteChrome();
     revalidatePath("/", "layout");

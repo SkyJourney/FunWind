@@ -65,22 +65,17 @@ export default async function AdminOpsPage({ searchParams }: Params) {
         </p>
       </div>
 
-      {sp.queued && (
+      {sp.ok && (
         <AdminFlash kind="success" dismissHref="/admin/ops">
-          已提交执行（{sp.task ?? "任务"}，运行 #{sp.queued}
-          ）——由管线在后台执行，下方台账稍后自动出现结果。
-        </AdminFlash>
-      )}
-      {sp.policy === "saved" && (
-        <AdminFlash kind="success" dismissHref="/admin/ops">
-          保留策略已保存（数据库 {policy.keepDb} 份 / 存储 {policy.keepStorage}{" "}
-          份），下一次备份轮转即按新策略执行。
-        </AdminFlash>
-      )}
-      {sp.tasks && (
-        <AdminFlash kind="success" dismissHref="/admin/ops">
-          任务已{sp.tasks === "enabled" ? "启用" : "停用"}
-          ，管线热加载后生效（管线不可达时由周期对账兜底）。
+          {sp.ok.startsWith("queued=")
+            ? `已提交执行（${sp.task ?? "任务"}，运行 #${sp.ok.slice("queued=".length)}）——由管线在后台执行，下方台账稍后自动出现结果。`
+            : sp.ok === "policy"
+              ? `保留策略已保存（数据库 ${policy.keepDb} 份 / 存储 ${policy.keepStorage} 份），下一次备份轮转即按新策略执行。`
+              : sp.ok === "tasks-enabled"
+                ? "任务已启用，管线热加载后生效（管线不可达时由周期对账兜底）。"
+                : sp.ok === "tasks-disabled"
+                  ? "任务已停用，管线热加载后生效（管线不可达时由周期对账兜底）。"
+                  : "操作完成。"}
         </AdminFlash>
       )}
       {sp.err && (

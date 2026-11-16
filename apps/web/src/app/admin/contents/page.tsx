@@ -16,6 +16,7 @@ import { AdminFilterBar } from "@/components/admin/admin-filter-bar";
 import { AdminFlash } from "@/components/admin/admin-flash";
 import { ForumSelect } from "@/components/admin/forum-select";
 import { AdminListPager } from "@/components/admin/admin-list";
+import { flashText } from "@/lib/admin/flash";
 import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { EmptyState } from "@/components/empty-state";
@@ -33,6 +34,15 @@ import {
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "内容管理" };
+
+const CONTENTS_OK: Record<string, string> = {
+  approved: "已通过（作者会收到通知；新内容已公开）。",
+  rejected: "已驳回（作者会收到驳回理由，可修改后重新提交）。",
+  purged: "内容已彻底删除（封禁终态不可恢复）。",
+  "thread-flags": "主题设置已更新（锁定 / 置顶 / 精华）。",
+  disabled: "内容已封禁（作者可见理由横幅，不可编辑重审）。",
+  hidden: "内容已屏蔽。",
+};
 
 const STATE_TABS: { key: ContentStateFilter; label: string }[] = [
   { key: "all", label: "全部" },
@@ -69,13 +79,8 @@ export default async function AdminContentsPage({
     state?: string;
     page?: string;
     size?: string;
-    error?: string;
-    approved?: string;
-    rejected?: string;
-    purged?: string;
-    saved?: string;
-    disabled?: string;
-    hidden?: string;
+    err?: string;
+    ok?: string;
   }>;
 }) {
   // 入口鉴权（layout 等价形态：admin-entry-guard 允许首个 await 为 getCurrentUser + 权限判定）：
@@ -132,31 +137,14 @@ export default async function AdminContentsPage({
 
   return (
     <div className="space-y-4">
-      {sp.error && (
-        <AdminFlash kind="error" dismissHref={baseQuery({ error: "" })}>
-          {sp.error}
+      {sp.err && (
+        <AdminFlash kind="error" dismissHref={baseQuery({ err: "" })}>
+          {sp.err}
         </AdminFlash>
       )}
-      {(sp.approved || sp.rejected || sp.purged || sp.saved || sp.disabled || sp.hidden) && (
-        <AdminFlash
-          kind="success"
-          dismissHref={baseQuery({
-            approved: "",
-            rejected: "",
-            purged: "",
-            saved: "",
-            disabled: "",
-            hidden: "",
-          })}
-        >
-          {sp.approved ? `已通过 ${sp.approved} 条（作者会收到通知；新内容已公开）。` : null}
-          {sp.rejected
-            ? `已驳回 ${sp.rejected} 条（作者会收到驳回理由，可修改后重新提交）。`
-            : null}
-          {sp.purged ? "内容已彻底删除（封禁终态不可恢复）。" : null}
-          {sp.saved ? "主题设置已更新（锁定 / 置顶 / 精华）。" : null}
-          {sp.disabled ? "内容已封禁（作者可见理由横幅，不可编辑重审）。" : null}
-          {sp.hidden ? "内容已屏蔽。" : null}
+      {sp.ok && (
+        <AdminFlash kind="success" dismissHref={baseQuery({ ok: "" })}>
+          {flashText(CONTENTS_OK, sp.ok.split("=")[0]!, "操作完成。")}
         </AdminFlash>
       )}
 

@@ -138,12 +138,12 @@ async function runContentReview(
       : kind === "reject"
         ? await rejectReview(subject, input.postId, input.reason!, actor)
         : await disableContent(subject, input.postId, input.reason!, actor);
-  if (!result.ok) redirect(`/admin/contents?error=${encodeURIComponent(result.message)}`);
+  if (!result.ok) redirect(`/admin/contents?err=${encodeURIComponent(result.message)}`);
   for (const path of ["/admin/contents"]) revalidatePath(path);
   const target =
     kind === "disable"
-      ? "/admin/contents?disabled=1"
-      : `/admin/contents?state=pending&${kind === "approve" ? "approved" : "rejected"}=1`;
+      ? "/admin/contents?ok=disabled"
+      : `/admin/contents?state=pending&ok=${kind === "approve" ? "approved" : "rejected"}`;
   redirect(target);
 }
 

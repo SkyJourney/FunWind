@@ -24,9 +24,8 @@ type Params = {
     to?: string;
     size?: string;
     page?: string;
-    error?: string;
-    resolved?: string;
-    dismissed?: string;
+    err?: string;
+    ok?: string;
   }>;
 };
 
@@ -77,15 +76,18 @@ export default async function AdminReportsPage({ searchParams }: Params) {
 
   return (
     <div className="space-y-4">
-      {sp.error && (
-        <AdminFlash kind="error" dismissHref={baseQuery({ error: "" })}>
-          {sp.error}
+      {sp.err && (
+        <AdminFlash kind="error" dismissHref={baseQuery({ err: "" })}>
+          {sp.err}
         </AdminFlash>
       )}
-      {(sp.resolved || sp.dismissed) && (
-        <AdminFlash kind="success" dismissHref={baseQuery({ resolved: "", dismissed: "" })}>
-          {sp.resolved ? `已处置 ${sp.resolved} 条` : `已忽略 ${sp.dismissed} 条`}
-          （举报人会收到处理说明）。
+      {sp.ok && (
+        <AdminFlash kind="success" dismissHref={baseQuery({ ok: "" })}>
+          {sp.ok === "resolved"
+            ? "已处置（举报人会收到处理说明）。"
+            : sp.ok.startsWith("dismissed=")
+              ? `已忽略 ${sp.ok.slice("dismissed=".length)} 条（举报人会收到处理说明）。`
+              : "已忽略（举报人会收到处理说明）。"}
         </AdminFlash>
       )}
 

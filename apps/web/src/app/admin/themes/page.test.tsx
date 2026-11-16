@@ -134,8 +134,8 @@ describe("主题管理列表：内置包重置入口（M11.6 Step 3f）", () => 
     await waitFor(() => expect(within(form).getByRole("button", TRIGGER)).toBeEnabled());
   });
 
-  it("成功回执 saved=reset 有专门文案，不落到通用兜底", async () => {
-    render(await page({ saved: "reset" }));
+  it("成功回执 ok=reset 有专门文案，不落到通用兜底", async () => {
+    render(await page({ ok: "reset" }));
     expect(screen.getByRole("status")).toHaveTextContent(
       "已重置为内置定义（名称、说明、启停状态与 LOGO 保持不变）。",
     );

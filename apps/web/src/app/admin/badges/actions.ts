@@ -28,12 +28,12 @@ export const grantBadgeAction = defineAction({
         { userId, badgeId: input.badgeId },
       );
     } catch (e) {
-      if (e instanceof AdminError) redirect(`/admin/badges?error=${encodeURIComponent(e.message)}`);
+      if (e instanceof AdminError) redirect(`/admin/badges?err=${encodeURIComponent(e.message)}`);
       throw e;
     }
     revalidatePath("/admin/badges");
     revalidatePath(`/u/${userId}`);
-    redirect(`/admin/badges?granted=1&uid=${userId}`);
+    redirect(`/admin/badges?ok=granted&uid=${userId}`);
   },
 });
 
@@ -52,11 +52,11 @@ export const revokeBadgeAction = defineAction({
         { userId: input.uid, badgeId: input.badgeId },
       );
     } catch (e) {
-      if (e instanceof AdminError) redirect(`/admin/badges?error=${encodeURIComponent(e.message)}`);
+      if (e instanceof AdminError) redirect(`/admin/badges?err=${encodeURIComponent(e.message)}`);
       throw e;
     }
     revalidatePath("/admin/badges");
     revalidatePath(`/u/${input.uid}`);
-    redirect(`/admin/badges?revoked=1&uid=${input.uid}`);
+    redirect(`/admin/badges?ok=revoked&uid=${input.uid}`);
   },
 });

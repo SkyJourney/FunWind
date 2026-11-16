@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/empty-state";
 import { AdminFlash } from "@/components/admin/admin-flash";
 import { AdminDateRange } from "@/components/admin/admin-date-range";
 import { AdminListPager } from "@/components/admin/admin-list";
+import { flashText } from "@/lib/admin/flash";
 import { CopyCode } from "@/components/admin/copy-code";
 import { generateInvitesAction, revokeInviteAction, revokeInviteBatchAction } from "./actions";
 
@@ -46,8 +47,7 @@ export default async function InvitesAdminPage({
   searchParams,
 }: {
   searchParams: Promise<{
-    saved?: string;
-    revoked?: string;
+    ok?: string;
     err?: string;
     status?: string;
     batch?: string;
@@ -100,20 +100,16 @@ export default async function InvitesAdminPage({
         </p>
       </header>
 
-      {sp.saved && (
-        <AdminFlash kind="success" dismissHref={baseQuery({ saved: "" })}>
-          已生成 {sp.saved} 枚邀请码{batch ? `（批次「${batch}」，列表已按批次过滤）` : ""}，可用
-          「复制」按钮逐枚发放。
-        </AdminFlash>
-      )}
-      {sp.revoked && (
-        <AdminFlash kind="success" dismissHref={baseQuery({ revoked: "" })}>
-          已撤销批次「{batch}」的 {sp.revoked} 枚可用码。
+      {sp.ok && (
+        <AdminFlash kind="success" dismissHref={baseQuery({ ok: "" })}>
+          {sp.ok.startsWith("generated=")
+            ? `已生成 ${sp.ok.slice("generated=".length)} 枚邀请码${batch ? `（批次「${batch}」，列表已按批次过滤）` : ""}，可用「复制」按钮逐枚发放。`
+            : `已撤销批次「${batch}」的 ${sp.ok.slice("revoked=".length)} 枚可用码。`}
         </AdminFlash>
       )}
       {sp.err && (
         <AdminFlash kind="error" dismissHref={baseQuery({ err: "" })}>
-          {ERR_TEXT[sp.err] ?? "操作失败，请重试。"}
+          {flashText(ERR_TEXT, sp.err, "操作失败，请重试。")}
         </AdminFlash>
       )}
 

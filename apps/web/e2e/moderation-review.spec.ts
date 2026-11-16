@@ -93,7 +93,7 @@ test("审核流：xiaoyi 在 906 发帖 → pending 仅作者可见 → admin �
       .fill("E2E 驳回理由：内容不完整");
     await adminPage.locator("li", { hasText: title }).getByRole("button", { name: "驳回" }).click();
     // contents 的行内驳回是直提交（理由必填已在输入框），无确认弹层
-    await expect(adminPage).toHaveURL(/\/admin\/contents\?state=pending&rejected=1/);
+    await expect(adminPage).toHaveURL(/\/admin\/contents\?state=pending&ok=rejected/);
     await adminCtx.close();
 
     // 4. 作者收到驳回通知与理由，可编辑重提
@@ -124,7 +124,7 @@ test("审核流：xiaoyi 在 906 发帖 → pending 仅作者可见 → admin �
       .locator("li", { hasText: title })
       .getByRole("button", { name: "通过" })
       .click();
-    await expect(adminPage2).toHaveURL(/\/admin\/contents\?state=pending&approved=1/);
+    await expect(adminPage2).toHaveURL(/\/admin\/contents\?state=pending&ok=approved/);
     await adminCtx2.close();
 
     const guestPage = await (await context.browser()!.newContext()).newPage();
@@ -267,7 +267,7 @@ test("批量审核（M19 并入 contents）：两篇待审勾选 → 批量通�
     }
     await adminPage.getByRole("button", { name: "批量通过" }).click();
     // back=baseQuery（默认类型 thread 不进 URL），提示参数追加其上
-    await expect(adminPage).toHaveURL(/\/admin\/contents\?state=pending&approved=2/);
+    await expect(adminPage).toHaveURL(/\/admin\/contents\?state=pending&ok=approved%3D2/);
     // 两篇都已离开待审队列
     for (const title of titles) {
       await expect(adminPage.locator("li", { hasText: title })).toHaveCount(0);

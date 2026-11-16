@@ -11,6 +11,7 @@ import { userBadgesOf } from "@/lib/badges/service";
 import { getPointsName } from "@/lib/auth/settings";
 import { fmtDateTime } from "@/lib/admin/format";
 import { buildAdminQuery } from "@/lib/admin/query";
+import { flashText } from "@/lib/admin/flash";
 import { AdminTabs } from "@/components/admin/admin-tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
@@ -18,6 +19,8 @@ import { AdminFlash } from "@/components/admin/admin-flash";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { UserEmailPanel } from "@/components/admin/user-email-panel";
 import { ForumSelect } from "@/components/admin/forum-select";
+import { ShieldAlert } from "lucide-react";
+import { EmptyState } from "@/components/empty-state";
 import { Pagination } from "@/components/content/pagination";
 import {
   assignRoleAction,
@@ -42,7 +45,9 @@ type Params = {
   params: Promise<{ uid: string }>;
   searchParams: Promise<{
     tab?: string;
-    error?: string;
+    err?: string;
+    ok?: string;
+    warn?: string;
     restricted?: string;
     lifted?: string;
     role?: string;
@@ -50,6 +55,16 @@ type Params = {
     emailChanged?: string;
     page?: string;
   }>;
+};
+
+/** 回执键 → 文案（M19 Q5） */
+const USER_OK: Record<string, string> = {
+  restricted: "限制已生效（当事人会收到通知）。",
+  lifted: "限制已解除（当事人会收到通知）。",
+  role: "角色已更新。",
+  session: "会话已吊销。",
+  appeal: "申诉处理结果已登记。",
+  "email-changed": "邮箱已修改，验证邮件已发往新地址；用户验证后才能恢复。",
 };
 
 const KIND_LABELS: Record<string, string> = {
@@ -91,27 +106,22 @@ export default async function AdminUserDetailPage({ params, searchParams }: Para
       : closurePending
         ? "注销申请中"
         : "活跃";
-  // 成功类反馈条文案：每个提示参数都有消费者（G-15）
-  const flashes = [
-    sp.restricted && "限制已生效（当事人会收到通知）。",
-    sp.lifted && "限制已解除（当事人会收到通知）。",
-    sp.role && "角色已更新。",
-    sp.session === "revoked" && "会话已吊销。",
-    sp.emailChanged === "sent" && "邮箱已修改，验证邮件已发往新地址；用户验证后才能恢复。",
-  ].filter((message): message is string => typeof message === "string");
+  // 成功类反馈条文案（M19 Q5：?ok=<key> 统一，表驱动 G-15）
+  const okText = flashText(USER_OK, sp.ok);
+  const flashes = okText ? [okText] : [];
 
   const tabHref = (key: UserTab) =>
     buildAdminQuery(`/admin/users/${detail.id}`, { tab: key === "overview" ? "" : key });
 
   return (
     <div className="space-y-4">
-      {sp.error && <AdminFlash kind="error">{sp.error}</AdminFlash>}
+      {sp.err && <AdminFlash kind="error">{sp.err}</AdminFlash>}
       {flashes.map((message) => (
         <AdminFlash key={message} kind="success">
           {message}
         </AdminFlash>
       ))}
-      {sp.emailChanged === "failed" && (
+      {sp.warn === "email-send-failed" && (
         <AdminFlash kind="warning">
           邮箱已修改，但验证邮件发送失败：请稍后再试，或让用户在登录页使用「重新发送验证邮件」。
         </AdminFlash>
@@ -284,7 +294,7 @@ export default async function AdminUserDetailPage({ params, searchParams }: Para
                     ))}
                   </ul>
                 ) : (
-                  <p className="border-t pt-3 text-sm text-muted-foreground">当前没有限制记录。</p>
+                  <EmptyState icon={ShieldAlert} title="当前没有限制记录。" />
                 )}
               </CardContent>
             </Card>
