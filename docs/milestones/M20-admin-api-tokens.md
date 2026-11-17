@@ -264,5 +264,4 @@ created_via varchar(16)  NOT NULL DEFAULT 'admin'（预留）
   **抓出并修复安装管线真回归**（siteConfigured 判定键 register.policy→site.identity，否则 M20 后
   全新安装会跳过站点配置步）；死码清理（policyFromLegacyMode/userIdOf）；补测 5 项。
   web 全量 4858 测试绿。
-- 2026-11-17：Step 9 收口——verify:all 全绿、E2E 全量（prod + dev 冒烟）、文档回写、PR（结果见下）。
-
+- 2026-11-17：Step 9 收口——verify:all 全绿（EXIT=0：lint/format/三包单测/重复棘轮 1425≤1425/构建）；emails/push-logs 收敛 manageLogEndpoint 工厂 + 分页片段提取 params.ts（重复度回锚 1425/160，提交 0eeceaf6）；E2E 全量 **prod 536 passed（13.7m，含 api-tokens 全链 3 用例）+ dev 冒烟 8 passed，EXIT=0**。
