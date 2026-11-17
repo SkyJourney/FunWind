@@ -5,6 +5,38 @@
 
 ## [Unreleased]
 
+### Added（M20 · 管理 Access Token 与管理 REST API v1，2026-11-17）
+
+- **管理员 Access Token**：后台「系统与观测 → API 令牌」（`/admin/api-tokens`）自签/自管——名称 +
+  有效期档位 30/90/180/365 天（上限 365 不允永久），每管理员最多 5 个有效；明文 `fw_at_*` 仅签发
+  响应一次性展示（Service 暂存绑定签发人、命中即删 + TTL 清扫，不进 URL/cookie/日志）；库内只存
+  SHA-256（`admin_api_tokens` 表，迁移 `0031`）；列表含尾号/最后使用（60s 节流）/状态徽标，吊销
+  ConfirmSubmit 确认。
+- **管理 REST API v1**（`/api/manage/**`，9 个只读端点）：whoami（token 元信息+有效权限清单，不审计）、
+  stats、users 列表/详情、contents 列表/详情（含待审队列正序与行级正文）、audit-logs、emails、
+  push-logs；`Authorization: Bearer` 门禁（IP 桶 120/min + token 桶 60/min，401/403/404 语义边界、
+  存在性不泄露）；统一信封 `{ok,data}` / `{error:{code,message}}` + 六码注册表；除 whoami 外每调用
+  出审计（`via:"api"`）。契约单一事实源 [docs/MANAGE-API.md](docs/MANAGE-API.md)（M21 MCP 对接面）。
+- **分层纪律「入口薄、Service 厚」**：业务执行（事务/审计/不变量）内聚 `lib/manage/` Service；
+  Server Action、REST route、未来 MCP 工具都是入口封装；`manage-api-guard` 架构守卫静态固化
+  （route 禁业务 import、必须走 manageEndpoint）；contents 的「权限→数据范围」下沉
+  `resolveContentScope` 唯一实现（后台页与 API 同源）。
+- **撤权联动吊销**：持有人不再满足站点管理员不变量时，6 处既有事务（撤角色绑定/撤全局授权×双腿/
+  删自定义角色/全站封禁含重复封禁幂等分支/注销申请/收回团队角色）同事务吊销全部 token 并出
+  `api_token.cascade_revoke` 审计；实时权限校验为第二道防线；int 穷举含非降权不误伤反例。
+- **凭据卫生调度**：`api-tokens.cleanup`（每日 04:10，CLI 共锁）——token 过期/吊销超 30 天、
+  **sessions 过期超 7 天（顺还 idx_sessions_expires 建而无消费者的旧账）**、email_tokens 已用/过期
+  超 30 天，单批 1000 行。
+- **清账三项（M19 移交）**：死权限点 4 个移除（vote.create/vote.view/tag.edit/tag.manage，词表
+  28→24，bootstrap 按词汇表全集反选幂等清理含孤儿授权，migration 旧键不再翻译）；register.mode
+  读兼容键清账（bootstrap 幂等搬迁：旧键翻译成 register.policy 后删旧键，读兼容层全删，
+  运行时残留旧键被忽略）；points.gate_fee_rate / punch.reward 补 UI（/admin/points 新卡 +
+  saveGatePunchAction）。本地存量库实演：14 死授权同步删、invite→新键翻译正确。
+- **质量**：分层审查闸门（两路独立审查无 P0/P1，16 条 P2/P3 清零）；抓出并修复安装管线回归
+  （siteConfigured 判定键 register.policy→site.identity，否则 M20 后全新安装会跳过站点配置步）；
+  web 全量 4858 测试 + db 包 126 测试绿；E2E 全链（签发→API 调用→撤权失效）与门禁实测见
+  [M20](docs/milestones/M20-admin-api-tokens.md) §15。
+
 ### Added（M19 · 后台管理重塑——IA 拆分合并 + 多尺寸列表 + 一致性清账，2026-11-17）
 
 - **功能重塑（Q1–Q4，页面 27→24 路由入口）**：内容审核并入内容管理（待审队列先到先审正序 + 批量

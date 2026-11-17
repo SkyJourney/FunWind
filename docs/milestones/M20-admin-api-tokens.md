@@ -232,3 +232,37 @@ created_via varchar(16)  NOT NULL DEFAULT 'admin'（预留）
 
 - 2026-11-17：Step 0 完成——本文档细化定稿（决策 D1–D8、分层纪律、A1–A22 事实修正与补充），
   ROADMAP M20 → 🚧，M21/M22 大纲文档入库。分支 `feat/m20-admin-api-tokens` 建立。
+- 2026-11-17：Step 1 完成（`66088248`）——`admin_api_tokens` 表（varchar(64) 哈希主键/尾号/有效期/
+  吊销/最后使用审计列）+ 迁移 `0031_m20_admin_api_tokens.sql`；表数锚定 60→61；本地库应用迁移 +
+  db:verify 21 项全绿。
+- 2026-11-17：Step 2 完成（`5cb18511`）——`lib/manage/` 四件套（errors 信封+六码注册表 / tokens
+  签发·吊销·联动·节流 Service / guard Bearer 鉴权链+资格判定 / route 入口封装）；
+  `ConfigActor.via` 新增 `"api"`；纯逻辑单测 12 项。
+- 2026-11-17：Step 3 完成（`02e0a077`）——撤权联动吊销落地，6 处既有事务嵌入
+  `revokeAdminApiTokensIfNotSiteAdmin`。两处对计划的调整：**收回团队角色**（revokeTeamMembership）
+  为计划外新增嵌入点（团队角色可持 admin 授权）；**purge 兜底撤销嵌入**（「不扩大删表」守卫纪律 +
+  guard 双保险覆盖残留，代码留注释）。AdminError 挪出 admin-error.ts 断循环依赖。
+  int 穷举 8 场景（含非降权不误伤反例）。
+- 2026-11-17：Step 4 完成（`8686c78`）——v1 端点 9 个（统一 manageEndpoint 入口封装）；
+  `resolveContentScope`（权限→范围唯一实现，contents 页改复用消除两处重复）+ `loadContentDetail`；
+  **manage-api 架构守卫**（route 禁业务 import、必须走 manageEndpoint）；两个后台守卫扩展识别
+  scope 下沉形态；docs/MANAGE-API.md 契约；本地 curl 拨测 16 项全过。
+- 2026-11-17：Step 5 完成（`10ec5b15`）——后台页 /admin/api-tokens（菜单四接线、页面追加不变量
+  校验、明文一次性展示 = Service 暂存命中即删+TTL，零新交互形态）；E2E 全链 3 用例。
+  E2E 钓出 actions.ts 漏写文件级 `"use server"` 的 RSC 序列化 500 并修复。
+- 2026-11-17：Step 6 完成（`855b4af6`）——`api-tokens.cleanup`（每日 04:10）三表 GC
+  （token 30 天 / sessions 7 天——顺还 idx_sessions_expires 空挂旧账 / email_tokens 30 天）；
+  CLI `api-tokens:cleanup` 共锁；SCHEDULED-JOBS.md 任务数 5→6；int 三表「超期删/窗口内留」穷举。
+- 2026-11-17：Step 7 完成（`a60dd5ff`）——清账三项：死权限点 4 个移除（词表 28→24 + bootstrap
+  按词表全集反选幂等清理含孤儿授权）+ migration 映射移除 + AUTHZ.md 同步；register.mode 兼容键
+  bootstrap 搬迁（先于补缺翻译写入删旧键）+ 读兼容层全删 + 种子/夹具改 register.policy；
+  points.gate_fee_rate / punch.reward 补 UI（/admin/points 新卡 + saveGatePunchAction）。
+  **本地存量库实演**：14 死授权同步删、invite→新键翻译正确、db:verify 21 项绿。
+- 2026-11-17：Step 8 完成（`3c6620ac`）——两路独立审查（安全面+一致性 / 分层+测试+文档+死码）
+  **无 P0/P1**，16 条 P2/P3 清零：审计补 via:"api" 落地 + manage_api 审计 int 断言；明文暂存绑定
+  签发人 + TTL 清扫；限流桶全哈希；ID 严格十进制判定；资格校验下沉 Service（入口零 db 直连）；
+  **抓出并修复安装管线真回归**（siteConfigured 判定键 register.policy→site.identity，否则 M20 后
+  全新安装会跳过站点配置步）；死码清理（policyFromLegacyMode/userIdOf）；补测 5 项。
+  web 全量 4858 测试绿。
+- 2026-11-17：Step 9 收口——verify:all 全绿、E2E 全量（prod + dev 冒烟）、文档回写、PR（结果见下）。
+

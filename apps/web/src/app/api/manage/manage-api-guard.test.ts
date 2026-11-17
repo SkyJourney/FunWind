@@ -60,10 +60,10 @@ describe("manage-api 分层守卫（M20）", () => {
     }
   });
 
-  it("每个端点都经 manageEndpoint 入口封装且 force-dynamic", () => {
+  it("每个端点都经入口封装（manageEndpoint / 日志类 manageLogEndpoint 工厂）且 force-dynamic", () => {
     for (const file of routes) {
       const src = readFileSync(file, "utf8");
-      expect(src, file).toMatch(/manageEndpoint\(/);
+      expect(src, file).toMatch(/manage(Log)?Endpoint\(/);
       expect(src, file).toMatch(/export const dynamic = "force-dynamic"/);
     }
   });

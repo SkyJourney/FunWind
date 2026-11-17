@@ -156,3 +156,26 @@ export function manageEndpoint(
 function clientIpOf(request: NextRequest): string | null {
   return clientIpFrom(request.headers);
 }
+
+/**
+ * 日志类端点工厂（M20）：emails / push-logs 同构（分页 + 成败摘要 + admin.logs 权限），
+ * 参数 schema 与查询函数由调用方注入，入口封装与信封复用一份实现。
+ */
+export function manageLogEndpoint<S extends z.ZodType>(cfg: {
+  endpoint: string;
+  schema: S;
+  query: (q: z.infer<S>) => Promise<{ items: unknown[]; total: number }>;
+  summary?: () => Promise<Record<string, number>>;
+}): (request: NextRequest) => Promise<NextResponse> {
+  return manageEndpoint(
+    async ({ request }) => {
+      const q = parseManageQuery(request, cfg.schema);
+      const [logs, summary] = await Promise.all([
+        cfg.query(q),
+        cfg.summary ? cfg.summary() : Promise.resolve(undefined),
+      ]);
+      return manageOk(summary ? { ...logs, summary } : logs);
+    },
+    { endpoint: cfg.endpoint, permission: "admin.logs" },
+  );
+}

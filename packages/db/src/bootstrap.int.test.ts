@@ -240,6 +240,26 @@ describe.skipIf(skip)("bootstrap / seed 集成（临时库）", () => {
     });
   });
 
+  it("M20 搬迁：invite 模式（默认落点）翻译为邀请制且不放开注册", async () => {
+    await withTestDb(async (db) => {
+      await db.delete(siteSettings).where(eq(siteSettings.key, "register.policy"));
+      await db
+        .insert(siteSettings)
+        .values({ key: "register.mode", value: { mode: "invite" }, updatedAt: sql`NOW()` });
+
+      await seedSystemData(db);
+      const [row] = await db
+        .select()
+        .from(siteSettings)
+        .where(eq(siteSettings.key, "register.policy"));
+      expect(row?.value).toEqual({ open: false, invite: true, verifyEmail: false });
+      const legacyRows = (await db.select().from(siteSettings)).filter(
+        (r) => r.key === "register.mode",
+      );
+      expect(legacyRows).toHaveLength(0);
+    });
+  });
+
   it("重复 bootstrap 完全幂等：全局授权不再重复（v1 的 NULL 唯一键缺陷）", async () => {
     const before = await withTestDb(async (db) => ({
       grants: (await db.select().from(roleGrants)).length,

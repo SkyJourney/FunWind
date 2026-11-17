@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { ADMIN_PAGE_SIZES } from "@/lib/admin/query";
 import { queryAuditLogs, resolveActorId } from "@/lib/admin/logs";
 import { manageEndpoint, manageOk, parseManageQuery } from "@/lib/manage/route";
+import { managePageField, manageSizeField } from "@/lib/manage/params";
 
 export const dynamic = "force-dynamic";
 
@@ -18,12 +18,8 @@ const querySchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "to 需为 YYYY-MM-DD")
     .optional(),
-  page: z.coerce.number().int().min(1).optional(),
-  size: z.coerce
-    .number()
-    .int()
-    .refine((v) => (ADMIN_PAGE_SIZES as readonly number[]).includes(v), "size 档位非法")
-    .optional(),
+  page: managePageField(),
+  size: manageSizeField(),
 });
 
 /** GET /api/manage/audit-logs：审计日志检索（与后台审计日志页同一查询层） */

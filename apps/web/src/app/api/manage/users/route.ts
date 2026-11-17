@@ -1,9 +1,9 @@
 import "@/modules"; // 传递依赖触及内核事件总线（admin-user-views → authz/admin → outbox），按硬约定 9 显式注册
 
 import { z } from "zod";
-import { ADMIN_PAGE_SIZES } from "@/lib/admin/query";
 import { listAdminUsersPage } from "@/lib/authz/admin-user-views";
 import { manageEndpoint, manageOk, parseManageQuery } from "@/lib/manage/route";
+import { managePageField, manageSizeField } from "@/lib/manage/params";
 
 export const dynamic = "force-dynamic";
 
@@ -16,12 +16,8 @@ const querySchema = z.object({
     .enum(["all", "email_unverified", "no_password", "legacy_password_pending"])
     .optional(),
   sort: z.enum(["recent", "id", "threads"]).default("recent"),
-  page: z.coerce.number().int().min(1).optional(),
-  size: z.coerce
-    .number()
-    .int()
-    .refine((v) => (ADMIN_PAGE_SIZES as readonly number[]).includes(v), "size 档位非法")
-    .optional(),
+  page: managePageField(),
+  size: manageSizeField(),
 });
 
 /** GET /api/manage/users：用户治理列表（与后台用户页同源筛选语义） */

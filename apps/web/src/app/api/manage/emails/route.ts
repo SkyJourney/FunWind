@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { ADMIN_PAGE_SIZES } from "@/lib/admin/query";
 import { emailLogSummary, queryEmailLogs } from "@/lib/mail/log-query";
-import { manageEndpoint, manageOk, parseManageQuery } from "@/lib/manage/route";
+import { manageLogEndpoint } from "@/lib/manage/route";
+import { managePageField, manageSizeField } from "@/lib/manage/params";
 
 export const dynamic = "force-dynamic";
 
@@ -15,30 +15,22 @@ const querySchema = z.object({
     .optional(),
   /** 纯数字按 userId 等值，否则收件地址包含 */
   q: z.string().max(128).optional(),
-  page: z.coerce.number().int().min(1).optional(),
-  size: z.coerce
-    .number()
-    .int()
-    .refine((v) => (ADMIN_PAGE_SIZES as readonly number[]).includes(v), "size 档位非法")
-    .optional(),
+  page: managePageField(),
+  size: manageSizeField(),
 });
 
 /** GET /api/manage/emails：邮件日志分页 + 近 24h 成败摘要（与后台邮件页同一查询层） */
-export const GET = manageEndpoint(
-  async ({ request }) => {
-    const q = parseManageQuery(request, querySchema);
-    const [logs, summary] = await Promise.all([
-      queryEmailLogs({
-        status: q.status,
-        kind: q.kind,
-        scene: q.scene,
-        q: q.q,
-        page: q.page,
-        limit: q.size,
-      }),
-      emailLogSummary(),
-    ]);
-    return manageOk({ ...logs, summary });
-  },
-  { endpoint: "emails", permission: "admin.logs" },
-);
+export const GET = manageLogEndpoint({
+  endpoint: "emails",
+  schema: querySchema,
+  query: (q) =>
+    queryEmailLogs({
+      status: q.status,
+      kind: q.kind,
+      scene: q.scene,
+      q: q.q,
+      page: q.page,
+      limit: q.size,
+    }),
+  summary: emailLogSummary,
+});

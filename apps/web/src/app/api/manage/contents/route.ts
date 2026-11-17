@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { ADMIN_PAGE_SIZES } from "@/lib/admin/query";
 import { listContentsPage, resolveContentScope } from "@/lib/moderation/contents";
 import { ManageApiError } from "@/lib/manage/errors";
 import { manageEndpoint, manageOk, parseManageQuery } from "@/lib/manage/route";
+import { managePageField, manageSizeField } from "@/lib/manage/params";
 
 export const dynamic = "force-dynamic";
 
@@ -15,12 +15,8 @@ const querySchema = z.object({
     .default("all"),
   /** pending 队列语义：queue = 按提交时间正序（先到先审） */
   order: z.enum(["recent", "queue"]).optional(),
-  page: z.coerce.number().int().min(1).optional(),
-  size: z.coerce
-    .number()
-    .int()
-    .refine((v) => (ADMIN_PAGE_SIZES as readonly number[]).includes(v), "size 档位非法")
-    .optional(),
+  page: managePageField(),
+  size: manageSizeField(),
 });
 
 /** GET /api/manage/contents：内容管理列表（与后台内容管理页同一 Service 与 scope 判定）。
