@@ -37,6 +37,8 @@ export type ManageHandlerContext = {
   token: UsableAdminApiToken;
   /** 持有人主体（实时加载，已判非游客） */
   subject: Subject;
+  /** Next 动态路由参数（静态路由为已解决的空对象） */
+  params: Promise<Record<string, string | string[]>>;
 };
 
 export type ManageEndpointOptions = {
@@ -97,8 +99,11 @@ function summarizeQuery(request: NextRequest): string {
 export function manageEndpoint(
   handler: (ctx: ManageHandlerContext) => Promise<NextResponse>,
   opts: ManageEndpointOptions,
-): (request: NextRequest) => Promise<NextResponse> {
-  return async (request: NextRequest) => {
+): (
+  request: NextRequest,
+  context?: { params: Promise<Record<string, string | string[]>> },
+) => Promise<NextResponse> {
+  return async (request: NextRequest, context) => {
     // 1. IP 桶：凭证解析之前先限来源（取不到可信 IP 跳过，只靠 token 桶）
     const ip = clientIpOf(request);
     if (ip) {
@@ -135,7 +140,12 @@ export function manageEndpoint(
 
     // 5. handler（Service 调用 + zod 解析）与兜底
     try {
-      return await handler({ request, token: identity.token, subject: identity.subject });
+      return await handler({
+        request,
+        token: identity.token,
+        subject: identity.subject,
+        params: context?.params ?? Promise.resolve({}),
+      });
     } catch (error) {
       return toErrorResponse(error, opts.endpoint);
     }

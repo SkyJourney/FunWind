@@ -1,10 +1,10 @@
 import { notFound, redirect } from "next/navigation";
 import { Files, MessageSquare } from "lucide-react";
-import { checkPermission, getModeratedForumIds } from "@/lib/authz/service";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { getCurrentUser } from "@/lib/auth/session";
 import {
   listContentsPage,
+  resolveContentScope,
   type ContentKind,
   type ContentStateFilter,
 } from "@/lib/moderation/contents";
@@ -64,16 +64,13 @@ export default async function AdminContentsPage({
   }>;
 }) {
   // 入口鉴权（layout 等价形态：admin-entry-guard 允许首个 await 为 getCurrentUser + 权限判定）：
-  // 版主可达（forum.moderate 作用域）、admin.recycle（回收站全站视角）、site.admin
+  // 版主可达（forum.moderate 作用域）、admin.recycle（回收站全站视角）、site.admin——
+  // 「权限→数据范围」映射走 Service 唯一实现（M20 分层纪律，/api/manage/contents 同源）
   const user = await getCurrentUser();
   if (!user) redirect("/login");
   const subject = await getCurrentSubject();
-  const [isSiteAdmin, hasRecycle, moderated] = await Promise.all([
-    checkPermission(subject, "site.admin"),
-    checkPermission(subject, "admin.recycle"),
-    getModeratedForumIds(subject),
-  ]);
-  if (!isSiteAdmin.allowed && !hasRecycle.allowed && moderated.length === 0) notFound();
+  const { accessible, scopeForumIds } = await resolveContentScope(subject);
+  if (!accessible) notFound();
   const sp = await searchParams;
 
   const kind: ContentKind = sp.kind === "reply" ? "reply" : "thread";
@@ -84,9 +81,6 @@ export default async function AdminContentsPage({
     : "all";
   const page = parseAdminPage(sp.page, "number-or-one");
   const { size } = parseAdminListParams(sp);
-
-  // 作用域：site.admin / admin.recycle 看全站；版主看所辖版块
-  const scopeForumIds = isSiteAdmin.allowed || hasRecycle.allowed ? null : moderated;
 
   const {
     items,

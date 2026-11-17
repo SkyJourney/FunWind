@@ -20,7 +20,7 @@ import { resolveUsableApiToken, type UsableAdminApiToken } from "@/lib/manage/to
  */
 
 /** per-token 频控（次/分钟）：管理 API 是低频脚本场景，60/min 足够 */
-const TOKEN_RATE_PER_MIN = 60;
+export const TOKEN_RATE_PER_MIN = 60;
 
 /**
  * 严格解析 Authorization 头。明文形如 fw_at_<43 字符 base64url>：

@@ -2,12 +2,35 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { forums, getWebDb, posts, threads, users } from "@funwind/db";
 import { publicUsername } from "@/lib/identity-expr";
 import { pageBounds } from "@/lib/paging";
+import { checkPermission, getModeratedForumIds } from "@/lib/authz/service";
+import type { Subject } from "@/lib/authz/types";
 
 /**
  * 内容管理查询（M9.5 §9.2-A；M19 吸收审核队列）：后台跨主题/回帖的**定位**能力——
  * 标题/正文关键词 + 板块 + 六态筛选 + 分页，服务层按版主作用域过滤（admin.recycle 持全站视角）。
  * 主题与回帖共用一套状态机与操作，行内动作按 kind 分派。
  */
+
+/** 「权限 → 数据范围」映射的唯一实现（M20 分层纪律）：后台页面与 /api/manage/contents 共用 */
+export type ContentScope = {
+  /** 可达内容管理语义（site.admin / admin.recycle / 版主任一）；false = 不可见 */
+  accessible: boolean;
+  /** null = 全站视角；数组 = 版主所辖版块；空数组 = 无可见版块 */
+  scopeForumIds: number[] | null;
+};
+
+export async function resolveContentScope(subject: Subject): Promise<ContentScope> {
+  const [isSiteAdmin, hasRecycle, moderated] = await Promise.all([
+    checkPermission(subject, "site.admin"),
+    checkPermission(subject, "admin.recycle"),
+    getModeratedForumIds(subject),
+  ]);
+  const accessible = isSiteAdmin.allowed || hasRecycle.allowed || moderated.length > 0;
+  return {
+    accessible,
+    scopeForumIds: isSiteAdmin.allowed || hasRecycle.allowed ? null : moderated,
+  };
+}
 
 export type ContentKind = "thread" | "reply";
 export type ContentStateFilter =
@@ -223,4 +246,169 @@ export async function setThreadFlags(
     });
   });
   return { ok: true };
+}
+
+// ---------- 内容详情（M20：/api/manage/contents/[id] 的 Service；此前无导出的行级读取） ----------
+
+export type ThreadDetail = {
+  kind: "thread";
+  threadId: number;
+  forumId: number;
+  forumName: string;
+  title: string;
+  state: string;
+  authorId: number;
+  authorName: string | null;
+  createdAt: string;
+  replyCount: number;
+  isLocked: boolean;
+  isFeatured: boolean;
+  pinLevel: number;
+  /** 首帖（正文载体） */
+  firstPost: {
+    postId: number;
+    floor: number;
+    state: string;
+    bodyMd: string;
+    createdAt: string;
+  };
+};
+
+export type ReplyDetail = {
+  kind: "reply";
+  postId: number;
+  floor: number;
+  state: string;
+  bodyMd: string;
+  createdAt: string;
+  authorId: number;
+  authorName: string | null;
+  threadId: number;
+  threadTitle: string;
+  threadState: string;
+  forumId: number;
+  forumName: string;
+};
+
+export type ContentDetail = ThreadDetail | ReplyDetail;
+
+export type ContentDetailResult =
+  | { ok: true; detail: ContentDetail }
+  // 越权（scope 外）与不存在同型 not_found，调用方一律转 404（存在性不泄露）
+  | { ok: false; code: "not_found" | "forbidden" };
+
+/**
+ * 内容行级详情（管理 API 用；页面无需——行内链接直达公开页）。
+ * scopeForumIds 语义与 listContentsPage 一致：null = 全站，空数组 = 一律拒绝。
+ */
+export async function loadContentDetail(
+  kind: ContentKind,
+  id: number,
+  scopeForumIds: number[] | null,
+): Promise<ContentDetailResult> {
+  if (scopeForumIds !== null && scopeForumIds.length === 0) return { ok: false, code: "forbidden" };
+
+  if (kind === "thread") {
+    const [row] = await getWebDb()
+      .select({
+        threadId: threads.id,
+        forumId: threads.forumId,
+        forumName: forums.name,
+        title: threads.title,
+        state: threads.state,
+        authorId: threads.authorId,
+        authorName: publicUsername(users.username, users.state, users.id),
+        createdAt: threads.createdAt,
+        replyCount: threads.replyCount,
+        isLocked: threads.isLocked,
+        isFeatured: threads.isFeatured,
+        pinLevel: threads.pinLevel,
+        firstPostId: threads.firstPostId,
+        firstFloor: posts.floor,
+        firstPostState: posts.state,
+        bodyMd: posts.bodyMd,
+        firstPostCreatedAt: posts.createdAt,
+      })
+      .from(threads)
+      .innerJoin(forums, eq(forums.id, threads.forumId))
+      .innerJoin(posts, eq(posts.id, threads.firstPostId))
+      .leftJoin(users, eq(users.id, threads.authorId))
+      .where(eq(threads.id, id))
+      .limit(1);
+    if (!row) return { ok: false, code: "not_found" };
+    if (scopeForumIds !== null && !scopeForumIds.includes(row.forumId)) {
+      return { ok: false, code: "forbidden" };
+    }
+    return {
+      ok: true,
+      detail: {
+        kind: "thread",
+        threadId: row.threadId,
+        forumId: row.forumId,
+        forumName: row.forumName,
+        title: row.title,
+        state: row.state,
+        authorId: row.authorId,
+        authorName: row.authorName,
+        createdAt: row.createdAt,
+        replyCount: row.replyCount,
+        isLocked: row.isLocked ?? false,
+        isFeatured: row.isFeatured ?? false,
+        pinLevel: row.pinLevel ?? 0,
+        firstPost: {
+          // firstPostId/bodyMd 列类型可空：innerJoin 逻辑上保证有行（db:verify 首帖指针完整性），
+          // 正文列历史数据可能为 NULL，详情 API 统一空串化
+          postId: row.firstPostId ?? 0,
+          floor: row.firstFloor,
+          state: row.firstPostState,
+          bodyMd: row.bodyMd ?? "",
+          createdAt: row.firstPostCreatedAt,
+        },
+      },
+    };
+  }
+
+  const [row] = await getWebDb()
+    .select({
+      postId: posts.id,
+      floor: posts.floor,
+      state: posts.state,
+      bodyMd: posts.bodyMd,
+      createdAt: posts.createdAt,
+      authorId: posts.authorId,
+      authorName: publicUsername(users.username, users.state, users.id),
+      threadId: threads.id,
+      threadTitle: threads.title,
+      threadState: threads.state,
+      forumId: threads.forumId,
+      forumName: forums.name,
+    })
+    .from(posts)
+    .innerJoin(threads, eq(threads.id, posts.threadId))
+    .innerJoin(forums, eq(forums.id, threads.forumId))
+    .leftJoin(users, eq(users.id, posts.authorId))
+    .where(eq(posts.id, id))
+    .limit(1);
+  if (!row) return { ok: false, code: "not_found" };
+  if (scopeForumIds !== null && !scopeForumIds.includes(row.forumId)) {
+    return { ok: false, code: "forbidden" };
+  }
+  return {
+    ok: true,
+    detail: {
+      kind: "reply",
+      postId: row.postId,
+      floor: row.floor,
+      state: row.state,
+      bodyMd: row.bodyMd ?? "",
+      createdAt: row.createdAt,
+      authorId: row.authorId,
+      authorName: row.authorName,
+      threadId: row.threadId,
+      threadTitle: row.threadTitle,
+      threadState: row.threadState,
+      forumId: row.forumId,
+      forumName: row.forumName,
+    },
+  };
 }
