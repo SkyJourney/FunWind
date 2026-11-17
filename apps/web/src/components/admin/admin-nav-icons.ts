@@ -9,6 +9,7 @@ import {
   Flag,
   FolderTree,
   Image,
+  KeyRound,
   LayoutDashboard,
   Mail,
   Megaphone,
@@ -55,5 +56,6 @@ export const ICON_BY_HREF: Record<string, LucideIcon> = {
   "/admin/push": BellRing,
   "/admin/rum": Activity,
   "/admin/csp": ShieldAlert,
+  "/admin/api-tokens": KeyRound,
   "/admin/ops": ServerCog,
 };

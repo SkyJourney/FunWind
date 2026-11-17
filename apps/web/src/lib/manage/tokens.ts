@@ -35,6 +35,43 @@ const TOKEN_PREFIX = "fw_at_";
 /** last_used 落库节流：距上次使用超过该秒数才写（对齐 sessions.lastSeenAt 的写放大防护） */
 export const TOKEN_USAGE_TOUCH_INTERVAL_SEC = 60;
 
+/**
+ * 签发明文的**一次性展示暂存**（进程内存）：defineAction 恒 void + redirect 收尾，明文无法经
+ * 返回值带回页面，也不能进 URL/cookie/日志——先暂存，页面按 `?created=<id>` 取走即删。
+ * 安全面：命中即删（刷新不重放）+ TTL 兜底（未取走 60s 自动失效）+ 容量上限（签发低频，>32 全清过期）。
+ * 单实例部署前提（与 lib/auth/ratelimit 同）；多实例时本缓存需换集中存储。
+ */
+const PENDING_PLAIN_TTL_MS = 60_000;
+const pendingPlains = new Map<string, { plain: string; expiresAt: number }>();
+
+export function stashPlainForOnce(tokenId: string, plain: string): void {
+  const now = Date.now();
+  // 低频签发下的简单防泄漏：容量超限时先清过期，仍满则丢最旧
+  if (pendingPlains.size >= 32) {
+    for (const [k, v] of pendingPlains) {
+      if (v.expiresAt <= now) pendingPlains.delete(k);
+    }
+    if (pendingPlains.size >= 32) {
+      const oldest = pendingPlains.keys().next().value;
+      if (oldest !== undefined) pendingPlains.delete(oldest);
+    }
+  }
+  pendingPlains.set(tokenId, { plain, expiresAt: now + PENDING_PLAIN_TTL_MS });
+}
+
+/** 取走即删：命中返回明文（页面唯一展示时机），未命中/过期返回 null（刷新/转发不重放） */
+export function takePlainOnce(tokenId: string): string | null {
+  const hit = pendingPlains.get(tokenId);
+  pendingPlains.delete(tokenId);
+  if (!hit || hit.expiresAt <= Date.now()) return null;
+  return hit.plain;
+}
+
+/** 仅测试使用：清空一次性暂存 */
+export function resetPendingPlains(): void {
+  pendingPlains.clear();
+}
+
 /** 明文形如 fw_at_<43 字符 base64url>；返回明文与库内哈希主键 */
 export function buildPlainToken(): { plain: string; id: string } {
   const plain = TOKEN_PREFIX + generateToken();
