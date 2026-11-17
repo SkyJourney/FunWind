@@ -19,6 +19,9 @@ vi.mock("@/lib/auth/unverified-cleanup", () => ({
   DEFAULT_UNVERIFIED_TTL_DAYS: 7,
   purgeOverdueUnverifiedAccounts: vi.fn(),
 }));
+// M20：apiTokensCleanupJob 经 lib/manage/tokens 引入 authz/invariant 传递依赖（评估器链），
+// jobs 清单测试只关心 JobDef 形态，业务实现整体 mock 掉
+vi.mock("@/lib/manage/tokens", () => ({ cleanupStaleCredentialRows: vi.fn() }));
 
 import { defaultJobs } from "./jobs";
 
@@ -169,13 +172,14 @@ describe("startScheduler", () => {
 describe("任务清单自检（用真实 croner 解析表达式）", () => {
   const list = defaultJobs();
 
-  it("五个任务，键唯一且稳定（键同时是命名锁与日志标识，不能改名）", () => {
+  it("六个任务，键唯一且稳定（键同时是命名锁与日志标识，不能改名）", () => {
     expect(list.map((j) => j.key)).toEqual([
       "account-deletion.drain",
       "unverified-accounts.purge",
       "ops.alerts",
       "email.digest",
       "push.cleanup",
+      "api-tokens.cleanup",
     ]);
     expect(new Set(list.map((j) => j.key)).size).toBe(list.length);
   });

@@ -18,6 +18,7 @@ import { notify } from "@/lib/notifications/notify";
 import { getDigestHour } from "@/lib/notifications/email";
 import { runDigestOnce } from "@/lib/notifications/digest";
 import { cleanupStalePushSubscriptions } from "@/lib/push/subscriptions";
+import { cleanupStaleCredentialRows } from "@/lib/manage/tokens";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import { processDueAccountDeletions } from "@/lib/auth/account-deletion";
 import {
@@ -209,6 +210,25 @@ export function pushCleanupJob(overrides: Partial<JobDef> = {}): JobDef {
     async run(): Promise<JobResult> {
       const removed = await cleanupStalePushSubscriptions();
       return { summary: `removed=${removed}` };
+    },
+    ...overrides,
+  };
+}
+
+// ── 凭据卫生清扫（M20 Step 6）：token / sessions / email_tokens 三表 GC（顺还 sessions 无 GC 的旧账） ──
+
+export const API_TOKENS_CLEANUP_JOB_KEY = "api-tokens.cleanup";
+
+export function apiTokensCleanupJob(overrides: Partial<JobDef> = {}): JobDef {
+  return {
+    key: API_TOKENS_CLEANUP_JOB_KEY,
+    cron: "10 4 * * *",
+    timeoutMs: 60_000,
+    async run(): Promise<JobResult> {
+      const stats = await cleanupStaleCredentialRows();
+      return {
+        summary: `tokens=${stats.tokens} sessions=${stats.sessions} emailTokens=${stats.emailTokens}`,
+      };
     },
     ...overrides,
   };

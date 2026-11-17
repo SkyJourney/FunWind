@@ -1,7 +1,7 @@
 import "server-only";
 
 import { and, count, desc, eq, gt, isNull, sql } from "drizzle-orm";
-import { adminApiTokens, getWebDb } from "@funwind/db";
+import { adminApiTokens, affectedRowsOf, getWebDb } from "@funwind/db";
 import { writeAudit } from "@/lib/audit";
 import { generateToken, hashToken } from "@/lib/auth/token";
 import { AdminError } from "@/lib/authz/admin-error";
@@ -325,4 +325,47 @@ export async function listAdminApiTokens(userId: number): Promise<AdminApiTokenL
     .from(adminApiTokens)
     .where(eq(adminApiTokens.userId, userId))
     .orderBy(desc(adminApiTokens.createdAt));
+}
+
+// ── 凭据卫生清扫（api-tokens.cleanup 调度任务，M20 Step 6；顺还 sessions/email_tokens 两笔 GC 旧账） ──
+
+/** token 过期/吊销后的物理删除保留期（天）：窗口内保留供审计排查异常使用 */
+export const CREDENTIAL_RETENTION_TOKEN_DAYS = 30;
+/** sessions 过期行的物理删除保留期（天）：过期会话无任何消费价值（M20 前无 GC，idx_sessions_expires 空挂） */
+export const CREDENTIAL_RETENTION_SESSION_DAYS = 7;
+/** email_tokens 已用/过期行的物理删除保留期（天）：签发事务的惰性清理只管同用户同用途配额，历史行长期堆积 */
+export const CREDENTIAL_RETENTION_EMAIL_DAYS = 30;
+
+export type CredentialCleanupStats = { tokens: number; sessions: number; emailTokens: number };
+
+/**
+ * 单表单批删除（上限 1000 行，防超长事务——与 push.cleanup 同口径）；
+ * 积压场景由调度逐日消化。返回本批删除行数。
+ */
+async function deleteStaleBatch(table: string, staleCondition: string): Promise<number> {
+  const result = await getWebDb().execute(
+    sql.raw(`DELETE FROM ${table} WHERE ${staleCondition} LIMIT 1000`),
+  );
+  return affectedRowsOf(result);
+}
+
+/** 凭据卫生清扫一批（三类各至多 1000 行）；由 api-tokens.cleanup 每日 04:10 调度调用 */
+export async function cleanupStaleCredentialRows(): Promise<CredentialCleanupStats> {
+  const stats = { tokens: 0, sessions: 0, emailTokens: 0 };
+
+  stats.tokens = await deleteStaleBatch(
+    "admin_api_tokens",
+    `expires_at < NOW() - INTERVAL ${CREDENTIAL_RETENTION_TOKEN_DAYS} DAY
+      OR revoked_at < NOW() - INTERVAL ${CREDENTIAL_RETENTION_TOKEN_DAYS} DAY`,
+  );
+  stats.sessions = await deleteStaleBatch(
+    "sessions",
+    `expires_at < NOW() - INTERVAL ${CREDENTIAL_RETENTION_SESSION_DAYS} DAY`,
+  );
+  stats.emailTokens = await deleteStaleBatch(
+    "email_tokens",
+    `used_at < NOW() - INTERVAL ${CREDENTIAL_RETENTION_EMAIL_DAYS} DAY
+      OR expires_at < NOW() - INTERVAL ${CREDENTIAL_RETENTION_EMAIL_DAYS} DAY`,
+  );
+  return stats;
 }

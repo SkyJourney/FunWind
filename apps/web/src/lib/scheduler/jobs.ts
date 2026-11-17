@@ -2,6 +2,7 @@ import "server-only";
 
 import {
   accountDeletionJob,
+  apiTokensCleanupJob,
   digestJob,
   opsAlertsJob,
   pushCleanupJob,
@@ -17,5 +18,6 @@ export function defaultJobs(): readonly JobDef[] {
     opsAlertsJob(),
     digestJob(),
     pushCleanupJob(),
+    apiTokensCleanupJob(),
   ];
 }

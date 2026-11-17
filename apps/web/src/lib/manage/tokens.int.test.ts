@@ -1,7 +1,16 @@
 // @vitest-environment node
-import { and, count, eq, isNull } from "drizzle-orm";
+import { and, count, eq, isNull, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { adminApiTokens, auditLog, getWebDb, roleGrants, userRoles, users } from "@funwind/db";
+import {
+  adminApiTokens,
+  auditLog,
+  emailTokens,
+  getWebDb,
+  roleGrants,
+  sessions,
+  userRoles,
+  users,
+} from "@funwind/db";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import { hashPassword } from "@/lib/auth/password";
 import { requestAccountDeletionWithPassword } from "@/lib/auth/account-deletion";
@@ -19,6 +28,7 @@ import { createRestriction } from "@/lib/authz/restrictions-admin";
 import { revokeTeamMembership } from "@/lib/authz/team-membership";
 import {
   ADMIN_API_TOKEN_LIMIT,
+  cleanupStaleCredentialRows,
   createAdminApiToken,
   resolveUsableApiToken,
   revokeAdminApiToken,
@@ -329,4 +339,112 @@ describe.skipIf(skipDb)("管理 token 签发/吊销/撤权联动（M20 · 真实
     expect(await resolveUsableApiToken(created.plain)).toBeNull();
     expect(await cascadeAuditsOf(uid)).toBeGreaterThan(0);
   });
+
+  it("凭据卫生清扫：只删超保留期行（token/sessions/email_tokens 三表）", async () => {
+    // admin_api_tokens：过期超 30 天（删）/ 过期未超 30 天（留）/ 吊销超 30 天（删）/ 生效（留）
+    await getWebDb()
+      .insert(adminApiTokens)
+      .values([
+        {
+          id: "a".repeat(64),
+          userId: 90004,
+          name: "过期超保留期",
+          suffix: "aaaaaaaa",
+          createdAt: sqlNowMinus(100),
+          expiresAt: sqlNowMinus(31),
+        },
+        {
+          id: "b".repeat(64),
+          userId: 90004,
+          name: "过期未超保留期",
+          suffix: "bbbbbbbb",
+          createdAt: sqlNowMinus(90),
+          expiresAt: sqlNowMinus(10),
+        },
+        {
+          id: "c".repeat(64),
+          userId: 90004,
+          name: "吊销超保留期",
+          suffix: "cccccccc",
+          createdAt: sqlNowMinus(100),
+          expiresAt: sqlNowMinus(5),
+          revokedAt: sqlNowMinus(31),
+        },
+        {
+          id: "d".repeat(64),
+          userId: 90004,
+          name: "生效",
+          suffix: "dddddddd",
+          createdAt: sqlNowMinus(1),
+          expiresAt: sqlNowMinus(-30),
+        },
+      ]);
+    // sessions：过期超 7 天（删）/ 过期未超 7 天（留）/ 存活（留）
+    await getWebDb()
+      .insert(sessions)
+      .values([
+        {
+          id: "s".repeat(64),
+          userId: 90004,
+          createdAt: sqlNowMinus(10),
+          expiresAt: sqlNowMinus(8),
+        },
+        { id: "t".repeat(64), userId: 90004, createdAt: sqlNowMinus(5), expiresAt: sqlNowMinus(2) },
+        {
+          id: "u".repeat(64),
+          userId: 90004,
+          createdAt: sqlNowMinus(1),
+          expiresAt: sqlNowMinus(-2),
+        },
+      ]);
+    // email_tokens：已用超 30 天（删）/ 过期超 30 天（删）/ 存活（留）
+    await getWebDb()
+      .insert(emailTokens)
+      .values([
+        {
+          id: "e".repeat(64),
+          purpose: "reset",
+          userId: 90004,
+          createdAt: sqlNowMinus(40),
+          expiresAt: sqlNowMinus(39),
+          usedAt: sqlNowMinus(31),
+        },
+        {
+          id: "f".repeat(64),
+          purpose: "reset",
+          userId: 90004,
+          createdAt: sqlNowMinus(40),
+          expiresAt: sqlNowMinus(31),
+        },
+        {
+          id: "g".repeat(64),
+          purpose: "reset",
+          userId: 90004,
+          createdAt: sqlNowMinus(1),
+          expiresAt: sqlNowMinus(-1),
+        },
+      ]);
+
+    const stats = await cleanupStaleCredentialRows();
+    expect(stats).toEqual({ tokens: 2, sessions: 1, emailTokens: 2 });
+
+    // 只删应删行：保留窗口内的行原样存活
+    const tokenIds = (await getWebDb().select({ id: adminApiTokens.id }).from(adminApiTokens)).map(
+      (r) => r.id[0],
+    );
+    expect(tokenIds.sort()).toEqual(["b", "d"]);
+    const sessionIds = (await getWebDb().select({ id: sessions.id }).from(sessions)).map(
+      (r) => r.id[0],
+    );
+    expect(sessionIds.sort()).toEqual(["t", "u"]);
+    const emailIds = (await getWebDb().select({ id: emailTokens.id }).from(emailTokens)).map(
+      (r) => r.id[0],
+    );
+    expect(emailIds).toEqual(["g"]);
+  });
 });
+
+/** 相对 NOW() 的 SQL 表达式（datetime mode string 列的 drizzle 值）；负数表示未来 */
+function sqlNowMinus(days: number): ReturnType<typeof sql> {
+  return sql`NOW() - INTERVAL ${days} DAY`;
+}
