@@ -1,11 +1,13 @@
 // @vitest-environment node
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { adminApiTokens, getWebDb } from "@funwind/db";
+import { adminApiTokens, auditLog, getWebDb } from "@funwind/db";
+import { NextRequest } from "next/server";
 import { resetRateLimiter } from "@/lib/auth/ratelimit";
+import { createRestriction } from "@/lib/authz/restrictions-admin";
+import { manageEndpoint, manageOk } from "./route";
 import { requestAccountDeletionWithPassword } from "@/lib/auth/account-deletion";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
-import type { NextRequest } from "next/server";
 import { ManageApiError } from "./errors";
 import { TOKEN_RATE_PER_MIN, authenticateManageRequest } from "./guard";
 import { createAdminApiToken, revokeAdminApiToken } from "./tokens";
@@ -118,6 +120,50 @@ describe.skipIf(skipDb)("apiAdminGuard 鉴权链（M20 · 真实临时库）", (
     await expect(authenticateManageRequest(requestOf(`Bearer ${plain}`))).rejects.toMatchObject({
       code: "forbidden",
     });
+  });
+
+  it("被封禁的管理员重签 token：凭证真实但资格被 evaluator 拒绝 → 403（第二道防线）", async () => {
+    const uid = await makeSiteAdmin("g_banned_admin");
+    const ban = await createRestriction(
+      { userId: 90004, via: "admin", ip: null },
+      { userId: uid, kind: "ban", scopeId: 0, reason: "int 封禁管理员", endsAt: null },
+    );
+    expect(ban.ok).toBe(true);
+    // 联动吊销已把原 token 物理删（第一道防线）；此处模拟「封禁后异常残留/重签」的凭证
+    const plain = await issueFor(uid, "residual");
+    await expect(authenticateManageRequest(requestOf(`Bearer ${plain}`))).rejects.toMatchObject({
+      code: "forbidden",
+    });
+  });
+
+  it("manageEndpoint 的调用审计落库：via=api、query 摘要、token 尾号（除 whoami 外）", async () => {
+    const uid = await makeSiteAdmin("g_audit");
+    const plain = await issueFor(uid, "审计探针");
+    const endpoint = manageEndpoint(async () => manageOk({ probed: true }), {
+      endpoint: "audit-probe",
+      permission: "admin.logs",
+    });
+    const request = new NextRequest(
+      "http://127.0.0.1:3000/api/manage/audit-probe?sample=1&token_should_not_leak=irrelevant",
+    );
+    request.headers.set("authorization", `Bearer ${plain}`);
+    const response = await endpoint(request);
+    expect(response.status).toBe(200);
+
+    const [row] = await getWebDb()
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, "api.audit-probe"))
+      .limit(1);
+    expect(row).toBeDefined();
+    expect(row?.targetType).toBe("manage_api");
+    expect(row?.targetId).toBe("/api/manage/audit-probe");
+    const after = row?.afterJson as { query: string; tokenSuffix: string; via: string };
+    expect(after.via).toBe("api");
+    expect(after.query).toContain('"sample"');
+    expect(after.tokenSuffix).toBe(plain.slice(-8));
+    // query 摘要照实记录（管理 API 的调用方持有合法凭证，审计面仅管理员可见）
+    expect(row?.actorId).toBe(uid);
   });
 
   it("per-token 桶：同一 token 超过每分钟配额 → 429", async () => {

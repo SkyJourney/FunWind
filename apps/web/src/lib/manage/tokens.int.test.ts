@@ -246,6 +246,21 @@ describe.skipIf(skipDb)("管理 token 签发/吊销/撤权联动（M20 · 真实
     expect(await cascadeAuditsOf(uid)).toBeGreaterThan(0);
   });
 
+  it("撤全局授权的 admin.roles 腿（双持另一条腿）同样联动吊销", async () => {
+    const uid = await makeActiveUser("tok_grant_roles_leg");
+    await makeCustomRoleAdmin("roles-holder", uid);
+    const created = await createAdminApiToken({
+      userId: uid,
+      name: "t",
+      days: 90,
+      actor: { userId: uid, via: "admin" },
+    });
+    await revokeRolePermission(ACTOR, "roles-holder", "admin.roles", 0);
+    expect(await tokenCountOf(uid)).toBe(0);
+    expect(await resolveUsableApiToken(created.plain)).toBeNull();
+    expect(await cascadeAuditsOf(uid)).toBeGreaterThan(0);
+  });
+
   it("删自定义角色（deleteCustomRole）联动吊销", async () => {
     const uid = await makeActiveUser("tok_role_delete");
     await makeCustomRoleAdmin("deleted-holder", uid);
@@ -281,6 +296,31 @@ describe.skipIf(skipDb)("管理 token 签发/吊销/撤权联动（M20 · 真实
     expect(await tokenCountOf(uid)).toBe(0);
     expect(await resolveUsableApiToken(created.plain)).toBeNull();
     expect(await cascadeAuditsOf(uid)).toBeGreaterThan(0);
+  });
+
+  it("重复封禁（幂等分支 already）也保持 token 全删：解封后重签的场景", async () => {
+    const uid = await makeSiteAdmin("tok_reban");
+    // 第一次封禁 → token 被联动吊销
+    await createRestriction(
+      { userId: ACTOR.userId, via: "admin", ip: null },
+      { userId: uid, kind: "ban", scopeId: 0, reason: "int 首封", endsAt: null },
+    );
+    expect(await tokenCountOf(uid)).toBe(0);
+    // 解封后重签（Service 不校验资格，模拟历史数据/异常路径），再次封禁走 already 幂等分支
+    await createAdminApiToken({
+      userId: uid,
+      name: "t2",
+      days: 90,
+      actor: { userId: uid, via: "admin" },
+    });
+    const again = await createRestriction(
+      { userId: ACTOR.userId, via: "admin", ip: null },
+      { userId: uid, kind: "ban", scopeId: 0, reason: "int 重复封禁", endsAt: null },
+    );
+    expect(again.ok).toBe(false);
+    expect(await tokenCountOf(uid)).toBe(0);
+    // 首封时 uid 名下无 token（无可吊即无审计）；already 分支删除重签的 t2 并写 cascade 审计 = 恰好 1 条
+    expect(await cascadeAuditsOf(uid)).toBe(1);
   });
 
   it("注销申请（closure_pending）联动吊销；purge 完成兜底再清", async () => {

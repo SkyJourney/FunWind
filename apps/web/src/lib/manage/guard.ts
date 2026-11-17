@@ -47,8 +47,8 @@ export async function authenticateManageRequest(request: NextRequest): Promise<M
   const plain = parseBearerToken(request.headers.get("authorization"));
   if (!plain) throw new ManageApiError("unauthorized");
 
-  // 桶 key 用哈希前 12 位：对同一 token 的请求限速（含已失效 token 的穷举重放）
-  const tokenBucketKey = `manage:token:${hashToken(plain).slice(0, 12)}`;
+  // 桶 key 用全哈希：对同一 token 的请求限速（含已失效 token 的穷举重放）；全哈希避免前缀碰撞共享桶
+  const tokenBucketKey = `manage:token:${hashToken(plain)}`;
   const bucket = rateLimit(tokenBucketKey, TOKEN_RATE_PER_MIN, 60_000);
   if (!bucket.allowed) throw new ManageApiError("rate_limited", bucket.retryAfterSec);
 

@@ -15,8 +15,10 @@ export const GET = manageEndpoint(
     if (!accessible) throw new ManageApiError("forbidden");
     const q = parseManageQuery(request, querySchema);
     const { id } = await params;
-    const numeric = Number(Array.isArray(id) ? id[0] : id);
-    if (!Number.isInteger(numeric) || numeric <= 0) throw new ManageApiError("not_found");
+    const raw = Array.isArray(id) ? id[0] : id;
+    // 严格十进制判定：Number() 会放行 "0x10"/"1e2"/带空白等畸形输入
+    if (!/^\d+$/.test(raw ?? "")) throw new ManageApiError("not_found");
+    const numeric = Number(raw);
     const result = await loadContentDetail(q.kind, numeric, scopeForumIds);
     if (!result.ok) throw new ManageApiError("not_found");
     return manageOk(result.detail);

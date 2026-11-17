@@ -1,6 +1,6 @@
 import "server-only";
 
-import { eq, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { getWebDb, userRoles, users } from "@funwind/db";
 import { hashPassword } from "@/lib/auth/password";
 
@@ -39,13 +39,4 @@ export async function makeSiteAdmin(username: string): Promise<number> {
     .insert(userRoles)
     .values({ userId: uid, roleKey: "admin", scopeId: 0, grantedAt: sql`NOW()` });
   return uid;
-}
-
-export async function userIdOf(username: string): Promise<number> {
-  const [row] = await getWebDb()
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.username, username))
-    .limit(1);
-  return row?.id ?? 0;
 }

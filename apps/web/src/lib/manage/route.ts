@@ -132,7 +132,7 @@ export function manageEndpoint(
         action: `api.${opts.endpoint}`,
         targetType: "manage_api",
         targetId: request.nextUrl.pathname,
-        after: { query: summarizeQuery(request), tokenSuffix: identity.token.suffix },
+        after: { query: summarizeQuery(request), tokenSuffix: identity.token.suffix, via: "api" },
         ip,
       });
       await touchApiTokenUsage(identity.token.id, ip);

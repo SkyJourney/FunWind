@@ -33,14 +33,6 @@ export const DEFAULT_REGISTER_POLICY: RegisterPolicy = {
   verifyEmail: false,
 };
 
-/** 旧 `register.mode` → 新策略。旧开放模式本来就强制验证，所以 verifyEmail 为真以保持行为一致 */
-export function policyFromLegacyMode(raw: unknown): RegisterPolicy {
-  const mode = (raw as { mode?: unknown } | null | undefined)?.mode;
-  return mode === "open"
-    ? { open: true, invite: false, verifyEmail: true }
-    : { ...DEFAULT_REGISTER_POLICY };
-}
-
 /**
  * 解析 `register.policy` 原值（M20 起单键）：
  *  · 存在且有效 → 用它；

@@ -1,11 +1,10 @@
 import { notFound } from "next/navigation";
-import { getWebDb } from "@funwind/db";
 import { requireAdmin } from "@/lib/authz/require-admin";
-import { isEffectiveSiteAdmin } from "@/lib/authz/site-admin-invariant";
 import {
   ADMIN_API_TOKEN_DAYS,
   ADMIN_API_TOKEN_DEFAULT_DAYS,
   ADMIN_API_TOKEN_LIMIT,
+  isEffectiveSiteAdminOf,
   listAdminApiTokens,
   takePlainOnce,
   type AdminApiTokenListItem,
@@ -57,14 +56,13 @@ export default async function AdminApiTokensPage({
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
   const admin = await requireAdmin("site.admin");
-  const effective = await getWebDb().transaction((tx) => isEffectiveSiteAdmin(tx, admin.userId));
-  if (!effective) notFound();
+  if (!(await isEffectiveSiteAdminOf(admin.userId))) notFound();
 
   const sp = await searchParams;
   const tokens = await listAdminApiTokens(admin.userId);
   // 一次性明文：?created=<id> 命中暂存则展示并立即失效（刷新/转发不重放）
   const freshPlain =
-    typeof sp.created === "string" && sp.created ? takePlainOnce(sp.created) : null;
+    typeof sp.created === "string" && sp.created ? takePlainOnce(sp.created, admin.userId) : null;
 
   const flash = flashText(TOKENS_OK, sp.ok);
   const flashErr =

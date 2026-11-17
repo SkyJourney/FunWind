@@ -27,7 +27,7 @@ curl -H "Authorization: Bearer fw_at_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" 
 - v1 的 token 资格 = **站点管理员不变量**（`site.admin` + `admin.roles` 双持、可登录、未封禁）；
   版主作用域语义对 API 不生效（版主无 token）。
 - 频控：IP 桶 120 次/分钟 + per-token 60 次/分钟；429 附 `Retry-After` 头。
-- 每次调用节流更新 `last_used_at/ip`（60 秒内多次调用只落一次）。
+- 除 whoami 外的每次调用节流更新 `last_used_at/ip`（60 秒内多次调用只落一次；whoami 为高频握手，不更新）。
 
 ## 2. 统一信封与错误码
 

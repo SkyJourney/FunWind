@@ -38,38 +38,50 @@ export const TOKEN_USAGE_TOUCH_INTERVAL_SEC = 60;
 /**
  * 签发明文的**一次性展示暂存**（进程内存）：defineAction 恒 void + redirect 收尾，明文无法经
  * 返回值带回页面，也不能进 URL/cookie/日志——先暂存，页面按 `?created=<id>` 取走即删。
- * 安全面：命中即删（刷新不重放）+ TTL 兜底（未取走 60s 自动失效）+ 容量上限（签发低频，>32 全清过期）。
+ * 安全面：命中即删（刷新不重放）+ TTL 过期失效 + **绑定签发人**（他人凭审计里的哈希 id 也取不走）
+ * + 每次签发顺带清扫过期键（堆内存不残留明文）+ 容量上限。
  * 单实例部署前提（与 lib/auth/ratelimit 同）；多实例时本缓存需换集中存储。
  */
 const PENDING_PLAIN_TTL_MS = 60_000;
-const pendingPlains = new Map<string, { plain: string; expiresAt: number }>();
+const pendingPlains = new Map<string, { plain: string; userId: number; expiresAt: number }>();
 
-export function stashPlainForOnce(tokenId: string, plain: string): void {
-  const now = Date.now();
-  // 低频签发下的简单防泄漏：容量超限时先清过期，仍满则丢最旧
-  if (pendingPlains.size >= 32) {
-    for (const [k, v] of pendingPlains) {
-      if (v.expiresAt <= now) pendingPlains.delete(k);
-    }
-    if (pendingPlains.size >= 32) {
-      const oldest = pendingPlains.keys().next().value;
-      if (oldest !== undefined) pendingPlains.delete(oldest);
-    }
+/** 清扫过期条目（每次签发顺带执行，明文不在堆内存长期滞留） */
+function sweepExpiredPendingPlains(now: number): void {
+  for (const [k, v] of pendingPlains) {
+    if (v.expiresAt <= now) pendingPlains.delete(k);
   }
-  pendingPlains.set(tokenId, { plain, expiresAt: now + PENDING_PLAIN_TTL_MS });
 }
 
-/** 取走即删：命中返回明文（页面唯一展示时机），未命中/过期返回 null（刷新/转发不重放） */
-export function takePlainOnce(tokenId: string): string | null {
+export function stashPlainForOnce(tokenId: string, plain: string, userId: number): void {
+  const now = Date.now();
+  sweepExpiredPendingPlains(now);
+  // 低频签发下的简单防泄漏：容量超限时（清扫后仍满）丢最旧
+  if (pendingPlains.size >= 32) {
+    const oldest = pendingPlains.keys().next().value;
+    if (oldest !== undefined) pendingPlains.delete(oldest);
+  }
+  pendingPlains.set(tokenId, { plain, userId, expiresAt: now + PENDING_PLAIN_TTL_MS });
+}
+
+/** 取走即删且仅签发人可取：命中返回明文（页面唯一展示时机）；未命中/过期返回 null（不删，TTL 兜底）；
+ * 非本人访问返回 null 且**不消费条目**（凭审计泄漏的哈希 id 烧不掉签发人的一次性展示机会） */
+export function takePlainOnce(tokenId: string, userId: number): string | null {
   const hit = pendingPlains.get(tokenId);
+  if (!hit) return null;
+  if (hit.userId !== userId) return null;
   pendingPlains.delete(tokenId);
-  if (!hit || hit.expiresAt <= Date.now()) return null;
+  if (hit.expiresAt <= Date.now()) return null;
   return hit.plain;
 }
 
 /** 仅测试使用：清空一次性暂存 */
 export function resetPendingPlains(): void {
   pendingPlains.clear();
+}
+
+/** 页面/Action 与 API 门禁共用的「有效站点管理员」资格口径（事务内实时判定） */
+export async function isEffectiveSiteAdminOf(userId: number): Promise<boolean> {
+  return getWebDb().transaction((tx) => isEffectiveSiteAdmin(tx, userId));
 }
 
 /** 明文形如 fw_at_<43 字符 base64url>；返回明文与库内哈希主键 */

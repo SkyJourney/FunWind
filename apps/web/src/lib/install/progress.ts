@@ -35,10 +35,12 @@ export async function installProgress(): Promise<InstallProgress> {
     return progress; // 表不存在：dbReady=false，后续检查无从谈起
   }
   try {
+    // M20 清账前本键是 register.policy；但 register.policy 现由 bootstrap 直接写入（含存量搬迁），
+    // 不再表示「站点已配置」——换用只在安装第 2 步写入的 site.identity（站名等身份信息）。
     const [setting] = await getWebDb()
       .select({ key: siteSettings.key })
       .from(siteSettings)
-      .where(eq(siteSettings.key, "register.policy"))
+      .where(eq(siteSettings.key, "site.identity"))
       .limit(1);
     progress.siteConfigured = setting !== undefined;
   } catch {

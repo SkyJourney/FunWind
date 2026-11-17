@@ -2,13 +2,12 @@
 
 import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
-import { getWebDb } from "@funwind/db";
 import { defineAction } from "@/lib/actions/define-action";
 import { appendQueryParam } from "@/lib/admin/query";
-import { isEffectiveSiteAdmin } from "@/lib/authz/site-admin-invariant";
 import {
   ADMIN_API_TOKEN_DEFAULT_DAYS,
   createAdminApiToken,
+  isEffectiveSiteAdminOf,
   revokeAdminApiToken,
   stashPlainForOnce,
 } from "@/lib/manage/tokens";
@@ -22,10 +21,9 @@ import {
 
 const BASE = "/admin/api-tokens";
 
-/** 页面与 API 共同的「有效站点管理员」资格口径（页面在 requireAdmin 之外追加校验） */
+/** 页面与 API 共同的「有效站点管理员」资格口径（判定在 Service，入口零 db 直连） */
 async function ensureSiteAdminInvariant(userId: number): Promise<void> {
-  const ok = await getWebDb().transaction((tx) => isEffectiveSiteAdmin(tx, userId));
-  if (!ok) notFound();
+  if (!(await isEffectiveSiteAdminOf(userId))) notFound();
 }
 
 export const createApiTokenAction = defineAction({
@@ -62,7 +60,7 @@ export const createApiTokenAction = defineAction({
       }
       throw error;
     }
-    stashPlainForOnce(created.id, created.plain);
+    stashPlainForOnce(created.id, created.plain, ctx.userId);
     redirect(appendQueryParam(BASE, "created", created.id));
   },
 });
