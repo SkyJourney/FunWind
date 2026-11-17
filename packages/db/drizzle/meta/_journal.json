@@ -218,6 +218,13 @@
       "when": 1794576825534,
       "tag": "0030_m18_push_last_sent",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "5",
+      "when": 1794909907545,
+      "tag": "0031_m20_admin_api_tokens",
+      "breakpoints": true
     }
   ]
 }
