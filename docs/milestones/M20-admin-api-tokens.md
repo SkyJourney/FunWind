@@ -1,7 +1,7 @@
 # M20 · 管理 Access Token 与管理 REST API v1
 
 - 阶段：四·运营与演进 ｜ 依赖：无硬依赖（M19 已收口；**M21 强依赖本里程碑产物**）｜
-  状态：🚧 开工（2026-11-17 细化定稿，站长批准实施计划 v2；分支 `feat/m20-admin-api-tokens`）
+  状态：✅ 已收口部署（2026-11-18 发版，镜像 `funwind-web:20261118-f42c1fe2`；执行记录见 §15）
 - 立项动因：站长 2026-11-16——管理员拥有 **Access Token** 概念（自身有效期 + 被撤下管理员时同步吊销），
   支撑管理 REST API 与后续 MCP 化。
 
@@ -265,3 +265,11 @@ created_via varchar(16)  NOT NULL DEFAULT 'admin'（预留）
   全新安装会跳过站点配置步）；死码清理（policyFromLegacyMode/userIdOf）；补测 5 项。
   web 全量 4858 测试绿。
 - 2026-11-17：Step 9 收口——verify:all 全绿（EXIT=0：lint/format/三包单测/重复棘轮 1425≤1425/构建）；emails/push-logs 收敛 manageLogEndpoint 工厂 + 分页片段提取 params.ts（重复度回锚 1425/160，提交 0eeceaf6）；E2E 全量 **prod 536 passed（13.7m，含 api-tokens 全链 3 用例）+ dev 冒烟 8 passed，EXIT=0**。
+- 2026-11-18：**发版完成**——站长验收通过（两条意见落地：CopyCode 快速复制、后台表格样式组件收敛
+  §2 纪律延伸至视觉层：users/authz-forum/ops 台账迁移唯一 AdminDataTable、emojis token 对齐；
+  e2e-visual 钓出并修复 3 处 M19 回执键漏网）。PR #19 CI 双作业绿两轮（verify 10m30s / e2e 17m30s），
+  合并 main `f42c1fe2`；镜像 `funwind-web:20261118-f42c1fe2` save/load 至 QY_HK 部署（回滚点
+  `20261117-d67cd470`）；容器内 db:bootstrap 应用迁移 0031 并完成清账实演（越界授权 15 行删、
+  词表 24、61 表全集一致），db:verify 21 项全绿；公网核对：/admin/api-tokens 307、
+  /api/manage/whoami 401 JSON 信封语义正确、调度器 6 任务含 api-tokens.cleanup。观察期事项：
+  站长真机签发首枚 Token 并跑通真实调用、api-tokens.cleanup 首次执行结果、M21 接入准备。

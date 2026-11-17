@@ -36,6 +36,13 @@
   （siteConfigured 判定键 register.policy→site.identity，否则 M20 后全新安装会跳过站点配置步）；
   web 全量 4858 测试 + db 包 126 测试绿；E2E 全链（签发→API 调用→撤权失效）与门禁实测见
   [M20](docs/milestones/M20-admin-api-tokens.md) §15。
+- **验收修正与发版**：站长验收两条意见落地——明文展示补 CopyCode 快速复制（复用 M9.5 组件）；
+  **后台表格样式组件收敛**（AdminTable/AdminDataTable 对齐 users 形态：text-sm 正文/thead muted/
+  cozy px-3 py-2，users/authz-forum/ops 台账迁移唯一组件，emojis 编辑网格 token 对齐，杜绝继续
+  手写漂移）；e2e-visual 钓出 3 处 M19 回执键漏网并修复。发版：PR #19 CI 双绿（两轮）合并 main
+  `f42c1fe2`；生产镜像 `funwind-web:20261118-f42c1fe2` 部署（回滚点 `20261117-d67cd470`），
+  容器内 db:bootstrap 应用迁移 0031 + 清账实演（越界授权 15 行删/词表 24）+ db:verify 21 项全绿，
+  公网核对 /admin/api-tokens 新页与 /api/manage/whoami 401 JSON 语义正确。
 
 ### Added（M19 · 后台管理重塑——IA 拆分合并 + 多尺寸列表 + 一致性清账，2026-11-17）
 
