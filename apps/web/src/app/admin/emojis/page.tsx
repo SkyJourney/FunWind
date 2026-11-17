@@ -328,20 +328,20 @@ export default async function AdminEmojisPage({ searchParams }: Params) {
 
             <div className="overflow-x-auto rounded-lg border" data-testid="emoji-grid">
               <table className="w-full text-left text-sm">
-                <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
+                <thead className="border-b text-xs text-muted-foreground">
                   <tr>
-                    <th className="px-2.5 py-2">预览</th>
-                    <th className="px-2.5 py-2">名称</th>
-                    <th className="px-2.5 py-2">关键词（搜索用，空格分隔）</th>
-                    <th className="px-2.5 py-2">排序</th>
-                    <th className="px-2.5 py-2">状态</th>
-                    <th className="px-2.5 py-2" aria-label="操作" />
+                    <th className="px-3 py-2">预览</th>
+                    <th className="px-3 py-2">名称</th>
+                    <th className="px-3 py-2">关键词（搜索用，空格分隔）</th>
+                    <th className="px-3 py-2">排序</th>
+                    <th className="px-3 py-2">状态</th>
+                    <th className="px-3 py-2" aria-label="操作" />
                   </tr>
                 </thead>
                 <tbody>
                   {selected.map((e) => (
                     <tr key={e.id} className="border-t" data-enabled={e.enabled ? "1" : "0"}>
-                      <td className="px-2.5 py-1.5">
+                      <td className="px-3 py-2">
                         {/* /emoji/{id}.{ext}：与正文引用同一 URL；停用也照常可渲染 */}
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
@@ -352,7 +352,7 @@ export default async function AdminEmojisPage({ searchParams }: Params) {
                           className={`size-8 ${e.enabled ? "" : "opacity-40"}`}
                         />
                       </td>
-                      <td className="px-2.5 py-1.5" colSpan={4}>
+                      <td className="px-3 py-2" colSpan={4}>
                         <form
                           action={updateEmojiAction}
                           className="flex flex-wrap items-center gap-1.5"
@@ -392,7 +392,7 @@ export default async function AdminEmojisPage({ searchParams }: Params) {
                           <span className="text-xs text-muted-foreground">#{e.id}</span>
                         </form>
                       </td>
-                      <td className="px-2.5 py-1.5">
+                      <td className="px-3 py-2">
                         <form action={toggleEmojiAction}>
                           <input type="hidden" name="id" value={e.id} />
                           <input type="hidden" name="back" value={back} />

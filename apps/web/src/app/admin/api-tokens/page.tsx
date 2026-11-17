@@ -11,6 +11,7 @@ import {
 } from "@/lib/manage/tokens";
 import { flashText } from "@/lib/admin/flash";
 import { AdminFlash } from "@/components/admin/admin-flash";
+import { CopyCode } from "@/components/admin/copy-code";
 import { AdminDataTable, type AdminCell, type AdminColumn } from "@/components/admin/admin-list";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmSubmit } from "@/components/ui/confirm-submit";
@@ -29,12 +30,6 @@ const TOKENS_ERR: Record<string, string> = {
   "rate-limited": "签发过于频繁，请稍后再试。",
 };
 
-function statusBadgeOf(t: AdminApiTokenListItem): { label: string; cls: string } {
-  if (t.revokedAt !== null) return { label: "已吊销", cls: "bg-muted text-muted-foreground" };
-  if (!t.active) return { label: "已过期", cls: "bg-muted text-muted-foreground" };
-  return { label: "生效中", cls: "bg-success/10 text-success" };
-}
-
 const COLUMNS: AdminColumn[] = [
   { label: "名称", className: "" },
   { label: "尾号", className: "font-mono" },
@@ -44,6 +39,15 @@ const COLUMNS: AdminColumn[] = [
   { label: "状态", className: "" },
   { label: "操作", className: "" },
 ];
+
+/** 状态徽标（users 页胶囊形态：rounded-full px-2 py-0.5） */
+function statusBadgeOf(t: AdminApiTokenListItem) {
+  if (t.revokedAt !== null)
+    return <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">已吊销</span>;
+  if (!t.active)
+    return <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">已过期</span>;
+  return <span className="rounded-full bg-success/10 px-2 py-0.5 text-success">生效中</span>;
+}
 
 /**
  * API 令牌管理（M20）：管理员自签/自管 Access Token（/api/manage/** 的 Bearer 凭证）。
@@ -95,9 +99,12 @@ export default async function AdminApiTokensPage({
           className="space-y-2 rounded-lg border border-warning/40 bg-warning/10 p-4"
         >
           <p className="text-sm font-medium">请立即保存这枚 Token——离开本页后无法再次查看：</p>
-          <code className="block rounded bg-background px-3 py-2 font-mono text-sm break-all select-all">
-            {freshPlain}
-          </code>
+          <div className="flex items-center gap-2">
+            <code className="min-w-0 flex-1 rounded bg-background px-3 py-2 font-mono text-sm break-all select-all">
+              {freshPlain}
+            </code>
+            <CopyCode code={freshPlain} ariaLabel="复制 Token 明文" />
+          </div>
           <p className="text-xs text-muted-foreground">
             这是唯一一次展示（库内只存哈希，遗失只能吊销重签）；刷新或转发本页都不会再显示。
           </p>
@@ -146,20 +153,26 @@ export default async function AdminApiTokensPage({
         </CardContent>
       </Card>
 
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
+        <p>
+          共 {tokens.length} 个 Token（上限 {ADMIN_API_TOKEN_LIMIT}） · 生效{" "}
+          {tokens.filter((t) => t.active).length} 个
+        </p>
+        <p>
+          调用方式：<code className="font-mono">Authorization: Bearer &lt;token&gt;</code> →{" "}
+          <code className="font-mono">/api/manage/**</code>
+        </p>
+      </div>
+
       <AdminDataTable
         columns={COLUMNS}
         hasRows={tokens.length > 0}
         emptyText="还没有签发过 Token。"
         rows={tokens.map((t) => {
-          const badge = statusBadgeOf(t);
           const cells: AdminCell[] = [
             {
-              cls: "",
-              node: (
-                <div className="max-w-56 truncate" title={t.name}>
-                  {t.name}
-                </div>
-              ),
+              cls: "font-medium max-w-56 truncate",
+              node: <div title={t.name}>{t.name}</div>,
             },
             { cls: "font-mono", node: t.suffix },
             { cls: "whitespace-nowrap hidden md:table-cell", node: t.createdAt },
@@ -172,12 +185,7 @@ export default async function AdminApiTokensPage({
                 "—"
               ),
             },
-            {
-              cls: "",
-              node: (
-                <span className={`rounded px-1.5 py-0.5 text-xs ${badge.cls}`}>{badge.label}</span>
-              ),
-            },
+            { cls: "text-xs", node: statusBadgeOf(t) },
             {
               cls: "",
               node:

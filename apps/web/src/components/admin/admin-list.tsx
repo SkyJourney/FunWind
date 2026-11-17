@@ -47,8 +47,9 @@ export function AdminTable({
   return (
     <div className="overflow-x-auto rounded-xl border bg-card">
       {/* 行悬停反馈（M16 Step 4，与前台列表一致）：tr 由各页 rows 传入，这里用任意变体在壳上统一挂悬停底色与颜色过渡 */}
-      <table className="w-full text-left text-xs [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-accent/50">
-        <thead className="border-b text-muted-foreground">
+      <table className="w-full text-left text-sm [&_tbody>tr]:transition-colors [&_tbody>tr]:hover:bg-accent/50">
+        {/* 表头统一规范（M20 收敛）：小字号 + muted，正文 text-sm（users 页形态为唯一基准） */}
+        <thead className="border-b text-xs text-muted-foreground">
           <tr>{head}</tr>
         </thead>
         <tbody>
@@ -237,12 +238,12 @@ export function AdminDataTable({
       hasRows={hasRows}
       emptyText={emptyText}
       head={columns.map((c) => (
-        <th key={c.label} className={c.className}>
+        <th key={c.label} className={`px-3 py-2 ${c.className}`.trim()}>
           {c.label}
         </th>
       ))}
       rows={rows.map((r) => (
-        <tr key={r.key} className="border-t align-top">
+        <tr key={r.key} className="border-t align-top last:border-b-0">
           {r.cells.map((c, i) => (
             <td key={i} className={`${cell} ${c.cls}`.trim()}>
               {c.node}

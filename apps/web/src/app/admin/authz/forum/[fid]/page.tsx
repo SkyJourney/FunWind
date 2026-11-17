@@ -5,10 +5,16 @@ import { getForumModerators } from "@/lib/authz/service";
 import { getAuthzSnapshot } from "@/lib/authz/snapshot";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { ForumSelect } from "@/components/admin/forum-select";
+import { AdminDataTable, type AdminColumn } from "@/components/admin/admin-list";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "板块权限视角" };
 
+const GRANT_COLUMNS: AdminColumn[] = [
+  { label: "角色", className: "" },
+  { label: "权限点", className: "" },
+  { label: "来源板块", className: "" },
+];
 const READ_LABEL = { public: "公开", members: "仅登录会员", restricted: "仅授权角色" } as const;
 const WRITE_LABEL = { members: "登录会员（凭全局发帖权）", restricted: "仅授权角色" } as const;
 const REVIEW_LABEL = { none: "无需审核", threads: "新主题需审核", all: "所有发帖需审核" } as const;
@@ -117,48 +123,32 @@ export default async function ForumAuthzPage({ params }: { params: Promise<{ fid
 
       <section className="rounded-xl border bg-card p-4">
         <h2 className="mb-2 font-semibold">板块作用域授权（含继承）</h2>
-        {/* 移动端溢出兜底：全后台唯一 table 场景，窄屏横向滚动（M9.5 实锤修复） */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left text-xs text-muted-foreground">
-                <th className="py-1.5">角色</th>
-                <th className="py-1.5">权限点</th>
-                <th className="py-1.5">来源板块</th>
-              </tr>
-            </thead>
-            <tbody>
-              {grants.map((g) => (
-                <tr
-                  key={`${g.roleKey}:${g.permissionKey}:${g.scopeId}`}
-                  className="border-b last:border-b-0"
-                >
-                  <td className="py-1.5">
-                    <Link
-                      href={`/admin/authz/${g.roleKey}?scopeForum=${g.scopeId}`}
-                      className="hover:text-primary hover:underline"
-                    >
-                      {g.roleKey}
-                    </Link>
-                  </td>
-                  <td className="py-1.5">
-                    <code className="text-xs">{g.permissionKey}</code>
-                  </td>
-                  <td className="py-1.5 text-xs text-muted-foreground">
-                    {g.scopeId === fid ? "本板块" : `继承自 /f/${g.scopeId}`}
-                  </td>
-                </tr>
-              ))}
-              {grants.length === 0 && (
-                <tr>
-                  <td colSpan={3} className="py-3 text-muted-foreground">
-                    无（去「角色与授权」给角色加板块作用域授权）
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <AdminDataTable
+          columns={GRANT_COLUMNS}
+          hasRows={grants.length > 0}
+          emptyText="无（去「角色与授权」给角色加板块作用域授权）"
+          rows={grants.map((g) => ({
+            key: `${g.roleKey}:${g.permissionKey}:${g.scopeId}`,
+            cells: [
+              {
+                cls: "",
+                node: (
+                  <Link
+                    href={`/admin/authz/${g.roleKey}?scopeForum=${g.scopeId}`}
+                    className="hover:text-primary hover:underline"
+                  >
+                    {g.roleKey}
+                  </Link>
+                ),
+              },
+              { cls: "", node: <code className="text-xs">{g.permissionKey}</code> },
+              {
+                cls: "text-xs text-muted-foreground",
+                node: g.scopeId === fid ? "本板块" : `继承自 /f/${g.scopeId}`,
+              },
+            ],
+          }))}
+        />
       </section>
     </div>
   );

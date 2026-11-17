@@ -381,7 +381,7 @@ test("qy2010 浅色：计算样式与冻结的基线逐项一致", async ({ brow
         await form.getByLabel(`第 ${i + 1} 行路径`).fill(link.href);
       }
       await form.getByRole("button", { name: "保存友链" }).click();
-      await adminPage.waitForURL(/[?&]saved=links/);
+      await adminPage.waitForURL(/[?&]ok=links/);
     } finally {
       await adminPage.close();
     }

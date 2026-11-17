@@ -71,7 +71,8 @@ export function parseAdminListParams(
 
 /** 密度 → 数据单元格 padding 类（AdminDataTable 已内置；手写表格页拼 td 时复用） */
 export function densityCellClass(density: AdminDensity): string {
-  return density === "compact" ? "px-2.5 py-1" : "px-3 py-1.5";
+  // M20 收敛：cozy 对齐 users 页形态（px-3 py-2，行高舒展）；compact 维持紧凑档
+  return density === "compact" ? "px-2.5 py-1" : "px-3 py-2";
 }
 
 /**

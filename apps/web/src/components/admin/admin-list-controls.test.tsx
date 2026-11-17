@@ -63,9 +63,9 @@ describe("AdminDataTable 密度变体（M19 S3）", () => {
   const columns = [{ label: "A", className: "w-10" }];
   const rows = [{ key: 1, cells: [{ cls: "tabular-nums", node: "x" }] }];
 
-  it("缺省 cozy 与原 padding 逐字一致", () => {
+  it("缺省 cozy 对齐 users 页基准（M20 收敛）", () => {
     render(<AdminDataTable columns={columns} rows={rows} hasRows />);
-    expect(screen.getByRole("cell", { name: "x" })).toHaveClass("px-3", "py-1.5", "tabular-nums");
+    expect(screen.getByRole("cell", { name: "x" })).toHaveClass("px-3", "py-2", "tabular-nums");
   });
 
   it("compact 收紧单元格 padding 且保留列附加类", () => {

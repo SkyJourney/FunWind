@@ -108,8 +108,8 @@ describe("parseAdminListParams（M19 S3）", () => {
     expect(parseAdminListParams({ from: "2026-01-31", to: "2026-01-31" }).from).toBe("2026-01-31");
   });
 
-  it("densityCellClass：cozy 与原形态逐字一致，compact 收紧", () => {
-    expect(densityCellClass("cozy")).toBe("px-3 py-1.5");
+  it("densityCellClass：cozy 对齐 users 页基准（M20 收敛），compact 收紧", () => {
+    expect(densityCellClass("cozy")).toBe("px-3 py-2");
     expect(densityCellClass("compact")).toBe("px-2.5 py-1");
   });
 });
