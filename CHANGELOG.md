@@ -43,6 +43,9 @@
   `f42c1fe2`；生产镜像 `funwind-web:20261118-f42c1fe2` 部署（回滚点 `20261117-d67cd470`），
   容器内 db:bootstrap 应用迁移 0031 + 清账实演（越界授权 15 行删/词表 24）+ db:verify 21 项全绿，
   公网核对 /admin/api-tokens 新页与 /api/manage/whoami 401 JSON 语义正确。
+- **顺带修复（PR #20）**：后台移动端抽屉导航后不关闭（Radix Sheet 非受控不感知 Next 软导航——页面已切换
+  而抽屉滞留，fade 微动被滞留 overlay 遮挡成「闪一下」）；改受控 + 导航项 onClick 即关 + usePathname
+  变化兜底关（覆盖浏览器返回键）；生产构建实测复验后随镜像 `20261118-8c7089f4` 部署。
 
 ### Added（M19 · 后台管理重塑——IA 拆分合并 + 多尺寸列表 + 一致性清账，2026-11-17）
 
