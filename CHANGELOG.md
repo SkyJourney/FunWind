@@ -23,6 +23,9 @@
 - **五页补筛选**：审计日志（actor 用户名反查 UserPicker + 日期范围 + targetType 下拉 + CSV 同步透传）、
   举报（标题关键词+日期）、私信（日期）、公告（标题关键词）、邀请码（创建日期）；服务层 since/until
   下推 SQL + 四个集成测试。
+- **发版**：视觉站长验收通过 + E2E 夹具全绿后发版——PR #18 CI 双作业绿（verify 9m36s / e2e 17m16s）
+  合并 main `d67cd470`；生产镜像 `funwind-web:20261117-d67cd470` 部署公测（回滚点 `20261113-2c2fe4fc`），
+  部署后核对容器 healthy / 健康拨测 db+storage true / 后台入口与旧路由跳转语义正确。
 - **一致性清账（Q5）**：Flash 回执键全后台统一 `?ok=<key>`/`?err=<code|文案>`（`lib/admin/flash.ts`
   flashText 表驱动 + 原文回落）；手写回显收编 AdminFlash、块级空态收编 EmptyState、appeals 双重容器
   摘除；UserPicker 输入即搜（`/api/admin/users/search` + 客户端候选下拉，提交 username 语义不变）；
