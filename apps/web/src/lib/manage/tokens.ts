@@ -4,7 +4,7 @@ import { and, count, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import { adminApiTokens, getWebDb } from "@funwind/db";
 import { writeAudit } from "@/lib/audit";
 import { generateToken, hashToken } from "@/lib/auth/token";
-import { AdminError } from "@/lib/authz/admin";
+import { AdminError } from "@/lib/authz/admin-error";
 import { isEffectiveSiteAdmin, type AuthzTransaction } from "@/lib/authz/site-admin-invariant";
 
 /**

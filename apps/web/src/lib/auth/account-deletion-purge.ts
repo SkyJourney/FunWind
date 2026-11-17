@@ -66,6 +66,9 @@ export async function revertUserPollVotes(tx: DbTx, userId: number): Promise<voi
  */
 export async function purgeUserDataInTx(tx: DbTx, userId: number): Promise<void> {
   await tx.delete(sessions).where(eq(sessions.userId, userId));
+  // M20 注：purge 不嵌 token 联动——申请时已吊销（closure_pending 即失格），即便异常残留，
+  // guard 的 loadSubject 对非 active 用户返回 GUEST → 401 双保险覆盖，孤儿行由 cleanup 物理删；
+  // 且 purge 受「不扩大删表清单」守卫测试约束（account-deletion-purge.test.ts），保持清单纯净。
   await tx.delete(emailTokens).where(eq(emailTokens.userId, userId));
   await tx.delete(accountDeletionTokens).where(eq(accountDeletionTokens.userId, userId));
   await tx.delete(userRoles).where(eq(userRoles.userId, userId));

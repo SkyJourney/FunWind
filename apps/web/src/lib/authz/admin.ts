@@ -36,12 +36,12 @@ import {
  * 校验失败抛 AdminError（消息可直接展示给管理员）。
  */
 
-export class AdminError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "AdminError";
-  }
-}
+// M20：类本体挪到 admin-error.ts（断开与 lib/manage/tokens 的循环依赖）；本文件与既有 import 面都从这里取
+import { AdminError } from "./admin-error";
+export { AdminError };
+
+// M20 撤权联动吊销：撤销授权/角色/绑定的同事务内吊销当事管理员全部 Access Token
+import { revokeAdminApiTokensIfNotSiteAdmin } from "@/lib/manage/tokens";
 
 export interface AdminDeps {
   /** 覆盖事件派发（单测注入；缺省走内核总线） */
@@ -302,6 +302,17 @@ export async function revokeRolePermission(
     );
     if (scopeId === 0 && (permissionKey === "site.admin" || permissionKey === "admin.roles")) {
       await assertSiteAdminRemains(tx);
+      // M20 撤权联动：该角色全体 scope-0 持有人都可能因此失去管理员资格（逐人判定，非管理员为 0 开销）
+      const holders = await tx
+        .select({ userId: userRoles.userId })
+        .from(userRoles)
+        .where(and(eq(userRoles.roleKey, roleKey), eq(userRoles.scopeId, 0)));
+      for (const holder of holders) {
+        await revokeAdminApiTokensIfNotSiteAdmin(tx, holder.userId, {
+          actorId: actor.userId,
+          via: "admin",
+        });
+      }
     }
     await writeAudit(tx, {
       actorId: actor.userId,
@@ -362,7 +373,16 @@ export async function deleteCustomRole(actor: AdminActor, key: string): Promise<
     await tx.delete(roleGrants).where(eq(roleGrants.roleKey, key));
     await tx.delete(userRoles).where(eq(userRoles.roleKey, key));
     await tx.delete(roles).where(eq(roles.key, key));
-    if (removesAdminGrant) await assertSiteAdminRemains(tx);
+    if (removesAdminGrant) {
+      await assertSiteAdminRemains(tx);
+      // M20 撤权联动：删角色连带撤其 admin 授权，全部持有人逐人判定吊销
+      for (const uid of new Set(holders.map((h) => h.userId))) {
+        await revokeAdminApiTokensIfNotSiteAdmin(tx, uid, {
+          actorId: actor.userId,
+          via: "admin",
+        });
+      }
+    }
     await writeAudit(tx, {
       actorId: actor.userId,
       action: "role.delete",
@@ -491,7 +511,14 @@ export async function revokeUserRole(
         rows.map((r) => r.id),
       ),
     );
-    if (adminGrants.length > 0) await assertSiteAdminRemains(tx);
+    if (adminGrants.length > 0) {
+      await assertSiteAdminRemains(tx);
+      // M20 撤权联动：撤销 admin 双持授权的角色绑定后，当事管理员若不再满足不变量即吊销全部 token
+      await revokeAdminApiTokensIfNotSiteAdmin(tx, userId, {
+        actorId: actor.userId,
+        via: "admin",
+      });
+    }
     await writeAudit(tx, {
       actorId: actor.userId,
       action: "user_role.revoke",
