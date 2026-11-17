@@ -68,17 +68,36 @@ describe.skipIf(skipDb)("配置类管理动作的审计", () => {
 
   describe("setSetting", () => {
     it("首次写入 before 为空；修改写前后值；写相同值不审计", async () => {
-      await setSetting("register.mode", { mode: "open" }, { userId: 9, via: "admin" });
+      await setSetting(
+        "register.policy",
+        { open: true, invite: false, verifyEmail: true },
+        { userId: 9, via: "admin" },
+      );
       expect(await getRegisterMode()).toBe("open");
-      await setSetting("register.mode", { mode: "invite" }, { userId: 9, via: "admin" });
-      await setSetting("register.mode", { mode: "invite" }, { userId: 9, via: "admin" }); // 相同值
+      await setSetting(
+        "register.policy",
+        { open: false, invite: true, verifyEmail: false },
+        { userId: 9, via: "admin" },
+      );
+      await setSetting(
+        "register.policy",
+        { open: false, invite: true, verifyEmail: false },
+        { userId: 9, via: "admin" },
+      ); // 相同值
 
-      const rows = (await audits("setting.update")).filter((r) => r.targetId === "register.mode");
-      // 种子已写入默认 {mode:"invite"}，所以第一次是 invite→open，第二次是 open→invite，第三次空操作
+      const rows = (await audits("setting.update")).filter((r) => r.targetId === "register.policy");
+      // 种子已写入默认邀请制，所以第一次是 邀请→开放，第二次 开放→邀请，第三次空操作
       expect(rows).toHaveLength(2);
-      expect(rows[0]?.beforeJson).toEqual({ value: { mode: "invite" } });
-      expect(rows[0]?.afterJson).toEqual({ value: { mode: "open" }, via: "admin" });
-      expect(rows[1]?.beforeJson).toEqual({ value: { mode: "open" } });
+      expect(rows[0]?.beforeJson).toEqual({
+        value: { open: false, invite: true, verifyEmail: false },
+      });
+      expect(rows[0]?.afterJson).toEqual({
+        value: { open: true, invite: false, verifyEmail: true },
+        via: "admin",
+      });
+      expect(rows[1]?.beforeJson).toEqual({
+        value: { open: true, invite: false, verifyEmail: true },
+      });
       expect(rows[1]?.actorId).toBe(9);
       expect(await getRegisterMode()).toBe("invite");
     });

@@ -103,14 +103,10 @@ export function pageGuard(src: string): string | null {
   }
   if (name === "getCurrentUser") {
     const statements = page.body.statements.map((s) => s.getText(source).replace(/\s/g, ""));
-    const hasScopeQuery = statements.some((s) =>
-      s.includes(
-        'const[isSiteAdmin,hasRecycle,moderated]=awaitPromise.all([checkPermission(subject,"site.admin"),checkPermission(subject,"admin.recycle"),getModeratedForumIds(subject),]);',
-      ),
-    );
-    const hasRejection = statements.includes(
-      "if(!isSiteAdmin.allowed&&!hasRecycle.allowed&&moderated.length===0)notFound();",
-    );
+    // M20 分层纪律：contents 的「权限→数据范围」判定下沉 resolveContentScope（Service 唯一实现，
+    // 与 /api/manage/contents 同源）；页面形态 = 首个 await getCurrentUser + accessible 判定 notFound
+    const hasScopeQuery = statements.some((s) => s.includes("resolveContentScope(subject)"));
+    const hasRejection = statements.includes("if(!accessible)notFound();");
     return hasScopeQuery && hasRejection ? "contents-scope" : null;
   }
   return null;

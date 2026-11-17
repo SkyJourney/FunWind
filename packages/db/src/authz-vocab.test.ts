@@ -24,10 +24,14 @@ describe("权限词汇表", () => {
     }
   });
 
-  it("共 28 个权限点；已取消功能的权限点不再出现", () => {
-    expect(PERMISSION_DEFINITIONS).toHaveLength(28);
+  it("共 24 个权限点；已取消功能的权限点不再出现", () => {
+    expect(PERMISSION_DEFINITIONS).toHaveLength(24);
     for (const dead of [
       "forum.manage",
+      "vote.create",
+      "vote.view",
+      "tag.edit",
+      "tag.manage",
       "thread.sell",
       "thread.hide",
       "thread.award",
@@ -119,7 +123,11 @@ describe("内置角色与基线授权", () => {
   });
 
   it("站点设置默认值：邀请制、积分显示名、门控手续费 0、M7 奖励规则", () => {
-    expect(DEFAULT_SITE_SETTINGS["register.mode"]).toEqual({ mode: "invite" });
+    expect(DEFAULT_SITE_SETTINGS["register.policy"]).toEqual({
+      open: false,
+      invite: true,
+      verifyEmail: false,
+    });
     expect(DEFAULT_SITE_SETTINGS["points.gate_fee_rate"]).toEqual({ rate: 0 });
     expect(DEFAULT_SITE_SETTINGS["points.name"]).toBeDefined();
     expect(DEFAULT_SITE_SETTINGS["points.reward"]).toEqual({

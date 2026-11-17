@@ -216,8 +216,9 @@ test("DB 自定义主题：Surface 变量浅色预览与暗色档", async ({ bro
         .toBuffer(),
     });
     await adminPage.getByRole("button", { name: "上传入池" }).click();
-    await adminPage.waitForURL("**/admin/decor?added=*");
-    const decorFile = new URL(adminPage.url()).searchParams.get("added")!;
+    await adminPage.waitForURL("**/admin/decor?ok=added*");
+    // M19 Q5：回执键统一后文件名在 ok 值内（added=<file>，URL 编码为 %3D）
+    const decorFile = new URL(adminPage.url()).searchParams.get("ok")!.replace(/^added=/, "");
     expect(decorFile).toMatch(/^decor-[a-f0-9]{32}\.png$/);
 
     const definition = {
@@ -291,7 +292,7 @@ test("DB 自定义主题：Surface 变量浅色预览与暗色档", async ({ bro
     await adminPage.goto(`/admin/themes/${id}`);
     await adminPage.getByRole("button", { name: "保存主题包" }).click();
     await expect(adminPage).toHaveURL(
-      (url) => url.pathname === `/admin/themes/${id}` && url.searchParams.get("saved") === "1",
+      (url) => url.pathname === `/admin/themes/${id}` && url.searchParams.get("ok") === "1",
     );
     expect(new URL(adminPage.url()).searchParams.get("ack")).toMatch(/^[a-f0-9-]{36}$/);
 

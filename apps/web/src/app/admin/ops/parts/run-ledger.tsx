@@ -1,4 +1,9 @@
-import { AdminListPager } from "@/components/admin/admin-list";
+import {
+  AdminDataTable,
+  AdminListPager,
+  type AdminCell,
+  type AdminColumn,
+} from "@/components/admin/admin-list";
 import { buildAdminQuery } from "@/lib/admin/query";
 import { OpsAutoRefresh } from "@/components/ops/auto-refresh";
 import { backupDownloadHref } from "@/lib/ops/runs";
@@ -9,6 +14,18 @@ import type { OpsRunRow } from "@/lib/ops/runs";
  * 运行台账卡（M14 Step 3）：分页表格（失败原因、成功备份的下载链接）+ 执行中自动刷新。
  * 从 page.tsx 拆出（行数软限）——展示组件，不取数。
  */
+const LEDGER_COLUMNS: AdminColumn[] = [
+  { label: "#", className: "tabular-nums" },
+  { label: "任务", className: "" },
+  { label: "类别", className: "" },
+  { label: "触发", className: "" },
+  { label: "状态", className: "" },
+  { label: "大小", className: "tabular-nums" },
+  { label: "开始时间", className: "whitespace-nowrap tabular-nums" },
+  { label: "备注", className: "" },
+  { label: "文件", className: "" },
+];
+
 export function OpsRunLedger({
   runs,
   page,
@@ -45,62 +62,54 @@ export function OpsRunLedger({
               : "暂无记录——管线首次执行后这里会出现历史。"}
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left text-muted-foreground">
-                  <th className="p-3 font-medium">#</th>
-                  <th className="p-3 font-medium">任务</th>
-                  <th className="p-3 font-medium">类别</th>
-                  <th className="p-3 font-medium">触发</th>
-                  <th className="p-3 font-medium">状态</th>
-                  <th className="p-3 font-medium">大小</th>
-                  <th className="p-3 font-medium">开始时间</th>
-                  <th className="p-3 font-medium">备注</th>
-                  <th className="p-3 font-medium">文件</th>
-                </tr>
-              </thead>
-              <tbody>
-                {runs.map((r) => {
-                  const badge = STATUS_BADGE[r.status];
-                  const download = r.status === "success" ? backupDownloadHref(r.path) : null;
-                  return (
-                    <tr key={r.id} className="border-b align-top last:border-0">
-                      <td className="p-3 tabular-nums">{r.id}</td>
-                      <td className="p-3">{r.taskKey ?? "—"}</td>
-                      <td className="p-3">{KIND_LABEL[r.kind] ?? r.kind}</td>
-                      <td className="p-3 text-muted-foreground">
-                        {TRIGGER_LABEL[r.trigger] ?? r.trigger}
-                      </td>
-                      <td className="p-3">
-                        <span className={`rounded px-1.5 py-0.5 text-xs ${badge.cls}`}>
-                          {badge.label}
-                        </span>
-                        {r.error && (
-                          <div className="mt-1 max-w-xs text-xs text-destructive">{r.error}</div>
-                        )}
-                      </td>
-                      <td className="p-3 tabular-nums">{fmtSize(r.sizeBytes)}</td>
-                      <td className="p-3 whitespace-nowrap tabular-nums">{r.startedAt}</td>
-                      <td className="max-w-xs p-3 text-xs text-muted-foreground">
-                        {r.detail ?? ""}
-                      </td>
-                      <td className="p-3">
-                        {download && (
-                          <a
-                            className="text-xs whitespace-nowrap text-primary underline hover:no-underline"
-                            href={download}
-                          >
-                            下载
-                          </a>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <AdminDataTable
+            columns={LEDGER_COLUMNS}
+            hasRows={runs.length > 0}
+            rows={runs.map((r) => {
+              const badge = STATUS_BADGE[r.status];
+              const download = r.status === "success" ? backupDownloadHref(r.path) : null;
+              const cells: AdminCell[] = [
+                { cls: "tabular-nums", node: r.id },
+                { cls: "", node: r.taskKey ?? "—" },
+                { cls: "", node: KIND_LABEL[r.kind] ?? r.kind },
+                {
+                  cls: "text-muted-foreground",
+                  node: TRIGGER_LABEL[r.trigger] ?? r.trigger,
+                },
+                {
+                  cls: "",
+                  node: (
+                    <>
+                      <span className={`rounded px-1.5 py-0.5 text-xs ${badge.cls}`}>
+                        {badge.label}
+                      </span>
+                      {r.error && (
+                        <div className="mt-1 max-w-xs text-xs text-destructive">{r.error}</div>
+                      )}
+                    </>
+                  ),
+                },
+                { cls: "tabular-nums", node: fmtSize(r.sizeBytes) },
+                { cls: "whitespace-nowrap tabular-nums", node: r.startedAt },
+                {
+                  cls: "max-w-xs text-xs text-muted-foreground",
+                  node: r.detail ?? "",
+                },
+                {
+                  cls: "",
+                  node: download ? (
+                    <a
+                      className="text-xs whitespace-nowrap text-primary underline hover:no-underline"
+                      href={download}
+                    >
+                      下载
+                    </a>
+                  ) : null,
+                },
+              ];
+              return { key: r.id, cells };
+            })}
+          />
         )}
       </div>
       <OpsAutoRefresh running={runningCount > 0} />

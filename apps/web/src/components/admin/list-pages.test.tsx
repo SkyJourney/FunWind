@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   reports: vi.fn(),
   polls: vi.fn(),
   contents: vi.fn(),
+  scope: vi.fn(),
   users: vi.fn(),
   invites: vi.fn(),
   audit: vi.fn(),
@@ -45,7 +46,11 @@ vi.mock("@/lib/authz/service", () => ({
 }));
 vi.mock("@/lib/reports/service", () => ({ listReportPage: mocks.reports }));
 vi.mock("@/lib/poll/admin", () => ({ listPollPage: mocks.polls }));
-vi.mock("@/lib/moderation/contents", () => ({ listContentsPage: mocks.contents }));
+vi.mock("@/lib/moderation/contents", () => ({
+  listContentsPage: mocks.contents,
+  // M20：权限→范围判定下沉 Service；快照用例给全站视角
+  resolveContentScope: mocks.scope,
+}));
 vi.mock("@/lib/authz/restrictions-admin", () => ({ listAdminUsersPage: mocks.users }));
 vi.mock("@/lib/admin/invites", () => ({ listInvitesPage: mocks.invites }));
 vi.mock("@/lib/admin/logs", () => ({
@@ -139,6 +144,8 @@ beforeEach(() => {
   mocks.subject.mockResolvedValue({ userId: 1 });
   mocks.permission.mockResolvedValue({ allowed: false });
   mocks.moderated.mockResolvedValue([7]);
+  // M20：权限→范围判定下沉 Service；快照口径与 moderated 一致（版主所辖 [7]）
+  mocks.scope.mockResolvedValue({ accessible: true, scopeForumIds: [7] });
   for (const fn of [
     mocks.reports,
     mocks.polls,

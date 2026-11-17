@@ -14,10 +14,11 @@ export type DbExecutor = Db | DbTx;
  * theme：站长设全站默认主题时由主题↔LOGO 联动触发的池写入（M11，docs/THEME-SYSTEM.md §5）。
  * install：安装管线（M12，向导与 CLI 共用同一状态机，docs/milestones/M12-install-wizard.md）。
  * pipeline：运维任务管线经内部动作接口写入（M14 节日装扮生成 campaigns，token 鉴权）。
+ * api：管理 REST API 持 Access Token 调用（M20，actorId = token 持有人）。
  */
 export interface ConfigActor {
   userId: number | null;
-  via: "admin" | "cli" | "dev-api" | "theme" | "install" | "pipeline";
+  via: "admin" | "cli" | "dev-api" | "theme" | "install" | "pipeline" | "api";
   ip?: string | null;
 }
 

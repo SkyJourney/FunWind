@@ -548,10 +548,14 @@ async function seedReviewsAndNotifications(db: Db) {
 // ---------- 认证与权限夹具 ----------
 
 export async function seedAuthFixtures(db: Db): Promise<void> {
-  // 注册模式：邀请制（站点默认语义；E2E 每轮重置）
+  // 注册策略：邀请制（M20 起单键 register.policy；E2E 每轮重置）
   await db
     .insert(siteSettings)
-    .values({ key: "register.mode", value: { mode: "invite" }, updatedAt: sql`NOW()` })
+    .values({
+      key: "register.policy",
+      value: { open: false, invite: true, verifyEmail: false },
+      updatedAt: sql`NOW()`,
+    })
     .onDuplicateKeyUpdate({ set: { value: incoming("value") } });
 
   // E2E 邀请码（永不过期、未使用；e2e-reset 每轮重置恢复）

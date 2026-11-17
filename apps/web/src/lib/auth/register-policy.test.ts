@@ -4,7 +4,6 @@ import {
   applyRegisterWindow,
   chooseRegisterPath,
   pathRequiresVerification,
-  policyFromLegacyMode,
   registerAvailability,
   resolveRegisterPolicy,
   type RegisterPolicy,
@@ -16,30 +15,22 @@ const P = (open: boolean, invite: boolean, verifyEmail = false): RegisterPolicy 
   verifyEmail,
 });
 
-describe("旧 register.mode 兼容映射", () => {
-  it("invite / 缺失 / 未知值 → 邀请制；open → 开放且要求验证（旧开放模式本来就强制验证）", () => {
-    expect(policyFromLegacyMode({ mode: "invite" })).toEqual(P(false, true, false));
-    expect(policyFromLegacyMode(undefined)).toEqual(DEFAULT_REGISTER_POLICY);
-    expect(policyFromLegacyMode(null)).toEqual(DEFAULT_REGISTER_POLICY);
-    expect(policyFromLegacyMode({ mode: "weird" })).toEqual(DEFAULT_REGISTER_POLICY);
-    expect(policyFromLegacyMode({ mode: "open" })).toEqual(P(true, false, true));
-  });
-
+describe("策略解析（M20 起单键 register.policy；旧 register.mode 由 bootstrap 搬迁，运行时不再读取）", () => {
   it("默认值就是现状：邀请制、不要求验证", () => {
     expect(DEFAULT_REGISTER_POLICY).toEqual({ open: false, invite: true, verifyEmail: false });
+  });
+
+  it("键不存在 → 默认邀请制（旧键在库里残留也不会被读到）", () => {
+    expect(resolveRegisterPolicy(undefined).policy).toEqual(DEFAULT_REGISTER_POLICY);
+    expect(resolveRegisterPolicy(null).policy).toEqual(DEFAULT_REGISTER_POLICY);
   });
 });
 
 describe("策略解析", () => {
-  it("新键有效 → 用新键，忽略旧键", () => {
-    const r = resolveRegisterPolicy(P(true, true, true), { mode: "invite" });
+  it("新键有效 → 用新键", () => {
+    const r = resolveRegisterPolicy(P(true, true, true));
     expect(r.policy).toEqual(P(true, true, true));
     expect(r.error).toBeUndefined();
-  });
-
-  it("新键不存在 → 按旧键映射", () => {
-    expect(resolveRegisterPolicy(undefined, { mode: "open" }).policy).toEqual(P(true, false, true));
-    expect(resolveRegisterPolicy(null, undefined).policy).toEqual(DEFAULT_REGISTER_POLICY);
   });
 
   it("新键存在但写坏 → 回落邀请制并带错误说明，**不回头读旧键**（防止把注册意外放开）", () => {
@@ -49,17 +40,14 @@ describe("策略解析", () => {
       "x",
       [],
     ]) {
-      const r = resolveRegisterPolicy(bad, { mode: "open" });
+      const r = resolveRegisterPolicy(bad);
       expect(r.policy).toEqual(DEFAULT_REGISTER_POLICY);
       expect(r.error).toBeTruthy();
     }
   });
 
   it("多余字段被拒绝（strict，防拼写错误静默变成默认）", () => {
-    const r = resolveRegisterPolicy(
-      { open: true, invite: false, verifyEmail: true, extra: 1 },
-      null,
-    );
+    const r = resolveRegisterPolicy({ open: true, invite: false, verifyEmail: true, extra: 1 });
     expect(r.policy).toEqual(DEFAULT_REGISTER_POLICY);
     expect(r.error).toBeTruthy();
   });

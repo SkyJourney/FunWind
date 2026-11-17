@@ -252,6 +252,38 @@ export const accountDeletionTokens = mysqlTable(
   ],
 );
 
+/**
+ * 管理员 Access Token（M20）：`/api/manage/**` 的 Bearer 凭证，挂在管理员个人身份下。
+ * 明文形如 fw_at_<43 字符 base64url>，仅签发响应中展示一次；库内只存哈希。
+ * 三重失效：自身过期（expires_at）、手动吊销（revoked_at）、
+ * 持有人不再满足站点管理员不变量时事务内联动吊销（apps/web/src/lib/manage/tokens.ts）。
+ */
+export const adminApiTokens = mysqlTable(
+  "admin_api_tokens",
+  {
+    // 存 SHA-256(token)：库泄漏不等于凭证劫持（与 sessions 同款）
+    id: varchar("id", { length: 64 }).notNull(),
+    userId: int("user_id", { unsigned: true }).notNull(),
+    name: varchar("name", { length: 64 }).notNull(),
+    /** 明文尾 8 字符，后台列表辨识用（非凭证，不参与校验） */
+    suffix: varchar("suffix", { length: 8 }).notNull(),
+    createdAt: dt("created_at").notNull(),
+    expiresAt: dt("expires_at").notNull(),
+    /** 校验通过时节流写（距上次 >60s），供异常使用观测 */
+    lastUsedAt: dt("last_used_at"),
+    lastUsedIp: varchar("last_used_ip", { length: 64 }),
+    /** 手动/联动吊销时刻；非 NULL 即失效 */
+    revokedAt: dt("revoked_at"),
+    /** 签发渠道（预留；v1 仅后台页面签发） */
+    createdVia: varchar("created_via", { length: 16 }).notNull().default("admin"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.id] }),
+    index("idx_aat_user").on(t.userId),
+    index("idx_aat_expires").on(t.expiresAt),
+  ],
+);
+
 /** 本人对账号限制或注销申请发起复核；处理历史不依赖仍生效的限制行。 */
 export const userAppeals = mysqlTable(
   "user_appeals",

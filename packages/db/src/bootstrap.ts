@@ -7,7 +7,7 @@
  * 4. 唯一索引重建（仅家族对齐摘除过的表）
  * 5. seedSystemData：内置角色、权限词汇表、基线授权、站点设置默认值——零数据站点开箱即有可用的权限体系
  */
-import { eq, sql } from "drizzle-orm";
+import { eq, notInArray, sql } from "drizzle-orm";
 import { migrate } from "drizzle-orm/mysql2/migrator";
 import { createConnection, type Pool, type RowDataPacket } from "mysql2/promise";
 import { dirname, join } from "node:path";
@@ -165,7 +165,8 @@ export async function bootstrapDb(
 
     const summary = await seedSystemData(db);
     log(
-      `✔ 系统种子（幂等）：角色 ${summary.roles} / 权限点 ${summary.permissions} / 新增基线授权 ${summary.grantsInserted} / 新增默认设置 ${summary.settingsInserted} / 内置主题包 ${summary.themePacksInserted} / 补缺的内置主题包 ${summary.themePacksBackfilled} / 升级的内置主题包 ${summary.themePacksUpgraded} / 新增默认运维任务 ${summary.opsTasksSeeded}`,
+      `✔ 系统种子（幂等）：角色 ${summary.roles} / 权限点 ${summary.permissions} / 新增基线授权 ${summary.grantsInserted} / 新增默认设置 ${summary.settingsInserted} / 内置主题包 ${summary.themePacksInserted} / 补缺的内置主题包 ${summary.themePacksBackfilled} / 升级的内置主题包 ${summary.themePacksUpgraded} / 新增默认运维任务 ${summary.opsTasksSeeded}
+      / 清除越界权限点 ${summary.permissionsRemoved}`,
     );
   } finally {
     await pool.end();
@@ -227,6 +228,8 @@ export interface SystemSeedSummary {
   themePacksUpgraded: number;
   /** 本次新写入的默认运维任务个数（M14；按任务键首次写入，见 ops-task-seeds.ts） */
   opsTasksSeeded: number;
+  /** 清除的越界权限点个数（M20：词汇表收敛后删存量库死键；bootstrap 只 upsert 不删行，越界行在此清理） */
+  permissionsRemoved: number;
 }
 
 /**
@@ -275,6 +278,23 @@ export async function seedSystemData(db: Db): Promise<SystemSeedSummary> {
       },
     });
 
+  // M20 清账：词汇表收敛后删除库内越界行（不在词汇表中的权限点及其授权引用）。
+  // bootstrap 对权限只 upsert 不删行，死键（如 M20 移除的 vote.create/vote.view/tag.edit/tag.manage）
+  // 会在存量库残留——这里按词汇表全集反选幂等清理（授权行独立判断，孤儿授权一并删除），
+  // 随部署自动收敛；db:verify 的 authz 健康检查要求库内不越出词汇表，本清理是其前置。
+  // 评估器只认词汇表键，越界行本就无功能影响。
+  const knownPermissionKeys = PERMISSION_DEFINITIONS.map((p) => p.key);
+  const [removedPerms] = await db
+    .delete(permissions)
+    .where(notInArray(permissions.key, knownPermissionKeys));
+  const [removedGrants] = await db
+    .delete(roleGrants)
+    .where(notInArray(roleGrants.permissionKey, knownPermissionKeys));
+  const permissionsRemoved = Number(removedPerms?.affectedRows ?? 0);
+  if (Number(removedGrants?.affectedRows ?? 0) > 0) {
+    console.log(`[bootstrap] 同步删除越界授权行 ${Number(removedGrants?.affectedRows)} 条`);
+  }
+
   // 基线授权只在该角色没有任何授权行时整体插入（基线仅首次写入）：管理员调整过的授权不会被
   // 重跑 bootstrap 恢复（角色矩阵可编辑，bootstrap 幂等不覆盖人工调整；守卫 bootstrap.int.test）。
   // 新权限点对存量库的补齐 = 评估器对 admin 的短路放行（功能层）+ 一次性手工 INSERT（矩阵页显示）。
@@ -298,6 +318,29 @@ export async function seedSystemData(db: Db): Promise<SystemSeedSummary> {
   const existingKeys = new Set(
     (await db.select({ key: siteSettings.key }).from(siteSettings)).map((r) => r.key),
   );
+  // M20 清账：存量库 register.mode → register.policy 一次性幂等搬迁（翻译规则与 web 侧
+  // lib/auth/register-policy.ts 的旧 policyFromLegacyMode 一致——旧开放模式本就强制邮箱验证）。
+  // 全新部署由 DEFAULT_SITE_SETTINGS 直接写新键；搬迁完成后旧键行删除，运行时只认新键。
+  // 必须先于补缺：搬迁把 register.policy 记入 existingKeys，补缺就不会再写默认值覆盖翻译结果。
+  let registerPolicyMigrated = false;
+  if (!existingKeys.has("register.policy") && existingKeys.has("register.mode")) {
+    const [legacyRow] = await db
+      .select({ value: siteSettings.value })
+      .from(siteSettings)
+      .where(eq(siteSettings.key, "register.mode"))
+      .limit(1);
+    const legacyMode = (legacyRow?.value as { mode?: unknown } | null | undefined)?.mode;
+    const migratedPolicy =
+      legacyMode === "open"
+        ? { open: true, invite: false, verifyEmail: true }
+        : { open: false, invite: true, verifyEmail: false };
+    await db
+      .insert(siteSettings)
+      .values({ key: "register.policy", value: migratedPolicy, updatedAt: sql`NOW()` });
+    await db.delete(siteSettings).where(eq(siteSettings.key, "register.mode"));
+    existingKeys.add("register.policy");
+    registerPolicyMigrated = true;
+  }
   const missing = Object.entries(DEFAULT_SITE_SETTINGS).filter(([key]) => !existingKeys.has(key));
   if (missing.length > 0) {
     await db
@@ -306,7 +349,7 @@ export async function seedSystemData(db: Db): Promise<SystemSeedSummary> {
         missing.map(([key, value]) => ({ key, value: value as object, updatedAt: sql`NOW()` })),
       );
   }
-  const settingsInserted = missing.length;
+  const settingsInserted = missing.length + (registerPolicyMigrated ? 1 : 0);
 
   // 内置主题包种子（M11.1）：只补缺（INSERT IGNORE 语义），站长在 /admin/themes 的编辑不被覆盖；
   // `default` 为系统回退包（不可删除/停用）。qy2010 已移出内置（站长 2026-11-08：站点自定义主题）。
@@ -372,6 +415,7 @@ export async function seedSystemData(db: Db): Promise<SystemSeedSummary> {
     themePacksBackfilled,
     themePacksUpgraded,
     opsTasksSeeded,
+    permissionsRemoved,
   };
 }
 

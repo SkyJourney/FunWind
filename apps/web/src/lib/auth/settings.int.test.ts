@@ -1,8 +1,9 @@
 // @vitest-environment node
 /**
- * 注册策略读取（auth/settings.ts，M11.3）：新键 register.policy、旧键 register.mode 兼容、坏配置回落。
- * 真实 MySQL：验证 site_settings 里同时存在新旧键时的取舍，而不只是纯函数。
+ * 注册策略读取（auth/settings.ts，M11.3）：单键 register.policy、坏配置回落。
+ * 真实 MySQL：验证 site_settings 读取与取舍，而不只是纯函数。
  * M11.4 Step 2 追加：开放注册窗口的读取侧叠加（生效值 vs 站点原值、窗口边界、顶栏联动）。
+ * M20 清账：旧 register.mode 读兼容层移除——运行时只认新键，残留旧键被忽略（搬迁归 bootstrap）。
  */
 import "@/modules";
 import { eq, sql } from "drizzle-orm";
@@ -40,18 +41,14 @@ describe.skipIf(skipDb)("注册策略读取", () => {
     expect(await getRegisterPolicy()).toEqual({ open: false, invite: true, verifyEmail: false });
   });
 
-  it("只有旧 register.mode=open → 映射为开放且要求验证", async () => {
+  it("残留的旧 register.mode 被忽略（M20 清账：运行时只认新键，搬迁归 bootstrap）", async () => {
     await put("register.mode", { mode: "open" });
+    expect(await getRegisterPolicy()).toEqual({ open: false, invite: true, verifyEmail: false });
+    await put("register.policy", { open: true, invite: false, verifyEmail: true });
     expect(await getRegisterPolicy()).toEqual({ open: true, invite: false, verifyEmail: true });
   });
 
-  it("新旧键同时存在 → 以新键为准", async () => {
-    await put("register.mode", { mode: "open" });
-    await put("register.policy", { open: false, invite: true, verifyEmail: false });
-    expect(await getRegisterPolicy()).toEqual({ open: false, invite: true, verifyEmail: false });
-  });
-
-  it("新键写坏 → 回落邀请制并告警，不回头读旧键放开注册", async () => {
+  it("新键写坏 → 回落邀请制并告警，残留旧键也不会把注册放开", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     await put("register.mode", { mode: "open" });
     await put("register.policy", { open: "yes" });

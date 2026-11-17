@@ -14,7 +14,8 @@ import type { AuthzSnapshot, Decision, GrantRow, Subject } from "./types";
 
 /**
  * 写类权限：会产生内容或社交副作用的动作。禁言拦截有作用域上下文的写入；无版块上下文的私信与关注等动作不受 mute 影响。账号级邮箱验证门拦截此类权限；全站封禁另拒绝所有权限。
- * 浏览、举报、参与投票、查看投票结果不在其中——禁言不应妨碍举报与投票。
+ * 浏览、举报、参与投票不在其中——禁言不应妨碍举报与投票。
+ * （M20 清账：vote.create/tag.edit/tag.manage 移除，词汇表收敛为 24 点）
  */
 export const WRITE_CLASS_KEYS: ReadonlySet<string> = new Set([
   "forum.write",
@@ -22,11 +23,8 @@ export const WRITE_CLASS_KEYS: ReadonlySet<string> = new Set([
   "gate.points",
   "gate.reply",
   "attachment.upload",
-  "vote.create",
   "pm.send",
   "tag.add",
-  "tag.edit",
-  "tag.manage",
 ]);
 
 /** 非写类权限（显式列出，使词汇表里每个键都有明确归类；见单测的完备性断言） */
@@ -46,7 +44,6 @@ export const NON_WRITE_CLASS_KEYS: ReadonlySet<string> = new Set([
   "forum.report",
   "attachment.download",
   "vote.participate",
-  "vote.view",
   "sign.use",
   "user.viewIp",
 ]);

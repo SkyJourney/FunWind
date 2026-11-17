@@ -7,8 +7,18 @@ import { buildAdminQuery, parseAdminListParams, parseAdminPage } from "@/lib/adm
 import { AdminFilterBar } from "@/components/admin/admin-filter-bar";
 import { AdminListPager } from "@/components/admin/admin-list";
 import { EmptyState } from "@/components/empty-state";
+import { AdminDataTable, type AdminCell, type AdminColumn } from "@/components/admin/admin-list";
 
 export const dynamic = "force-dynamic";
+
+const USER_COLUMNS: AdminColumn[] = [
+  { label: "用户", className: "" },
+  { label: "注册时间", className: "" },
+  { label: "主题 / 帖子", className: "tabular-nums" },
+  { label: "状态", className: "" },
+  { label: "操作", className: "" },
+];
+
 export const metadata = { title: "用户管理" };
 
 type Params = {
@@ -62,7 +72,6 @@ export default async function AdminUsersPage({ searchParams }: Params) {
   const page = parseAdminPage(sp.page, "number-or-one");
   const { size, density } = parseAdminListParams(sp);
   // 本表原形态为 px-3 py-2（与其他表格的 py-1.5 不同）——cozy 档保持原样
-  const cell = density === "compact" ? "px-2.5 py-1" : "px-3 py-2";
 
   const {
     items,
@@ -158,85 +167,93 @@ export default async function AdminUsersPage({ searchParams }: Params) {
           }
         />
       ) : (
-        <div className="overflow-x-auto rounded-xl border bg-card">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b text-xs text-muted-foreground">
-              <tr>
-                <th className="px-3 py-2">用户</th>
-                <th className="px-3 py-2">注册时间</th>
-                <th className="px-3 py-2 tabular-nums">主题 / 帖子</th>
-                <th className="px-3 py-2">状态</th>
-                <th className="px-3 py-2" aria-label="操作" />
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((u) => (
-                <tr key={u.id} className="border-t last:border-b-0">
-                  <td className={cell}>
+        <AdminDataTable
+          columns={USER_COLUMNS}
+          density={density}
+          hasRows={items.length > 0}
+          rows={items.map((u) => {
+            const cells: AdminCell[] = [
+              {
+                cls: "",
+                node: (
+                  <>
                     <Link href={`/admin/users/${u.id}`} className="font-medium hover:text-primary">
                       {u.username}
                     </Link>
                     <span className="ml-1.5 text-xs text-muted-foreground">uid {u.id}</span>
-                  </td>
-                  <td className={`${cell} text-xs whitespace-nowrap text-muted-foreground`}>
-                    {fmtDateTime(u.createdAt)}
-                  </td>
-                  <td className={`${cell} text-xs tabular-nums`}>
+                  </>
+                ),
+              },
+              {
+                cls: "text-xs whitespace-nowrap text-muted-foreground",
+                node: fmtDateTime(u.createdAt),
+              },
+              {
+                cls: "text-xs tabular-nums",
+                node: (
+                  <>
                     {Number(u.threadCount ?? 0)} / {Number(u.postCount ?? 0)}
-                  </td>
-                  <td className={`${cell} text-xs`}>
-                    <div className="flex flex-wrap gap-1.5">
-                      {u.state === "deleted" ? (
-                        <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
-                          已注销
-                        </span>
-                      ) : u.closurePending ? (
-                        <span className="rounded-full bg-warning/10 px-2 py-0.5 text-warning">
-                          注销申请中
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">活跃</span>
-                      )}
-                      {u.emailVerificationRequired && !u.emailVerified && (
-                        <span className="rounded-full bg-warning/10 px-2 py-0.5 text-warning">
-                          待验证
-                        </span>
-                      )}
-                      {!u.hasPassword && (
-                        <span className="rounded-full border px-2 py-0.5 text-muted-foreground">
-                          待认领
-                        </span>
-                      )}
-                      {u.legacyPasswordPending && (
-                        <span className="rounded-full border px-2 py-0.5 text-muted-foreground">
-                          待换密
-                        </span>
-                      )}
-                      {u.restricted && (
-                        <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-destructive">
-                          受限
-                        </span>
-                      )}
-                      {u.closureScheduledAt && (
-                        <span className="text-muted-foreground">
-                          到期 {fmtDateTime(u.closureScheduledAt)}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className={`${cell} text-right`}>
-                    <Link
-                      href={`/admin/users/${u.id}`}
-                      className="text-xs text-primary hover:underline"
-                    >
-                      详情 →
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  </>
+                ),
+              },
+              {
+                cls: "text-xs",
+                node: (
+                  <div className="flex flex-wrap gap-1.5">
+                    {u.state === "deleted" ? (
+                      <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
+                        已注销
+                      </span>
+                    ) : u.closurePending ? (
+                      <span className="rounded-full bg-warning/10 px-2 py-0.5 text-warning">
+                        注销申请中
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">活跃</span>
+                    )}
+                    {u.emailVerificationRequired && !u.emailVerified && (
+                      <span className="rounded-full bg-warning/10 px-2 py-0.5 text-warning">
+                        待验证
+                      </span>
+                    )}
+                    {!u.hasPassword && (
+                      <span className="rounded-full border px-2 py-0.5 text-muted-foreground">
+                        待认领
+                      </span>
+                    )}
+                    {u.legacyPasswordPending && (
+                      <span className="rounded-full border px-2 py-0.5 text-muted-foreground">
+                        待换密
+                      </span>
+                    )}
+                    {u.restricted && (
+                      <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-destructive">
+                        受限
+                      </span>
+                    )}
+                    {u.closureScheduledAt && (
+                      <span className="text-muted-foreground">
+                        到期 {fmtDateTime(u.closureScheduledAt)}
+                      </span>
+                    )}
+                  </div>
+                ),
+              },
+              {
+                cls: "text-right",
+                node: (
+                  <Link
+                    href={`/admin/users/${u.id}`}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    详情 →
+                  </Link>
+                ),
+              },
+            ];
+            return { key: u.id, cells };
+          })}
+        />
       )}
 
       <AdminListPager

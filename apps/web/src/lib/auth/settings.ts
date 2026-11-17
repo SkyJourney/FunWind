@@ -17,8 +17,8 @@ import {
 export type RegisterMode = "invite" | "open";
 
 /**
- * 注册策略——**站点设置原值**（M11.3；M11.4 Step 2 F1 拆分）：读新键 `register.policy`，
- * 不存在时按旧 `register.mode` 兼容映射（规则见 register-policy.ts）。
+ * 注册策略——**站点设置原值**（M11.3；M11.4 Step 2 F1 拆分）：读 `register.policy`
+ * （M20 清账：旧 register.mode 读兼容层已移除，存量库由 bootstrap 搬迁收敛）。
  * 读不到或写坏都回落默认（邀请制）并告警，不让一份坏配置把注册意外放开或整体不可用。
  * 取代原 `email.verification`（open_only/always）：验证要求现在只是策略里的一个布尔，且只作用于开放注册。
  *
@@ -31,7 +31,7 @@ const getSiteRegisterPolicy = cache(async (): Promise<RegisterPolicy> => {
     const rows = await getWebDb()
       .select({ key: siteSettings.key, value: siteSettings.value })
       .from(siteSettings)
-      .where(inArray(siteSettings.key, ["register.policy", "register.mode"]));
+      .where(eq(siteSettings.key, "register.policy"));
     byKey = new Map(rows.map((r) => [r.key, r.value]));
   } catch (e) {
     // 零表韧性（M12）：全新部署在安装第 1 步之前连 site_settings 表都不存在——
@@ -39,10 +39,7 @@ const getSiteRegisterPolicy = cache(async (): Promise<RegisterPolicy> => {
     console.warn("[auth] 读取注册策略失败（库表可能尚未创建），已按邀请制处理:", e);
     return { ...DEFAULT_REGISTER_POLICY };
   }
-  const { policy, error } = resolveRegisterPolicy(
-    byKey.get("register.policy"),
-    byKey.get("register.mode"),
-  );
+  const { policy, error } = resolveRegisterPolicy(byKey.get("register.policy"));
   if (error) console.warn(`[auth] site_settings.register.policy 无效，已回落到邀请制：${error}`);
   return policy;
 });

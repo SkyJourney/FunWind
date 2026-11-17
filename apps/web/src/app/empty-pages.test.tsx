@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   moderator: vi.fn(),
   moderated: vi.fn(),
   contents: vi.fn(),
+  scope: vi.fn(),
   polls: vi.fn(),
 }));
 vi.mock("@/lib/authz/subject", () => ({
@@ -43,6 +44,8 @@ vi.mock("@/lib/authz/service", () => ({
 }));
 vi.mock("@/lib/moderation/contents", () => ({
   listContentsPage: mocks.contents,
+  // M20：页面「权限→范围」判定下沉 Service 唯一实现；mock 与 moderated 口径一致（版主所辖 [904]）
+  resolveContentScope: mocks.scope,
 }));
 vi.mock("@/lib/poll/admin", () => ({ listPollPage: mocks.polls }));
 vi.mock("@/app/actions/posts", () => ({ restorePostAction: vi.fn() }));
@@ -80,6 +83,7 @@ describe("页面空态", () => {
     });
     mocks.moderator.mockResolvedValue(undefined);
     mocks.moderated.mockResolvedValue([904]);
+    mocks.scope.mockResolvedValue({ accessible: true, scopeForumIds: [904] });
     mocks.contents.mockResolvedValue({ items: [], total: 0, page: 1, totalPages: 1 });
     mocks.polls.mockResolvedValue({ items: [], total: 0 });
   });

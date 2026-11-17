@@ -19,6 +19,7 @@ import {
 } from "@/lib/authz/site-admin-invariant";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
 import { restrictionActive } from "@/lib/authz/restrictions";
+import { revokeAdminApiTokensIfNotSiteAdmin } from "@/lib/manage/tokens";
 import { type PasswordVerifier, verifyAccountPassword, verifyPassword } from "./password";
 import { generateToken, hashToken } from "./token";
 import { hashEmailKey } from "./tokens";
@@ -136,6 +137,9 @@ async function createRequestInTx(
     .where(eq(accountDeletionRequests.id, requestId));
   await tx.delete(sessions).where(eq(sessions.userId, userId));
   await tx.delete(emailTokens).where(eq(emailTokens.userId, userId));
+  // M20 撤权联动：注销申请使持有人进入 closure_pending（不变量的 userNotClosing 不再满足），吊销全部 Access Token；
+  // 撤销注销后 token 不复活（安全侧：宁重签、不漏吊），30 天后 purge 完成时兜底再清
+  await revokeAdminApiTokensIfNotSiteAdmin(tx, userId, { actorId: userId, via: "self" });
 
   await writeAudit(tx, {
     actorId: userId,

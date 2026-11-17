@@ -110,10 +110,12 @@ describe("/admin 入口必须先鉴权（审查 P2-15）", () => {
         const first = firstAwaitedCall(body);
         // requireModerator：版主可达页（review）的等价门禁（未登录 redirect、无权限 404，同纪律）。
         // layout 等价门禁：首个 await 是 getCurrentUser 且函数体做 site.admin / 版主（getModeratedForumIds）判定。
+        // M20 分层纪律：contents 页的「权限→数据范围」判定下沉 resolveContentScope（Service 唯一实现，
+        // 与 /api/manage/contents 同源），页面内联判定文本不再是唯一等价形态。
         const layoutEquivalent =
           first === "getCurrentUser" &&
-          /site\.admin/.test(body) &&
-          /getModeratedForumIds/.test(body);
+          ((/site\.admin/.test(body) && /getModeratedForumIds/.test(body)) ||
+            /resolveContentScope\(/.test(body));
         if (first !== "requireAdmin" && first !== "requireModerator" && !layoutEquivalent)
           offenders.push(`${f.rel} › ${name}`);
       }

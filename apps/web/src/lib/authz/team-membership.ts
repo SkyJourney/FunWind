@@ -12,6 +12,7 @@ import {
   type EnqueuedEvent,
 } from "@/lib/events/outbox";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
+import { revokeAdminApiTokensIfNotSiteAdmin } from "@/lib/manage/tokens";
 import { AdminError } from "./admin";
 import { hasEffectiveSiteAdmin, lockSiteAdminInvariant } from "./site-admin-invariant";
 import {
@@ -238,6 +239,13 @@ export async function revokeTeamMembership(
       }
       if (adminGrants.length > 0 && !(await hasEffectiveSiteAdmin(tx))) {
         throw new AdminError("至少保留一位可以登录并管理角色的有效站点管理员");
+      }
+      // M20 撤权联动：收回持有 admin 授权的团队角色同样使持有人失去管理员资格
+      if (roleHolder && adminGrants.length > 0) {
+        await revokeAdminApiTokensIfNotSiteAdmin(tx, userId, {
+          actorId: actor.userId,
+          via: "admin",
+        });
       }
       await writeAudit(tx, {
         actorId: actor.userId,

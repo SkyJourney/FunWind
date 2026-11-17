@@ -1,6 +1,7 @@
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { getPointsName } from "@/lib/auth/settings";
-import { getPointRewardConfig } from "@/lib/points/reward-load";
+import { getPointRewardConfig, getPunchRewardConfig } from "@/lib/points/reward-load";
+import { getGateFeeRate } from "@/lib/gates/unlock";
 import { queryAuditLogs } from "@/lib/admin/logs";
 import { fmtDateTime } from "@/lib/admin/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,11 +12,12 @@ import { Coins } from "lucide-react";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 import { UserPicker } from "@/components/admin/user-picker";
-import { adjustPointsAction, saveRewardAction } from "./actions";
+import { adjustPointsAction, saveGatePunchAction, saveRewardAction } from "./actions";
 
 const POINTS_OK: Record<string, string> = {
   saved: "奖励规则已保存（值有变化时记入审计日志）。",
   adjusted: "调整已入账（台账与审计各一条）。",
+  "gate-punch": "签到奖励与过闸费率已保存（值有变化时记入审计日志）。",
 };
 
 export const dynamic = "force-dynamic";
@@ -32,10 +34,12 @@ export default async function AdminPointsPage({
 }) {
   await requireAdmin("admin.points");
   const sp = await searchParams;
-  const [reward, pointsName, recentAdjusts] = await Promise.all([
+  const [reward, pointsName, recentAdjusts, punchReward, gateFeeRate] = await Promise.all([
     getPointRewardConfig(),
     getPointsName(),
     queryAuditLogs({ action: "points.adjust", limit: 10 }),
+    getPunchRewardConfig(),
+    getGateFeeRate(),
   ]);
 
   return (
@@ -111,6 +115,65 @@ export default async function AdminPointsPage({
               pendingText="保存中…"
             >
               保存规则
+            </SubmitButton>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>签到奖励与过闸费率</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form action={saveGatePunchAction} className="space-y-4">
+            <div className="flex flex-wrap gap-x-8 gap-y-3 text-sm">
+              <label className="space-y-1">
+                <span className="block font-medium">签到奖励下限</span>
+                <input
+                  name="punchMin"
+                  type="number"
+                  defaultValue={punchReward.min}
+                  min={1}
+                  max={1000}
+                  required
+                  className={numField}
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="block font-medium">签到奖励上限</span>
+                <input
+                  name="punchMax"
+                  type="number"
+                  defaultValue={punchReward.max}
+                  min={1}
+                  max={1000}
+                  required
+                  className={numField}
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="block font-medium">过闸手续费率（0=不收费）</span>
+                <input
+                  name="gateFeeRate"
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  max={0.99}
+                  defaultValue={gateFeeRate}
+                  required
+                  className={numField}
+                />
+              </label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              签到奖励在 [下限, 上限] 内随机；过闸费率作用于积分购买型锁定内容（手续费 = floor(价格
+              × 费率)，取整有利于作者）。数值改动会记入审计日志。
+            </p>
+            <SubmitButton
+              className="rounded-lg bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+              pendingText="保存中…"
+            >
+              保存
             </SubmitButton>
           </form>
         </CardContent>

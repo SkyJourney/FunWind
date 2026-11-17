@@ -89,7 +89,7 @@ describe.skipIf(skip)("bootstrap / seed 集成（临时库）", () => {
     }
   };
 
-  it("bootstrap 建出 schema v2.x 全部 60 张表（含 theme_packages、email_log、campaigns、ops_tasks、ops_triggers、rum_samples、csp_reports、push_subscriptions、push_log），且列级排序规则补丁生效", async () => {
+  it("bootstrap 建出 schema v2.x 全部 61 张表（含 theme_packages、email_log、campaigns、ops_tasks、ops_triggers、rum_samples、csp_reports、push_subscriptions、push_log、admin_api_tokens），且列级排序规则补丁生效", async () => {
     const pool = createPool(config);
     try {
       const [tables] = await pool.query<RowDataPacket[]>(
@@ -97,7 +97,7 @@ describe.skipIf(skip)("bootstrap / seed 集成（临时库）", () => {
          WHERE TABLE_SCHEMA = ? AND TABLE_NAME <> '__drizzle_migrations'`,
         [dbName],
       );
-      expect(Number(tables[0]?.n)).toBe(60);
+      expect(Number(tables[0]?.n)).toBe(61);
       for (const p of PATCHES) {
         const [rows] = await pool.query<RowDataPacket[]>(
           `SELECT COLLATION_NAME AS c FROM information_schema.COLUMNS
@@ -175,10 +175,88 @@ describe.skipIf(skip)("bootstrap / seed 集成（临时库）", () => {
         "points.name",
         "points.reward",
         "punch.reward",
-        "register.mode",
+        "register.policy", // M20 清账：种子直接写新键（register.mode 读兼容层已随搬迁移除）
       ]);
       const stored = (await db.select().from(siteSettings)).find((x) => x.key === "limits");
       expect(stored?.value).toEqual(DEFAULT_LIMITS); // 默认写入限制与代码常量一致（零数据部署开箱可用）
+    });
+  });
+
+  it("M20 清账：词汇表外的越界权限点及其授权随 bootstrap 幂等清除", async () => {
+    await withTestDb(async (db) => {
+      // 模拟存量库残留：直接插入已从词汇表移除的死键及其授权行
+      await db.insert(permissions).values({
+        key: "vote.create",
+        resource: "vote",
+        level: null,
+        description: "发起投票（M20 已移除的死键）",
+      });
+      await db
+        .insert(roleGrants)
+        .values({ roleKey: "member", permissionKey: "vote.create", scopeId: 0 });
+      await db
+        .insert(roleGrants)
+        .values({ roleKey: "guest", permissionKey: "vote.view", scopeId: 0 });
+
+      const summary = await seedSystemData(db);
+      expect(summary.permissionsRemoved).toBeGreaterThanOrEqual(1);
+
+      const permKeys = (await db.select().from(permissions)).map((r) => r.key);
+      expect(permKeys).not.toContain("vote.create");
+      expect(permKeys).toHaveLength(PERMISSION_DEFINITIONS.length);
+      const grantKeys = (await db.select().from(roleGrants)).map((r) => r.permissionKey);
+      expect(grantKeys).not.toContain("vote.create");
+      expect(grantKeys).not.toContain("vote.view");
+
+      // 幂等：再跑一遍无残留可清
+      const again = await seedSystemData(db);
+      expect(again.permissionsRemoved).toBe(0);
+    });
+  });
+
+  it("M20 搬迁：存量库 register.mode → register.policy 翻译写入并删旧键", async () => {
+    await withTestDb(async (db) => {
+      // 模拟存量库：删掉 bootstrap 刚写的新键，换上旧键 open 模式
+      await db.delete(siteSettings).where(eq(siteSettings.key, "register.policy"));
+      await db
+        .insert(siteSettings)
+        .values({ key: "register.mode", value: { mode: "open" }, updatedAt: sql`NOW()` });
+
+      await seedSystemData(db);
+      // 旧 open 模式翻译为「开放 + 强制邮箱验证」（与 web 侧旧 policyFromLegacyMode 语义一致）
+      const [row] = await db
+        .select()
+        .from(siteSettings)
+        .where(eq(siteSettings.key, "register.policy"));
+      expect(row?.value).toEqual({ open: true, invite: false, verifyEmail: true });
+      const legacyRows = (await db.select().from(siteSettings)).filter(
+        (r) => r.key === "register.mode",
+      );
+      expect(legacyRows).toHaveLength(0);
+
+      // 幂等：旧键已删，再跑不再搬迁
+      const again = await seedSystemData(db);
+      expect(again.settingsInserted).toBe(0);
+    });
+  });
+
+  it("M20 搬迁：invite 模式（默认落点）翻译为邀请制且不放开注册", async () => {
+    await withTestDb(async (db) => {
+      await db.delete(siteSettings).where(eq(siteSettings.key, "register.policy"));
+      await db
+        .insert(siteSettings)
+        .values({ key: "register.mode", value: { mode: "invite" }, updatedAt: sql`NOW()` });
+
+      await seedSystemData(db);
+      const [row] = await db
+        .select()
+        .from(siteSettings)
+        .where(eq(siteSettings.key, "register.policy"));
+      expect(row?.value).toEqual({ open: false, invite: true, verifyEmail: false });
+      const legacyRows = (await db.select().from(siteSettings)).filter(
+        (r) => r.key === "register.mode",
+      );
+      expect(legacyRows).toHaveLength(0);
     });
   });
 

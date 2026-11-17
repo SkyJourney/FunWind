@@ -7,6 +7,7 @@ import { writeAudit } from "@/lib/audit";
 import { isFutureBeijingDateTime, nowBeijingWallTime } from "@/lib/datetime";
 import { lockActiveUserInTx } from "@/lib/identity";
 import { restrictionActive } from "@/lib/authz/restrictions";
+import { revokeAdminApiTokensIfNotSiteAdmin } from "@/lib/manage/tokens";
 import {
   hasOtherEffectiveSiteAdmin,
   isEffectiveSiteAdmin,
@@ -103,7 +104,14 @@ export async function createRestriction(
         )
         .limit(1);
       if (active) {
-        if (globalBan) await tx.delete(sessions).where(eq(sessions.userId, input.userId));
+        if (globalBan) {
+          await tx.delete(sessions).where(eq(sessions.userId, input.userId));
+          // M20 撤权联动：重复封禁同样保持「封禁 ⇔ token 失效」（此前解封后可能重签过 token）
+          await revokeAdminApiTokensIfNotSiteAdmin(tx, input.userId, {
+            actorId: admin.userId,
+            via: admin.via,
+          });
+        }
         return { ok: false, code: "already" };
       }
 
@@ -126,7 +134,14 @@ export async function createRestriction(
         createdBy: admin.userId,
         createdAt: now,
       });
-      if (globalBan) await tx.delete(sessions).where(eq(sessions.userId, input.userId));
+      if (globalBan) {
+        await tx.delete(sessions).where(eq(sessions.userId, input.userId));
+        // M20 撤权联动：全站封禁使持有人失去管理员资格，同事务吊销全部 Access Token
+        await revokeAdminApiTokensIfNotSiteAdmin(tx, input.userId, {
+          actorId: admin.userId,
+          via: admin.via,
+        });
+      }
       await writeAudit(tx, {
         actorId: admin.userId,
         action: "restriction.create",
