@@ -22,14 +22,12 @@ export const LEGACY_PERMISSION_KEYS: Readonly<Record<string, readonly string[]>>
   reply_locked_threads: ["thread.replyLocked"],
   allow_upload: ["attachment.upload"],
   allow_download: ["attachment.download"],
-  allow_add_vote: ["vote.create"],
+  // （M20 清账：allow_add_vote/allow_view_vote 不再翻译——vote.create/vote.view 已从词汇表移除；
+  //   allow_tag_edit/allow_tag_manage 同理。旧键在导入报告里按「无对应权限点」计数，不再授予。）
   allow_participate_vote: ["vote.participate"],
-  allow_view_vote: ["vote.view"],
   allow_sign: ["sign.use"],
   message_allow_send: ["pm.send"],
   tag_allow_add: ["tag.add"],
-  tag_allow_edit: ["tag.edit"],
-  tag_allow_manage: ["tag.manage"],
   view_ip_address: ["user.viewIp"],
 };
 

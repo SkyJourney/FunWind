@@ -107,3 +107,38 @@ export const adjustPointsAction = defineAction({
     redirect(`${BACK}?ok=adjusted`);
   },
 });
+
+/** M19 移交清账（M20 落地）：punch.reward 与 points.gate_fee_rate 此前「读但无写」，此处补编辑入口 */
+const saveGatePunchInput = z.object({
+  punchMin: z.coerce.number().int().min(1).max(1000),
+  punchMax: z.coerce.number().int().min(1).max(1000),
+  /** 过闸费率：[0, 0.99] 两位小数（0 = 不收费）；读路径对 [0,1) 之外一律按 0 */
+  gateFeeRate: z.coerce.number().min(0).max(0.99),
+});
+
+export const saveGatePunchAction = defineAction({
+  name: "admin.points.save_gate_punch",
+  auth: { admin: "admin.points" },
+  input: saveGatePunchInput,
+  async run(ctx, input) {
+    // 区间语义在入口层校验（数值范围交给 zod）：min > max 是配置错误而非静默交换
+    if (input.punchMin > input.punchMax) {
+      throw new AdminError("签到奖励下限不能大于上限。");
+    }
+    const gateFeeRate = Math.round(input.gateFeeRate * 100) / 100; // 两位小数归整，避免浮点尾差入库
+    try {
+      await setSettings(
+        [
+          { key: "punch.reward", value: { min: input.punchMin, max: input.punchMax } },
+          { key: "points.gate_fee_rate", value: { rate: gateFeeRate } },
+        ],
+        { userId: ctx.admin!.userId, via: "admin", ip: ctx.admin!.ip },
+      );
+    } catch (e) {
+      toAdminErrorBack(e);
+    }
+    revalidatePath("/admin/points");
+    revalidatePath("/points");
+    redirect(`${BACK}?ok=gate-punch`);
+  },
+});

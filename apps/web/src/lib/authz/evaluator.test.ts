@@ -61,7 +61,6 @@ const g = (roleKey: string, permissionKey: string, scopeId = 0): GrantRow => ({
 
 const snap = buildSnapshot(tree, [
   g("guest", "site.visit"),
-  g("guest", "vote.view"),
   g("member", "site.visit"),
   g("member", "forum.write"),
   g("member", "forum.report"),

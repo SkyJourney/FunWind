@@ -34,10 +34,11 @@
 **权限点两级形态**：
 - **分级域**：`forum.read`（只读）→ `forum.write`（可编辑：发帖/回帖/编辑）→ `forum.manage`（可管理：置顶/加精/删除/审核）；
   级别隐含：持有 `manage` 即满足 `write`/`read`。
-- **动作型**（无级别）：`attachment.upload` / `vote.create` / `pm.send` / `tag.add` / `site.admin`（后台总门）/
+- **动作型**（无级别）：`attachment.upload` / `vote.participate` / `pm.send` / `tag.add` / `site.admin`（后台总门）/
   `admin.*`（后台细分动作）/ `emoji.manage`（M10.9 社区表情管理，admin 基线默认持有）… 词汇表单一事实源在
-  `packages/db/src/authz-vocab.ts`（v2.2 起共 28 点，
-  已取消功能（`thread.sell` / `forum.manage` 等）的键不再出现）。
+  `packages/db/src/authz-vocab.ts`（v2.2 起共 28 点，M20 清账后共 **24** 点——
+  已取消功能（`thread.sell` / `forum.manage` 等）与四个从未被评估的死键（`vote.create` / `vote.view` / `tag.edit` / `tag.manage`）
+  不再出现，bootstrap 幂等清理会随部署删除存量库越界行）。
 - **数值型旧键**（`threads_perday` / `post_pertime` / `post_url_num` / `message_max_send` 等 18 个）
   → 转 **ABAC 条件参数**（`condition_params`），不是权限点；M6 实装计数。
 
@@ -72,7 +73,7 @@ checkPermission(subject, "resource.action", { forumId? }) → { allowed, reason 
 实现约定（S4-2 定稿）：
 
 - **写类权限集合**（禁言/封禁与“开放注册未验证邮箱”拦的就是这一类）：`forum.write`、`thread.replyLocked`、`gate.points`、`gate.reply`、
-  `attachment.upload`、`vote.create`、`pm.send`、`tag.add`、`tag.edit`、`tag.manage`。`forum.report`、`vote.participate`、`vote.view` 不拦。
+  `attachment.upload`、`pm.send`、`tag.add`。`forum.report`、`vote.participate` 不拦。
   词汇表每个键都必须显式归入写类或非写类，单测校验完备性（新增权限点漏分类会红）。
 - **作用域语义**：`user_roles.scope_id` 与 `role_grants.scope_id` 同义——0 全局，>0 只在该版块子树内生效；评估器只有一种“链上命中”。
 - **`restricted` 的授权只认版块作用域**（全局基线不算）；授权可来自目标版块或其祖先；更高级别隐含低级别（moderate ⊃ write ⊃ read）。

@@ -8,8 +8,9 @@ import { z } from "zod";
  * 邀请注册的账号不要求验证。
  *
  * 配置存在 site_settings 的 `register.policy` 键，zod `.strict()` 校验。**键存在但内容无效时整体回落默认（邀请制）**，
- * 不回头去读旧 `register.mode`：站长保存过新策略之后被写坏，若悄悄退回一个早已过期的旧值，可能把注册意外放开。
- * 只有新键**不存在**时才按旧 `register.mode` 兼容映射，使升级前后站点行为零变化。
+ * 不回落任何过期旧值：站长保存过新策略之后被写坏，若悄悄退回一个早已过期的旧值，可能把注册意外放开。
+ * （M20 清账：旧 `register.mode` 的读兼容层已移除——bootstrap 迁移把存量库旧键翻译成新键后删除，
+ *  运行时只认新键；键缺失即默认邀请制。）
  */
 
 export const registerPolicySchema = z
@@ -41,17 +42,17 @@ export function policyFromLegacyMode(raw: unknown): RegisterPolicy {
 }
 
 /**
- * 综合新旧两个键：
- *  · `register.policy` 存在且有效 → 用它；
+ * 解析 `register.policy` 原值（M20 起单键）：
+ *  · 存在且有效 → 用它；
  *  · 存在但无效 → 默认（邀请制），并带 error 供调用方告警；
- *  · 不存在 → 按旧 `register.mode` 映射（缺失时即默认邀请制）。
+ *  · 不存在 → 默认（邀请制）。
  */
-export function resolveRegisterPolicy(
-  policyRaw: unknown,
-  legacyModeRaw: unknown,
-): { policy: RegisterPolicy; error?: string } {
+export function resolveRegisterPolicy(policyRaw: unknown): {
+  policy: RegisterPolicy;
+  error?: string;
+} {
   if (policyRaw === undefined || policyRaw === null) {
-    return { policy: policyFromLegacyMode(legacyModeRaw) };
+    return { policy: { ...DEFAULT_REGISTER_POLICY } };
   }
   const parsed = registerPolicySchema.safeParse(policyRaw);
   if (parsed.success) return { policy: parsed.data };

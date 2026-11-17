@@ -1,7 +1,10 @@
 /**
- * 权限点词汇表（schema v2.1 单一事实源）：28 个权限点。
+ * 权限点词汇表（schema v2.1 单一事实源）：24 个权限点。
  * 消费方：bootstrap 的 seedSystemData、web 评估器（级别隐含）、导入适配层（把外部权限翻译到这些键）。
  * 扩展权限点 = 修改本文件 + 在 docs/AUTHZ.md 说明（与模块清单同纪律）。
+ * M20 清账：移除四个从未被评估的死权限点（vote.create/vote.view/tag.edit/tag.manage）——
+ * 投票授权走 forum.write、结果可见性走 poll 自身字段、标签管理功能不存在；
+ * bootstrap 幂等清理会随部署删除存量库里的越界行（见 seedSystemData）。
  *
  * 本文件不认识旧站：旧键映射、旧用户组、团队角色都只存在于 migration/（见 docs/DESIGN-MODEL.md §1）。
  * 约定：forum.moderate 只能通过作用域授权获得，禁止任何自动映射把它授予全体会员。
@@ -51,17 +54,15 @@ export const PERMISSION_DEFINITIONS: PermissionDef[] = [
   def("attachment.upload", "attachment", "上传附件"),
   def("attachment.download", "attachment", "下载附件"),
   // ---- 投票 ----
-  def("vote.create", "vote", "发起投票"),
+  // （M20 清账：vote.create/vote.view 移除——发起投票授权走 forum.write，结果可见性由 poll 自身字段控制）
   def("vote.participate", "vote", "参与投票"),
-  def("vote.view", "vote", "查看投票结果"),
   // ---- 签名 ----
   def("sign.use", "sign", "使用签名档"),
   // ---- 私信 ----
   def("pm.send", "pm", "发送私信"),
   // ---- 标签 ----
   def("tag.add", "tag", "添加标签"),
-  def("tag.edit", "tag", "编辑标签"),
-  def("tag.manage", "tag", "管理标签"),
+  // （M20 清账：tag.edit/tag.manage 移除——标签编辑/管理功能不存在，标签只在线程创建时添加）
   // ---- 用户 ----
   def("user.viewIp", "user", "查看用户 IP"),
 ];
@@ -96,7 +97,7 @@ export const ROLE_DEFINITIONS: RoleDef[] = [
  * admin 在评估器中短路放行，此处仍显式授予后台权限点，保证矩阵页可见。
  */
 export const DEFAULT_ROLE_GRANTS: Record<BuiltinRoleKey, string[]> = {
-  guest: ["site.visit", "vote.view"],
+  guest: ["site.visit"],
   member: [
     "site.visit",
     "forum.write",
@@ -105,9 +106,7 @@ export const DEFAULT_ROLE_GRANTS: Record<BuiltinRoleKey, string[]> = {
     "gate.reply",
     "attachment.upload",
     "attachment.download",
-    "vote.create",
     "vote.participate",
-    "vote.view",
     "sign.use",
     "pm.send",
     "tag.add",
@@ -128,8 +127,6 @@ export const DEFAULT_ROLE_GRANTS: Record<BuiltinRoleKey, string[]> = {
     "forum.moderate",
     "thread.replyLocked",
     "user.viewIp",
-    "tag.edit",
-    "tag.manage",
   ],
 };
 
@@ -180,7 +177,8 @@ export const DEFAULT_PUNCH_REWARD = { min: 1, max: 5 } as const;
 
 /** 站点设置默认值（零数据部署；导入路径可覆盖，如积分显示名） */
 export const DEFAULT_SITE_SETTINGS: Record<string, unknown> = {
-  "register.mode": { mode: "invite" },
+  // M20：直接写新键（旧 register.mode 由 bootstrap 迁移翻拆迁除）；默认邀请制 = 旧 invite 模式的翻译形态
+  "register.policy": { open: false, invite: true, verifyEmail: false },
   "points.name": { name: "积分" },
   "points.gate_fee_rate": { rate: 0 },
   "points.reward": DEFAULT_POINT_REWARD,

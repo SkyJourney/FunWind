@@ -215,7 +215,7 @@ describe.skipIf(skipDb)("站点框架配置（site-chrome）", () => {
     invalidateSiteChrome();
   });
 
-  it("registrationOpen（M11.3）：开放或邀请至少开一个为真，双关为假；旧 register.mode 兼容；写坏回落邀请制", async () => {
+  it("registrationOpen（M11.3）：开放或邀请至少开一个为真，双关为假；写坏回落邀请制（M20 起单键）", async () => {
     const put = (key: string, value: unknown) =>
       db()
         .insert(siteSettings)

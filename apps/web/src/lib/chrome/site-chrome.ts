@@ -108,7 +108,7 @@ export async function getSiteChrome(): Promise<SiteChrome> {
       registrationOpen:
         registerAvailability(
           applyRegisterWindow(
-            resolveRegisterPolicy(byKey.get("register.policy"), byKey.get("register.mode")).policy,
+            resolveRegisterPolicy(byKey.get("register.policy")).policy,
             campaign.has("register.open"),
           ),
         ).kind !== "closed",
