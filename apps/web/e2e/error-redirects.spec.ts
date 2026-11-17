@@ -90,7 +90,7 @@ test("版主进后台落在内容审核队列（F-02）；会员访问 404（F-1
   await loginAs(mod, USERS.team);
   const modPage = await mod.newPage();
   await modPage.goto("/admin");
-  await expect(modPage).toHaveURL(/\/admin\/review$/);
+  await expect(modPage).toHaveURL(/\/admin\/contents\?state=pending$/);
   // 审核队列可见（版主的落点就是自己的大本营）；精确匹配导航链接，避免命中空态文案
   await expect(modPage.getByRole("link", { name: "待审核", exact: true })).toBeVisible();
   // 公告与私信管理归站长：版主既看不到菜单，直接访问也不能取到页面。

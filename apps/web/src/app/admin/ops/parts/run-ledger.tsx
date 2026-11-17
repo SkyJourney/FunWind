@@ -1,4 +1,5 @@
-import { Pagination } from "@/components/content/pagination";
+import { AdminListPager } from "@/components/admin/admin-list";
+import { buildAdminQuery } from "@/lib/admin/query";
 import { OpsAutoRefresh } from "@/components/ops/auto-refresh";
 import { backupDownloadHref } from "@/lib/ops/runs";
 import { fmtSize, KIND_LABEL, TRIGGER_LABEL, STATUS_BADGE } from "./shared";
@@ -11,13 +12,18 @@ import type { OpsRunRow } from "@/lib/ops/runs";
 export function OpsRunLedger({
   runs,
   page,
-  hasMore,
+  total,
+  totalPages,
+  pageSize,
   runningCount,
   ledgerMissing,
 }: {
   runs: OpsRunRow[];
   page: number;
-  hasMore: boolean;
+  total: number;
+  /** 真实总页数（M19：COUNT+pageBounds 对齐全站语义） */
+  totalPages: number;
+  pageSize: number;
   runningCount: number;
   ledgerMissing: boolean;
 }) {
@@ -25,7 +31,7 @@ export function OpsRunLedger({
     <div className="space-y-2">
       <div className="rounded-xl border bg-card">
         <div className="flex flex-wrap items-baseline justify-between gap-2 border-b p-4">
-          <h2 className="text-sm font-semibold">运行台账（第 {page} 页，每页 25 条）</h2>
+          <h2 className="text-sm font-semibold">运行台账（每页 {pageSize} 条）</h2>
           {ledgerMissing && (
             <span className="text-xs text-muted-foreground">
               运维任务管线尚未部署或尚未启动——台账与触发器状态由管线写入后在此展示。
@@ -98,7 +104,13 @@ export function OpsRunLedger({
         )}
       </div>
       <OpsAutoRefresh running={runningCount > 0} />
-      <Pagination basePath="/admin/ops" page={page} totalPages={page + (hasMore ? 1 : 0)} />
+      <AdminListPager
+        total={total}
+        page={page}
+        totalPages={totalPages}
+        basePath={buildAdminQuery("/admin/ops", pageSize !== 20 ? { size: pageSize } : {})}
+        controls={{ action: "/admin/ops", current: {}, size: pageSize }}
+      />
     </div>
   );
 }

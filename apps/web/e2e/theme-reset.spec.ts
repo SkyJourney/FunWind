@@ -113,7 +113,7 @@ async function openList(page: Page) {
 const confirmDialog = (page: Page) => page.getByRole("dialog", { name: "重置为内置定义？" });
 
 const savedReset = (url: URL) =>
-  url.pathname === "/admin/themes" && url.searchParams.get("saved") === "reset";
+  url.pathname === "/admin/themes" && url.searchParams.get("ok") === "reset";
 
 test("重置内置包：取消不动库；确认后定义回到内置、版本 +1、写审计，名称说明启停素材不变", async ({
   page,

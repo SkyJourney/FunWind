@@ -26,7 +26,7 @@ async function guarded(back: string, fn: () => Promise<void>): Promise<void> {
   try {
     await fn();
   } catch (e) {
-    if (e instanceof AdminError) redirect(`${back}?error=${encodeURIComponent(e.message)}`);
+    if (e instanceof AdminError) redirect(`${back}?err=${encodeURIComponent(e.message)}`);
     throw e;
   }
 }
@@ -72,7 +72,7 @@ export const setRolePublicAction = defineAction({
     const back = `/admin/authz/${input.roleKey}`;
     await guarded(back, () => setRolePublic(ctx.admin!, input.roleKey, input.isPublic === "on"));
     revalidatePath(back);
-    redirect(`${back}?public=1`);
+    redirect(`${back}?ok=public`);
   },
 });
 

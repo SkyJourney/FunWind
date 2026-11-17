@@ -123,7 +123,8 @@ export const hidePostAction = defineAction({
 
 type ContentReviewKind = "approve" | "reject" | "disable";
 
-/** 就地治理共用薄编排，保留既有后台回跳与刷新顺序，不引入后台 Action 依赖。 */
+/** 就地治理共用薄编排，保留既有后台回跳与刷新顺序，不引入后台 Action 依赖。
+ *  M19：审核队列已并入 /admin/contents（?state=pending），回跳目标随之迁移。 */
 async function runContentReview(
   ctx: ActionContext,
   input: { postId: number; reason?: string },
@@ -137,17 +138,12 @@ async function runContentReview(
       : kind === "reject"
         ? await rejectReview(subject, input.postId, input.reason!, actor)
         : await disableContent(subject, input.postId, input.reason!, actor);
-  const errorPath = kind === "approve" ? "/admin/review" : "/admin/contents";
-  if (!result.ok) redirect(`${errorPath}?error=${encodeURIComponent(result.message)}`);
-  const paths =
-    kind === "disable"
-      ? ["/admin/contents", "/admin/review"]
-      : ["/admin/review", "/admin/contents"];
-  for (const path of paths) revalidatePath(path);
+  if (!result.ok) redirect(`/admin/contents?err=${encodeURIComponent(result.message)}`);
+  for (const path of ["/admin/contents"]) revalidatePath(path);
   const target =
     kind === "disable"
-      ? "/admin/contents?disabled=1"
-      : `/admin/review?${kind === "approve" ? "approved" : "rejected"}=1`;
+      ? "/admin/contents?ok=disabled"
+      : `/admin/contents?state=pending&ok=${kind === "approve" ? "approved" : "rejected"}`;
   redirect(target);
 }
 

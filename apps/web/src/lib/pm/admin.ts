@@ -1,4 +1,4 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lte, sql, type SQL } from "drizzle-orm";
 import { conversations, getWebDb, messages, users } from "@funwind/db";
 import type { ConfigActor } from "@/lib/audit";
 import { writeAudit } from "@/lib/audit";
@@ -85,10 +85,15 @@ export async function pmStats(): Promise<{
   return value;
 }
 
-/** 私信管理列表分页（M9.5）：筛选下推 SQL，替代原「取最近 50 条后内存过滤」（更早的消息永远筛不到） */
+/** 私信管理列表分页（M9.5；M19 S4 加时间范围）：筛选下推 SQL，替代原「取最近 50 条后内存过滤」。
+ *  注意：messages 表无时间/发送者索引（仅 idx_msg_conv），时间筛选为扫描——当前量级（重启后新数据）可接受。 */
 export type PmPageFilters = {
   /** 纯数字 = 发送者 uid 等值；非空 = 用户名精确匹配反查 uid */
   q?: string;
+  /** 发送时间下界（含） */
+  since?: string;
+  /** 发送时间上界（含当天——调用方传 `${date} 23:59:59`） */
+  until?: string;
   page: number;
   perPage?: number;
 };
@@ -125,7 +130,11 @@ export async function listPmMessagesPage(filters: PmPageFilters): Promise<{
     }
   }
 
-  const where = senderFilter !== null ? eq(messages.senderId, senderFilter) : undefined;
+  const conds: SQL[] = [];
+  if (senderFilter !== null) conds.push(eq(messages.senderId, senderFilter));
+  if (filters.since) conds.push(gte(messages.createdAt, filters.since));
+  if (filters.until) conds.push(lte(messages.createdAt, filters.until));
+  const where = conds.length > 0 ? and(...conds) : undefined;
   const [countRow] = await getWebDb()
     .select({ total: sql<number>`COUNT(*)` })
     .from(messages)

@@ -50,8 +50,8 @@ beforeEach(() => {
 });
 
 describe("重置内置主题包动作（M11.6 Step 3f）", () => {
-  it("成功：把列表加载时的版本与操作者交给服务，先刷新列表与编辑页，再带 saved=reset 回到列表", async () => {
-    await expect(resetThemePackAction(form(VALID))).rejects.toThrow("/admin/themes?saved=reset");
+  it("成功：把列表加载时的版本与操作者交给服务，先刷新列表与编辑页，再带 ok=reset 回到列表", async () => {
+    await expect(resetThemePackAction(form(VALID))).rejects.toThrow("/admin/themes?ok=reset");
     expect(dependencies.reset).toHaveBeenCalledExactlyOnceWith({
       id: "qy2010",
       expectedRevision: 4,
@@ -61,7 +61,7 @@ describe("重置内置主题包动作（M11.6 Step 3f）", () => {
       ["/admin/themes"],
       ["/admin/themes/qy2010"],
     ]);
-    expect(redirected()).toEqual(["/admin/themes?saved=reset"]);
+    expect(redirected()).toEqual(["/admin/themes?ok=reset"]);
     expect(dependencies.reset).toHaveBeenCalledBefore(dependencies.revalidate);
     expect(dependencies.revalidate).toHaveBeenCalledBefore(dependencies.redirect);
   });
@@ -69,7 +69,7 @@ describe("重置内置主题包动作（M11.6 Step 3f）", () => {
   it("id 恰好 32 位仍可通过解析（与其他主题动作的上限一致）", async () => {
     const id = "a".repeat(32);
     await expect(resetThemePackAction(form({ id, revision: "4" }))).rejects.toThrow(
-      "/admin/themes?saved=reset",
+      "/admin/themes?ok=reset",
     );
     expect(dependencies.reset).toHaveBeenCalledWith(expect.objectContaining({ id }));
   });

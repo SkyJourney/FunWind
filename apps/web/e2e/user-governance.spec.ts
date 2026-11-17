@@ -151,7 +151,7 @@ test("全站封禁立即踢出已有设备，解封后旧 cookie 仍需重新登
 
     await memberPage.goto("/settings");
     await expect(memberPage.getByRole("heading", { name: "设置" })).toBeVisible();
-    await adminPage.goto(`/admin/users/${USERS.member}`);
+    await adminPage.goto(`/admin/users/${USERS.member}?tab=governance`);
     await adminPage.getByLabel("限制类型").selectOption("ban");
     await adminPage.getByPlaceholder("理由（必填，写入审计与通知）").fill(reason);
     await adminPage.getByRole("button", { name: "施加限制" }).click();
@@ -235,7 +235,7 @@ test("已封禁用户可通过密码提交申诉，管理员能查看并登记�
     await adminPage.getByPlaceholder("处理结果（必填）").fill("E2E 人工复核已通过。");
     await adminPage.getByRole("button", { name: "保存结果" }).click();
     await expect(adminPage).toHaveURL(
-      new RegExp(`/admin/users/${USERS.banned}\\?appeal=resolved$`),
+      new RegExp(`/admin/users/${USERS.banned}\\?\?tab=governance&ok=appeal$`),
     );
     await expect(adminPage.getByText("处理结果：E2E 人工复核已通过。")).toBeVisible();
   } finally {

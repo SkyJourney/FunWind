@@ -56,6 +56,8 @@ export type AdminUserListFilters = {
   lifecycle?: "active" | "closure_pending" | "deleted" | "all";
   credential?: "all" | "email_unverified" | "no_password" | "legacy_password_pending";
   sort: "recent" | "id" | "threads";
+  /** 每页条数（M19 size 档位）；缺省 ADMIN_USERS_PER_PAGE */
+  perPage?: number;
 };
 
 export const ADMIN_USERS_PER_PAGE = 20;
@@ -84,7 +86,7 @@ export async function listAdminUsersPage(
   page: number;
   totalPages: number;
 }> {
-  const perPage = ADMIN_USERS_PER_PAGE;
+  const perPage = filters.perPage ?? ADMIN_USERS_PER_PAGE;
   const q = filters.q?.trim() ?? "";
   const conditions = [];
   const lifecycle = filters.lifecycle ?? "active";

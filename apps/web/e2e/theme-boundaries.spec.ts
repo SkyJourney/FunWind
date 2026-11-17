@@ -72,7 +72,7 @@ async function restoreAndDeleteOwned(page: Page, snapshot: SettingSnapshot) {
       await page.goto("/admin/themes");
       await themeCard(page, lastOwnedId).getByRole("button", { name: "删除", exact: true }).click();
       await page.getByRole("button", { name: "确认", exact: true }).click();
-      await expect(page).toHaveURL(/saved=deleted$/);
+      await expect(page).toHaveURL(/ok=deleted$/);
     }
   } finally {
     // 即使 UI 清理失败，也清除本命名空间内新建、导入及意外复制成功的包，不碰其他测试的数据。
@@ -98,7 +98,7 @@ async function createThroughAdmin(page: Page, id: string, name: string) {
   await page.getByLabel("包 id", { exact: true }).fill(id);
   await page.getByLabel("名称", { exact: true }).fill(name);
   await page.getByRole("button", { name: "新建主题包" }).click();
-  await expect(page).toHaveURL(new RegExp(`saved=created&id=${id}$`));
+  await expect(page).toHaveURL(new RegExp(`ok=created&id=${id}$`));
 }
 
 async function insertDisabledSource(id: string) {
@@ -245,7 +245,7 @@ for (const entrance of entrances) {
       );
 
       await selectDefault(page, entrance, missingPackId);
-      await expect(page).toHaveURL(`${entrance.path}?saved=${entrance.saved}&warn=logo`);
+      await expect(page).toHaveURL(`${entrance.path}?ok=${entrance.saved}&warn=logo`);
       await expect(page.getByText(entrance.success, { exact: true })).toBeVisible();
       await expect(page.getByRole("alert").filter({ hasText: entrance.warning })).toHaveCount(1);
       await expectStoredDefault(missingPackId);
@@ -260,7 +260,7 @@ for (const entrance of entrances) {
       expect(await snapshotSetting("site.logo")).toEqual(logoPool);
 
       await selectDefault(page, entrance, plainPackId);
-      await expect(page).toHaveURL(`${entrance.path}?saved=${entrance.savedNoLogo}`);
+      await expect(page).toHaveURL(`${entrance.path}?ok=${entrance.savedNoLogo}`);
       await expect(page.getByText(entrance.successNoLogo, { exact: true })).toBeVisible();
       await expect(page.getByRole("alert").filter({ hasText: entrance.warning })).toHaveCount(0);
       await expectStoredDefault(plainPackId);

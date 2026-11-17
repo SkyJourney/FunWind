@@ -12,7 +12,7 @@ import { logoFs } from "@/lib/brand/logo-pool-fs";
 import { logoPool } from "@/lib/brand/logo-pool";
 
 /**
- * LOGO 池管理动作（M10.5，docs/LOGO-POOL.md）：门禁 site.admin；
+ * LOGO 池管理动作（M10.5，docs/LOGO-POOL.md；M19 起页面在 /admin/brand?kind=logo）：门禁 site.admin；
  * 上传为 PNG（≤512KB，服务端验魔数），池元数据进 site_settings，切换即失效 chrome 缓存。
  * schema 与 run 体在 lib/brand/pool-actions（M11 泛化）；此处保留字面 defineAction 供两个静态守护审计。
  */
@@ -20,26 +20,26 @@ import { logoPool } from "@/lib/brand/logo-pool";
 export const uploadLogoAction = defineAction({
   name: "admin.logo.upload",
   auth: { admin: "site.admin" },
-  input: brandUploadInput("/admin/logo"),
+  input: brandUploadInput("/admin/brand?kind=logo"),
   async run(ctx, input) {
-    return uploadToBrandPool(logoFs, ctx, input, "/admin/logo");
+    return uploadToBrandPool(logoFs, ctx, input, "/admin/brand?kind=logo");
   },
 });
 
 export const setActiveLogoAction = defineAction({
   name: "admin.logo.activate",
   auth: { admin: "site.admin" },
-  input: brandFileInput("/admin/logo"),
+  input: brandFileInput("/admin/brand?kind=logo"),
   async run(ctx, input) {
-    return activateInBrandPool(logoPool, ctx, input, "/admin/logo");
+    return activateInBrandPool(logoPool, ctx, input, "/admin/brand?kind=logo");
   },
 });
 
 export const removeLogoAction = defineAction({
   name: "admin.logo.remove",
   auth: { admin: "site.admin" },
-  input: brandFileInput("/admin/logo"),
+  input: brandFileInput("/admin/brand?kind=logo"),
   async run(ctx, input) {
-    return removeBrandPoolItem(logoPool, ctx, input, "/admin/logo");
+    return removeBrandPoolItem(logoPool, ctx, input, "/admin/brand?kind=logo");
   },
 });

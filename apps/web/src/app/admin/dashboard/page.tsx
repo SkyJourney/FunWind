@@ -4,7 +4,7 @@ import { dashboardData, type DailyCount } from "@/lib/admin/dashboard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "数据看板" };
+export const metadata = { title: "看板" };
 
 /** 纯 CSS 柱状图（不引图表库）：30 根柱，flex + height%，相对最大值归一。峰值/日均标注 + sr-only 数据表（M9.5） */
 function BarChart({ data, label }: { data: DailyCount[]; label: string }) {

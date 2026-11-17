@@ -168,6 +168,17 @@ async function auditHideDialog(
   });
 }
 
+/** 品牌素材管理页路径（M19：logo/hero 合一 /admin/brand?kind=；decor 维持独立二级页） */
+const brandAdminPath = (kind: BrandPoolKind): string =>
+  kind === "decor" ? "/admin/decor" : `/admin/brand?kind=${kind}`;
+
+/** 上传动作回执 URL 断言（品牌页回跳参数：品牌页带 kind query，decor 首参为 ?） */
+const brandUrlRe = (kind: BrandPoolKind, param: string): RegExp => {
+  const base = brandAdminPath(kind);
+  const sep = base.includes("?") ? "&" : "\\?";
+  return new RegExp(`${base.replace("?", "\\?")}${sep}${param.replace(/=/g, "(?:=|%3D)")}$`);
+};
+
 /** 只用服务端生成的安全文件名定位自有池卡片，不依赖种子池为空。 */
 function brandCard(page: Page, file: string): Locator {
   return page.locator(`[data-slot="card"]:has(input[name="file"][value="${file}"])`);
@@ -175,7 +186,7 @@ function brandCard(page: Page, file: string): Locator {
 
 /** 真实确认移除会失效 chrome 缓存；同 URL 返回后还须等待卡片消失，不能只等导航。 */
 async function removeBrandItem(page: Page, kind: BrandPoolKind, file: string): Promise<void> {
-  await page.goto(`/admin/${kind}`);
+  await page.goto(brandAdminPath(kind));
   const card = brandCard(page, file);
   await card.getByRole("button", { name: "移除", exact: true }).click();
   const dialog = page.getByRole("dialog");
@@ -207,7 +218,7 @@ async function cleanupBrandPool(
       before.active &&
       removed.items.some((item) => item.file === before.active)
     ) {
-      await page.goto(`/admin/${kind}`);
+      await page.goto(brandAdminPath(kind));
       // 在真实设当前提交前再次核对；收尾过程中出现他人的选择就保留它。
       if ((await fixture.readBrandPool(kind)).active === null) {
         await submit(
@@ -240,7 +251,7 @@ async function auditNonemptyBrandPool(
       const names = fixture.brandAssetNames(kind);
       for (const name of names) {
         expect(name).toMatch(/^[A-Za-z0-9]{40}$/);
-        await page.goto(`/admin/${kind}`);
+        await page.goto(brandAdminPath(kind));
         await page.getByLabel("名称", { exact: true }).fill(name);
         await page.getByLabel(/PNG 文件/).setInputFiles({
           name: `${kind}.png`,
@@ -248,7 +259,7 @@ async function auditNonemptyBrandPool(
           buffer: png,
         });
         await submit(page, page.getByRole("button", { name: "上传入池", exact: true }));
-        await expect(page).toHaveURL(new RegExp(`/admin/${kind}\\?added=${kind}-[a-z0-9]+\\.png$`));
+        await expect(page).toHaveURL(brandUrlRe(kind, `ok=added=${kind}-[a-z0-9]+\\.png`));
         await fixture.trackBrandPoolFiles(kind);
       }
       const pool = await fixture.readBrandPool(kind);
@@ -298,40 +309,77 @@ async function auditManagementQueues(
 ): Promise<void> {
   const teamPending = fixture.threads.teamPending!;
   const publicPending = fixture.threads.publicPending!;
-  await audit.step(`${role}-review-pending-queue`, async () => {
-    await page.goto("/admin/review?forum=904&kind=thread");
+  // M19 S4：多尺寸/密度与新增筛选的布局场景（users 表格密度 + logs 日期/目标类型筛选栏）
+  // 两页均需 admin.users/admin.logs 专属权限，mod（team）角色 404——只在 admin 视角跑
+  if (role === "admin") {
+    await audit.step(`${role}-users-list-controls`, async () => {
+      await page.goto(
+        `/admin/users?size=50&density=compact${role === "mod" ? "&status=restricted" : ""}`,
+      );
+      await expect(
+        page.getByRole("combobox", { name: "每页条数" }).locator("option:checked"),
+      ).toHaveText("50");
+      await expect(page.getByRole("link", { name: "紧凑" })).toHaveAttribute(
+        "aria-current",
+        "true",
+      );
+      await expect(page.locator("tbody tr").first()).toBeVisible();
+      await audit.capture(`${role}-users-list-controls`, {
+        roots: ADMIN_ROOT,
+        buttons: ADMIN_BUTTONS,
+        // cozy 为默认档不进 URL——密度切换的存在性用 size 选择器与「舒适」链接文本断言
+        // :has-text 不是标准 CSS（querySelectorAll 不认）——舒适链接用 href 定位（compact 档目标含 density=compact，反向排除即舒适）
+        required: ['select[name="size"]', 'a[href$="density=compact"], a[href="/admin/users"]'],
+      });
+    });
+    await audit.step(`${role}-logs-filters`, async () => {
+      await page.goto("/admin/logs?from=2026-01-01&to=2026-12-31&size=50");
+      await expect(page.getByLabel("开始日期")).toHaveValue("2026-01-01");
+      await expect(page.getByLabel("结束日期")).toHaveValue("2026-12-31");
+      await expect(page.getByRole("combobox", { name: "按目标类型筛选" })).toBeVisible();
+      await audit.capture(`${role}-logs-filters`, {
+        roots: ADMIN_ROOT,
+        buttons: ADMIN_BUTTONS,
+        required: ['input[name="from"]', 'select[name="targetType"]'],
+      });
+    });
+  }
+  // M19：审核队列并入 /admin/contents（?state=pending），场景锚点随之迁移
+  await audit.step(`${role}-contents-pending-queue-thread`, async () => {
+    await page.goto("/admin/contents?forum=904&kind=thread&state=pending");
     const row = page.locator(`li:has(input[name="postIds"][value="${teamPending.first}"])`);
     await expect(row).toBeVisible();
     await expect(row.getByRole("button", { name: "通过", exact: true })).toBeVisible();
     await expect(row.getByRole("button", { name: "驳回", exact: true })).toBeVisible();
-    await row.getByRole("checkbox").check();
+    // 直接定位批量勾选框（行内还有锁定/精华 checkbox，getByRole 会命中多个）
+    await row.locator('input[name="postIds"]').check();
     await row.locator('input[name="reason"]').fill(LONG_REASON);
-    await page.locator('#bulk-review-form input[name="reason"]').fill(LONG_REASON);
-    await audit.capture(`${role}-review-pending-queue`, {
+    await page.locator('#bulk-contents-form input[name="reason"]').fill(LONG_REASON);
+    await audit.capture(`${role}-contents-pending-queue-thread`, {
       roots: ADMIN_ROOT,
       buttons: ADMIN_BUTTONS,
-      required: ["#bulk-review-form", `input[name="postIds"][value="${teamPending.first}"]`],
+      required: ["#bulk-contents-form", `input[name="postIds"][value="${teamPending.first}"]`],
       regions: [
         {
-          name: "review-row",
+          name: "pending-row",
           selector: `li:has(input[name="postIds"][value="${teamPending.first}"])`,
         },
-        { name: "review-bulk-actions", selector: "#bulk-review-form" },
+        { name: "pending-bulk-actions", selector: "#bulk-contents-form" },
       ],
     });
   });
-  await audit.step(`${role}-review-reply-queue`, async () => {
-    await page.goto("/admin/review?forum=904&kind=reply");
+  await audit.step(`${role}-contents-pending-queue-reply`, async () => {
+    await page.goto("/admin/contents?forum=904&kind=reply&state=pending");
     const row = page.locator(`li:has(input[name="postIds"][value="${teamPending.pendingReply}"])`);
     await expect(row).toBeVisible();
     await row.locator('input[name="reason"]').fill(LONG_REASON);
-    await audit.capture(`${role}-review-reply-queue`, {
+    await audit.capture(`${role}-contents-pending-queue-reply`, {
       roots: ADMIN_ROOT,
       buttons: ADMIN_BUTTONS,
       required: [`input[name="postIds"][value="${teamPending.pendingReply}"]`],
       regions: [
         {
-          name: "review-reply",
+          name: "pending-reply",
           selector: `li:has(input[name="postIds"][value="${teamPending.pendingReply}"])`,
         },
       ],
@@ -370,32 +418,35 @@ async function auditManagementQueues(
     });
   }
   if (role === "mod") {
-    for (const route of ["review", "contents"] as const) {
-      await audit.step(`mod-${route}-outside-scope-empty`, async () => {
-        await page.goto(
-          `/admin/${route}?forum=954&kind=thread${route === "contents" ? `&q=${encodeURIComponent(fixture.marker)}` : ""}`,
-        );
-        await expect(page.locator(`${ADMIN_ROOT} a[href="/t/${publicPending.id}"]`)).toHaveCount(0);
-        await expect(
-          page.locator(
-            `${ADMIN_ROOT} li input[name="postId"], ${ADMIN_ROOT} li input[name="postIds"]`,
-          ),
-        ).toHaveCount(0);
-        await audit.capture(`mod-${route}-outside-scope-empty`, {
-          roots: ADMIN_ROOT,
-          buttons: ADMIN_BUTTONS,
-        });
+    // M19：审核页并入 contents 后，版外空态只对 contents 断言（review 旧路由是永久跳转）
+    await audit.step(`mod-contents-outside-scope-empty`, async () => {
+      await page.goto(
+        `/admin/contents?forum=954&kind=thread&q=${encodeURIComponent(fixture.marker)}`,
+      );
+      await expect(page.locator(`${ADMIN_ROOT} a[href="/t/${publicPending.id}"]`)).toHaveCount(0);
+      await expect(
+        page.locator(
+          `${ADMIN_ROOT} li input[name="postId"], ${ADMIN_ROOT} li input[name="postIds"]`,
+        ),
+      ).toHaveCount(0);
+      await audit.capture(`mod-contents-outside-scope-empty`, {
+        roots: ADMIN_ROOT,
+        buttons: ADMIN_BUTTONS,
       });
-    }
+    });
   }
   if (width < 1024) {
     await audit.step(`${role}-admin-drawer-open`, async () => {
-      await page.goto("/admin/review?forum=904&kind=thread");
+      await page.goto("/admin/contents?forum=904&kind=thread&state=pending");
       await page.getByRole("button", { name: "后台菜单", exact: true }).click();
       const drawer = page.getByRole("dialog", { name: "后台导航", exact: true });
       await expect(drawer).toBeVisible();
-      await expect(drawer.getByRole("link", { name: "内容审核", exact: true })).toBeVisible();
+      // M19 菜单 v2：内容审核并入内容管理（旧项不再出现）；品牌素材/主题管理按角色过滤
       await expect(drawer.getByRole("link", { name: "内容管理", exact: true })).toBeVisible();
+      await expect(drawer.getByRole("link", { name: "内容审核", exact: true })).toHaveCount(0);
+      await expect(drawer.getByRole("link", { name: "品牌素材", exact: true })).toHaveCount(
+        role === "admin" ? 1 : 0,
+      );
       await expect(drawer.getByRole("link", { name: "主题管理", exact: true })).toHaveCount(
         role === "admin" ? 1 : 0,
       );
@@ -490,6 +541,7 @@ for (const width of LAYOUT_WIDTHS) {
 
         // 所有后台越权入口都检查，不把菜单隐藏等同于页面已鉴权。
         const adminPaths = [
+          "/admin/brand",
           "/admin/logo",
           "/admin/hero",
           "/admin/decor",
@@ -527,7 +579,7 @@ for (const width of LAYOUT_WIDTHS) {
           ["decor", "主题素材"],
         ] as const) {
           await audit.step(`admin-${kind}-before-selection`, async () => {
-            await page.goto(`/admin/${kind}`);
+            await page.goto(brandAdminPath(kind));
             await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
             await audit.capture(`admin-${kind}-before-selection`, {
               roots: ADMIN_ROOT,
@@ -579,7 +631,7 @@ for (const width of LAYOUT_WIDTHS) {
               buffer: Buffer.from("E2E 非 PNG 魔数"),
             });
             await submit(page, page.getByRole("button", { name: "上传入池", exact: true }));
-            await expect(page).toHaveURL(new RegExp(`/admin/${kind}\\?err=bad_type$`));
+            await expect(page).toHaveURL(brandUrlRe(kind, "err=bad_type"));
             const flash = page
               .locator(`${ADMIN_ROOT} p[role='alert'], ${ADMIN_ROOT} p[role='status']`)
               .filter({ hasText: "仅支持 PNG" });
@@ -649,7 +701,7 @@ for (const width of LAYOUT_WIDTHS) {
               .locator('form:has(input[name="icon"])')
               .getByRole("button", { name: "上传", exact: true }),
           );
-          await expect(page).toHaveURL(/iconSaved=1/);
+          await expect(page).toHaveURL(/ok=icon-saved/);
           const icon = page.locator('[data-slot="card"] img[src^="/files/"]').first();
           const src = await icon.getAttribute("src");
           expect(src).toMatch(/^\/files\//);
@@ -675,7 +727,7 @@ for (const width of LAYOUT_WIDTHS) {
               .locator('form:has(input[name="icon"])')
               .getByRole("button", { name: /上传|更换/, exact: true }),
           );
-          await expect(page).toHaveURL(/iconErr=/);
+          await expect(page).toHaveURL(/err=/);
           await expect(
             page.locator(`${ADMIN_ROOT} p[role='alert']`).filter({ hasText: "板块图" }),
           ).toBeVisible();

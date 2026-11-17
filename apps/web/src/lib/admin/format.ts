@@ -9,11 +9,3 @@ export function fmtDateTime(d: string | null | undefined): string {
     new Date(d.replace(" ", "T")),
   );
 }
-
-/** 日期（不带时分），用于列表主时间列想省宽度的场景 */
-export function fmtDate(d: string | null | undefined): string {
-  if (!d) return "—";
-  return new Intl.DateTimeFormat("zh-CN", { dateStyle: "short" }).format(
-    new Date(d.replace(" ", "T")),
-  );
-}

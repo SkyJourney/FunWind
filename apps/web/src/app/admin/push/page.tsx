@@ -1,5 +1,5 @@
 import { requireAdmin } from "@/lib/authz/require-admin";
-import { buildAdminQuery, parseAdminPage } from "@/lib/admin/query";
+import { buildAdminQuery, parseAdminListParams, parseAdminPage } from "@/lib/admin/query";
 import { pageBounds } from "@/lib/paging";
 import {
   PUSH_SCENES,
@@ -21,8 +21,6 @@ export const metadata = { title: "推送记录" };
 
 type Params = { searchParams: Promise<Record<string, string | undefined>> };
 
-const PER_PAGE = 50;
-
 const COLUMNS = [
   { label: "id", className: "px-3 py-2" },
   { label: "时间", className: "px-3 py-2" },
@@ -42,12 +40,18 @@ export default async function AdminPushPage({ searchParams }: Params) {
   const sp = await searchParams;
   const filter = parsePushLogFilter(sp);
   filter.page = parseAdminPage(sp.page);
-  filter.limit = PER_PAGE;
+  const { size, density } = parseAdminListParams(sp);
+  filter.limit = size;
 
   const [{ items, total }, summary] = await Promise.all([queryPushLogs(filter), pushLogSummary()]);
-  const { page: safePage, totalPages } = pageBounds(total, filter.page ?? 1, PER_PAGE);
-  const qs = { status: filter.status, scene: filter.scene, q: filter.q };
-
+  const { page: safePage, totalPages } = pageBounds(total, filter.page ?? 1, size);
+  const qs = {
+    ...(filter.status ? { status: filter.status } : {}),
+    ...(filter.scene ? { scene: filter.scene } : {}),
+    ...(filter.q ? { q: filter.q } : {}),
+    ...(size !== 20 ? { size } : {}),
+    ...(density !== "cozy" ? { density } : {}),
+  };
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
@@ -84,6 +88,7 @@ export default async function AdminPushPage({ searchParams }: Params) {
         page={safePage}
         totalPages={totalPages}
         basePath={buildAdminQuery("/admin/push", qs)}
+        controls={{ action: "/admin/push", current: qs, size, density }}
       />
 
       <AdminDataTable
@@ -129,6 +134,7 @@ export default async function AdminPushPage({ searchParams }: Params) {
           ];
           return { key: r.id, cells };
         })}
+        density={density}
       />
       <p className="text-xs text-muted-foreground">
         记录只含 endpoint / 标题 / 场景 / 结果，不含推送正文；保留 90 天，超期自动清理。

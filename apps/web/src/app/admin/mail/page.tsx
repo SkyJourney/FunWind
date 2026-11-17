@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { buildAdminQuery, parseAdminPage } from "@/lib/admin/query";
 import { pageBounds } from "@/lib/paging";
+import { parseAdminListParams } from "@/lib/admin/query";
 import {
   MAIL_KINDS,
   MAIL_KIND_LABEL,
@@ -10,8 +11,8 @@ import {
   queryEmailLogs,
 } from "@/lib/mail/log-query";
 import { AdminFilterBar } from "@/components/admin/admin-filter-bar";
-import { AdminListMeta, AdminTable } from "@/components/admin/admin-list";
-import { Pagination } from "@/components/content/pagination";
+import { AdminListPager, AdminTable } from "@/components/admin/admin-list";
+import { densityCellClass } from "@/lib/admin/query";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "邮件" };
@@ -19,8 +20,6 @@ export const metadata = { title: "邮件" };
 type Params = {
   searchParams: Promise<Record<string, string | undefined>>;
 };
-
-const PER_PAGE = 50;
 
 /**
  * 邮件发送记录（admin.logs，与审计日志同档）：凡经 lib/mail 发出的邮件成败皆在此可查——
@@ -31,14 +30,22 @@ export default async function AdminMailPage({ searchParams }: Params) {
   const sp = await searchParams;
   const filter = parseEmailLogFilter(sp);
   filter.page = parseAdminPage(sp.page);
-  filter.limit = PER_PAGE;
+  const { size, density } = parseAdminListParams(sp);
+  filter.limit = size;
 
   const [{ items, total }, summary] = await Promise.all([
     queryEmailLogs(filter),
     emailLogSummary(),
   ]);
-  const { page: safePage, totalPages } = pageBounds(total, filter.page ?? 1, PER_PAGE);
-  const qs = { status: filter.status, kind: filter.kind, q: filter.q };
+  const { page: safePage, totalPages } = pageBounds(total, filter.page ?? 1, size);
+  const qs = {
+    ...(filter.status ? { status: filter.status } : {}),
+    ...(filter.kind ? { kind: filter.kind } : {}),
+    ...(filter.q ? { q: filter.q } : {}),
+    ...(size !== 20 ? { size } : {}),
+    ...(density !== "cozy" ? { density } : {}),
+  };
+  const cell = densityCellClass(density);
 
   return (
     <div className="space-y-4">
@@ -85,11 +92,12 @@ export default async function AdminMailPage({ searchParams }: Params) {
         </select>
       </AdminFilterBar>
 
-      <AdminListMeta total={total} page={safePage} totalPages={totalPages} />
-      <Pagination
-        basePath={buildAdminQuery("/admin/mail", qs)}
+      <AdminListPager
+        total={total}
         page={safePage}
         totalPages={totalPages}
+        basePath={buildAdminQuery("/admin/mail", qs)}
+        controls={{ action: "/admin/mail", current: qs, size, density }}
       />
 
       <AdminTable
@@ -109,24 +117,24 @@ export default async function AdminMailPage({ searchParams }: Params) {
         }
         rows={items.map((r) => (
           <tr key={r.id} className="border-t align-top">
-            <td className="px-3 py-1.5 tabular-nums">{r.id}</td>
-            <td className="px-3 py-1.5 whitespace-nowrap">{r.createdAt}</td>
-            <td className="px-3 py-1.5">
+            <td className={`${cell} tabular-nums`}>{r.id}</td>
+            <td className={`${cell} whitespace-nowrap`}>{r.createdAt}</td>
+            <td className={cell}>
               {MAIL_KIND_LABEL[r.kind as keyof typeof MAIL_KIND_LABEL] ?? r.kind}
               <span className="ml-1 font-mono text-muted-foreground">{r.scene}</span>
             </td>
-            <td className="px-3 py-1.5">
+            <td className={cell}>
               <div className="max-w-48 truncate" title={r.toEmail}>
                 {r.toEmail}
               </div>
               {r.userId !== null && <span className="text-muted-foreground">uid {r.userId}</span>}
             </td>
-            <td className="px-3 py-1.5">
+            <td className={cell}>
               <div className="max-w-64 truncate" title={r.subject}>
                 {r.subject}
               </div>
             </td>
-            <td className="px-3 py-1.5">
+            <td className={cell}>
               {r.status === "sent" ? (
                 <span className="text-success">成功</span>
               ) : (

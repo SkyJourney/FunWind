@@ -74,4 +74,14 @@ describe.skipIf(skipDb)("私信管理辅助（M10 补做）", () => {
       message: "消息不存在",
     });
   });
+
+  it("M19：时间范围筛选（since/until 下推 SQL）", async () => {
+    const all = await listPmMessagesPage({ page: 1 });
+    expect(all.total).toBeGreaterThanOrEqual(1);
+    const future = await listPmMessagesPage({ since: "2999-01-01", page: 1 });
+    expect(future.total).toBe(0);
+    const today = new Date().toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" }).slice(0, 10);
+    const upToNow = await listPmMessagesPage({ until: `${today} 23:59:59`, page: 1 });
+    expect(upToNow.total).toBe(all.total);
+  });
 });

@@ -53,17 +53,17 @@ beforeEach(() => {
 describe("主题保存成功回执", () => {
   it("仅事务成功才原样回传本次非敏感随机标识", async () => {
     await expect(saveThemePackAction(data(ID))).rejects.toThrow(
-      `/admin/themes/test?saved=1&ack=${ID}`,
+      `/admin/themes/test?ok=1&ack=${ID}`,
     );
-    expect(dependencies.redirect).toHaveBeenCalledWith(`/admin/themes/test?saved=1&ack=${ID}`);
+    expect(dependencies.redirect).toHaveBeenCalledWith(`/admin/themes/test?ok=1&ack=${ID}`);
     expect(dependencies.update).toHaveBeenCalledWith(
       expect.objectContaining({ expectedRevision: 4 }),
     );
     expect(dependencies.update.mock.calls[0][0]).not.toHaveProperty("submissionId");
   });
-  it.each([undefined, ""])("旧的无 submission 调用仍返回原 saved=1 URL：%s", async (id) => {
-    await expect(saveThemePackAction(data(id))).rejects.toThrow("/admin/themes/test?saved=1");
-    expect(dependencies.redirect).toHaveBeenCalledExactlyOnceWith("/admin/themes/test?saved=1");
+  it.each([undefined, ""])("旧的无 submission 调用仍返回原 ok=1 URL：%s", async (id) => {
+    await expect(saveThemePackAction(data(id))).rejects.toThrow("/admin/themes/test?ok=1");
+    expect(dependencies.redirect).toHaveBeenCalledExactlyOnceWith("/admin/themes/test?ok=1");
   });
   it("冲突不返回成功 ack", async () => {
     dependencies.update.mockResolvedValue({ ok: false, code: "conflict" });
@@ -73,7 +73,7 @@ describe("主题保存成功回执", () => {
     );
   });
   it("非 UUID 输入不能拼接成功 URL", async () => {
-    await expect(saveThemePackAction(data("invalid&saved=1"))).rejects.toThrow("invalid-input");
+    await expect(saveThemePackAction(data("invalid&ok=1"))).rejects.toThrow("invalid-input");
     expect(dependencies.update).not.toHaveBeenCalled();
     expect(dependencies.redirect).not.toHaveBeenCalled();
   });

@@ -11,6 +11,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 import { AdminFlash } from "@/components/admin/admin-flash";
+import { flashText } from "@/lib/admin/flash";
 import { ThemePackImportForm } from "@/components/admin/theme-pack-import-form";
 import {
   copyThemePackAction,
@@ -22,7 +23,7 @@ import {
 } from "./actions";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "主题包" };
+export const metadata = { title: "主题管理" };
 
 const FLASH: Record<string, string> = {
   created: "主题包已创建。",
@@ -61,7 +62,7 @@ const ERR_TEXT: Record<string, string> = {
  * 门禁 site.admin；写操作走 lib/theme/packs（事务 + 审计 + revision 乐观锁）。
  */
 export default async function ThemesAdminPage(props: {
-  searchParams: Promise<{ saved?: string; err?: string; id?: string; warn?: string }>;
+  searchParams: Promise<{ ok?: string; err?: string; id?: string; warn?: string }>;
 }) {
   // 入口鉴权约定：第一个 await 必须是 requireAdmin（admin-entry-guard 静态守护）
   await requireAdmin("site.admin");
@@ -84,9 +85,9 @@ export default async function ThemesAdminPage(props: {
         </p>
       </header>
 
-      {sp.saved && (
+      {sp.ok && (
         <AdminFlash kind="success" dismissHref="/admin/themes">
-          {FLASH[sp.saved] ?? "操作已完成。"}
+          {flashText(FLASH, sp.ok, "操作已完成。")}
         </AdminFlash>
       )}
       {sp.err && (
@@ -96,7 +97,7 @@ export default async function ThemesAdminPage(props: {
       )}
       {sp.warn === "import-cleanup" && (
         <AdminFlash kind="warning" dismissHref="/admin/themes">
-          {sp.saved === "imported"
+          {sp.ok === "imported"
             ? "主题包已导入，但素材池当前项恢复失败；请检查服务器日志及素材池设置。"
             : "主题包未创建，且部分素材清理或素材池当前项恢复失败；请检查服务器日志及素材池。"}
         </AdminFlash>

@@ -2,25 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  ArrowLeft,
-  Award,
-  BarChart3,
-  ClipboardCheck,
-  Coins,
-  Flag,
-  LayoutDashboard,
-  Megaphone,
-  Menu,
-  MessageCircleWarning,
-  ScrollText,
-  ShieldCheck,
-  Users,
-  type LucideIcon,
-} from "lucide-react";
+import { ArrowLeft, ClipboardCheck, Menu } from "lucide-react";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { PageMotionBoundary } from "@/components/site/page-motion-boundary";
+import { ICON_BY_HREF } from "@/components/admin/admin-nav-icons";
 import { cn } from "@/lib/utils";
 
 export interface AdminNavItem {
@@ -32,20 +18,6 @@ export interface AdminNavGroup {
   label: string;
   items: AdminNavItem[];
 }
-
-const ICON_BY_HREF: Record<string, LucideIcon> = {
-  "/admin/dashboard": LayoutDashboard,
-  "/admin/review": ClipboardCheck,
-  "/admin/reports": Flag,
-  "/admin/poll": BarChart3,
-  "/admin/pm": MessageCircleWarning,
-  "/admin/users": Users,
-  "/admin/authz": ShieldCheck,
-  "/admin/announcements": Megaphone,
-  "/admin/points": Coins,
-  "/admin/badges": Award,
-  "/admin/logs": ScrollText,
-};
 
 /**
  * 后台布局壳（M9.5）：桌面（≥lg）= 前台顶栏下方全高固定侧栏（bg-card + 边框，独立滚动）；

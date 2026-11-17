@@ -196,7 +196,7 @@ test("任务启停：停用带确认、写审计（G-20 旁路写）、恢复启
   const dialog = page.getByRole("dialog", { name: "停用该任务？" });
   await expect(dialog).toBeVisible();
   await dialog.getByRole("button", { name: "确认", exact: true }).click();
-  await expect(page).toHaveURL(/tasks=disabled/);
+  await expect(page).toHaveURL(/ok=tasks-disabled/);
   await expect(page.getByRole("status").filter({ hasText: "任务已停用" })).toBeVisible();
   // 库：enabled=0、revision+1（G-20 旁路写）；审计在
   const audits = await withE2eDb(async (q) =>
@@ -212,19 +212,19 @@ test("任务启停：停用带确认、写审计（G-20 旁路写）、恢复启
     .getByRole("dialog", { name: "启用该任务？" })
     .getByRole("button", { name: "确认", exact: true })
     .click();
-  await expect(page).toHaveURL(/tasks=enabled/);
+  await expect(page).toHaveURL(/ok=tasks-enabled/);
   const state = await withE2eDb(async (q) =>
     q.query<{ enabled: number }>("SELECT enabled FROM ops_tasks WHERE task_key = 'backup.db'"),
   );
   expect(Number(state[0]?.enabled)).toBe(1);
 });
 
-test("节日装扮规则：表单回显种子规则、语义校验失败保留草稿（G-19）、成功保存 + 审计", async ({
+test("节日装扮规则（M19 归位排期页）：表单回显种子规则、语义校验失败保留草稿（G-19）、成功保存 + 审计", async ({
   page,
   context,
 }) => {
   await loginAs(context, USERS.admin);
-  await page.goto(PAGE);
+  await page.goto("/admin/campaigns");
   await expect(page.getByRole("heading", { name: "节日装扮规则" })).toBeVisible();
   // 种子规则回显：春节（农历 1/1，7 天，停用态）
   await expect(page.getByText("任务已停用（每日 09:00 自检）")).toBeVisible();
@@ -240,14 +240,14 @@ test("节日装扮规则：表单回显种子规则、语义校验失败保留�
   for (const select of effectSelects) await select.selectOption("");
   await form.locator('input[name="durationDays"]').fill("14");
   await form.getByRole("button", { name: "保存规则" }).click();
-  await expect(page.getByRole("alert").filter({ hasText: "至少配置一项装扮内容" })).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: "装扮内容格式无效" })).toBeVisible();
   await expect(form.locator('input[name="durationDays"]')).toHaveValue("14"); // 草稿未清空
 
   // 语义校验失败二：目标语法无效（HTML5 拦不住，服务端语义校验）
   await form.locator('select[name="itemEffect"]').first().selectOption("theme.pack");
   await form.locator('input[name="itemTarget"]').first().fill("Bad Pack!");
   await form.getByRole("button", { name: "保存规则" }).click();
-  await expect(page.getByRole("alert").filter({ hasText: "目标语法无效" })).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: "装扮内容格式无效" })).toBeVisible();
   await expect(form.locator('input[name="itemTarget"]').first()).toHaveValue("Bad Pack!");
 
   // 修正并保存：持久化 + 审计（ops.task.update）+ revision+1
@@ -270,7 +270,7 @@ test("节日装扮规则版本冲突（G-19）：他人修改后保存 → 提�
   context,
 }) => {
   await loginAs(context, USERS.admin);
-  await page.goto(PAGE);
+  await page.goto("/admin/campaigns");
   const form = page.locator("form").filter({ has: page.getByRole("button", { name: "保存规则" }) });
   const renderedRevision = Number(await form.locator('input[name="revision"]').inputValue());
 
@@ -303,20 +303,22 @@ test("节日装扮规则版本冲突（G-19）：他人修改后保存 → 提�
   );
 });
 
-test("节日装扮任务默认停用：规则保存后可启用；停用任务的手动触发按钮不可点", async ({
+test("节日装扮任务默认停用：规则卡在排期页启用；停用任务的手动触发按钮不可点（运维页）", async ({
   page,
   context,
 }) => {
   await loginAs(context, USERS.admin);
   await page.goto(PAGE);
-  // 节日任务的立即执行按钮 disabled（任务停用）
+  // 节日任务的立即执行按钮 disabled（任务停用）——任务行仍在运维页清单
   const holidayRow = page.locator("div.divide-y > div", { hasText: "campaign.holiday" });
   await expect(holidayRow.getByRole("button", { name: "立即执行" })).toBeDisabled();
-  // 启用引导按钮（规则卡内）→ 启用成功回显
+  // 排期页规则卡内的启用引导 → 启用成功回显（back 留在排期页）
+  await page.goto("/admin/campaigns");
   await page.getByRole("button", { name: "启用任务（每日自检 + 手动触发）" }).click();
-  await expect(page).toHaveURL(/tasks=enabled/);
+  await expect(page).toHaveURL(/\/admin\/campaigns\?ok=tasks-enabled/);
   await expect(page.getByRole("status").filter({ hasText: "任务已启用" })).toBeVisible();
-  // 管线未部署：立即执行可点但被拒（错误回显，G-15）
+  // 管线未部署：运维页立即执行可点但被拒（错误回显，G-15）
+  await page.goto(PAGE);
   await expect(holidayRow.getByRole("button", { name: "立即执行" })).toBeEnabled();
   await holidayRow.getByRole("button", { name: "立即执行" }).click();
   await expect(page.getByRole("alert").filter({ hasText: "运维任务管线未部署" })).toBeVisible();
@@ -330,7 +332,7 @@ test("节日装扮任务默认停用：规则保存后可启用；停用任务�
     .getByRole("dialog", { name: "停用该任务？" })
     .getByRole("button", { name: "确认", exact: true })
     .click();
-  await expect(page).toHaveURL(/tasks=disabled/);
+  await expect(page).toHaveURL(/ok=tasks-disabled/);
 });
 
 test("台账分页：第二页出现更早的记录（翻页不改变 anyRunning 判定）", async ({ page, context }) => {
@@ -340,11 +342,12 @@ test("台账分页：第二页出现更早的记录（翻页不改变 anyRunning
     for (let i = 0; i < 30; i++) ids.push(await insertRun(q, { status: "failed" }));
   });
   await page.goto(PAGE);
-  await expect(page.getByText("运行台账（第 1 页")).toBeVisible();
+  await expect(page.getByText("运行台账（每页 20 条）")).toBeVisible();
   await page
     .locator('nav[aria-label="分页"]')
     .getByRole("link", { name: "2", exact: true })
     .click();
   await expect(page).toHaveURL(/page=2/);
-  await expect(page.getByText("运行台账（第 2 页")).toBeVisible();
+  await expect(page).toHaveURL(/page=2/);
+  await expect(page.getByText("运行台账（每页 20 条）")).toBeVisible();
 });

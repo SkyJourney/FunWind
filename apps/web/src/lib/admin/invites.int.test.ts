@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { auditLog, getWebDb, inviteCodes } from "@funwind/db";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
-import { generateInvites, listInvites, revokeInvite } from "./invites";
+import { listInvitesPage, generateInvites, revokeInvite } from "./invites";
 
 let tdb: TempDb;
 const ACTOR = { userId: 90004, ip: "127.0.0.1" };
@@ -31,7 +31,7 @@ describe.skipIf(skipDb)("邀请码管理（M10.6b）", () => {
         /^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{4}(-[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{4}){2}$/,
       );
 
-    const rows = await listInvites();
+    const rows = (await listInvitesPage({ status: "all", page: 1, perPage: 100 })).items;
     const mine = rows.filter((x) => x.batch === "it-批次");
     expect(mine).toHaveLength(3);
     expect(mine.every((x) => x.status === "available")).toBe(true);
@@ -51,7 +51,9 @@ describe.skipIf(skipDb)("邀请码管理（M10.6b）", () => {
     const [a, b] = gen.codes;
 
     expect(await revokeInvite(ACTOR, a)).toEqual({ ok: true });
-    const left = (await listInvites()).filter((x) => x.batch === "it-撤销");
+    const left = (await listInvitesPage({ status: "all", page: 1, perPage: 100 })).items.filter(
+      (x) => x.batch === "it-撤销",
+    );
     expect(left).toHaveLength(1);
     expect(left[0]?.code).toBe(b);
 
@@ -62,8 +64,27 @@ describe.skipIf(skipDb)("邀请码管理（M10.6b）", () => {
       .set({ usedBy: 90001, usedAt: new Date().toISOString().slice(0, 19).replace("T", " ") })
       .where(eq(inviteCodes.code, b));
     expect(await revokeInvite(ACTOR, b)).toEqual({ ok: false, code: "already_used" });
-    expect((await listInvites()).find((x) => x.code === b)?.status).toBe("used");
+    expect(
+      (await listInvitesPage({ status: "all", page: 1, perPage: 100 })).items.find(
+        (x) => x.code === b,
+      )?.status,
+    ).toBe("used");
 
     expect(await revokeInvite(ACTOR, "ZZZZ-ZZZZ-ZZZZ")).toEqual({ ok: false, code: "not_found" });
+  });
+
+  it("M19：创建时间范围筛选（since/until）", async () => {
+    const mine = await listInvitesPage({ status: "all", batch: "it-批次", page: 1 });
+    expect(mine.total).toBe(3);
+    const bounded = await listInvitesPage({
+      status: "all",
+      batch: "it-批次",
+      since: "2000-01-01",
+      until: "2999-12-31 23:59:59",
+      page: 1,
+    });
+    expect(bounded.total).toBe(3);
+    const before = await listInvitesPage({ status: "all", until: "2000-01-01 00:00:00", page: 1 });
+    expect(before.total).toBe(0);
   });
 });

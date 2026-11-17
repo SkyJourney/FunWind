@@ -8,7 +8,7 @@ import { getWebDb } from "@funwind/db";
 import { invalidateSiteChrome } from "@/lib/chrome/site-chrome";
 import { tryApplyThemePackLogo } from "@/lib/theme/apply-pack-logo";
 import { setSiteDefaultThemePack } from "@/lib/theme/packs";
-import { saveThemePackAction } from "./settings/actions";
+import { setDefaultThemePackAction as settingsSetDefaultThemePackAction } from "./settings/actions";
 import { setDefaultThemePackAction } from "./themes/actions";
 
 // 仅直测动作业务体；权限、表单解析与真实数据库由各自测试负责。
@@ -85,7 +85,7 @@ const entrances = [
   },
   {
     name: "站点配置",
-    invoke: () => runAction(saveThemePackAction, { pack: PACK_ID }),
+    invoke: () => runAction(settingsSetDefaultThemePackAction, { pack: PACK_ID }),
     path: "/admin/settings",
     saved: "theme_no_logo",
     savedWithLogo: "theme_logo",
@@ -167,12 +167,12 @@ describe.each(entrances)("默认主题动作边界：$name", (entrance) => {
     expect(setSiteDefaultThemePack).toHaveBeenCalledOnce();
     expectNoLogoOrCache();
     resolveTheme({ ok: true, value: { pack: PACK_ID } });
-    await expectRedirect(pending, `${entrance.path}?saved=${entrance.saved}`);
+    await expectRedirect(pending, `${entrance.path}?ok=${entrance.saved}`);
     expectSavedSideEffects();
   });
 
   it("自定义包无 LOGO 属于 unchanged，保存成功且不携带 warning", async () => {
-    await expectRedirect(entrance.invoke(), `${entrance.path}?saved=${entrance.saved}`);
+    await expectRedirect(entrance.invoke(), `${entrance.path}?ok=${entrance.saved}`);
     expectSavedSideEffects();
   });
 
@@ -184,7 +184,7 @@ describe.each(entrances)("默认主题动作边界：$name", (entrance) => {
         imported,
         file: `logo-${"a".repeat(32)}.png`,
       });
-      await expectRedirect(entrance.invoke(), `${entrance.path}?saved=${entrance.savedWithLogo}`);
+      await expectRedirect(entrance.invoke(), `${entrance.path}?ok=${entrance.savedWithLogo}`);
       expectSavedSideEffects();
     },
   );
@@ -195,7 +195,7 @@ describe.each(entrances)("默认主题动作边界：$name", (entrance) => {
       vi.mocked(tryApplyThemePackLogo).mockResolvedValue({ status: "failed", reason });
       // failed 状态下：主题管理返回 "default"，站点配置返回 "theme"
       const savedOnFailed = entrance.name === "主题管理" ? "default" : "theme";
-      await expectRedirect(entrance.invoke(), `${entrance.path}?saved=${savedOnFailed}&warn=logo`);
+      await expectRedirect(entrance.invoke(), `${entrance.path}?ok=${savedOnFailed}&warn=logo`);
       expectSavedSideEffects();
     },
   );

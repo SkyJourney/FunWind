@@ -20,7 +20,7 @@ test("发送测试邮件后，发送记录可查可筛选", async ({ context, pa
   await loginAs(context, USERS.admin);
   await page.goto("/admin/settings");
   await page.getByRole("button", { name: /^发送测试邮件/ }).click();
-  await expect(page).toHaveURL(/saved=mail_sent/);
+  await expect(page).toHaveURL(/ok=mail_sent/);
 
   await page.goto("/admin/mail");
   // 记录行：系统类 / test-mail 场景 / 成功

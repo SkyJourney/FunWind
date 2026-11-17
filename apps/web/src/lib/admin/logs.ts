@@ -1,17 +1,22 @@
-import { and, eq, gte, type SQL } from "drizzle-orm";
-import { auditLog, eventLog } from "@funwind/db";
+import { and, eq, gte, lte, type SQL } from "drizzle-orm";
+import { auditLog, eventLog, getWebDb, users } from "@funwind/db";
 import { pageBounds } from "@/lib/paging";
 import { countRows, pageItems } from "@/lib/sql";
 
 /**
- * 审计中心查询（M9）：audit_log 与 event_log 统一筛选/分页；CSV 行生成是纯函数（单测锚定转义）。
+ * 审计中心查询（M9；M19 S4 加 until/targetType/actor 反查）：audit_log 与 event_log 统一筛选/分页；
+ * CSV 行生成是纯函数（单测锚定转义）。
  */
 
 export interface LogFilter {
   action?: string;
   actorId?: number;
-  /** ISO 日期下界（含） */
+  /** 日期下界（含；YYYY-MM-DD 起字符串比较天然含当天 00:00 后的全部时刻） */
   since?: string;
+  /** 日期上界（含当天——调用方传 `${date} 23:59:59`） */
+  until?: string;
+  /** 目标类型（仅 audit_log 有该列；事件日志查询忽略） */
+  targetType?: string;
   limit?: number;
   /** 1-based 页码；提供时优先于 offset */
   page?: number;
@@ -48,6 +53,8 @@ export async function queryAuditLogs(
   if (filter.action) conds.push(eq(auditLog.action, filter.action));
   if (filter.actorId) conds.push(eq(auditLog.actorId, filter.actorId));
   if (filter.since) conds.push(gte(auditLog.createdAt, filter.since));
+  if (filter.until) conds.push(lte(auditLog.createdAt, filter.until));
+  if (filter.targetType) conds.push(eq(auditLog.targetType, filter.targetType));
   const where = conds.length > 0 ? and(...conds) : undefined;
 
   const total = await countRows(auditLog, where);
@@ -72,12 +79,35 @@ export async function queryEventLogs(
   if (filter.action) conds.push(eq(eventLog.eventName, filter.action));
   if (filter.actorId) conds.push(eq(eventLog.actorId, filter.actorId));
   if (filter.since) conds.push(gte(eventLog.createdAt, filter.since));
+  if (filter.until) conds.push(lte(eventLog.createdAt, filter.until));
   const where = conds.length > 0 ? and(...conds) : undefined;
 
   const total = await countRows(eventLog, where);
   const limit = boundedLimit(filter.limit);
   const items = await pageItems(eventLog, where, limit, boundedOffset(total, filter, limit));
   return { items: items as EventLogRowView[], total };
+}
+
+/** actor 筛选值解析：纯数字 = uid 等值；否则按用户名（bin 排序键）精确反查；查不到返回 undefined */
+export async function resolveActorId(raw: string): Promise<number | undefined> {
+  const v = raw.trim();
+  if (!v) return undefined;
+  if (/^\d+$/.test(v)) return Number(v) || undefined;
+  const [row] = await getWebDb()
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.usernameKey, v))
+    .limit(1);
+  return row?.id;
+}
+
+/** 审计目标类型候选（DISTINCT）：logs 页 audit tab 的筛选下拉选项 */
+export async function listAuditTargetTypes(): Promise<string[]> {
+  const rows = await getWebDb()
+    .selectDistinct({ t: auditLog.targetType })
+    .from(auditLog)
+    .orderBy(auditLog.targetType);
+  return rows.map((r) => r.t).filter((t): t is string => Boolean(t));
 }
 
 const CSV_HEADER = "id,created_at,action,actor_id,target_type,target_id,detail";

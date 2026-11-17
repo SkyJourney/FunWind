@@ -1,7 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ReportsPage from "@/app/admin/reports/page";
-import ReviewPage from "@/app/admin/review/page";
 import PollPage from "@/app/admin/poll/page";
 import ContentsPage from "@/app/admin/contents/page";
 import UsersPage from "@/app/admin/users/page";
@@ -19,13 +18,14 @@ const mocks = vi.hoisted(() => ({
   permission: vi.fn(),
   moderated: vi.fn(),
   reports: vi.fn(),
-  review: vi.fn(),
   polls: vi.fn(),
   contents: vi.fn(),
   users: vi.fn(),
   invites: vi.fn(),
   audit: vi.fn(),
   events: vi.fn(),
+  actor: vi.fn(),
+  targetTypes: vi.fn(),
   pm: vi.fn(),
   stats: vi.fn(),
   mail: vi.fn(),
@@ -44,12 +44,16 @@ vi.mock("@/lib/authz/service", () => ({
   getModeratedForumIds: mocks.moderated,
 }));
 vi.mock("@/lib/reports/service", () => ({ listReportPage: mocks.reports }));
-vi.mock("@/lib/moderation/review", () => ({ listReviewPage: mocks.review }));
 vi.mock("@/lib/poll/admin", () => ({ listPollPage: mocks.polls }));
 vi.mock("@/lib/moderation/contents", () => ({ listContentsPage: mocks.contents }));
 vi.mock("@/lib/authz/restrictions-admin", () => ({ listAdminUsersPage: mocks.users }));
 vi.mock("@/lib/admin/invites", () => ({ listInvitesPage: mocks.invites }));
-vi.mock("@/lib/admin/logs", () => ({ queryAuditLogs: mocks.audit, queryEventLogs: mocks.events }));
+vi.mock("@/lib/admin/logs", () => ({
+  queryAuditLogs: mocks.audit,
+  queryEventLogs: mocks.events,
+  resolveActorId: mocks.actor,
+  listAuditTargetTypes: mocks.targetTypes,
+}));
 vi.mock("@/lib/pm/admin", () => ({ listPmMessagesPage: mocks.pm, pmStats: mocks.stats }));
 vi.mock("@/lib/chrome/site-chrome", () => ({ getSiteChrome: mocks.chrome }));
 vi.mock("@/lib/mail/log-query", async (original) => ({
@@ -86,12 +90,6 @@ vi.mock("@/app/admin/reports/actions", () => ({
   dismissReportBulkAction: vi.fn(),
   handleReportAction: vi.fn(),
 }));
-vi.mock("@/app/admin/review/actions", () => ({
-  approveReviewAction: vi.fn(),
-  approveReviewBulkAction: vi.fn(),
-  rejectReviewAction: vi.fn(),
-  rejectReviewBulkAction: vi.fn(),
-}));
 vi.mock("@/app/admin/poll/actions", () => ({
   closePollAction: vi.fn(),
   deletePollAction: vi.fn(),
@@ -99,9 +97,12 @@ vi.mock("@/app/admin/poll/actions", () => ({
 }));
 vi.mock("@/app/admin/contents/actions", () => ({
   approveContentAction: vi.fn(),
+  approveReviewBulkAction: vi.fn(),
   disableContentAction: vi.fn(),
   hideContentAction: vi.fn(),
+  purgeContentAction: vi.fn(),
   rejectContentAction: vi.fn(),
+  rejectReviewBulkAction: vi.fn(),
   threadFlagsAction: vi.fn(),
 }));
 vi.mock("@/app/admin/invites/actions", () => ({
@@ -114,14 +115,10 @@ vi.mock("@/app/admin/announcements/actions", () => ({
   createAnnouncementAction: vi.fn(),
   editAnnouncementAction: vi.fn(),
   endAnnouncementAction: vi.fn(),
-  saveFooterAction: vi.fn(),
-  saveLinksAction: vi.fn(),
-  saveNavAction: vi.fn(),
 }));
 
 const pages = {
   reports: ReportsPage,
-  review: ReviewPage,
   poll: PollPage,
   contents: ContentsPage,
   users: UsersPage,
@@ -144,7 +141,6 @@ beforeEach(() => {
   mocks.moderated.mockResolvedValue([7]);
   for (const fn of [
     mocks.reports,
-    mocks.review,
     mocks.polls,
     mocks.contents,
     mocks.users,
@@ -155,6 +151,8 @@ beforeEach(() => {
     mocks.mail,
   ])
     fn.mockResolvedValue(query);
+  mocks.actor.mockResolvedValue(undefined);
+  mocks.targetTypes.mockResolvedValue([]);
   mocks.stats.mockResolvedValue({ conversations: 0, messages: 0, today: 0 });
   mocks.summary.mockResolvedValue({ sent: 0, failed: 0 });
   mocks.chrome.mockResolvedValue({ nav: [], links: [], footerText: "" });
@@ -181,7 +179,7 @@ function navLinks(label: string) {
 
 describe("最高重复四页的 URL 与筛选 DOM 快照", () => {
   it("举报默认 tab 的新增键跟在 forum 后；切换/重置/分页/flash 不带旧页码", async () => {
-    const { container } = await show("reports", { forum: "7", page: "2", error: "错误" });
+    const { container } = await show("reports", { forum: "7", page: "2", err: "错误" });
     expect(navLinks("举报状态")).toMatchInlineSnapshot(`
       [
         [
@@ -217,48 +215,96 @@ describe("最高重复四页的 URL 与筛选 DOM 快照", () => {
       "gap-2",
       "text-sm",
     );
-    expect([...new FormData(form as HTMLFormElement).entries()]).toEqual([["forum", "7"]]);
+    // M19 S4：日期范围与关键词空输入也在表单里（空值提交，服务端回落默认）
+    expect([...new FormData(form as HTMLFormElement).entries()]).toEqual([
+      ["forum", "7"],
+      ["from", ""],
+      ["to", ""],
+      ["q", ""],
+    ]);
     expect(screen.getByText("该状态下没有举报。")).toBeInTheDocument();
   });
 
-  it("审核 removed 页签、类型、权限作用域和原筛选顺序保持", async () => {
-    const { container } = await show("review", {
-      tab: "removed",
+  it("待审队列（M19 并入）：checkbox 关联批量条、back 保留筛选、服务层收到先到先审正序", async () => {
+    mocks.contents.mockResolvedValue({
+      items: [
+        {
+          postId: 51,
+          threadId: 9,
+          forumId: 7,
+          forumName: "测试板块",
+          title: "待审回帖",
+          excerpt: "正文摘要",
+          authorId: 3,
+          authorName: "xiaoyi",
+          authorBanned: false,
+          state: "pending",
+          isThread: false,
+          createdAt: "2026-05-01 10:00:00",
+          replyCount: null,
+          isLocked: null,
+          isFeatured: null,
+          pinLevel: null,
+        },
+      ],
+      total: 1,
+      page: 2,
+      totalPages: 5,
+    });
+    const { container } = await show("contents", {
+      state: "pending",
       forum: "7",
       kind: "reply",
       page: "2",
     });
-    expect(navLinks("审核视图")).toMatchInlineSnapshot(`
-      [
-        [
-          "待审核",
-          "/admin/review?forum=7&kind=reply",
-        ],
-        [
-          "已删隐内容",
-          "/admin/review?tab=removed&forum=7&kind=reply",
-        ],
-      ]
-    `);
-    const form = container.querySelector('form[action="/admin/review"]') as HTMLFormElement;
-    expect([...new FormData(form).entries()]).toEqual([
-      ["tab", "removed"],
-      ["forum", "7"],
-      ["kind", "reply"],
-    ]);
-    expect(screen.getByRole("link", { name: "重置" })).toHaveAttribute(
-      "href",
-      "/admin/review?tab=removed",
+    expect(mocks.contents).toHaveBeenCalledWith(
+      expect.objectContaining({ state: "pending", order: "queue", page: 2 }),
     );
-    expect(screen.getByRole("link", { name: "下一页" })).toHaveAttribute(
-      "href",
-      "/admin/review?tab=removed&forum=7&kind=reply&page=3",
+    const bulk = container.querySelector("#bulk-contents-form") as HTMLFormElement;
+    expect(bulk).not.toBeNull();
+    // back 保留筛选但不含页码：队列操作后条目会移出当前页，落回筛选后的第 1 页
+    expect(new FormData(bulk).get("back")).toBe("/admin/contents?kind=reply&forum=7&state=pending");
+    const checkbox = container.querySelector('input[name="postIds"]') as HTMLInputElement;
+    expect(checkbox).toHaveAttribute("form", "bulk-contents-form");
+    expect(checkbox).toHaveAttribute("value", "51");
+    expect(checkbox.form).toBe(bulk);
+    expect(screen.getByRole("button", { name: "批量通过" }).closest("form")).toBe(bulk);
+    expect(screen.getByRole("button", { name: "批量驳回" }).closest("form")).toBe(bulk);
+  });
+
+  it("已删除行可恢复、已封禁行可彻底删除（back 保留筛选）", async () => {
+    const row = (state: string, title: string, postId: number) => ({
+      postId,
+      threadId: 9,
+      forumId: 7,
+      forumName: "测试板块",
+      title,
+      excerpt: "正文摘要",
+      authorId: 3,
+      authorName: "xiaoyi",
+      authorBanned: false,
+      state,
+      isThread: false,
+      createdAt: "2026-05-01 10:00:00",
+      replyCount: null,
+      isLocked: null,
+      isFeatured: null,
+      pinLevel: null,
+    });
+    mocks.contents.mockResolvedValue({
+      items: [row("deleted", "已删回帖", 61), row("disabled", "封禁回帖", 62)],
+      total: 2,
+      page: 1,
+      totalPages: 1,
+    });
+    const { container } = await show("contents", {});
+    expect(screen.getByRole("button", { name: "恢复" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "彻底删除" })).toBeInTheDocument();
+    // 恢复走前台 restorePostAction（回帖锚点）；彻底删除带 back 回到当前筛选
+    const backs = [...container.querySelectorAll('input[name="back"]')].map(
+      (i) => (i as HTMLInputElement).value,
     );
-    expect(mocks.review).toHaveBeenCalledWith(
-      { userId: 1 },
-      { tab: "removed", forumId: 7, kind: "reply", page: 2 },
-    );
-    expect(screen.getByText("所辖板块没有已删除或屏蔽的内容。")).toBeInTheDocument();
+    expect(backs).toEqual(["/admin/contents"]);
   });
 
   it("投票已截止页保留 tab、板块、重置、计数和版主作用域", async () => {
@@ -390,7 +436,7 @@ describe("其余页面 query/page 的兼容性", () => {
     await show("logs", { action: "thread created", actor: "7", page: "2" });
     expect(screen.getByRole("link", { name: "下一页" })).toHaveAttribute(
       "href",
-      "/admin/logs?tab=audit&action=thread+created&actor=7&page=3",
+      "/admin/logs?action=thread+created&actor=7&page=3",
     );
     expect(navLinks("日志类型")).toEqual([
       ["审计日志", "/admin/logs"],
@@ -416,12 +462,11 @@ describe("其余页面 query/page 的兼容性", () => {
     expect(order.indexOf("params")).toBeGreaterThan(0);
   });
 
-  it.each(["reports", "review", "poll", "contents", "users", "invites", "logs", "pm"] as const)(
+  it.each(["reports", "poll", "contents", "users", "invites", "logs", "pm"] as const)(
     "%s 旧列表仍将非整数/Infinity 原值交给分页服务",
     async (name) => {
       const service = {
         reports: mocks.reports,
-        review: mocks.review,
         poll: mocks.polls,
         contents: mocks.contents,
         users: mocks.users,
@@ -432,7 +477,7 @@ describe("其余页面 query/page 的兼容性", () => {
       for (const raw of ["2.9", "-3", "Infinity", "NaN"]) {
         await pages[name]({ searchParams: Promise.resolve({ page: raw }) });
         const args = service.mock.lastCall!;
-        const actual = name === "review" || name === "users" ? args[1] : args[0];
+        const actual = name === "users" ? args[1] : args[0];
         expect(typeof actual === "number" ? actual : actual.page).toBe(Number(raw) || 1);
       }
     },

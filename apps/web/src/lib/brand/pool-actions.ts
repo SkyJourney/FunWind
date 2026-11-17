@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { BrandPoolHandle } from "./brand-pool";
 import type { BrandPoolFs } from "./brand-pool-fs";
+import { appendQueryParam } from "@/lib/admin/query";
 
 /**
  * 品牌素材池管理动作的公共骨架（M11 由 LOGO 动作泛化）：上传入池 / 设为当前 / 移除三件套的
@@ -42,10 +43,11 @@ export async function uploadToBrandPool(
 ): Promise<void> {
   const bytes = new Uint8Array(await input.file.arrayBuffer());
   const r = await fs.add(input.name, bytes, actorOf(ctx));
-  if (!r.ok) redirect(`${basePath}?err=${r.code}`);
-  revalidatePath(basePath);
+  // M19：basePath 可带 query（/admin/brand?kind=logo）——回跳统一走 appendQueryParam，硬拼 `?` 会产出畸形 URL
+  if (!r.ok) redirect(appendQueryParam(basePath, "err", r.code));
+  revalidatePath(basePath.split("?")[0]!);
   // 带 added 回跳：新入池项高亮（M9.5）
-  redirect(`${basePath}?added=${encodeURIComponent(r.pool.active ?? "")}`);
+  redirect(appendQueryParam(basePath, "ok", `added=${r.pool.active ?? ""}`));
 }
 
 export async function activateInBrandPool(
@@ -55,7 +57,7 @@ export async function activateInBrandPool(
   basePath: string,
 ): Promise<void> {
   await pool.setActive(input.file, actorOf(ctx));
-  revalidatePath(basePath);
+  revalidatePath(basePath.split("?")[0]!);
   redirect(input.back);
 }
 
@@ -66,6 +68,6 @@ export async function removeBrandPoolItem(
   basePath: string,
 ): Promise<void> {
   await pool.remove(input.file, actorOf(ctx));
-  revalidatePath(basePath);
+  revalidatePath(basePath.split("?")[0]!);
   redirect(input.back);
 }

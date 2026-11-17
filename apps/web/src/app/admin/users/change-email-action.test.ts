@@ -82,7 +82,7 @@ async function submit(fields: Record<string, string>): Promise<string> {
   }
   throw new Error("动作应以重定向结束");
 }
-const errorUrl = (message: string) => `/admin/users/43?error=${encodeURIComponent(message)}`;
+const errorUrl = (message: string) => `/admin/users/43?err=${encodeURIComponent(message)}`;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -136,7 +136,7 @@ describe("changeUserEmailAction", () => {
 
   it("从未验证过的账号（含登录门账号）：只发验证邮件到新地址，不给旧地址发告警、不发确认", async () => {
     const url = await submit({ userId: "43", email: "right@example.com" });
-    expect(url).toBe("/admin/users/43?emailChanged=sent");
+    expect(url).toBe("/admin/users/43?ok=email-changed");
     expect(mocks.trySendMail.mock.calls.map((c) => [c[0], c[1]])).toEqual([
       ["right@example.com", "VERIFY:https://forum.test/verify/tok123"],
     ]);
@@ -170,10 +170,10 @@ describe("changeUserEmailAction", () => {
     expect(targets).not.toContainEqual(["old@example.com", "ALERT"]);
   });
 
-  it("验证邮件发送失败 → 邮箱已改但页面给出警示参数 emailChanged=failed", async () => {
+  it("验证邮件发送失败 → 邮箱已改但页面给出警示参数 warn=email-send-failed", async () => {
     mocks.trySendMail.mockResolvedValue(false);
     expect(await submit({ userId: "43", email: "right@example.com" })).toBe(
-      "/admin/users/43?emailChanged=failed",
+      "/admin/users/43?warn=email-send-failed",
     );
   });
 });

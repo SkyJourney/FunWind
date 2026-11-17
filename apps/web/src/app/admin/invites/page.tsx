@@ -3,14 +3,16 @@ import { Ticket } from "lucide-react";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { listInvitesPage } from "@/lib/admin/invites";
 import { fmtDateTime } from "@/lib/admin/format";
-import { buildAdminQuery, parseAdminPage } from "@/lib/admin/query";
+import { buildAdminQuery, parseAdminListParams, parseAdminPage } from "@/lib/admin/query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 import { EmptyState } from "@/components/empty-state";
 import { AdminFlash } from "@/components/admin/admin-flash";
+import { AdminDateRange } from "@/components/admin/admin-date-range";
+import { AdminListPager } from "@/components/admin/admin-list";
+import { flashText } from "@/lib/admin/flash";
 import { CopyCode } from "@/components/admin/copy-code";
-import { Pagination } from "@/components/content/pagination";
 import { generateInvitesAction, revokeInviteAction, revokeInviteBatchAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -45,11 +47,13 @@ export default async function InvitesAdminPage({
   searchParams,
 }: {
   searchParams: Promise<{
-    saved?: string;
-    revoked?: string;
+    ok?: string;
     err?: string;
     status?: string;
     batch?: string;
+    from?: string;
+    to?: string;
+    size?: string;
     page?: string;
   }>;
 }) {
@@ -60,6 +64,7 @@ export default async function InvitesAdminPage({
     ? (sp.status as "all" | "available" | "used" | "expired")
     : "all";
   const batch = typeof sp.batch === "string" ? sp.batch : "";
+  const { size, from, to } = parseAdminListParams(sp);
   const page = parseAdminPage(sp.page, "number-or-one");
 
   const {
@@ -67,11 +72,21 @@ export default async function InvitesAdminPage({
     total,
     page: safePage,
     totalPages,
-  } = await listInvitesPage({ status, batch, page });
+  } = await listInvitesPage({
+    status,
+    batch,
+    since: from,
+    until: to ? `${to} 23:59:59` : undefined,
+    page,
+    perPage: size !== 20 ? size : undefined,
+  });
 
   const query = {
     ...(status !== "all" ? { status } : {}),
     ...(batch ? { batch } : {}),
+    ...(from ? { from } : {}),
+    ...(to ? { to } : {}),
+    ...(size !== 20 ? { size } : {}),
   };
   const baseQuery = (over: Record<string, string> = {}) =>
     buildAdminQuery("/admin/invites", query, over);
@@ -85,20 +100,16 @@ export default async function InvitesAdminPage({
         </p>
       </header>
 
-      {sp.saved && (
-        <AdminFlash kind="success" dismissHref={baseQuery({ saved: "" })}>
-          已生成 {sp.saved} 枚邀请码{batch ? `（批次「${batch}」，列表已按批次过滤）` : ""}，可用
-          「复制」按钮逐枚发放。
-        </AdminFlash>
-      )}
-      {sp.revoked && (
-        <AdminFlash kind="success" dismissHref={baseQuery({ revoked: "" })}>
-          已撤销批次「{batch}」的 {sp.revoked} 枚可用码。
+      {sp.ok && (
+        <AdminFlash kind="success" dismissHref={baseQuery({ ok: "" })}>
+          {sp.ok.startsWith("generated=")
+            ? `已生成 ${sp.ok.slice("generated=".length)} 枚邀请码${batch ? `（批次「${batch}」，列表已按批次过滤）` : ""}，可用「复制」按钮逐枚发放。`
+            : `已撤销批次「${batch}」的 ${sp.ok.slice("revoked=".length)} 枚可用码。`}
         </AdminFlash>
       )}
       {sp.err && (
         <AdminFlash kind="error" dismissHref={baseQuery({ err: "" })}>
-          {ERR_TEXT[sp.err] ?? "操作失败，请重试。"}
+          {flashText(ERR_TEXT, sp.err, "操作失败，请重试。")}
         </AdminFlash>
       )}
 
@@ -158,14 +169,16 @@ export default async function InvitesAdminPage({
             </Link>
           ))}
         </nav>
-        <form action="/admin/invites" method="get" className="flex items-center gap-1.5">
+        <form action="/admin/invites" method="get" className="flex flex-wrap items-center gap-1.5">
           {status !== "all" && <input type="hidden" name="status" value={status} />}
+          {size !== 20 && <input type="hidden" name="size" value={String(size)} />}
           <input
             name="batch"
             defaultValue={batch}
             placeholder="批次关键词"
             className="w-36 rounded-lg border bg-background px-2.5 py-1.5 text-xs"
           />
+          <AdminDateRange from={from} to={to} />
           <button type="submit" className="rounded-lg border px-3 py-1.5 text-xs hover:bg-accent">
             筛选
           </button>
@@ -252,7 +265,13 @@ export default async function InvitesAdminPage({
         </Card>
       )}
 
-      <Pagination basePath={baseQuery({})} page={safePage} totalPages={totalPages} />
+      <AdminListPager
+        total={total}
+        page={safePage}
+        totalPages={totalPages}
+        basePath={baseQuery({})}
+        controls={{ action: "/admin/invites", current: query, size }}
+      />
     </div>
   );
 }

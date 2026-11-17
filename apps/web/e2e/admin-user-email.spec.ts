@@ -100,7 +100,7 @@ test("自救闭环：填错邮箱注册 → 登录被拦 → 管理员改邮箱 
     const knownTypo = await snapshotMailIds(typo, ""); // 空主题 = 该地址的任何邮件
     await submitNewEmail(panel, right);
 
-    await expect(admin).toHaveURL(/emailChanged=sent/);
+    await expect(admin).toHaveURL(/ok=email-changed/);
     await expect(admin.getByText("邮箱已修改，验证邮件已发往新地址")).toBeVisible();
     await expect(panel.getByTestId("user-email-current")).toHaveText(right);
     // 门仍关着：必须点新地址里的链接，管理员改邮箱本身不放行登录
@@ -156,7 +156,7 @@ test("已验证账号被改邮箱：旧地址收到安全告警，新地址收�
     const knownAlert = await snapshotMailIds(original, "邮箱已更换");
     const knownVerify = await snapshotMailIds(changed, "验证邮箱");
     await submitNewEmail(panel, changed);
-    await expect(admin).toHaveURL(/emailChanged=sent/);
+    await expect(admin).toHaveURL(/ok=email-changed/);
     await expect(panel.getByTestId("user-email-status")).toHaveText("邮箱待验证（写入受限）");
 
     await waitForNewMail(original, "邮箱已更换", knownAlert); // 旧地址告警
@@ -217,7 +217,7 @@ test.describe("错误路径", () => {
     try {
       expect((await page.goto("/admin/users/987654321"))?.status()).toBe(404);
       // G-15：emailChanged=failed 必须渲染成警示，不能是静默失败
-      await page.goto(`/admin/users/${USERS.alice}?emailChanged=failed`);
+      await page.goto(`/admin/users/${USERS.alice}?warn=email-send-failed`);
       await expect(page.getByRole("alert").filter({ hasText: "验证邮件发送失败" })).toBeVisible();
     } finally {
       await context.close();

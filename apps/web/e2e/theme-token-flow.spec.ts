@@ -60,7 +60,7 @@ async function draftPrimary(page: Page): Promise<string | undefined> {
 }
 
 const isSaved = (url: URL) =>
-  url.pathname === `/admin/themes/${PACK}` && url.searchParams.get("saved") === "1";
+  url.pathname === `/admin/themes/${PACK}` && url.searchParams.get("ok") === "1";
 
 /** 站点首页上，浅色档下当前生效的 --primary */
 async function sitePrimary(page: Page): Promise<string> {
@@ -81,7 +81,7 @@ test("保存令牌后站点立即生效：全站预览读到保存的主色，�
   await page.getByLabel("包 id", { exact: true }).fill(PACK);
   await page.getByLabel("名称").fill("E2E 令牌流程");
   await page.getByRole("button", { name: "新建主题包" }).click();
-  await expect(page).toHaveURL(new RegExp(`saved=created&id=${PACK}`));
+  await expect(page).toHaveURL(new RegExp(`ok=created&id=${PACK}`));
 
   // 全站预览（不落库、不影响别人）；先读一次没有令牌时站点上的主色，这次请求也让目录缓存装进「保存之前」的版本
   await openEditor(page, { tokens: false });
@@ -195,7 +195,7 @@ test("导出再导入：新包的令牌与源包逐项相同", async ({ page, co
     buffer: archive,
   });
   await page.getByRole("button", { name: "导入主题包" }).click();
-  await expect(page).toHaveURL(new RegExp(`saved=imported&id=${IMPORTED}`));
+  await expect(page).toHaveURL(new RegExp(`ok=imported&id=${IMPORTED}`));
 
   const imported = await readStored(IMPORTED);
   expect(imported.definition.tokens, "导入的包带着令牌").toEqual(source.definition.tokens);

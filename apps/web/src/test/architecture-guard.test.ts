@@ -79,7 +79,6 @@ const DATABASE_ENTRIES = [
   "app/admin/emojis/page.tsx",
   "app/admin/forums/actions.ts",
   "app/admin/forums/page.tsx",
-  "app/admin/review/actions.ts",
   "app/admin/settings/actions.ts",
   "app/admin/settings/page.tsx",
   "app/api/dev/whoami/route.ts",

@@ -4,13 +4,22 @@ import { getPointRewardConfig } from "@/lib/points/reward-load";
 import { queryAuditLogs } from "@/lib/admin/logs";
 import { fmtDateTime } from "@/lib/admin/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState } from "@/components/empty-state";
+import { AdminFlash } from "@/components/admin/admin-flash";
+import { flashText } from "@/lib/admin/flash";
+import { Coins } from "lucide-react";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 import { UserPicker } from "@/components/admin/user-picker";
 import { adjustPointsAction, saveRewardAction } from "./actions";
 
+const POINTS_OK: Record<string, string> = {
+  saved: "奖励规则已保存（值有变化时记入审计日志）。",
+  adjusted: "调整已入账（台账与审计各一条）。",
+};
+
 export const dynamic = "force-dynamic";
-export const metadata = { title: "积分管理" };
+export const metadata = { title: "积分" };
 
 const numField =
   "w-28 rounded-lg border bg-background px-3 py-1.5 text-sm tabular-nums outline-none focus:ring-2 focus:ring-ring";
@@ -19,7 +28,7 @@ const numField =
 export default async function AdminPointsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; saved?: string; adjusted?: string }>;
+  searchParams: Promise<{ err?: string; ok?: string }>;
 }) {
   await requireAdmin("admin.points");
   const sp = await searchParams;
@@ -31,21 +40,8 @@ export default async function AdminPointsPage({
 
   return (
     <div className="space-y-6">
-      {sp.error && (
-        <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {sp.error}
-        </p>
-      )}
-      {sp.saved && (
-        <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
-          奖励规则已保存（值有变化时记入审计日志）。
-        </p>
-      )}
-      {sp.adjusted && (
-        <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
-          调整已入账（台账与审计各一条）。
-        </p>
-      )}
+      {sp.err && <AdminFlash kind="error">{sp.err}</AdminFlash>}
+      {sp.ok && <AdminFlash kind="success">{flashText(POINTS_OK, sp.ok, "操作完成。")}</AdminFlash>}
 
       <Card>
         <CardHeader>
@@ -158,7 +154,7 @@ export default async function AdminPointsPage({
           <div className="mt-5 border-t pt-3">
             <p className="text-sm font-medium">最近 10 条手工调整</p>
             {recentAdjusts.items.length === 0 ? (
-              <p className="mt-1 text-sm text-muted-foreground">还没有调整记录。</p>
+              <EmptyState icon={Coins} title="还没有调整记录。" />
             ) : (
               <ul className="mt-1 divide-y text-sm">
                 {recentAdjusts.items.map((r) => {

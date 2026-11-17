@@ -4,6 +4,9 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import { emojiGroups, emojis, getWebDb } from "@funwind/db";
 import { requireAdmin } from "@/lib/authz/require-admin";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SAVED, UPLOAD_ERRORS } from "./tables";
+import { EmptyState } from "@/components/empty-state";
+import { Smile } from "lucide-react";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { FileInput } from "@/components/ui/file-input";
 import { Pagination } from "@/components/content/pagination";
@@ -21,32 +24,10 @@ import {
 } from "./actions";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "表情管理" };
+export const metadata = { title: "表情" };
 
 type Params = {
   searchParams: Promise<Record<string, string | undefined>>;
-};
-
-/** 上传失败码 → 可读文案（码来自 lib/emoji/admin.ts 的拒绝分支） */
-const UPLOAD_ERRORS: Record<string, string> = {
-  empty: "文件内容为空",
-  type: "格式不支持：表情只接受 PNG / GIF / WebP",
-  undecodable: "无法解码图片（文件损坏或伪装）",
-  size: "尺寸超限：上限 200×200 像素",
-  bytes: "文件超限：上限 200KB",
-};
-
-const SAVED: Record<string, string> = {
-  "group-created": "分组已创建。",
-  "group-renamed": "分组已改名。",
-  "group-toggled": "分组状态已更新。",
-  "group-deleted": "分组已删除。",
-  "group-moved": "分组顺序已更新。",
-  "group-icon": "分组标题图已更新（面板分组标题旁即时生效）。",
-  upload: "表情已上传（见成功计数；失败明细见下方提示）。",
-  "emoji-renamed": "表情已更新。",
-  "emoji-moved": "表情顺序已更新。",
-  "emoji-toggled": "表情状态已更新。",
 };
 
 /**
@@ -101,7 +82,7 @@ export default async function AdminEmojisPage({ searchParams }: Params) {
     return { selected, total, page: bounds.page, totalPages: bounds.totalPages };
   })();
 
-  const saved = sp.saved ? SAVED[sp.saved] : undefined;
+  const saved = sp.ok ? SAVED[sp.ok.split("=")[0]!] : undefined;
   const failedList = typeof sp.failed === "string" && sp.failed ? sp.failed.split("|") : [];
   const failedMore = Number(sp.failedMore ?? "0") || 0;
   const uploadErr =
@@ -119,7 +100,7 @@ export default async function AdminEmojisPage({ searchParams }: Params) {
     <div className="space-y-4">
       {saved && (
         <div className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
-          {sp.saved === "upload" && sp.uploaded ? `成功上传 ${sp.uploaded} 枚表情。` : saved}
+          {sp.ok === "upload" && sp.uploaded ? `成功上传 ${sp.uploaded} 枚表情。` : saved}
           {failedList.length > 0 && (
             <div className="mt-1 text-xs text-destructive">
               失败 {failedList.length + failedMore} 枚：
@@ -271,9 +252,11 @@ export default async function AdminEmojisPage({ searchParams }: Params) {
               </li>
             ))}
             {groups.length === 0 && (
-              <li className="py-4 text-center text-sm text-muted-foreground">
-                还没有分组——先新建一个（迁移导入的站点会有「茉莉 01 / 茉莉 02」）。
-              </li>
+              <EmptyState
+                icon={Smile}
+                title="还没有分组。"
+                description="先新建一个（迁移导入的站点会有「茉莉 01 / 茉莉 02」）。"
+              />
             )}
           </ul>
         </CardContent>

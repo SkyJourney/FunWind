@@ -22,10 +22,10 @@ export const deleteMessageAction = defineAction({
     try {
       await deleteMessage(ctx.actor, input.messageId, input.reason);
     } catch (e) {
-      if (e instanceof AdminError) redirect(`/admin/pm?error=${encodeURIComponent(e.message)}`);
+      if (e instanceof AdminError) redirect(`/admin/pm?err=${encodeURIComponent(e.message)}`);
       throw e;
     }
     revalidatePath("/admin/pm");
-    redirect("/admin/pm?deleted=1");
+    redirect("/admin/pm?ok=deleted");
   },
 });

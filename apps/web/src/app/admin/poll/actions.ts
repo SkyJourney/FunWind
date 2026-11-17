@@ -19,11 +19,11 @@ export const closePollAction = defineAction({
     try {
       await closePoll(ctx.actor, input.pollId);
     } catch (e) {
-      if (e instanceof AdminError) redirect(`/admin/poll?error=${encodeURIComponent(e.message)}`);
+      if (e instanceof AdminError) redirect(`/admin/poll?err=${encodeURIComponent(e.message)}`);
       throw e;
     }
     revalidatePath("/admin/poll");
-    redirect("/admin/poll?closed=1");
+    redirect("/admin/poll?ok=closed");
   },
 });
 
@@ -35,12 +35,12 @@ export const deletePollAction = defineAction({
     try {
       await deletePoll(ctx.actor, input.pollId);
     } catch (e) {
-      if (e instanceof AdminError) redirect(`/admin/poll?error=${encodeURIComponent(e.message)}`);
+      if (e instanceof AdminError) redirect(`/admin/poll?err=${encodeURIComponent(e.message)}`);
       throw e;
     }
     revalidatePath("/admin/poll");
     revalidatePath(`/t/0`); // 主题页按 id revalidate 由主题页 force-dynamic 兜底
-    redirect("/admin/poll?deleted=1");
+    redirect("/admin/poll?ok=deleted");
   },
 });
 
@@ -53,10 +53,10 @@ export const reopenPollAction = defineAction({
     try {
       await reopenPoll(ctx.actor, input.pollId);
     } catch (e) {
-      if (e instanceof AdminError) redirect(`/admin/poll?error=${encodeURIComponent(e.message)}`);
+      if (e instanceof AdminError) redirect(`/admin/poll?err=${encodeURIComponent(e.message)}`);
       throw e;
     }
     revalidatePath("/admin/poll");
-    redirect("/admin/poll?reopened=1");
+    redirect("/admin/poll?ok=reopened");
   },
 });

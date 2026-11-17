@@ -26,8 +26,14 @@ import {
   verifyEmailMail,
 } from "@/lib/mail";
 import { securityEmailEnabled } from "@/lib/notifications/email";
+import { appendQueryParam } from "@/lib/admin/query";
 
-/** 用户管理 Server Actions（M9，admin.users）：限制创建/解除、角色授予/撤销（复用 M5 服务）。 */
+/** 用户管理 Server Actions（M9，admin.users）：限制创建/解除、角色授予/撤销（复用 M5 服务）。
+ *  M19 S1-5：详情页三签后，非概览签的表单带回 tab，回跳不丢分区。 */
+
+const tabField = z.enum(["governance", "activity"]).optional();
+const backOf = (userId: number, tab: "governance" | "activity" | undefined): string =>
+  tab ? appendQueryParam(`/admin/users/${userId}`, "tab", tab) : `/admin/users/${userId}`;
 
 const createInput = z.object({
   userId: z.coerce.number().int().positive(),
@@ -36,6 +42,7 @@ const createInput = z.object({
   reason: z.string().max(255).default(""),
   /** 空 = 永久；格式 YYYY-MM-DD HH:MM（datetime-local） */
   endsAt: z.string().max(32).default(""),
+  tab: tabField,
 });
 export const createRestrictionAction = defineAction({
   name: "admin.restriction.create",
@@ -50,7 +57,7 @@ export const createRestrictionAction = defineAction({
       reason: input.reason,
       endsAt,
     });
-    const back = `/admin/users/${input.userId}`;
+    const back = backOf(input.userId, input.tab);
     if (!r.ok) {
       const msg =
         r.code === "already"
@@ -58,7 +65,7 @@ export const createRestrictionAction = defineAction({
           : r.code === "reason_required"
             ? "必须填写理由"
             : r.code === "reason_too_long"
-              ? "理由不能超过 255 个字符"
+              ? "理由不能超过 255 字"
               : r.code === "bad_ends_at"
                 ? "结束时间必须是有效的未来时间"
                 : r.code === "bad_scope"
@@ -68,10 +75,10 @@ export const createRestrictionAction = defineAction({
                     : r.code === "last_admin"
                       ? "不能封禁最后一位有效站点管理员"
                       : "用户不存在";
-      redirect(`${back}?error=${encodeURIComponent(msg)}`);
+      redirect(appendQueryParam(back, "err", msg));
     }
     revalidatePath(back);
-    redirect(`${back}?restricted=1`);
+    redirect(appendQueryParam(back, "ok", "restricted"));
   },
 });
 
@@ -79,6 +86,7 @@ const liftInput = z.object({
   restrictionId: z.coerce.number().int().positive(),
   userId: z.coerce.number().int().positive(),
   note: z.string().max(500).default(""),
+  tab: tabField,
 });
 export const liftRestrictionAction = defineAction({
   name: "admin.restriction.lift",
@@ -86,13 +94,13 @@ export const liftRestrictionAction = defineAction({
   input: liftInput,
   async run(ctx, input) {
     const r = await liftRestriction(ctx.actor, input.restrictionId, input.note);
-    const back = `/admin/users/${input.userId}`;
+    const back = backOf(input.userId, input.tab);
     if (!r.ok) {
       const msg = r.code === "reason_required" ? "必须填写解除说明" : "限制不存在或已过期";
-      redirect(`${back}?error=${encodeURIComponent(msg)}`);
+      redirect(appendQueryParam(back, "err", msg));
     }
     revalidatePath(back);
-    redirect(`${back}?lifted=1`);
+    redirect(appendQueryParam(back, "ok", "lifted"));
   },
 });
 
@@ -102,13 +110,14 @@ const assignRoleInput = z.object({
   scopeId: z.coerce.number().int().min(0).default(0),
   expiresAt: z.string().max(32).default(""),
   reason: z.string().trim().min(1, "必须填写授予理由").max(255, "授予理由不能超过 255 个字符"),
+  tab: tabField,
 });
 export const assignRoleAction = defineAction({
   name: "admin.user_role.assign",
   auth: { admin: "admin.users" },
   input: assignRoleInput,
   async run(ctx, input) {
-    const back = `/admin/users/${input.userId}`;
+    const back = backOf(input.userId, input.tab);
     const expiresAt =
       input.expiresAt === "" ? null : `${input.expiresAt.replace("T", " ")}:00`.slice(0, 19);
     try {
@@ -131,11 +140,11 @@ export const assignRoleAction = defineAction({
         );
       }
     } catch (e) {
-      if (e instanceof AdminError) redirect(`${back}?error=${encodeURIComponent(e.message)}`);
+      if (e instanceof AdminError) redirect(appendQueryParam(back, "err", e.message));
       throw e;
     }
     revalidatePath(back);
-    redirect(`${back}?role=1`);
+    redirect(appendQueryParam(back, "ok", "role"));
   },
 });
 
@@ -144,13 +153,14 @@ const revokeRoleInput = z.object({
   roleKey: z.string().max(64),
   scopeId: z.coerce.number().int().min(0).default(0),
   reason: z.string().trim().min(1, "必须填写撤销理由").max(255, "撤销理由不能超过 255 个字符"),
+  tab: tabField,
 });
 export const revokeRoleAction = defineAction({
   name: "admin.user_role.revoke",
   auth: { admin: "admin.users" },
   input: revokeRoleInput,
   async run(ctx, input) {
-    const back = `/admin/users/${input.userId}`;
+    const back = backOf(input.userId, input.tab);
     try {
       if (isTeamMembershipRole(input.roleKey)) {
         if (input.scopeId !== 0) throw new AdminError("固定团队角色只能绑定为全站身份");
@@ -159,11 +169,11 @@ export const revokeRoleAction = defineAction({
         await revokeUserRole(ctx.actor, input.userId, input.roleKey, input.scopeId, input.reason);
       }
     } catch (e) {
-      if (e instanceof AdminError) redirect(`${back}?error=${encodeURIComponent(e.message)}`);
+      if (e instanceof AdminError) redirect(appendQueryParam(back, "err", e.message));
       throw e;
     }
     revalidatePath(back);
-    redirect(`${back}?role=1`);
+    redirect(appendQueryParam(back, "ok", "role"));
   },
 });
 
@@ -173,13 +183,14 @@ export const revokeUserSessionAction = defineAction({
   input: z.object({
     userId: z.coerce.number().int().positive(),
     sessionId: z.string().regex(/^[0-9a-f]{64}$/),
+    tab: tabField,
   }),
   async run(ctx, input) {
-    const back = `/admin/users/${input.userId}`;
+    const back = backOf(input.userId, input.tab);
     const result = await revokeUserSessionByAdmin(ctx.actor, input.userId, input.sessionId);
-    if (!result.ok) redirect(`${back}?error=${encodeURIComponent("会话已不存在或已被吊销")}`);
+    if (!result.ok) redirect(appendQueryParam(back, "err", "会话已不存在或已被吊销"));
     revalidatePath(back);
-    redirect(`${back}?session=revoked`);
+    redirect(appendQueryParam(back, "ok", "session"));
   },
 });
 
@@ -191,19 +202,20 @@ export const resolveUserAppealAction = defineAction({
     appealId: z.coerce.number().int().positive(),
     status: z.enum(["approved", "rejected"]),
     result: z.string().trim().min(1).max(1000),
+    tab: tabField,
   }),
   async run(ctx, input) {
-    const back = `/admin/users/${input.userId}`;
+    const back = backOf(input.userId, input.tab);
     try {
       await resolveUserAppeal(ctx.actor, input.appealId, input.status, input.result);
     } catch (error) {
       if (error instanceof AppealError) {
-        redirect(`${back}?error=${encodeURIComponent("申诉已处理或不存在，请刷新页面")}`);
+        redirect(appendQueryParam(back, "err", "申诉已处理或不存在，请刷新页面"));
       }
       throw error;
     }
     revalidatePath(back);
-    redirect(`${back}?appeal=resolved`);
+    redirect(appendQueryParam(back, "ok", "appeal"));
   },
 });
 
@@ -218,11 +230,11 @@ export const changeUserEmailAction = defineAction({
   input: z.object({
     userId: z.coerce.number().int().positive(),
     email: z.string().max(254),
+    tab: tabField,
   }),
   async run(ctx, input) {
-    const back = `/admin/users/${input.userId}`;
-    const fail = (message: string): never =>
-      redirect(`${back}?error=${encodeURIComponent(message)}`);
+    const back = backOf(input.userId, input.tab);
+    const fail = (message: string): never => redirect(appendQueryParam(back, "err", message));
     const email = input.email.trim();
     if (email === "" || !isValidEmail(email)) return fail("邮箱格式不正确");
 
@@ -259,6 +271,8 @@ export const changeUserEmailAction = defineAction({
       { userId: input.userId },
     );
     revalidatePath(back);
-    redirect(`${back}?emailChanged=${sent ? "sent" : "failed"}`);
+    redirect(
+      appendQueryParam(back, sent ? "ok" : "warn", sent ? "email-changed" : "email-send-failed"),
+    );
   },
 });

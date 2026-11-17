@@ -40,7 +40,7 @@ async function saveRegisterPolicy(page: Page, policy: Policy): Promise<void> {
     else await box.uncheck();
   }
   await page.getByRole("button", { name: "保存注册策略" }).click();
-  await page.waitForURL(/\/admin\/settings\?saved=/);
+  await page.waitForURL(/\/admin\/settings\?ok=/);
 }
 
 for (const width of LAYOUT_WIDTHS) {

@@ -1,34 +1,33 @@
 import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 import Link from "next/link";
-import { count, desc, isNull, or, sql } from "drizzle-orm";
+import { and, count, desc, isNull, or, sql } from "drizzle-orm";
 import { announcements, getWebDb } from "@funwind/db";
 import { requireAdmin } from "@/lib/authz/require-admin";
-import { getSiteChrome } from "@/lib/chrome/site-chrome";
 import { fmtDateTime } from "@/lib/admin/format";
-import { buildAdminQuery, parseAdminPage } from "@/lib/admin/query";
+import { buildAdminQuery, parseAdminListParams, parseAdminPage } from "@/lib/admin/query";
 import { pageBounds } from "@/lib/paging";
 import { AdminFlash } from "@/components/admin/admin-flash";
 import { AdminFilterBar } from "@/components/admin/admin-filter-bar";
-import { ChromeRowsEditor } from "@/components/admin/chrome-rows-editor";
-import { Pagination } from "@/components/content/pagination";
+import { AdminListPager } from "@/components/admin/admin-list";
+import { flashText } from "@/lib/admin/flash";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState } from "@/components/empty-state";
+import { Megaphone } from "lucide-react";
 import { SubmitButton } from "@/components/ui/submit-button";
-import {
-  createAnnouncementAction,
-  editAnnouncementAction,
-  endAnnouncementAction,
-  saveFooterAction,
-  saveLinksAction,
-  saveNavAction,
-} from "./actions";
+import { createAnnouncementAction, editAnnouncementAction, endAnnouncementAction } from "./actions";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "公告与站点框架" };
-
-const PER_PAGE = 20;
+export const metadata = { title: "公告" };
 
 type Params = {
   searchParams: Promise<Record<string, string | undefined>>;
+};
+
+/** 回执键 → 文案（M19 Q5） */
+const ANNOUNCEMENTS_OK: Record<string, string> = {
+  created: "公告已发布（铃铛对全部受众出现未读）。",
+  updated: "公告已保存修改。",
+  ended: "公告已下线。",
 };
 
 function statusOf(a: { startsAt: string; endsAt: string | null }): {
@@ -42,49 +41,48 @@ function statusOf(a: { startsAt: string; endsAt: string | null }): {
   return { label: "生效中", cls: "bg-success/10 text-success" };
 }
 
-/** 公告管理 + 站点框架（M9；M9.5 重做：编辑能力、分页、时间统一、状态徽标、导航/友链条目化）。 */
+/** 公告管理（M9；M9.5 重做：编辑能力、分页、时间统一、状态徽标。M19 Q3：站点框架迁至
+ *  /admin/settings；S4 加标题关键词与每页条数）。 */
 export default async function AdminAnnouncementsPage({ searchParams }: Params) {
   await requireAdmin();
   const sp = await searchParams;
   const requestedPage = parseAdminPage(sp.page, "number-or-one");
   const status = sp.status === "active" || sp.status === "ended" ? sp.status : undefined;
+  const q = typeof sp.q === "string" && sp.q ? sp.q : undefined;
+  const { size } = parseAdminListParams(sp);
   // 编辑模式：?edit=id 时顶部表单预填
   const editId = Number(sp.edit ?? "0") || null;
 
-  const where =
+  const statusWhere =
     status === "ended"
       ? sql`${announcements.endsAt} IS NOT NULL AND ${announcements.endsAt} <= NOW()`
       : status === "active"
         ? or(isNull(announcements.endsAt), sql`${announcements.endsAt} > NOW()`)
         : undefined;
+  const where = q ? and(statusWhere, sql`${announcements.title} LIKE ${`%${q}%`}`) : statusWhere;
 
-  const [countRow, chrome] = await Promise.all([
-    getWebDb().select({ n: count() }).from(announcements).where(where),
-    getSiteChrome(),
-  ]);
-  const total = Number(countRow[0]?.n ?? 0);
-  const { page, totalPages, offset } = pageBounds(total, requestedPage, PER_PAGE);
+  const [countRow] = await getWebDb().select({ n: count() }).from(announcements).where(where);
+  const total = Number(countRow?.n ?? 0);
+  const { page, totalPages, offset } = pageBounds(total, requestedPage, size);
   const rows = await getWebDb()
     .select()
     .from(announcements)
     .where(where)
     .orderBy(desc(announcements.id))
-    .limit(PER_PAGE)
+    .limit(size)
     .offset(offset);
   const editing = editId ? (rows.find((a) => a.id === editId) ?? null) : null;
 
-  const flash = Object.entries({
-    created: "公告已发布（铃铛对全部受众出现未读）。",
-    updated: "公告已保存修改。",
-    ended: "公告已下线。",
-    nav: "导航已保存并即时生效。",
-    links: "友链已保存并即时生效。",
-    footer: "页脚已保存并即时生效。",
-  }).find(([k]) => sp[k] === "1")?.[1];
-  const flashErr = sp.err ?? sp.navErr ?? sp.linksErr ?? undefined;
+  const flash = flashText(ANNOUNCEMENTS_OK, sp.ok);
+  const flashErr = sp.err ?? undefined;
 
+  const query = {
+    ...(status ? { status } : {}),
+    ...(q ? { q } : {}),
+    ...(size !== 20 ? { size } : {}),
+  };
   const baseQuery = (over: Record<string, string> = {}) =>
-    buildAdminQuery("/admin/announcements", { status }, over);
+    buildAdminQuery("/admin/announcements", query, over);
 
   // datetime-local 预填值（DB "YYYY-MM-DD HH:MM:SS" → "YYYY-MM-DDTHH:MM"）
   const toLocalInput = (d: string | null) => (d ? d.replace(" ", "T").slice(0, 16) : "");
@@ -92,22 +90,12 @@ export default async function AdminAnnouncementsPage({ searchParams }: Params) {
   return (
     <div className="space-y-4">
       {flashErr && (
-        <AdminFlash kind="error" dismissHref={baseQuery({ err: "", navErr: "", linksErr: "" })}>
+        <AdminFlash kind="error" dismissHref={baseQuery({ err: "" })}>
           {flashErr}
         </AdminFlash>
       )}
       {flash && (
-        <AdminFlash
-          kind="success"
-          dismissHref={baseQuery({
-            created: "",
-            updated: "",
-            ended: "",
-            nav: "",
-            links: "",
-            footer: "",
-          })}
-        >
+        <AdminFlash kind="success" dismissHref={baseQuery({ created: "", updated: "", ended: "" })}>
           {flash}
         </AdminFlash>
       )}
@@ -208,7 +196,12 @@ export default async function AdminAnnouncementsPage({ searchParams }: Params) {
         <CardHeader>
           <CardTitle className="flex flex-wrap items-center justify-between gap-2">
             <span>公告列表（共 {total} 条）</span>
-            <AdminFilterBar action="/admin/announcements" resetHref="/admin/announcements">
+            <AdminFilterBar
+              action="/admin/announcements"
+              resetHref="/admin/announcements"
+              placeholder="标题关键词"
+              defaultValue={q ?? ""}
+            >
               <select
                 name="status"
                 defaultValue={status ?? ""}
@@ -270,83 +263,17 @@ export default async function AdminAnnouncementsPage({ searchParams }: Params) {
                 </li>
               );
             })}
-            {rows.length === 0 && (
-              <li className="py-4 text-center text-sm text-muted-foreground">暂无公告</li>
-            )}
+            {rows.length === 0 && <EmptyState icon={Megaphone} title="暂无公告。" />}
           </ul>
-          <Pagination basePath={baseQuery({})} page={page} totalPages={totalPages} />
+          <AdminListPager
+            total={total}
+            page={page}
+            totalPages={totalPages}
+            basePath={baseQuery({})}
+            controls={{ action: "/admin/announcements", current: query, size }}
+          />
         </CardContent>
       </Card>
-
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardTitle>导航项</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form action={saveNavAction} className="space-y-2">
-              <ChromeRowsEditor
-                name="navRaw"
-                initialRows={chrome.nav}
-                hrefPlaceholder="/f/951"
-                addLabel="添加导航项"
-              />
-              <SubmitButton
-                className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
-                pendingText="…"
-              >
-                保存导航
-              </SubmitButton>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>友情链接</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form action={saveLinksAction} className="space-y-2">
-              <ChromeRowsEditor
-                name="linksRaw"
-                initialRows={chrome.links}
-                hrefPlaceholder="https://…"
-                addLabel="添加友链"
-              />
-              <SubmitButton
-                className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
-                pendingText="…"
-              >
-                保存友链
-              </SubmitButton>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>页脚</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form action={saveFooterAction} className="space-y-2">
-              <textarea
-                name="footerText"
-                rows={5}
-                maxLength={300}
-                className="w-full rounded-lg border bg-background px-2.5 py-1.5 text-sm"
-                defaultValue={chrome.footerText}
-                placeholder="版权/备案/联系方式等纯文本"
-              />
-              <SubmitButton
-                className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
-                pendingText="…"
-              >
-                保存页脚
-              </SubmitButton>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
     </div>
   );
 }

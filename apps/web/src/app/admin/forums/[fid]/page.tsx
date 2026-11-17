@@ -61,9 +61,7 @@ export default async function ForumEditPage({
   params: Promise<{ fid: string }>;
   searchParams: Promise<{
     err?: string;
-    iconErr?: string;
-    iconSaved?: string;
-    iconRemoved?: string;
+    ok?: string;
   }>;
 }) {
   // 入口鉴权约定：第一个 await 必须是 requireAdmin（admin-entry-guard 静态守护）
@@ -107,24 +105,16 @@ export default async function ForumEditPage({
           role="alert"
           className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
         >
-          {ERR_TEXT[sp.err] ?? "操作失败，请重试。"}
+          {ERR_TEXT[sp.err] ?? sp.err}
         </p>
       )}
 
-      {sp.iconErr && (
-        <p
-          role="alert"
-          className="rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
-        >
-          板块图：{sp.iconErr}
-        </p>
-      )}
-      {sp.iconSaved && (
+      {sp.ok === "icon-saved" && (
         <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
           板块图已更新（前台板块卡片即时生效）。
         </p>
       )}
-      {sp.iconRemoved && (
+      {sp.ok === "icon-removed" && (
         <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
           板块图已移除（前台回落到底纹渐变占位）。
         </p>

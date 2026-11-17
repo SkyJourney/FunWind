@@ -7,7 +7,6 @@ import { eq } from "drizzle-orm";
 import { announcements, getWebDb, insertIdOf } from "@funwind/db";
 import { defineAction } from "@/lib/actions/define-action";
 import { writeAudit, type DbTx } from "@/lib/audit";
-import { setSetting } from "@/lib/auth/settings";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import {
   enqueueEventInTx,
@@ -15,12 +14,12 @@ import {
   sweepPending,
   type EnqueuedEvent,
 } from "@/lib/events/outbox";
-import { invalidateSiteChrome } from "@/lib/chrome/site-chrome";
 import { POINTS_TX_OPTIONS } from "@/lib/points/retry";
 
 /**
- * 公告与站点框架 Server Actions（M9，site.admin 总门——拍板 5：唯一管理员操作，不新增权限点）。
+ * 公告 Server Actions（M9，site.admin 总门——拍板 5：唯一管理员操作，不新增权限点）。
  * 公告发布/编辑同事务写 announcement.published 事件（经 outbox）；下线=ends_at 置当前。
+ * 站点框架（导航/友链/页脚）已于 M19 Q3 迁入 /admin/settings（同文件 saveNav/Links/FooterAction）。
  */
 
 const createAnnouncementInput = z.object({
@@ -105,7 +104,7 @@ export const createAnnouncementAction = defineAction({
     await sweepPending();
     revalidatePath("/admin/announcements");
     revalidatePath("/");
-    redirect(`/admin/announcements?created=1`);
+    redirect(`/admin/announcements?ok=created`);
   },
 });
 
@@ -148,7 +147,7 @@ export const editAnnouncementAction = defineAction({
     if (!found) redirect(`/admin/announcements?err=${encodeURIComponent("公告不存在")}`);
     revalidatePath("/admin/announcements");
     revalidatePath("/");
-    redirect(`/admin/announcements?updated=1`);
+    redirect(`/admin/announcements?ok=updated`);
   },
 });
 
@@ -181,94 +180,6 @@ export const endAnnouncementAction = defineAction({
     if (!found) redirect(`/admin/announcements?err=${encodeURIComponent("公告不存在")}`);
     revalidatePath("/admin/announcements");
     revalidatePath("/");
-    redirect(`/admin/announcements?ended=1`);
+    redirect(`/admin/announcements?ok=ended`);
   },
 });
-
-/** 站点框架保存（nav/links/footer 三键各自独立保存；setSetting 自带审计） */
-const navInput = z.object({
-  navRaw: z.string().max(4000).default(""),
-});
-export const saveNavAction = defineAction({
-  name: "admin.site.nav",
-  auth: { admin: "site.admin" },
-  input: navInput,
-  async run(ctx, input) {
-    const parsed = parseLinesChecked(input.navRaw, { hrefMustBePath: true });
-    if (parsed.error) redirect(`/admin/announcements?navErr=${encodeURIComponent(parsed.error)}`);
-    await setSetting("site.nav", parsed.items, {
-      userId: ctx.userId ?? null,
-      via: "admin",
-      ip: ctx.ip,
-    });
-    invalidateSiteChrome();
-    revalidatePath("/", "layout");
-    redirect(`/admin/announcements?nav=1`);
-  },
-});
-
-const linksInput = z.object({
-  linksRaw: z.string().max(6000).default(""),
-});
-export const saveLinksAction = defineAction({
-  name: "admin.site.links",
-  auth: { admin: "site.admin" },
-  input: linksInput,
-  async run(ctx, input) {
-    const parsed = parseLinesChecked(input.linksRaw, { hrefMustBePath: false });
-    if (parsed.error) redirect(`/admin/announcements?linksErr=${encodeURIComponent(parsed.error)}`);
-    await setSetting("site.links", parsed.items, {
-      userId: ctx.userId ?? null,
-      via: "admin",
-      ip: ctx.ip,
-    });
-    invalidateSiteChrome();
-    revalidatePath("/", "layout");
-    redirect(`/admin/announcements?links=1`);
-  },
-});
-
-const footerInput = z.object({ footerText: z.string().max(300).default("") });
-export const saveFooterAction = defineAction({
-  name: "admin.site.footer",
-  auth: { admin: "site.admin" },
-  input: footerInput,
-  async run(ctx, input) {
-    await setSetting(
-      "site.footer",
-      { text: input.footerText },
-      { userId: ctx.userId ?? null, via: "admin", ip: ctx.ip },
-    );
-    invalidateSiteChrome();
-    revalidatePath("/", "layout");
-    redirect(`/admin/announcements?footer=1`);
-  },
-});
-
-/** 「标签, 路径/URL」逐行解析；非法行报行号（M9.5 条目化编辑配套） */
-function parseLinesChecked(
-  raw: string,
-  opts: { hrefMustBePath: boolean },
-): { items: { label: string; href: string }[]; error: string | null } {
-  const items: { label: string; href: string }[] = [];
-  const lines = raw.split(/\r?\n/);
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (line.length === 0) continue;
-    const idx = line.indexOf(",");
-    if (idx <= 0 || idx === line.length - 1) {
-      return { items: [], error: `第 ${i + 1} 行格式不对：应为「名称,路径」（半角逗号分隔）` };
-    }
-    const label = line.slice(0, idx).trim();
-    const href = line.slice(idx + 1).trim();
-    if (opts.hrefMustBePath && !href.startsWith("/")) {
-      return { items: [], error: `第 ${i + 1} 行路径必须以 / 开头（导航项只能是站内路径）` };
-    }
-    if (!opts.hrefMustBePath && !(href.startsWith("/") || href.startsWith("http"))) {
-      return { items: [], error: `第 ${i + 1} 行链接必须是站内路径（/ 开头）或 http(s):// 链接` };
-    }
-    items.push({ label, href });
-    if (items.length >= 20) break;
-  }
-  return { items, error: null };
-}

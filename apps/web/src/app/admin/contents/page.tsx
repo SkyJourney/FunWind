@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Files, MessageSquare } from "lucide-react";
 import { checkPermission, getModeratedForumIds } from "@/lib/authz/service";
@@ -9,25 +8,30 @@ import {
   type ContentKind,
   type ContentStateFilter,
 } from "@/lib/moderation/contents";
-import { fmtDateTime } from "@/lib/admin/format";
-import { buildAdminQuery, parseAdminPage } from "@/lib/admin/query";
+import { buildAdminQuery, parseAdminListParams, parseAdminPage } from "@/lib/admin/query";
 import { AdminTabs } from "@/components/admin/admin-tabs";
 import { AdminFilterBar } from "@/components/admin/admin-filter-bar";
 import { AdminFlash } from "@/components/admin/admin-flash";
 import { ForumSelect } from "@/components/admin/forum-select";
-import { Pagination } from "@/components/content/pagination";
-import { ConfirmSubmit } from "@/components/ui/confirm-submit";
+import { AdminListPager } from "@/components/admin/admin-list";
+import { flashText } from "@/lib/admin/flash";
 import { EmptyState } from "@/components/empty-state";
-import {
-  approveContentAction,
-  disableContentAction,
-  hideContentAction,
-  rejectContentAction,
-  threadFlagsAction,
-} from "./actions";
+import { ConfirmSubmit } from "@/components/ui/confirm-submit";
+import { SubmitButton } from "@/components/ui/submit-button";
+import { ContentRow } from "./content-row";
+import { approveReviewBulkAction, rejectReviewBulkAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "内容管理" };
+
+const CONTENTS_OK: Record<string, string> = {
+  approved: "已通过（作者会收到通知；新内容已公开）。",
+  rejected: "已驳回（作者会收到驳回理由，可修改后重新提交）。",
+  purged: "内容已彻底删除（封禁终态不可恢复）。",
+  "thread-flags": "主题设置已更新（锁定 / 置顶 / 精华）。",
+  disabled: "内容已封禁（作者可见理由横幅，不可编辑重审）。",
+  hidden: "内容已屏蔽。",
+};
 
 const STATE_TABS: { key: ContentStateFilter; label: string }[] = [
   { key: "all", label: "全部" },
@@ -39,18 +43,11 @@ const STATE_TABS: { key: ContentStateFilter; label: string }[] = [
   { key: "deleted", label: "已删除" },
 ];
 
-const STATE_BADGE: Record<string, { text: string; cls: string }> = {
-  visible: { text: "正常", cls: "bg-success/10 text-success" },
-  pending: { text: "待审核", cls: "bg-warning/10 text-warning" },
-  rejected: { text: "已驳回", cls: "bg-destructive/10 text-destructive" },
-  hidden: { text: "已屏蔽", cls: "bg-muted text-muted-foreground" },
-  disabled: { text: "已封禁", cls: "bg-destructive/10 text-destructive" },
-  deleted: { text: "已删除", cls: "bg-muted text-muted-foreground" },
-};
-
 /**
- * 内容管理（M9.5 §9.2-A，单菜单 + 主题/回帖类型页签）：
- * 版主看所辖版块，admin.recycle / site.admin 看全站；行内操作与前台同一套 action。
+ * 内容管理（M9.5 §9.2-A 单菜单 + 主题/回帖页签；M19 吸收原「内容审核」页能力）：
+ * - 待审核态 = 版主审核队列（先到先审正序）+ checkbox 批量通过/驳回（每次 ≤50，逐条独立事务）；
+ * - 已屏蔽/已删除行可恢复（restorePost）；已封禁行可彻底删除（disabled → deleted 终态，不可恢复）；
+ * - 版主看所辖版块，admin.recycle / site.admin 看全站；行内操作与前台同一套服务。
  */
 export default async function AdminContentsPage({
   searchParams,
@@ -61,10 +58,9 @@ export default async function AdminContentsPage({
     forum?: string;
     state?: string;
     page?: string;
-    error?: string;
-    saved?: string;
-    disabled?: string;
-    hidden?: string;
+    size?: string;
+    err?: string;
+    ok?: string;
   }>;
 }) {
   // 入口鉴权（layout 等价形态：admin-entry-guard 允许首个 await 为 getCurrentUser + 权限判定）：
@@ -87,6 +83,7 @@ export default async function AdminContentsPage({
     ? (sp.state as ContentStateFilter)
     : "all";
   const page = parseAdminPage(sp.page, "number-or-one");
+  const { size } = parseAdminListParams(sp);
 
   // 作用域：site.admin / admin.recycle 看全站；版主看所辖版块
   const scopeForumIds = isSiteAdmin.allowed || hasRecycle.allowed ? null : moderated;
@@ -102,7 +99,10 @@ export default async function AdminContentsPage({
     forumId,
     state,
     page,
+    perPage: size !== 20 ? size : undefined,
     scopeForumIds,
+    // 待审核态是审核队列：按提交时间正序（先到先审，M19 自 review 页合并）
+    order: state === "pending" ? "queue" : undefined,
   });
 
   const query = {
@@ -110,22 +110,21 @@ export default async function AdminContentsPage({
     ...(q ? { q } : {}),
     ...(forumId ? { forum: forumId } : {}),
     ...(state !== "all" ? { state } : {}),
+    ...(size !== 20 ? { size } : {}),
   };
   const baseQuery = (over: Record<string, string> = {}) =>
     buildAdminQuery("/admin/contents", query, over);
 
   return (
     <div className="space-y-4">
-      {sp.error && (
-        <AdminFlash kind="error" dismissHref={baseQuery({ error: "" })}>
-          {sp.error}
+      {sp.err && (
+        <AdminFlash kind="error" dismissHref={baseQuery({ err: "" })}>
+          {sp.err}
         </AdminFlash>
       )}
-      {(sp.saved || sp.disabled || sp.hidden) && (
-        <AdminFlash kind="success" dismissHref={baseQuery({ saved: "", disabled: "", hidden: "" })}>
-          {sp.saved ? "主题设置已更新（锁定 / 置顶 / 精华）。" : null}
-          {sp.disabled ? "内容已封禁（作者可见理由横幅，不可编辑重审）。" : null}
-          {sp.hidden ? "内容已屏蔽。" : null}
+      {sp.ok && (
+        <AdminFlash kind="success" dismissHref={baseQuery({ ok: "" })}>
+          {flashText(CONTENTS_OK, sp.ok.split("=")[0]!, "操作完成。")}
         </AdminFlash>
       )}
 
@@ -176,6 +175,7 @@ export default async function AdminContentsPage({
           hidden={{
             kind: kind === "reply" ? "reply" : undefined,
             state: state !== "all" ? state : undefined,
+            ...(size !== 20 ? { size: String(size) } : {}),
           }}
         >
           <ForumSelect
@@ -203,162 +203,56 @@ export default async function AdminContentsPage({
         />
       ) : (
         <ul className="space-y-2">
-          {items.map((item) => {
-            const badge = STATE_BADGE[item.state] ?? { text: item.state, cls: "bg-muted" };
-            return (
-              <li key={item.postId} className="rounded-xl border bg-card px-4 py-3">
-                {/* 纵向统一排版（站长定稿）：内容渲染在上、管理交互整行沉底——
-                    主题/回帖长度差异不影响操作区位置，多断点下排版一致 */}
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">
-                    <Link href={`/t/${item.threadId}`} className="hover:text-primary">
-                      {item.title}
-                    </Link>
-                    <span className={`ml-2 rounded px-1.5 py-0.5 text-xs ${badge.cls}`}>
-                      {badge.text}
-                    </span>
-                    {item.authorBanned && (
-                      <span className="ml-1 rounded bg-warning/10 px-1.5 py-0.5 text-xs text-warning">
-                        作者已封禁
-                      </span>
-                    )}
-                  </p>
-                  {item.excerpt && (
-                    <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                      {item.excerpt}
-                    </p>
-                  )}
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {item.forumName} · {item.authorName ?? "已注销"}（uid {item.authorId}） ·{" "}
-                    {fmtDateTime(item.createdAt)}
-                    {item.isThread && item.replyCount !== null ? ` · ${item.replyCount} 回帖` : ""}
-                    {item.isThread && item.isLocked ? " · 已锁定" : ""}
-                    {item.isThread && item.isFeatured ? " · 精华" : ""}
-                    {item.isThread && (item.pinLevel ?? 0) > 0 ? " · 已置顶" : ""}
-                  </p>
-                </div>
-
-                {/* 管理交互行（统一沉底）：按当前状态给出可用动作 */}
-                <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t pt-2.5">
-                  {item.state === "pending" && (
-                    <>
-                      <form action={approveContentAction}>
-                        <input type="hidden" name="postId" value={item.postId} />
-                        <button
-                          type="submit"
-                          className="rounded-lg border px-2.5 py-1 text-xs hover:bg-accent"
-                        >
-                          通过
-                        </button>
-                      </form>
-                      <form action={rejectContentAction} className="flex items-center gap-1">
-                        <input type="hidden" name="postId" value={item.postId} />
-                        <input
-                          name="reason"
-                          required
-                          maxLength={255}
-                          placeholder="驳回理由"
-                          className="w-32 rounded-lg border bg-background px-2 py-1 text-xs"
-                        />
-                        <button
-                          type="submit"
-                          className="rounded-lg border px-2.5 py-1 text-xs text-destructive hover:bg-destructive/10"
-                        >
-                          驳回
-                        </button>
-                      </form>
-                    </>
-                  )}
-                  {item.state === "visible" && (
-                    <>
-                      <form action={hideContentAction} className="flex items-center gap-1">
-                        <input type="hidden" name="postId" value={item.postId} />
-                        <input
-                          name="reason"
-                          required
-                          maxLength={255}
-                          placeholder="屏蔽理由"
-                          className="w-32 rounded-lg border bg-background px-2 py-1 text-xs"
-                        />
-                        <button
-                          type="submit"
-                          className="rounded-lg border px-2.5 py-1 text-xs hover:bg-accent"
-                        >
-                          屏蔽
-                        </button>
-                      </form>
-                      <form action={disableContentAction} className="flex items-center gap-1">
-                        <input type="hidden" name="postId" value={item.postId} />
-                        <input
-                          name="reason"
-                          required
-                          maxLength={255}
-                          placeholder="封禁理由（作者可见）"
-                          aria-label="封禁理由（作者可见）"
-                          className="w-36 rounded-lg border bg-background px-2 py-1 text-xs"
-                        />
-                        <ConfirmSubmit
-                          title="封禁内容"
-                          description="确认封禁？作者将看到封禁理由横幅，且不可编辑、不可重新提交审核（版主只能彻底删除，不可恢复）。"
-                          className="rounded-lg border border-destructive/40 px-2.5 py-1 text-xs text-destructive hover:bg-destructive/10 disabled:opacity-60"
-                          pendingText="…"
-                        >
-                          封禁
-                        </ConfirmSubmit>
-                      </form>
-                    </>
-                  )}
-                  {item.isThread && (
-                    <form action={threadFlagsAction} className="flex items-center gap-1">
-                      <input type="hidden" name="threadId" value={item.threadId} />
-                      <input type="hidden" name="back" value={baseQuery({})} />
-                      <label className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <input
-                          type="checkbox"
-                          name="locked"
-                          value="1"
-                          defaultChecked={item.isLocked ?? false}
-                          className="size-3.5"
-                        />
-                        锁定
-                      </label>
-                      <label className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <input
-                          type="checkbox"
-                          name="featured"
-                          value="1"
-                          defaultChecked={item.isFeatured ?? false}
-                          className="size-3.5"
-                        />
-                        精华
-                      </label>
-                      <select
-                        name="pinLevel"
-                        defaultValue={String(item.pinLevel ?? 0)}
-                        aria-label="置顶级别"
-                        className="rounded border bg-background px-1 py-0.5 text-xs"
-                      >
-                        <option value="0">不置顶</option>
-                        <option value="1">版块置顶</option>
-                        <option value="2">分区置顶</option>
-                        <option value="3">全站置顶</option>
-                      </select>
-                      <button
-                        type="submit"
-                        className="rounded-lg border px-2 py-0.5 text-xs hover:bg-accent"
-                      >
-                        应用
-                      </button>
-                    </form>
-                  )}
-                </div>
-              </li>
-            );
-          })}
+          {items.map((item) => (
+            <ContentRow key={item.postId} item={item} back={baseQuery({})} />
+          ))}
         </ul>
       )}
 
-      <Pagination basePath={baseQuery({})} page={safePage} totalPages={totalPages} />
+      {/* 批量操作条（仅待审核队列）：checkbox 经 form 属性归入本表单；back 保留当前筛选 */}
+      {state === "pending" && items.length > 0 && (
+        <form
+          id="bulk-contents-form"
+          className="sticky bottom-4 mt-4 flex flex-wrap items-center gap-2 rounded-xl border bg-card px-4 py-3 shadow-sm"
+        >
+          <input type="hidden" name="back" value={baseQuery({})} />
+          <span className="text-sm text-muted-foreground">
+            勾选待审内容后可批量操作（每次最多 50 条，按提交时间先到先审）
+          </span>
+          <span className="ml-auto flex flex-wrap items-center gap-2">
+            <SubmitButton
+              formAction={approveReviewBulkAction}
+              className="rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+              pendingText="…"
+            >
+              批量通过
+            </SubmitButton>
+            <input
+              name="reason"
+              placeholder="批量驳回理由（必填）"
+              maxLength={500}
+              className="w-44 rounded-lg border bg-background px-2.5 py-1.5 text-sm"
+            />
+            <ConfirmSubmit
+              title="批量驳回"
+              description="确认驳回所选内容？该理由将通知全部所选作者。"
+              formAction={rejectReviewBulkAction}
+              className="rounded-lg border px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-60"
+              pendingText="…"
+            >
+              批量驳回
+            </ConfirmSubmit>
+          </span>
+        </form>
+      )}
+
+      <AdminListPager
+        total={total}
+        page={safePage}
+        totalPages={totalPages}
+        basePath={baseQuery({})}
+        controls={{ action: "/admin/contents", current: query, size }}
+      />
     </div>
   );
 }

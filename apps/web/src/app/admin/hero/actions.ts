@@ -20,26 +20,26 @@ import { heroPool } from "@/lib/brand/hero-pool";
 export const uploadHeroAction = defineAction({
   name: "admin.hero.upload",
   auth: { admin: "site.admin" },
-  input: brandUploadInput("/admin/hero"),
+  input: brandUploadInput("/admin/brand?kind=hero"),
   async run(ctx, input) {
-    return uploadToBrandPool(heroFs, ctx, input, "/admin/hero");
+    return uploadToBrandPool(heroFs, ctx, input, "/admin/brand?kind=hero");
   },
 });
 
 export const setActiveHeroAction = defineAction({
   name: "admin.hero.activate",
   auth: { admin: "site.admin" },
-  input: brandFileInput("/admin/hero"),
+  input: brandFileInput("/admin/brand?kind=hero"),
   async run(ctx, input) {
-    return activateInBrandPool(heroPool, ctx, input, "/admin/hero");
+    return activateInBrandPool(heroPool, ctx, input, "/admin/brand?kind=hero");
   },
 });
 
 export const removeHeroAction = defineAction({
   name: "admin.hero.remove",
   auth: { admin: "site.admin" },
-  input: brandFileInput("/admin/hero"),
+  input: brandFileInput("/admin/brand?kind=hero"),
   async run(ctx, input) {
-    return removeBrandPoolItem(heroPool, ctx, input, "/admin/hero");
+    return removeBrandPoolItem(heroPool, ctx, input, "/admin/brand?kind=hero");
   },
 });

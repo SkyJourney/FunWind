@@ -85,7 +85,7 @@ export const createThemePackAction = defineAction({
     const result = await createThemePack(packWriteFields(input, parsed, ctx.actor));
     if (!result.ok) redirect(`/admin/themes?err=${result.code}`);
     revalidatePath("/admin/themes");
-    redirect(`/admin/themes?saved=created&id=${encodeURIComponent(input.id.trim().toLowerCase())}`);
+    redirect(`/admin/themes?ok=created&id=${encodeURIComponent(input.id.trim().toLowerCase())}`);
   },
 });
 
@@ -114,7 +114,7 @@ export const saveThemePackAction = defineAction({
     revalidatePath("/admin/themes");
     revalidatePath(`/admin/themes/${encodeURIComponent(input.id)}`);
     const ack = input.submissionId ? `&ack=${encodeURIComponent(input.submissionId)}` : "";
-    redirect(`/admin/themes/${encodeURIComponent(input.id)}?saved=1${ack}`);
+    redirect(`/admin/themes/${encodeURIComponent(input.id)}?ok=1${ack}`);
   },
 });
 
@@ -131,7 +131,7 @@ export const toggleThemePackAction = defineAction({
     if (!result.ok) redirect(`/admin/themes?err=${result.code}`);
     invalidateSiteChrome();
     revalidatePath("/admin/themes");
-    redirect("/admin/themes?saved=toggled");
+    redirect("/admin/themes?ok=toggled");
   },
 });
 
@@ -145,7 +145,7 @@ export const copyThemePackAction = defineAction({
     const result = await copyThemePack(input.sourceId, newId, ctx.actor);
     if (!result.ok) redirect(`/admin/themes?err=${result.code}`);
     revalidatePath("/admin/themes");
-    redirect(`/admin/themes?saved=copied&id=${encodeURIComponent(newId)}`);
+    redirect(`/admin/themes?ok=copied&id=${encodeURIComponent(newId)}`);
   },
 });
 
@@ -159,7 +159,7 @@ export const deleteThemePackAction = defineAction({
     if (!result.ok) redirect(`/admin/themes?err=${result.code}`);
     invalidateSiteChrome();
     revalidatePath("/admin/themes");
-    redirect("/admin/themes?saved=deleted");
+    redirect("/admin/themes?ok=deleted");
   },
 });
 
@@ -184,7 +184,7 @@ export const resetThemePackAction = defineAction({
     if (!result.ok) redirect(`/admin/themes?err=${result.code}`);
     revalidatePath("/admin/themes");
     revalidatePath(`/admin/themes/${encodeURIComponent(input.id)}`);
-    redirect("/admin/themes?saved=reset");
+    redirect("/admin/themes?ok=reset");
   },
 });
 
@@ -207,6 +207,6 @@ export const setDefaultThemePackAction = defineAction({
         : logo.status === "unchanged"
           ? "default_no_logo"
           : "default";
-    redirect(`/admin/themes?saved=${saved}${logo.status === "failed" ? "&warn=logo" : ""}`);
+    redirect(`/admin/themes?ok=${saved}${logo.status === "failed" ? "&warn=logo" : ""}`);
   },
 });

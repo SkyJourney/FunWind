@@ -363,7 +363,8 @@ test("qy2010 浅色：计算样式与冻结的基线逐项一致", async ({ brow
   const setFooterLinks = async (links: { label: string; href: string }[]) => {
     const adminPage = await admin.newPage();
     try {
-      await adminPage.goto("/admin/announcements");
+      // M19 Q3：友链表单自公告页迁入站点配置「站点框架」签
+      await adminPage.goto("/admin/settings");
       const form = adminPage
         .locator("form")
         .filter({ has: adminPage.locator('input[name="linksRaw"]') });
@@ -380,7 +381,7 @@ test("qy2010 浅色：计算样式与冻结的基线逐项一致", async ({ brow
         await form.getByLabel(`第 ${i + 1} 行路径`).fill(link.href);
       }
       await form.getByRole("button", { name: "保存友链" }).click();
-      await adminPage.waitForURL(/[?&]links=1/);
+      await adminPage.waitForURL(/[?&]saved=links/);
     } finally {
       await adminPage.close();
     }

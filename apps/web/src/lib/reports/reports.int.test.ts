@@ -4,7 +4,16 @@
  */
 import "@/modules";
 import { and, eq, sql } from "drizzle-orm";
-import { auditLog, DEMO, getWebDb, notifications, reports, userRestrictions } from "@funwind/db";
+import {
+  auditLog,
+  DEMO,
+  getWebDb,
+  notifications,
+  posts,
+  reports,
+  threads,
+  userRestrictions,
+} from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as notificationService from "@/lib/notifications/notify";
 import { loadSubject } from "@/lib/authz/subject";
@@ -225,5 +234,22 @@ describe.skipIf(skipDb)("举报（M9）", () => {
     // 批量忽略的说明是统一文案
     const [row] = await db().select().from(reports).where(eq(reports.id, a));
     expect(row.handledNote).toBe("经核实不构成违规");
+  });
+
+  it("M19：队列关键词（被举报内容标题）与时间范围筛选", async () => {
+    const [row] = await db()
+      .select({ title: threads.title })
+      .from(reports)
+      .innerJoin(posts, eq(posts.id, reports.postId))
+      .innerJoin(threads, eq(threads.id, posts.threadId))
+      .where(eq(reports.postId, 900101))
+      .limit(1);
+    const pending = await listReportPage({ status: "pending", page: 1 });
+    if (pending.items.some((i) => i.postId === 900101)) {
+      const byQ = await listReportPage({ status: "pending", q: row.title.slice(0, 6), page: 1 });
+      expect(byQ.items.some((i) => i.postId === 900101)).toBe(true);
+    }
+    const future = await listReportPage({ status: "pending", since: "2999-01-01", page: 1 });
+    expect(future.total).toBe(0);
   });
 });

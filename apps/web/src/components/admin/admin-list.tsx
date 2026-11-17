@@ -1,9 +1,17 @@
 /**
- * 后台列表页共享件（审查 F-19）：结果计数行与表格外壳。
+ * 后台列表页共享件（审查 F-19；M19 S3 加多尺寸/密度）：结果计数行与表格外壳。
  * 新增后台列表页应使用这些件 + lib/admin/query.ts，而不是再手写一遍壳。
  */
 
+import Link from "next/link";
 import { Pagination } from "@/components/content/pagination";
+import { AutoSubmitSelect } from "@/components/admin/auto-submit-select";
+import {
+  ADMIN_PAGE_SIZES,
+  buildAdminQuery,
+  densityCellClass,
+  type AdminDensity,
+} from "@/lib/admin/query";
 
 export function AdminListMeta({
   total,
@@ -89,21 +97,104 @@ export function AdminFilterSelect({
   );
 }
 
-/** 计数行 + 分页器：列表页统一复用，basePath 由调用方用 buildAdminQuery 拼好 */
+/** 密度切换目标链接：默认档（cozy）不进 URL，保持「默认值不出现在 query」纪律 */
+function densityHref(
+  action: string,
+  current: Record<string, string | number | undefined>,
+  density: AdminDensity,
+): string {
+  return buildAdminQuery(action, { ...current, density: density === "cozy" ? "" : density });
+}
+
+/** 多尺寸/密度控件（M19 S3）：可选——不传时 AdminListPager 渲染与 M9.5 形态完全一致 */
+export interface AdminPagerControls {
+  /** 每页条数表单的 GET 提交目标（当前列表页路径） */
+  action: string;
+  /** 需要随切档保留的当前筛选（不含 page/size/density；空值字段自动跳过） */
+  current: Record<string, string | number | undefined>;
+  size: number;
+  /** 卡片列表页可省（密度只对表格行有意义），省略时不渲染密度切换 */
+  density?: AdminDensity;
+}
+
+/** 计数行 + 分页器：列表页统一复用，basePath 由调用方用 buildAdminQuery 拼好。
+ *  传 controls 时额外渲染「每页 N 条」（GET 表单 + AutoSubmitSelect，noscript 回退）
+ *  与密度两档切换（链接式，零 JS 可用）。 */
 export function AdminListPager({
   total,
   page,
   totalPages,
   basePath,
+  controls,
 }: {
   total: number;
   page: number;
   totalPages: number;
   basePath: string;
+  controls?: AdminPagerControls;
 }) {
   return (
     <>
-      <AdminListMeta total={total} page={page} totalPages={totalPages} />
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <AdminListMeta total={total} page={page} totalPages={totalPages} />
+        {controls && (
+          <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            <form action={controls.action} method="get" className="flex items-center gap-1">
+              {Object.entries(controls.current).map(([name, value]) =>
+                value ? <input key={name} type="hidden" name={name} value={value} /> : null,
+              )}
+              <label className="flex items-center gap-1">
+                每页
+                <AutoSubmitSelect
+                  name="size"
+                  defaultValue={String(controls.size)}
+                  aria-label="每页条数"
+                  className="mx-0.5 rounded border bg-background px-1.5 py-0.5"
+                >
+                  {ADMIN_PAGE_SIZES.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </AutoSubmitSelect>
+                条
+              </label>
+              <noscript>
+                <button type="submit" className="rounded border px-1.5 py-0.5 hover:bg-accent">
+                  切换
+                </button>
+              </noscript>
+            </form>
+            {controls.density && (
+              <span className="flex items-center gap-1">
+                密度
+                <Link
+                  href={densityHref(controls.action, controls.current, "compact")}
+                  aria-current={controls.density === "compact" ? "true" : undefined}
+                  className={`rounded border px-1.5 py-0.5 ${
+                    controls.density === "compact"
+                      ? "bg-accent font-medium text-foreground"
+                      : "hover:bg-accent"
+                  }`}
+                >
+                  紧凑
+                </Link>
+                <Link
+                  href={densityHref(controls.action, controls.current, "cozy")}
+                  aria-current={controls.density === "cozy" ? "true" : undefined}
+                  className={`rounded border px-1.5 py-0.5 ${
+                    controls.density === "cozy"
+                      ? "bg-accent font-medium text-foreground"
+                      : "hover:bg-accent"
+                  }`}
+                >
+                  舒适
+                </Link>
+              </span>
+            )}
+          </div>
+        )}
+      </div>
       <Pagination basePath={basePath} page={page} totalPages={totalPages} />
     </>
   );
@@ -124,18 +215,22 @@ export interface AdminCell {
 /**
  * 数据驱动表格：列定义渲染表头，每行单元格数组渲染行。
  * 各列表页只描述「列 + 每行单元格」，壳与渲染逻辑集中在此，避免逐页手写同构 JSX。
+ * density（M19 S3）：compact 收紧单元格 padding；缺省 cozy 与原形态一致。
  */
 export function AdminDataTable({
   columns,
   rows,
   hasRows,
   emptyText,
+  density = "cozy",
 }: {
   columns: AdminColumn[];
   rows: { key: React.Key; cells: AdminCell[] }[];
   hasRows: boolean;
   emptyText?: string;
+  density?: AdminDensity;
 }) {
+  const cell = densityCellClass(density);
   return (
     <AdminTable
       colSpan={columns.length}
@@ -149,7 +244,7 @@ export function AdminDataTable({
       rows={rows.map((r) => (
         <tr key={r.key} className="border-t align-top">
           {r.cells.map((c, i) => (
-            <td key={i} className={`px-3 py-1.5 ${c.cls}`.trim()}>
+            <td key={i} className={`${cell} ${c.cls}`.trim()}>
               {c.node}
             </td>
           ))}

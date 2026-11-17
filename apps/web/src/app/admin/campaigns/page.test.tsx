@@ -17,6 +17,10 @@ vi.mock("@/lib/authz/require-admin", () => ({
 vi.mock("@/lib/campaigns/list", () => ({
   listCampaigns: async () => ({ items: [], now: "2026-11-07 12:00:00" }),
 }));
+vi.mock("@/lib/ops/tasks", () => ({
+  // 节日装扮卡：任务存在才渲染——单测里固定空清单，聚焦排期表单的回执文案
+  listOpsTasks: async () => [],
+}));
 vi.mock("@/lib/theme/catalog", () => ({
   getThemeCatalog: async () => [{ id: "default", label: "默认" }],
 }));
@@ -37,6 +41,10 @@ vi.mock("@/app/admin/campaigns/actions", () => ({
   updateCampaignAction: vi.fn(),
   toggleCampaignAction: vi.fn(),
   deleteCampaignAction: vi.fn(),
+  saveHolidayRuleAction: vi.fn(),
+}));
+vi.mock("@/app/admin/ops/actions", () => ({
+  setTaskEnabledAction: vi.fn(),
 }));
 
 const page = (searchParams: Record<string, string> = {}) =>
@@ -66,6 +74,8 @@ const SAVED_TEXT: Record<string, string> = {
   updated: "排期方案已保存。",
   toggled: "排期方案状态已更新。",
   deleted: "排期方案已删除。",
+  holiday:
+    "节日装扮规则已保存。任务启用后，管线每日自检会确保当前或下一年窗口的排期方案存在（已生成的方案不会被覆盖，可在本页微调）。",
 };
 
 /** Action 实际发出的成功回执码：从源码里扫出来，新增回执而期望表没跟上即红 */
@@ -74,7 +84,7 @@ const ACTIONS_SRC = readFileSync(
   "utf8",
 );
 const savedCodesInActions = () =>
-  new Set([...ACTIONS_SRC.matchAll(/[?&]saved=([a-z_-]+)/g)].map((match) => match[1]));
+  new Set([...ACTIONS_SRC.matchAll(/[?&]ok=([a-z_-]+)/g)].map((match) => match[1]));
 
 describe("运营排期页：回执码与文案成对（G-15）", () => {
   it.each(Object.entries(ERROR_TEXT))("失败码 %s 渲染专门提示", async (code, text) => {
@@ -97,13 +107,13 @@ describe("运营排期页：回执码与文案成对（G-15）", () => {
   });
 
   it.each(Object.entries(SAVED_TEXT))("成功回执 %s 有专门文案", async (saved, text) => {
-    render(await page({ saved }));
+    render(await page({ ok: saved }));
     expect(screen.getByRole("status")).toHaveTextContent(text);
   });
 
   it("未知成功回执与原型属性名不显示任何提示", async () => {
     for (const saved of ["no-such-code", "toString"]) {
-      const { unmount } = render(await page({ saved }));
+      const { unmount } = render(await page({ ok: saved }));
       expect(screen.queryByRole("status")).toBeNull();
       expect(screen.queryByRole("alert")).toBeNull();
       unmount();

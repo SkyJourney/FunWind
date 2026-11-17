@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { USERS, loginAs } from "./support/session";
+import { withE2eDb } from "./support/db";
 
 /**
  * 站点配置 E2E（M10.6b）：邀请码生成→撤销→已用保护由界面走查；robots/sitemap 公开可达且边界正确。
@@ -31,6 +32,8 @@ test("邀请码：生成 → 列表可用 → 撤销 → 消失", async ({ brows
   await loginAs(ctx, USERS.admin);
   const admin = await ctx.newPage();
 
+  // 防前次失败残留累积污染计数（批次码固定，失败重跑会叠加）——先清本批次旧码
+  await withE2eDb(async (q) => q.exec("DELETE FROM invite_codes WHERE batch = 'e2e 批次'"));
   await admin.goto("/admin/invites");
   await expect(admin.getByRole("heading", { name: "邀请码" })).toBeVisible();
   const before = await admin.getByText("可用", { exact: true }).count();
@@ -40,7 +43,7 @@ test("邀请码：生成 → 列表可用 → 撤销 → 消失", async ({ brows
   await submitAndWait(admin, "生成");
   await expect(admin.getByText(/已生成 2 枚邀请码/)).toBeVisible();
   await admin.goto("/admin/invites?page=999999");
-  const invitePageLabel = admin.getByText(/第 \d+\/\d+ 页/);
+  const invitePageLabel = admin.getByText(/^第 \d+\/\d+ 页$/);
   await expect(invitePageLabel).toBeVisible();
   const invitePageMatch = (await invitePageLabel.textContent())?.match(/第 (\d+)\/(\d+) 页/);
   expect(invitePageMatch).not.toBeNull();
@@ -95,7 +98,7 @@ test("邮件组：测试邮件进 Mailpit", async ({ browser }) => {
   // 测试邮件：发到当前管理员邮箱（demo admin = admin@demo.local）
   await admin.goto("/admin/settings");
   await admin.getByRole("button", { name: /发送测试邮件/ }).click();
-  await admin.waitForURL("**/admin/settings?saved=mail_sent");
+  await admin.waitForURL("**/admin/settings?ok=mail_sent");
   await expect(admin.getByText("测试邮件已发出")).toBeVisible();
   await expect
     .poll(

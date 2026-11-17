@@ -156,7 +156,7 @@ test("游客视角：登录页三主题（真实后台切默认主题，清理 L
     const button = card.getByRole("button", { name: "设为默认", exact: true });
     if (await button.count()) {
       await button.click();
-      await expect(adminPage).toHaveURL(/saved=default/);
+      await expect(adminPage).toHaveURL(/ok=default/);
     }
   };
   try {
@@ -201,7 +201,7 @@ test("DB 自定义主题：Surface 变量浅色预览与暗色档", async ({ bro
     await adminPage.getByLabel("包 id", { exact: true }).fill(id);
     await adminPage.getByLabel("名称").fill("Surface 视觉测试主题");
     await adminPage.getByRole("button", { name: "新建主题包" }).click();
-    await expect(adminPage).toHaveURL(new RegExp(`saved=created&id=${id}`));
+    await expect(adminPage).toHaveURL(new RegExp(`ok=created&id=${id}`));
 
     // 先在装饰素材池上传一张底纹（验证 ?file= 取图链路在真实前台生效）
     await adminPage.goto("/admin/decor");
@@ -332,7 +332,7 @@ test("DB 自定义主题：Surface 变量浅色预览与暗色档", async ({ bro
       if (await themeCard.count()) {
         await themeCard.getByRole("button", { name: "删除" }).click();
         await adminPage.getByRole("button", { name: "确认" }).click();
-        await expect(adminPage).toHaveURL(/saved=deleted/);
+        await expect(adminPage).toHaveURL(/ok=deleted/);
       }
     } catch {
       await withE2eDb((q) => q.exec("DELETE FROM theme_packages WHERE id = ?", [id]));

@@ -44,8 +44,8 @@ test("管理员创建并编辑主题包：草稿预览与 definition 同步提�
       .toBuffer(),
   });
   await page.getByRole("button", { name: "上传入池" }).click();
-  await page.waitForURL("**/admin/decor?added=*");
-  const decorFile = new URL(page.url()).searchParams.get("added")!;
+  await page.waitForURL("**/admin/decor?ok=added*");
+  const decorFile = new URL(page.url()).searchParams.get("ok")!.slice("added=".length);
   expect(decorFile).toMatch(/^decor-[a-f0-9]{32}\.png$/);
 
   await page.goto("/admin/themes");
@@ -53,7 +53,7 @@ test("管理员创建并编辑主题包：草稿预览与 definition 同步提�
   await page.getByLabel("名称").fill("E2E 自定义主题");
   await page.getByLabel("说明").fill("主题管理完整流程验证");
   await page.getByRole("button", { name: "新建主题包" }).click();
-  await expect(page).toHaveURL(new RegExp(`saved=created&id=${THEME_ID}`));
+  await expect(page).toHaveURL(new RegExp(`ok=created&id=${THEME_ID}`));
 
   await page.locator(`a[href="/admin/themes/${THEME_ID}"]`).click();
   await expect(page.getByRole("heading", { name: `编辑主题包 · E2E 自定义主题` })).toBeVisible();
@@ -102,7 +102,7 @@ test("管理员创建并编辑主题包：草稿预览与 definition 同步提�
 
   await page.getByRole("button", { name: "保存主题包" }).click();
   await expect(page).toHaveURL(
-    (url) => url.pathname === `/admin/themes/${THEME_ID}` && url.searchParams.get("saved") === "1",
+    (url) => url.pathname === `/admin/themes/${THEME_ID}` && url.searchParams.get("ok") === "1",
   );
   await expect(page.getByText("主题包配置已保存。")).toBeVisible();
   const stored = await withE2eDb((q) =>
@@ -151,7 +151,7 @@ test("管理员创建并编辑主题包：草稿预览与 definition 同步提�
     .locator("div.rounded-xl.border.bg-card")
     .filter({ has: page.locator(`a[href="/admin/themes/${THEME_ID}"]`) });
   await originalCard.getByRole("button", { name: "设为默认" }).click();
-  await expect(page).toHaveURL(/saved=default/);
+  await expect(page).toHaveURL(/ok=default/);
   const manifest = await page.request.get("/manifest.webmanifest");
   expect(await manifest.json()).toMatchObject({ theme_color: "#123456" });
   await page
@@ -159,7 +159,7 @@ test("管理员创建并编辑主题包：草稿预览与 definition 同步提�
     .filter({ has: page.locator('a[href="/admin/themes/default"]') })
     .getByRole("button", { name: "设为默认" })
     .click();
-  await expect(page).toHaveURL(/saved=default/);
+  await expect(page).toHaveURL(/ok=default/);
 
   const downloadPromise = page.waitForEvent("download");
   await originalCard.getByRole("link", { name: "导出 ZIP" }).click();
@@ -191,7 +191,7 @@ test("管理员创建并编辑主题包：草稿预览与 definition 同步提�
     buffer: archiveBytes,
   });
   await page.getByRole("button", { name: "导入主题包" }).click();
-  await expect(page).toHaveURL(new RegExp(`saved=imported&id=${importedId}`));
+  await expect(page).toHaveURL(new RegExp(`ok=imported&id=${importedId}`));
   const imported = await withE2eDb((q) =>
     q.query<{
       revision: number;
@@ -237,7 +237,7 @@ test("管理员创建并编辑主题包：草稿预览与 definition 同步提�
     .locator("div.rounded-xl.border.bg-card")
     .filter({ has: page.locator(`a[href="/admin/themes/${THEME_ID}"]`) });
   await sourceCard.getByRole("button", { name: "复制" }).click();
-  await expect(page).toHaveURL(/saved=copied&id=/);
+  await expect(page).toHaveURL(/ok=copied&id=/);
   const copies = await withE2eDb((q) =>
     q.query<{ id: string }>("SELECT id FROM theme_packages WHERE id LIKE ?", [
       `${THEME_ID}-copy-%`,
@@ -250,7 +250,7 @@ test("管理员创建并编辑主题包：草稿预览与 definition 同步提�
     .locator("div.rounded-xl.border.bg-card")
     .filter({ has: page.locator(`a[href="/admin/themes/${copyId}"]`) });
   await copyCard.getByRole("button", { name: "停用" }).click();
-  await expect(page).toHaveURL(/saved=toggled/);
+  await expect(page).toHaveURL(/ok=toggled/);
   const [disabledCopy] = await withE2eDb((q) =>
     q.query<{ enabled: number }>("SELECT enabled FROM theme_packages WHERE id = ?", [copyId]),
   );
@@ -262,7 +262,7 @@ test("管理员创建并编辑主题包：草稿预览与 definition 同步提�
     .getByRole("button", { name: "删除" })
     .click();
   await page.getByRole("button", { name: "确认" }).click();
-  await expect(page).toHaveURL(/saved=deleted/);
+  await expect(page).toHaveURL(/ok=deleted/);
   const deleted = await withE2eDb((q) =>
     q.query<{ id: string }>("SELECT id FROM theme_packages WHERE id = ?", [copyId]),
   );
@@ -328,7 +328,7 @@ test("主题管理后台入口可见；编辑区内嵌素材库可上传并选�
   // 保存后 revision +1 且引用写入
   await page.getByRole("button", { name: "保存主题包" }).click();
   await expect(page).toHaveURL(
-    (url) => url.pathname === `/admin/themes/${THEME_ID}` && url.searchParams.get("saved") === "1",
+    (url) => url.pathname === `/admin/themes/${THEME_ID}` && url.searchParams.get("ok") === "1",
   );
   const [afterSave] = await withE2eDb((q) =>
     q.query<{ revision: number }>("SELECT revision FROM theme_packages WHERE id = ?", [THEME_ID]),
@@ -375,7 +375,7 @@ test("停用用户已选中的包 → 前台回退默认主题", async ({ page, 
       .locator("div.rounded-xl.border.bg-card")
       .filter({ has: adminPage.locator(`a[href="/admin/themes/${THEME_ID}"]`) });
     await card.getByRole("button", { name: "停用" }).click();
-    await expect(adminPage).toHaveURL(/saved=toggled/);
+    await expect(adminPage).toHaveURL(/ok=toggled/);
   } finally {
     await adminContext.close();
   }
@@ -415,8 +415,7 @@ test("保存冲突保留完整草稿与原版本；明确载入最新内容后�
     await otherPage.getByTestId("theme-fill-solid-color").fill("#654321");
     await otherPage.getByRole("button", { name: "保存主题包" }).click();
     await expect(otherPage).toHaveURL(
-      (url) =>
-        url.pathname === `/admin/themes/${THEME_ID}` && url.searchParams.get("saved") === "1",
+      (url) => url.pathname === `/admin/themes/${THEME_ID}` && url.searchParams.get("ok") === "1",
     );
     expect(otherErrors).toEqual([]);
   } finally {
@@ -482,7 +481,7 @@ test("保存冲突保留完整草稿与原版本；明确载入最新内容后�
   await page.getByLabel("说明", { exact: true }).fill("载入新版本后重新编辑");
   await page.getByRole("button", { name: "保存主题包" }).click();
   await expect(page).toHaveURL(
-    (url) => url.pathname === `/admin/themes/${THEME_ID}` && url.searchParams.get("saved") === "1",
+    (url) => url.pathname === `/admin/themes/${THEME_ID}` && url.searchParams.get("ok") === "1",
   );
   const stored = await readStored();
   expect(stored.revision).toBe(concurrent.revision + 1);

@@ -23,13 +23,13 @@ const BACK = "/admin/points";
 
 /** 业务错误统一转成可读提示并跳回（与 admin/badges 同法）；其余异常照常抛出 */
 function toAdminErrorBack(e: unknown): never {
-  if (e instanceof AdminError) redirect(`${BACK}?error=${encodeURIComponent(e.message)}`);
+  if (e instanceof AdminError) redirect(`${BACK}?err=${encodeURIComponent(e.message)}`);
   if (
     e instanceof InvalidDeltaError ||
     e instanceof InsufficientPointsError ||
     e instanceof PointsOverflowError
   ) {
-    redirect(`${BACK}?error=${encodeURIComponent(e.message)}`);
+    redirect(`${BACK}?err=${encodeURIComponent(e.message)}`);
   }
   throw e as never;
 }
@@ -74,7 +74,7 @@ export const saveRewardAction = defineAction({
     }
     revalidatePath("/admin/points");
     revalidatePath("/points");
-    redirect(`${BACK}?saved=1`);
+    redirect(`${BACK}?ok=saved`);
   },
 });
 
@@ -104,6 +104,6 @@ export const adjustPointsAction = defineAction({
       toAdminErrorBack(e);
     }
     revalidatePath("/admin/points");
-    redirect(`${BACK}?adjusted=1`);
+    redirect(`${BACK}?ok=adjusted`);
   },
 });

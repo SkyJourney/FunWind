@@ -30,9 +30,9 @@ import {
   disableContent,
   hidePost,
   listContentReviews,
-  listReviewPage,
   rejectReview,
 } from "./review";
+import { listContentsPage } from "./contents";
 import { createReply, createThread } from "@/lib/posting/service";
 import { lockUserStats } from "@/lib/locks";
 
@@ -92,8 +92,14 @@ describe.skipIf(skipDb)("审核动作（M9）", () => {
     const { threadId, postId } = await seedPendingThread();
     expect(await postState(postId)).toBe("pending");
 
-    // 队列里可见
-    const queue = await listReviewPage(admin, { tab: "pending", page: 1 });
+    // 队列里可见（M19 起队列语义由 contents 承载：待审先到先审正序）
+    const queue = await listContentsPage({
+      kind: "thread",
+      state: "pending",
+      scopeForumIds: null,
+      page: 1,
+      order: "queue",
+    });
     expect(queue.items.some((i) => i.postId === postId)).toBe(true);
 
     const r = await approveReview(admin, postId, ACTOR);
@@ -299,35 +305,35 @@ describe.skipIf(skipDb)("审核动作（M9）", () => {
       .where(eq(threads.id, threadId));
     expect(t.state).toBe("hidden");
 
-    const removed = await listReviewPage(admin, { tab: "removed", page: 1 });
+    const removed = await listContentsPage({
+      kind: "thread",
+      state: "hidden",
+      scopeForumIds: null,
+      page: 1,
+    });
     expect(removed.items.some((i) => i.postId === postId)).toBe(true);
     expect(
-      (await listReviewPage(admin, { tab: "pending", page: 1 })).items.some(
-        (i) => i.postId === postId,
-      ),
+      (
+        await listContentsPage({
+          kind: "thread",
+          state: "pending",
+          scopeForumIds: null,
+          page: 1,
+          order: "queue",
+        })
+      ).items.some((i) => i.postId === postId),
     ).toBe(false); // hidden 不在待审队列
   });
 
-  it("listReviewPage：分页/板块与类型筛选/摘要（M9.5）", async () => {
-    const seeded = await seedPendingThread();
-    const page = await listReviewPage(admin, { tab: "pending", page: 1 });
-    expect(page.total).toBeGreaterThanOrEqual(1);
-    const hit = page.items.find((i) => i.postId === seeded.postId);
-    expect(hit?.isThread).toBe(true);
-    // 回帖筛选不含主题首帖
-    const replies = await listReviewPage(admin, { tab: "pending", kind: "reply", page: 1 });
-    expect(replies.items.some((i) => i.postId === seeded.postId)).toBe(false);
-    // 板块筛选命中所辖版块
-    const byForum = await listReviewPage(admin, { tab: "pending", forumId: REVIEW_FORUM, page: 1 });
-    expect(byForum.items.every((i) => i.forumId === REVIEW_FORUM)).toBe(true);
-  });
-
-  it.each(["pending", "removed"] as const)(
-    "同时间戳分页：审核 %s 按 createdAt/id 同向排序且跨页无漏行",
-    async (tab) => {
+  it.each([
+    { name: "待审队列正序（order=queue）", state: "pending" as const, order: "queue" as const },
+    { name: "已删除倒序（默认 recent）", state: "deleted" as const, order: undefined },
+  ])(
+    "同时间戳分页：contents $name——按 createdAt/id 同向排序且跨页无漏行",
+    async ({ state, order }) => {
       const [forum] = await db()
         .insert(forums)
-        .values({ name: `审核同秒-${tab}`, readPolicy: "public" });
+        .values({ name: `contents 同秒-${state}`, readPolicy: "public" });
       const forumId = Number(forum.insertId);
       await db()
         .update(forums)
@@ -339,7 +345,7 @@ describe.skipIf(skipDb)("审核动作（M9）", () => {
         .values({
           forumId,
           authorId: DEMO.member,
-          title: `同秒-${tab}`,
+          title: `同秒-${state}`,
           state: "visible",
           createdAt: "2026-05-01 10:00:00",
         });
@@ -357,27 +363,33 @@ describe.skipIf(skipDb)("审核动作（M9）", () => {
         .where(eq(threads.id, threadId));
       const expectedIds: number[] = [];
       for (let floor = 2; floor <= 24; floor++) {
-        const [reply] = await db()
-          .insert(posts)
-          .values({
-            threadId,
-            authorId: DEMO.member,
-            floor,
-            bodyMd: "同秒回帖",
-            state: tab === "pending" ? "pending" : floor % 2 ? "hidden" : "deleted",
-            createdAt: "2026-05-01 10:00:00",
-          });
+        const [reply] = await db().insert(posts).values({
+          threadId,
+          authorId: DEMO.member,
+          floor,
+          bodyMd: "同秒回帖",
+          state,
+          createdAt: "2026-05-01 10:00:00",
+        });
         expectedIds.push(Number(reply.insertId));
       }
       const ids: number[] = [];
       for (let page = 1; page <= 5; page++) {
-        const result = await listReviewPage(admin, { tab, forumId, page, perPage: 5 });
+        const result = await listContentsPage({
+          kind: "reply",
+          state,
+          forumId,
+          scopeForumIds: null,
+          page,
+          perPage: 5,
+          ...(order ? { order } : {}),
+        });
         expect(result.total).toBe(23);
         expect(result.totalPages).toBe(5);
         ids.push(...result.items.map((item) => item.postId));
       }
       expect(new Set(ids).size).toBe(23);
-      expect(ids).toEqual(tab === "pending" ? expectedIds : expectedIds.toReversed());
+      expect(ids).toEqual(order === "queue" ? expectedIds : expectedIds.toReversed());
     },
   );
 

@@ -52,7 +52,7 @@ test("admin：像素超限被拒 → 合法素材上传入池 → /brand/decor �
       .toBuffer(),
   });
   await page.getByRole("button", { name: "上传入池" }).click();
-  await page.waitForURL("**/admin/decor?added=*");
+  await page.waitForURL("**/admin/decor?ok=added*");
   await expect(page.getByText("已入池并设为当前")).toBeVisible();
   expect((await request.get("/brand/decor")).status()).toBe(200);
 

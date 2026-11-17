@@ -81,19 +81,19 @@ test("审核流：xiaoyi 在 906 发帖 → pending 仅作者可见 → admin �
     expect(res?.status()).toBe(404);
     await memberCtx.close();
 
-    // 3. admin 驳回（带理由）
+    // 3. admin 驳回（带理由；M19：审核队列在 /admin/contents?state=pending）
     const adminCtx = await context.browser()!.newContext();
     const adminPage = await adminCtx.newPage();
     await loginAs(adminCtx, USERS.admin);
-    await adminPage.goto("/admin/review");
+    await adminPage.goto("/admin/contents?state=pending");
     await expect(adminPage.getByText(title)).toBeVisible();
     await adminPage
       .locator("li", { hasText: title })
       .locator('input[name="reason"]')
       .fill("E2E 驳回理由：内容不完整");
     await adminPage.locator("li", { hasText: title }).getByRole("button", { name: "驳回" }).click();
-    await adminPage.getByRole("button", { name: "确认" }).click();
-    await expect(adminPage).toHaveURL(/\/admin\/review\?rejected=1/);
+    // contents 的行内驳回是直提交（理由必填已在输入框），无确认弹层
+    await expect(adminPage).toHaveURL(/\/admin\/contents\?state=pending&ok=rejected/);
     await adminCtx.close();
 
     // 4. 作者收到驳回通知与理由，可编辑重提
@@ -119,12 +119,12 @@ test("审核流：xiaoyi 在 906 发帖 → pending 仅作者可见 → admin �
     const adminCtx2 = await context.browser()!.newContext();
     const adminPage2 = await adminCtx2.newPage();
     await loginAs(adminCtx2, USERS.admin);
-    await adminPage2.goto("/admin/review");
+    await adminPage2.goto("/admin/contents?state=pending");
     await adminPage2
       .locator("li", { hasText: title })
       .getByRole("button", { name: "通过" })
       .click();
-    await expect(adminPage2).toHaveURL(/\/admin\/review\?approved=1/);
+    await expect(adminPage2).toHaveURL(/\/admin\/contents\?state=pending&ok=approved/);
     await adminCtx2.close();
 
     const guestPage = await (await context.browser()!.newContext()).newPage();
@@ -209,16 +209,23 @@ test("屏蔽→恢复：admin 屏蔽公开内容（理由）→ 作者收通知 
 });
 
 test("越权矩阵：版主仅所辖版块（904）；会员访问后台 404；游客跳登录", async ({ page, context }) => {
-  // team（仅 904 版主）：审核页可达但看不到 906 的内容；会员后台 404
+  // team（仅 904 版主）：内容管理待审队列可达但看不到 906 的内容；会员后台 404
   await loginAs(context, USERS.team);
-  await page.goto("/admin/review");
+  await page.goto("/admin/contents?state=pending");
   // 可达（版主门禁），但 906 的待审不在其队列
-  await expect(page.getByText(/所辖版块没有待审核|待审核/).first()).toBeVisible();
+  await expect(page.getByText(/没有匹配条件的内容/).first()).toBeVisible();
 
   const memberCtx = await context.browser()!.newContext();
   const memberPage = await memberCtx.newPage();
   await loginAs(memberCtx, USERS.member);
-  for (const path of ["/admin", "/admin/review", "/admin/users", "/admin/logs", "/admin/points"]) {
+  for (const path of [
+    "/admin",
+    "/admin/review",
+    "/admin/contents",
+    "/admin/users",
+    "/admin/logs",
+    "/admin/points",
+  ]) {
     const res = await memberPage.goto(path);
     expect(res?.status(), path).toBe(404);
   }
@@ -228,4 +235,53 @@ test("越权矩阵：版主仅所辖版块（904）；会员访问后台 404；�
   await guestPage.goto("/admin/review");
   await expect(guestPage).toHaveURL(/\/login/);
   await guestPage.context().close();
+});
+
+test("批量审核（M19 并入 contents）：两篇待审勾选 → 批量通过 → 队列清空、内容公开", async ({
+  page,
+  context,
+  browser,
+}) => {
+  const restore = await relaxPostInterval();
+  try {
+    // 作者连发两篇待审主题
+    await loginAs(context, USERS.xiaoyi);
+    const titles = [`E2E 批量A ${Date.now()}`, `E2E 批量B ${Date.now()}`];
+    const created: string[] = [];
+    for (const title of titles) {
+      await page.goto("/f/906/new");
+      await page.locator("#thread-title").fill(title);
+      await fillBody(page, "批量审核正文");
+      await page.getByRole("button", { name: "发布主题" }).click();
+      await expect(page).toHaveURL(/\/t\/\d+$/);
+      created.push(page.url());
+    }
+
+    // admin 勾选两行 → 批量通过；back 保留筛选（kind/state），提示参数追加其上
+    const adminCtx = await browser.newContext();
+    const adminPage = await adminCtx.newPage();
+    await loginAs(adminCtx, USERS.admin);
+    await adminPage.goto("/admin/contents?state=pending&kind=thread");
+    for (const title of titles) {
+      await adminPage.locator("li", { hasText: title }).locator('input[name="postIds"]').check();
+    }
+    await adminPage.getByRole("button", { name: "批量通过" }).click();
+    // back=baseQuery（默认类型 thread 不进 URL），提示参数追加其上
+    await expect(adminPage).toHaveURL(/\/admin\/contents\?state=pending&ok=approved%3D2/);
+    // 两篇都已离开待审队列
+    for (const title of titles) {
+      await expect(adminPage.locator("li", { hasText: title })).toHaveCount(0);
+    }
+
+    // 公开可见（pending 发布时不发事件，通过后补发 thread.created → 可见）
+    const guestPage = await (await browser.newContext()).newPage();
+    for (const url of created) {
+      await guestPage.goto(url);
+      await expect(guestPage.getByText("批量审核正文")).toBeVisible();
+    }
+    await guestPage.context().close();
+    await adminCtx.close();
+  } finally {
+    await restore();
+  }
 });

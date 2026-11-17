@@ -315,7 +315,7 @@ test("顶栏「注册」入口随开关显隐：双关时不再引导访客点�
       else await box.uncheck();
     }
     await adminPage.getByRole("button", { name: "保存注册策略" }).click();
-    await adminPage.waitForURL(/\/admin\/settings\?saved=/);
+    await adminPage.waitForURL(/\/admin\/settings\?ok=/);
   };
   const headerRegister = (viewport: Page) =>
     viewport.getByRole("banner").getByRole("link", { name: "注册" });

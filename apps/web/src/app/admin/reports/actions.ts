@@ -22,10 +22,10 @@ export const handleReportAction = defineAction({
     const r = await handleReport(ctx.actor, input.reportId, input.outcome, input.note);
     if (!r.ok) {
       const msg = r.code === "note_required" ? "必须填写处理说明" : "举报不存在或已处理";
-      redirect(`/admin/reports?error=${encodeURIComponent(msg)}`);
+      redirect(`/admin/reports?err=${encodeURIComponent(msg)}`);
     }
     revalidatePath("/admin/reports");
-    redirect(`/admin/reports?${input.outcome}=1`);
+    redirect(`/admin/reports?ok=${input.outcome}`);
   },
 });
 
@@ -47,9 +47,9 @@ export const dismissReportBulkAction = defineAction({
     revalidatePath("/admin/reports");
     if (r.failed > 0) {
       redirect(
-        `/admin/reports?error=${encodeURIComponent(`批量忽略：成功 ${r.ok} 条，跳过 ${r.failed} 条（已处理或不存在）`)}`,
+        `/admin/reports?err=${encodeURIComponent(`批量忽略：成功 ${r.ok} 条，跳过 ${r.failed} 条（已处理或不存在）`)}`,
       );
     }
-    redirect(`/admin/reports?dismissed=${r.ok}`);
+    redirect(`/admin/reports?ok=dismissed=${r.ok}`);
   },
 });

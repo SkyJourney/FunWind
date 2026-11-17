@@ -7,6 +7,7 @@ import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { AutoSubmitSelect } from "@/components/admin/auto-submit-select";
 import { ConfirmSubmit } from "@/components/ui/confirm-submit";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { AdminFlash } from "@/components/admin/admin-flash";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "授权矩阵" };
@@ -16,12 +17,12 @@ export default async function RoleMatrixPage({
   searchParams,
 }: {
   params: Promise<{ roleKey: string }>;
-  searchParams: Promise<{ error?: string; scopeForum?: string; public?: string }>;
+  searchParams: Promise<{ err?: string; scopeForum?: string; ok?: string }>;
 }) {
   // 第一个 await：局部渲染可能跳过 layout，页面自己必须鉴权（admin-entry-guard.test.ts 守护）
   await requireAdmin("admin.roles");
   const { roleKey } = await params;
-  const { error, scopeForum, public: publicSaved } = await searchParams;
+  const { err: error, scopeForum, ok } = await searchParams;
 
   const roles = await listRoles();
   const role = roles.find((r) => r.key === roleKey);
@@ -86,16 +87,8 @@ export default async function RoleMatrixPage({
         }
       />
 
-      {error && (
-        <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {error}
-        </p>
-      )}
-      {publicSaved === "1" && (
-        <p className="rounded-lg border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
-          公开身份策略已保存。
-        </p>
-      )}
+      {error && <AdminFlash kind="error">{error}</AdminFlash>}
+      {ok === "public" && <AdminFlash kind="success">公开身份策略已保存。</AdminFlash>}
       {role.kind === "custom" && (
         <section className="rounded-xl border bg-card p-4">
           <h2 className="font-semibold">公开身份</h2>

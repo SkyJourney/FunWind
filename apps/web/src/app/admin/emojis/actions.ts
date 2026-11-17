@@ -2,7 +2,7 @@
 
 import { defineAction } from "@/lib/actions/define-action";
 import { z } from "zod";
-import { asc, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect, notFound } from "next/navigation";
 import { emojiGroups, emojis, getWebDb, insertIdOf } from "@funwind/db";
@@ -11,7 +11,6 @@ import { isDuplicateKey } from "@/lib/auth/register";
 import { getStorageDir } from "@/lib/storage";
 import { processEmojiUpload } from "@/lib/emoji/admin";
 import { upsertFileRecordInTx } from "@/lib/uploads/file-record";
-import { moveWithinList } from "@/lib/admin/list-reorder";
 
 /**
  * 社区表情管理动作（M10.9，设计稿 §2.5）：门禁 emoji.manage（admin 默认持有）；
@@ -32,16 +31,6 @@ async function lockEmojiGroup(tx: DbTx, id: number) {
     .limit(1)
     .for("update");
   return group;
-}
-
-/** 组内排序/上传统一先锁组行，避免并发动作以不同顺序争抢表情行。 */
-async function lockGroupEmojiRows(tx: DbTx, groupId: number) {
-  return tx
-    .select({ id: emojis.id, sort: emojis.sort })
-    .from(emojis)
-    .where(eq(emojis.groupId, groupId))
-    .orderBy(asc(emojis.sort), asc(emojis.id))
-    .for("update");
 }
 
 /** 上传文件 → 默认表情名：文件名去扩展、截到列宽；空则占位「新表情」 */
@@ -85,7 +74,7 @@ export const createGroupAction = defineAction({
       throw error;
     }
     revalidatePath("/admin/emojis");
-    redirect(`${input.back}?saved=group-created`);
+    redirect(`${input.back}?ok=group-created`);
   },
 });
 
@@ -131,7 +120,7 @@ export const uploadGroupIconAction = defineAction({
       });
     });
     revalidatePath("/admin/emojis");
-    redirect(`${input.back}?group=${group.id}&saved=group-icon`);
+    redirect(`${input.back}?group=${group.id}&ok=group-icon`);
   },
 });
 
@@ -178,7 +167,7 @@ export const renameGroupAction = defineAction({
     if (result === "missing") notFound();
     if (result === "name-exists") redirect(`${input.back}?err=name-exists`);
     revalidatePath("/admin/emojis");
-    redirect(`${input.back}?saved=group-renamed`);
+    redirect(`${input.back}?ok=group-renamed`);
   },
 });
 
@@ -209,7 +198,7 @@ export const toggleGroupAction = defineAction({
     });
     if (groupId === null) notFound();
     revalidatePath("/admin/emojis");
-    redirect(`${input.back}?saved=group-toggled`);
+    redirect(`${input.back}?ok=group-toggled`);
   },
 });
 
@@ -241,47 +230,7 @@ export const deleteGroupAction = defineAction({
     if (result === "missing") notFound();
     if (result === "not-empty") redirect(`${input.back}?err=group-not-empty`);
     revalidatePath("/admin/emojis");
-    redirect(`${input.back}?saved=group-deleted`);
-  },
-});
-
-export const moveGroupAction = defineAction({
-  name: "admin.emoji.group.move",
-  auth: { admin: "emoji.manage" },
-  input: z.object({ id: z.coerce.number().int().positive(), dir: z.enum(["up", "down"]), back }),
-  async run(ctx, input) {
-    const result = await getWebDb().transaction(async (tx) => {
-      const rows = await tx
-        .select({ id: emojiGroups.id, sort: emojiGroups.sort })
-        .from(emojiGroups)
-        .orderBy(asc(emojiGroups.sort), asc(emojiGroups.id))
-        .for("update");
-      const { kind, ordered, updates } = moveWithinList(rows, input.id, input.dir);
-      if (kind !== "moved") return kind;
-      for (const row of updates) {
-        await tx
-          .update(emojiGroups)
-          .set({ sort: row.sort, updatedAt: sql`NOW()` })
-          .where(eq(emojiGroups.id, row.id));
-      }
-      await writeAudit(tx, {
-        actorId: ctx.userId,
-        action: "admin.emoji.group.move",
-        targetType: "emoji_group",
-        targetId: input.id,
-        before: { order: rows.map(({ id, sort }) => ({ id, sort })) },
-        after: {
-          order: ordered.map(({ id }, index) => ({ id, sort: index + 1 })),
-          dir: input.dir,
-          via: "admin",
-        },
-        ip: ctx.ip,
-      });
-      return "moved";
-    });
-    if (result === "missing") notFound();
-    revalidatePath("/admin/emojis");
-    redirect(`${input.back}?saved=group-moved`);
+    redirect(`${input.back}?ok=group-deleted`);
   },
 });
 
@@ -374,7 +323,7 @@ export const uploadEmojiAction = defineAction({
       failed.length > 0
         ? `&failed=${encodeURIComponent(failed.slice(0, 5).join("|"))}${failed.length > 5 ? `&failedMore=${failed.length - 5}` : ""}`
         : "";
-    redirect(`${input.back}?group=${group.id}&saved=upload&uploaded=${processed.length}${failedQ}`);
+    redirect(`${input.back}?group=${group.id}&ok=upload&uploaded=${processed.length}${failedQ}`);
   },
 });
 
@@ -434,52 +383,7 @@ export const updateEmojiAction = defineAction({
     });
     if (groupId === null) notFound();
     revalidatePath("/admin/emojis");
-    redirect(`${input.back}?group=${groupId}&saved=emoji-renamed`);
-  },
-});
-
-export const moveEmojiAction = defineAction({
-  name: "admin.emoji.move",
-  auth: { admin: "emoji.manage" },
-  input: z.object({ id: z.coerce.number().int().positive(), dir: z.enum(["up", "down"]), back }),
-  async run(ctx, input) {
-    const [probe] = await getWebDb()
-      .select({ groupId: emojis.groupId })
-      .from(emojis)
-      .where(eq(emojis.id, input.id))
-      .limit(1);
-    if (!probe) notFound();
-    const result = await getWebDb().transaction(async (tx) => {
-      const group = await lockEmojiGroup(tx, probe.groupId);
-      if (!group) return { kind: "missing" as const, groupId: probe.groupId };
-      const rows = await lockGroupEmojiRows(tx, group.id);
-      const { kind, ordered, updates } = moveWithinList(rows, input.id, input.dir);
-      if (kind !== "moved") return { kind, groupId: group.id };
-      for (const row of updates) {
-        await tx
-          .update(emojis)
-          .set({ sort: row.sort, updatedAt: sql`NOW()` })
-          .where(eq(emojis.id, row.id));
-      }
-      await writeAudit(tx, {
-        actorId: ctx.userId,
-        action: "admin.emoji.move",
-        targetType: "emoji",
-        targetId: input.id,
-        before: { order: rows.map(({ id, sort }) => ({ id, sort })) },
-        after: {
-          order: ordered.map(({ id }, index) => ({ id, sort: index + 1 })),
-          dir: input.dir,
-          groupId: group.id,
-          via: "admin",
-        },
-        ip: ctx.ip,
-      });
-      return { kind: "moved" as const, groupId: group.id };
-    });
-    if (result.kind === "missing") notFound();
-    revalidatePath("/admin/emojis");
-    redirect(`${input.back}?group=${result.groupId}&saved=emoji-moved`);
+    redirect(`${input.back}?group=${groupId}&ok=emoji-renamed`);
   },
 });
 
@@ -516,7 +420,7 @@ export const toggleEmojiAction = defineAction({
     });
     if (groupId === null) notFound();
     revalidatePath("/admin/emojis");
-    redirect(`${input.back}?group=${groupId}&saved=emoji-toggled`);
+    redirect(`${input.back}?group=${groupId}&ok=emoji-toggled`);
   },
 });
 
@@ -552,6 +456,6 @@ export const reorderGroupAction = defineAction({
     });
     if (!found) notFound();
     revalidatePath("/admin/emojis");
-    redirect(`${input.back}?saved=group-moved`);
+    redirect(`${input.back}?ok=group-moved`);
   },
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAdminQuery, parseAdminPage } from "./query";
+import { buildAdminQuery, densityCellClass, parseAdminListParams, parseAdminPage } from "./query";
 
 describe("buildAdminQuery", () => {
   it("空值与 page=1 不进 URL；其余按序拼进", () => {
@@ -68,5 +68,48 @@ describe("parseAdminPage", () => {
     expect(parseAdminPage(raw)).toBe(strict);
     expect(parseAdminPage(raw, "number-or-one")).toBe(legacy);
     expect(parseAdminPage(raw, "number-or-one")).toBe(Number(raw ?? "1") || 1);
+  });
+});
+
+describe("parseAdminListParams（M19 S3）", () => {
+  it("size 走档位白名单：合法档透传，白名单外回落默认", () => {
+    expect(parseAdminListParams({ size: "10" }).size).toBe(10);
+    expect(parseAdminListParams({ size: "100" }).size).toBe(100);
+    expect(parseAdminListParams({ size: "50" }).size).toBe(50);
+    expect(parseAdminListParams({}).size).toBe(20);
+    expect(parseAdminListParams({ size: undefined }).size).toBe(20);
+    for (const bad of ["abc", "0", "-3", "2.9", "25", "999"]) {
+      expect(parseAdminListParams({ size: bad }).size).toBe(20);
+    }
+    expect(parseAdminListParams({ size: "999" }, 50).size).toBe(50); // 自定义默认
+  });
+
+  it("density 只有 compact 与 cozy（默认），其余值一律回落 cozy", () => {
+    expect(parseAdminListParams({ density: "compact" }).density).toBe("compact");
+    expect(parseAdminListParams({}).density).toBe("cozy");
+    for (const bad of ["cozy?", "COMPACT", "1", ""]) {
+      expect(parseAdminListParams({ density: bad }).density).toBe("cozy");
+    }
+  });
+
+  it("日期须完整合法且 from ≤ to；非法/倒置成对丢弃", () => {
+    expect(parseAdminListParams({ from: "2026-01-02", to: "2026-01-31" })).toEqual({
+      size: 20,
+      density: "cozy",
+      from: "2026-01-02",
+      to: "2026-01-31",
+    });
+    expect(parseAdminListParams({ from: "2026-01-02" }).from).toBe("2026-01-02");
+    expect(parseAdminListParams({ to: "2026-01-31" }).to).toBe("2026-01-31");
+    expect(parseAdminListParams({ from: "2026-1-2" }).from).toBeUndefined();
+    expect(parseAdminListParams({ to: "not-a-date" }).to).toBeUndefined();
+    expect(parseAdminListParams({ from: "2026-02-01", to: "2026-01-31" }).from).toBeUndefined();
+    expect(parseAdminListParams({ from: "2026-02-01", to: "2026-01-31" }).to).toBeUndefined();
+    expect(parseAdminListParams({ from: "2026-01-31", to: "2026-01-31" }).from).toBe("2026-01-31");
+  });
+
+  it("densityCellClass：cozy 与原形态逐字一致，compact 收紧", () => {
+    expect(densityCellClass("cozy")).toBe("px-3 py-1.5");
+    expect(densityCellClass("compact")).toBe("px-2.5 py-1");
   });
 });
