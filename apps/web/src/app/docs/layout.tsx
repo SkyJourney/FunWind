@@ -7,7 +7,7 @@ import { DocsMobileNav } from "@/app/docs/rest-api/docs-nav";
  */
 export default function DocsLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-background">
+    <div className="flex h-screen flex-col overflow-hidden bg-background">
       <header className="sticky top-0 z-40 border-b bg-card">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <div className="flex items-center gap-2">
@@ -18,13 +18,13 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
               <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-xs text-primary">
                 FunWind
               </span>
-              Developer
+              REST API 文档
             </p>
           </div>
           <ThemeSwitcher />
         </div>
       </header>
-      {children}
+      <div className="flex min-h-0 flex-1 flex-col">{children}</div>
     </div>
   );
 }

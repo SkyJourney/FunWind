@@ -18,21 +18,28 @@ export function DocsNav({ onNavigate }: { onNavigate?: () => void }) {
   const groups = docsNavGroups();
   return (
     <nav aria-label="文档导航" className="space-y-5 text-sm">
-      {groups.map((group) => (
+      {groups.map((group, gi) => (
         <div key={group.group}>
-          <p className="mb-1 px-2 text-xs font-medium tracking-wide text-muted-foreground">
-            {group.group === "功能域" ? "功能域" : group.group}
+          {/* 组标题：不缩进、前景色、加重——是「节」的标题而非可点条目 */}
+          <p
+            className={[
+              "px-2 py-1 text-[13px] font-semibold text-foreground",
+              gi > 0 ? "mt-3" : "",
+            ].join(" ")}
+          >
+            {group.group}
           </p>
-          <ul className="space-y-0.5">
+          {/* 子项：深缩进 + 弱化色——明确是组内子项；hover 才亮起 */}
+          <ul className="space-y-px">
             {group.items.map((item) => (
               <li key={item.slug}>
                 <a
                   href={`#${item.slug}`}
                   onClick={onNavigate}
-                  className="flex items-center gap-1.5 rounded px-2 py-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  className="flex items-center gap-2 rounded-md py-1.5 pr-2 pl-6 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 >
                   {item.withMethod && <span className={METHOD_BADGE}>GET</span>}
-                  {item.nav}
+                  <span>{item.nav}</span>
                 </a>
               </li>
             ))}
@@ -55,7 +62,7 @@ export function DocsMobileNav() {
       </SheetTrigger>
       <SheetContent side="left" className="w-64 overflow-y-auto">
         <SheetTitle className="sr-only">文档导航</SheetTitle>
-        <div className="px-2 pb-6">
+        <div className="px-2 pt-7 pb-6">
           <DocsNav onNavigate={() => setOpen(false)} />
         </div>
       </SheetContent>

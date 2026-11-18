@@ -16,7 +16,6 @@ import { CopyCode } from "@/components/admin/copy-code";
 import { AdminDataTable, type AdminCell, type AdminColumn } from "@/components/admin/admin-list";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmSubmit } from "@/components/ui/confirm-submit";
-import { BookOpen } from "lucide-react";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { createApiTokenAction, revokeApiTokenAction } from "./actions";
 
@@ -152,17 +151,16 @@ export default async function AdminApiTokensPage({
             申请注销时全部 Token 同步吊销。
           </p>
           <p className="mt-2 text-xs text-muted-foreground">
-            接口在线文档（全部端点的入参 / 返回示例与错误码说明）：
+            全部端点的入参 / 返回示例与错误码说明，见{" "}
             <Link
               href="/docs/rest-api"
               target="_blank"
               rel="noopener"
-              className="mx-1 inline-flex items-center gap-0.5 align-baseline text-primary hover:underline"
+              className="text-primary hover:underline"
             >
-              <BookOpen className="size-3.5 shrink-0 self-center" aria-hidden />
-              <span className="align-baseline">/docs/rest-api ↗</span>
+              REST API 文档
             </Link>
-            （独立页面，新窗口打开）
+            （独立页面，新窗口打开）。
           </p>
         </CardContent>
       </Card>

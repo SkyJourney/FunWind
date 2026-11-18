@@ -27,26 +27,26 @@ export default async function RestApiDocsPage() {
   if (!(await isEffectiveSiteAdminOf(admin.userId))) notFound();
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-      {/* 文档站顶条：标识 + 主题切换 + 移动端导航呼出 */}
-
-      {/* lg：左树导航 + 右内容流；<lg 由顶条汉堡抽屉承载 */}
-      <div className="lg:grid lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-10">
-        <aside aria-label="文档导航" className="hidden lg:block">
-          <div className="sticky top-16">
-            <DocsNav />
-          </div>
+    <div className="mx-auto h-full max-w-7xl px-4 pb-6 sm:px-6">
+      {/* 双栏独立滚动（站长验收意见的完整形态）：左右栏各自的滚动条完全隔离，永不联动——
+          左树超长在左栏内部滚、正文超长在右栏内部滚；顶条与容器外壳固定不滚 */}
+      <div className="grid h-full grid-cols-1 gap-10 overflow-y-auto lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-10 lg:overflow-hidden">
+        {/* 左树：仅桌面显示（移动端走顶条汉堡抽屉）；全列高内部滚动，顶部固定间隔由 pt 承担 */}
+        <aside
+          aria-label="文档导航"
+          className="hidden overflow-y-auto pt-8 pr-2 lg:block lg:h-full"
+        >
+          <DocsNav />
         </aside>
 
-        <div className="min-w-0 space-y-10">
+        {/* 正文列：独立滚动；顶部呼吸间距由 pt 承担 */}
+        <div className="min-w-0 overflow-y-auto pt-8 pb-6 lg:pr-2">
+          <div className="mb-8 space-y-1">
+            <h1 className="text-2xl font-bold tracking-tight">FunWind REST API</h1>
+          </div>
           {DOCS_SECTIONS.map((section) => (
             <Section key={section.slug} slug={section.slug} md={section.md} />
           ))}
-          <p className="border-t pt-4 text-xs text-muted-foreground">
-            本页数据源：<code className="font-mono">lib/manage/api-docs-md.ts</code>
-            （端点实现变更须同步）；人读契约 <code className="font-mono">docs/MANAGE-API.md</code>；
-            渲染走站内 markdown 管线（表格 / 代码围栏 / 暗色令牌自适应）。
-          </p>
         </div>
       </div>
     </div>
