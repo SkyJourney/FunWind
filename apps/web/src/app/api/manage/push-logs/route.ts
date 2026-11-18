@@ -1,16 +1,22 @@
 import { z } from "zod";
 import { pushLogSummary, queryPushLogs } from "@/lib/push/log-query";
 import { manageLogEndpoint } from "@/lib/manage/route";
-import { managePageField, manageSizeField } from "@/lib/manage/params";
+import {
+  managePageField,
+  manageQField,
+  manageSceneField,
+  manageSizeField,
+  manageStatusField,
+} from "@/lib/manage/params";
 
 export const dynamic = "force-dynamic";
 
 /** 推送日志场景键白名单（M18 三类）；记录不含推送 payload 正文 */
 const querySchema = z.object({
-  status: z.enum(["sent", "failed"]).optional(),
-  scene: z.enum(["pm-received", "post-replied", "post-mentioned"]).optional(),
+  status: manageStatusField(),
+  scene: manageSceneField(["pm-received", "post-replied", "post-mentioned"]),
   /** 纯数字按 userId 等值，否则订阅 endpoint 包含 */
-  q: z.string().max(128).optional(),
+  q: manageQField(128),
   page: managePageField(),
   size: manageSizeField(),
 });

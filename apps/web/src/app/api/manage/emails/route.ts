@@ -1,20 +1,23 @@
 import { z } from "zod";
 import { emailLogSummary, queryEmailLogs } from "@/lib/mail/log-query";
 import { manageLogEndpoint } from "@/lib/manage/route";
-import { managePageField, manageSizeField } from "@/lib/manage/params";
+import {
+  managePageField,
+  manageQField,
+  manageSceneField,
+  manageSizeField,
+  manageStatusField,
+} from "@/lib/manage/params";
 
 export const dynamic = "force-dynamic";
 
 /** 邮件日志场景键白名单（与 lib/mail/log-query 的过滤语义一致，此处 zod 严格校验：非法即 400） */
 const querySchema = z.object({
-  status: z.enum(["sent", "failed"]).optional(),
+  status: manageStatusField(),
   kind: z.enum(["verify", "security", "notice", "digest", "system"]).optional(),
-  scene: z
-    .string()
-    .regex(/^[a-z0-9-]{1,48}$/)
-    .optional(),
+  scene: manageSceneField(["verify", "security", "notice", "digest", "system"]),
   /** 纯数字按 userId 等值，否则收件地址包含 */
-  q: z.string().max(128).optional(),
+  q: manageQField(128),
   page: managePageField(),
   size: manageSizeField(),
 });
