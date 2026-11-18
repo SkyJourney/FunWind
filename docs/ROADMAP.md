@@ -53,6 +53,8 @@
 | [M21](milestones/M21-admin-mcp.md)              | **管理 MCP**（薄壳套壳 `/api/manage/**`：stdio 本地 server + env 注入 Access Token；首批读工具五件套——统计/用户/内容/审计/日志；不做远程暴露、不绕过 API；依赖 M20） | 管理面/平台                    | 四·运营与演进 | ⬜ 已立项（大纲） |
 | [M22](milestones/M22-rss-feeds.md)              | **RSS/Atom 订阅输出**（`/feeds/latest` + `/feeds/forum/[fid]`，游客可读红线（restricted 版块零泄露）+ RSS 2.0/Atom 双格式 + ETag 缓存 + `<link rel="alternate">` 发现；独立小里程碑可插队） | 内容触达                       | 四·运营与演进 | ⬜ 已立项（大纲） |
 
+| [M20.1](milestones/M20.1-manage-api-docs.md)    | **管理 API 在线文档页**（M20 增补：/admin/api-docs 管理员可见在线文档——总述/鉴权/六码错误表/分功能域×分接口（入参表+返回示例+curl 样例），左侧 sticky 锚点导航；数据源 lib/manage/api-docs.ts 单一事实源；入口挂 API 令牌页底部） | 管理面/平台                    | 四·运营与演进 | 🚧 开工（2026-11-18 立项即开工） |
+
 依赖关系：
 
 ```

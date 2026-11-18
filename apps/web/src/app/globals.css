@@ -943,3 +943,33 @@ body[data-surface="page"][data-fw-theme-surface]::after {
 body[data-surface="page"][data-fw-theme-surface]::before {
   z-index: -1;
 }
+
+/* ── 管理 API 文档页（M20.1）：markdown 渲染围栏强化 ─────────────────────────
+   示例代码块与正文底色差异明显化：border + muted 底 + 左侧方法色条，长代码横滚。 */
+.docs-md pre {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  background: var(--muted);
+}
+.docs-md table {
+  width: 100%;
+  font-size: 13px;
+}
+.docs-md th {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.docs-md td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  vertical-align: top;
+}
+.docs-md h3 {
+  margin-top: 1.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
