@@ -1,19 +1,25 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getWebDb } from "@funwind/db";
+import { forums, getWebDb, posts, threads, userStats } from "@funwind/db";
+import type { DbTx } from "@/lib/audit";
 import { checkPermission } from "@/lib/authz/service";
-import type { Subject } from "@/lib/authz/types";
+import { loadFreshAuthzSnapshot } from "@/lib/authz/snapshot";
+import { loadSubjectFrom } from "@/lib/authz/subject";
+import type { AuthzSnapshot, Subject } from "@/lib/authz/types";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import { dispatchOutboxRows, enqueueEventInTx, sweepPending } from "@/lib/events/outbox";
 import { POINTS_TX_OPTIONS } from "@/lib/points/retry";
+import { lockThread } from "@/lib/posting/locks";
 import { transitionContent } from "@/lib/posting/transition";
-import { approveReview, disableContent, hidePost, rejectReview } from "./review";
+import { approveReview, disableContent, hidePost, prepareApiReview, rejectReview } from "./review";
 
 vi.mock("@funwind/db", async (original) => ({
   ...(await original<typeof import("@funwind/db")>()),
   getWebDb: vi.fn(),
 }));
 vi.mock("@/lib/authz/service", () => ({ checkPermission: vi.fn() }));
+vi.mock("@/lib/authz/snapshot", () => ({ loadFreshAuthzSnapshot: vi.fn() }));
+vi.mock("@/lib/authz/subject", () => ({ loadSubjectFrom: vi.fn() }));
 vi.mock("@/lib/posting/transition", () => ({ transitionContent: vi.fn() }));
 vi.mock("@/lib/locks", () => ({ lockUserStats: vi.fn() }));
 vi.mock("@/lib/posting/locks", () => ({
@@ -36,6 +42,7 @@ const operator: Subject = {
   registerMode: "invite",
 };
 const actor = { userId: 2, via: "admin" as const, ip: "127.0.0.1" };
+const freshSnapshot = { tree: { has: () => true } } as unknown as AuthzSnapshot;
 const context = {
   postId: 3,
   postState: "pending",
@@ -81,13 +88,20 @@ const reasonActions = actions.filter((action) => action.name !== "approve");
 const limit = vi.fn();
 const values = vi.fn();
 const lockedPost = vi.fn();
+const lockedStats = vi.fn();
+const lockedForum = vi.fn();
 const tx = {
   insert: vi.fn(() => ({ values })),
   select: vi.fn(() => ({
-    from: () => ({
+    from: (table: unknown) => ({
       where: () => ({
-        limit: async () => [{ authorId: 8 }],
-        for: () => lockedPost(),
+        limit: async () => (table === threads ? [{ title: context.title }] : [{ authorId: 8 }]),
+        for: () => {
+          if (table === posts) return lockedPost();
+          if (table === userStats) return lockedStats();
+          if (table === forums) return lockedForum();
+          throw new Error("意外的锁读表");
+        },
       }),
     }),
   })),
@@ -102,11 +116,21 @@ beforeEach(() => {
   >);
   limit.mockResolvedValue([{ ...context }]);
   lockedPost.mockImplementation(async () => [
-    { state: (await limit())[0]?.postState, replyToPostId: null },
+    {
+      threadId: context.threadId,
+      authorId: context.authorId,
+      state: (await limit())[0]?.postState,
+      editedAt: null,
+      replyToPostId: null,
+    },
   ]);
+  lockedStats.mockResolvedValue([{ userId: context.authorId }]);
+  lockedForum.mockResolvedValue([{ id: context.forumId }]);
   values.mockResolvedValue(undefined);
   transaction.mockImplementation(async (fn) => fn(tx));
   vi.mocked(checkPermission).mockResolvedValue({ allowed: true, reason: "允许" });
+  vi.mocked(loadSubjectFrom).mockResolvedValue(operator);
+  vi.mocked(loadFreshAuthzSnapshot).mockResolvedValue(freshSnapshot);
   vi.mocked(transitionContent).mockResolvedValue({
     ok: true,
     changed: true,
@@ -295,4 +319,100 @@ it("通过回帖时补发 thread.replied，积分事件归作者而审核事件�
     }),
     expect.objectContaining({ name: "content.moderated", actorId: 2 }),
   ]);
+});
+
+describe("管理 API 审核事务适配器", () => {
+  const trace = { requestId: "审核请求", tokenSuffix: "tail0001" };
+  const input = { decision: "approve", expectedEditedAt: null } as const;
+  const apiActor = { ...actor, via: "api" as const };
+
+  async function prepare() {
+    const result = await prepareApiReview(operator, context.postId, input, apiActor, trace);
+    if (!result.ok) throw new Error(result.code);
+    return result;
+  }
+
+  it("目标权限否决与目标不存在相同", async () => {
+    vi.mocked(checkPermission).mockResolvedValue({ allowed: false, reason: "无权" });
+    const denied = await prepareApiReview(operator, context.postId, input, apiActor, trace);
+    limit.mockResolvedValue([]);
+    const missing = await prepareApiReview(operator, context.postId, input, apiActor, trace);
+    expect(denied).toEqual(missing);
+    expect(denied).toMatchObject({ ok: false, code: "not_found" });
+    expectNoWrite();
+  });
+
+  it("移版后失败且不从事务内重新鉴权", async () => {
+    const prepared = await prepare();
+    vi.mocked(lockThread).mockResolvedValueOnce({ forumId: 7 } as never);
+    expect(await prepared.lock(tx as unknown as DbTx)).toMatchObject({
+      ok: false,
+      code: "not_found",
+    });
+    expect(checkPermission).toHaveBeenCalledOnce();
+    expect(getWebDb).toHaveBeenCalledOnce();
+    expect(tx.insert).not.toHaveBeenCalled();
+    expect(transitionContent).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { state: "visible", editedAt: null, code: "bad_state" },
+    { state: "pending", editedAt: "2026-11-18 12:00:00", code: "conflict" },
+  ])("$code 只在执行阶段否决，因此不阻止已提交回放", async ({ state, editedAt, code }) => {
+    limit.mockResolvedValue([{ ...context, postState: state }]);
+    lockedPost.mockResolvedValue([{ ...context, state, editedAt, replyToPostId: null }]);
+    const prepared = await prepare();
+    const locked = await prepared.lock(tx as unknown as DbTx);
+    if (!locked.ok) throw new Error(locked.code);
+    expect(tx.insert).not.toHaveBeenCalled();
+    expect(await locked.execute()).toMatchObject({ ok: false, code });
+    expect(transitionContent).not.toHaveBeenCalled();
+    expectNoWrite();
+  });
+
+  it("统计缺行不在回放锁阶段补写，真实执行才报错", async () => {
+    lockedStats.mockResolvedValue([]);
+    const prepared = await prepare();
+    const locked = await prepared.lock(tx as unknown as DbTx);
+    if (!locked.ok) throw new Error(locked.code);
+    expect(tx.insert).not.toHaveBeenCalled();
+    await expect(locked.execute()).rejects.toThrow("缺少统计行");
+    expect(transitionContent).not.toHaveBeenCalled();
+    expectNoWrite();
+  });
+
+  it("使用调用方事务和原事件快派；快派错误留给提交后调用方处理", async () => {
+    const prepared = await prepare();
+    const locked = await prepared.lock(tx as unknown as DbTx);
+    if (!locked.ok) throw new Error(locked.code);
+    expect(loadSubjectFrom).toHaveBeenCalledWith(tx, operator.userId, operator.registerMode, true);
+    expect(loadFreshAuthzSnapshot).toHaveBeenCalledWith(tx, {
+      lockedForum: { id: context.forumId },
+      roleKeys: [],
+    });
+    expect(checkPermission).toHaveBeenLastCalledWith(
+      operator,
+      "forum.moderate",
+      { forumId: 6 },
+      freshSnapshot,
+    );
+    expect(getWebDb).toHaveBeenCalledOnce();
+    expect(tx.insert).not.toHaveBeenCalled();
+    const execution = await locked.execute();
+    if (!execution.ok) throw new Error(execution.code);
+    expect(execution.data).toEqual({ postId: 3, threadId: 5, state: "visible" });
+    expect(transitionContent).toHaveBeenCalledWith(tx, 3, "visible", {
+      actorId: operator.userId,
+      ip: actor.ip,
+      audit: true,
+      apiTrace: trace,
+    });
+    expect(dispatchOutboxRows).not.toHaveBeenCalled();
+    vi.mocked(dispatchOutboxRows).mockRejectedValueOnce(new Error("快派失败"));
+    await expect(execution.afterCommit?.()).rejects.toThrow("快派失败");
+    expect(dispatchOutboxRows).toHaveBeenCalledWith([
+      expect.objectContaining({ name: "thread.created" }),
+      expect.objectContaining({ name: "content.moderated" }),
+    ]);
+  });
 });

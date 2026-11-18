@@ -1,82 +1,90 @@
 # FunWind 管理 REST API v1（`/api/manage/**`）
 
-> M20 交付 · 本文档是**契约单一事实源**：M21 管理 MCP 的工具面收敛于此，改端点必须同步本文档与
-> `apps/web/src/app/api/manage/manage-api-guard.test.ts`。
+> 本文是管理 REST 的仓库契约：M20 的九个 GET 原样保留，M20.2 增加细粒度令牌和两个内容写端点。本文描述仓库实现，不代表 M20.2 已部署或通过外网验收。M21 管理 MCP 仅封装已发布并验收的 REST 能力，写工具另行确认。
 >
-> 分层纪律（M20 §2）：**入口薄、Service 厚**——Server Action（页面）、REST route（本文档）、
-> 未来的 MCP 工具都只是「鉴权 + 参数解析 → 调 Service → 信封」的入口封装；
-> 业务语义（事务、审计、权限范围）只在 `apps/web/src/lib/**` 的 Service 层，三类入口自动一致。
+> **入口薄、服务层负责业务**：REST 路由经统一门禁、解析请求并调用服务；后台 Server Action 与 REST 共用内容治理事务核心。改端点须同步 `lib/manage/permissions.ts` 目录、本文及相关守卫；令牌资格及授权边界见 [AUTHZ.md](AUTHZ.md#9-管理-rest-令牌授权)。
 
-## 1. 鉴权：Access Token
+## 鉴权与签发
 
-1. 后台 `/admin/api-tokens`（「系统与观测 → API 令牌」）签发：名称 + 有效期档位 30/90/180/365 天
-   （默认 90，上限 365，不允永久），每管理员最多 **5 个有效** token。
-2. 明文形如 `fw_at_<43 字符>`，**仅签发响应中展示一次**，请立即妥善保存；遗失只能吊销重签。
-3. 库内只存 SHA-256；列表只见名称与尾号（尾 8 字符），无法找回明文。
-4. 三重失效：自身过期、后台一键吊销、**持有人不再满足站点管理员不变量时事务内联动吊销**
-   （撤角色/撤授权/删角色/全站封禁/注销申请即刻生效）。
-5. 建议：按用途拆分 token（一个脚本一个）、定期轮换（重签 + 吊销旧）、异常使用看 `last_used_at/ip`。
+- 只接受 `Authorization: Bearer <令牌>`。后台「系统与观测 → API 令牌」自签自管（`/admin/api-tokens`）：名称去首尾空白后 1–64 字符，有效期 30/90/180/365 天（默认 90），每管理员最多 5 个未过期且未吊销的令牌。明文只显示一次，凭证仅存 SHA-256，列表可见尾 8 字符；不要在 URL、请求体或日志中传递令牌。
+- 新版签发 `fw_at2_` + 43 个 URL 安全字符，按 7 个域选择「禁止／只读／读写」，默认全部禁止、至少选择一个可用域；只有内容域支持读写。「读写」包含签发时该域的读端点与写端点。各日志域和统计域即使共用 `admin.logs`，也分别授权。
+- 权限标签 `domain:read` / `domain:write` 用于分类；运行时检查的是**具体端点 ID**。签发时生成不可编辑的端点快照，且复核持有人资格、全局业务权限和配额；同域以后新增端点也不会自动扩权，需签发新令牌并吊销旧令牌。
+- 历史 `fw_at_`（同样后接 43 个字符）固定为 M20 九读，不授权写入。新版凭证与库内模型必须双向匹配；未知模型、空/重复/未知 ID 的新版快照、历史模型携带快照或前缀错配均不回落而拒绝。同库退版时旧镜像不认 `fw_at2_`；迁移及复升见[上线手册](ops/LAUNCH-RUNBOOK.md#7-m202-管理-rest-升级停写与退版)。
+- 凭证有效还须持有人当前满足站点管理员资格（`site.admin` + `admin.roles`、可登录、未封禁），并具有下表所列全局权限；对象范围和敏感字段继续由业务判定。只有版主权限不能签发或使用令牌。过期、手动吊销及失去站点管理员资格的联动吊销照旧；请求入口另做实时资格校验，不保证能中断已通过门禁的在途写。
+- 频控为进程内单实例语义：可信 IP 120 次/分钟（取不到可信 IP 跳过此桶），每令牌 60 次/分钟（按格式合法的凭证计，包括后续鉴权失败者）。写入再受下文独立频控；429 返回 `Retry-After`（秒）。
 
 ```bash
-curl -H "Authorization: Bearer fw_at_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" \
-     https://<站点>/api/manage/whoami
+curl -H "Authorization: Bearer ${FUNWIND_MANAGE_TOKEN}" \
+  "${FUNWIND_BASE_URL}/api/manage/whoami?include=token_permissions"
 ```
 
-- 鉴权失败语义：**401** = 凭证缺失/格式错/查无/过期/已吊销/持有人注销（存在性不泄露，统一口径）；
-  **403** = 凭证真实但持有人不再是站点管理员或权限点不足。
-- v1 的 token 资格 = **站点管理员不变量**（`site.admin` + `admin.roles` 双持、可登录、未封禁）；
-  版主作用域语义对 API 不生效（版主无 token）。
-- 频控：IP 桶 120 次/分钟 + per-token 60 次/分钟；429 附 `Retry-After` 头。
-- 除 whoami 外的每次调用节流更新 `last_used_at/ip`（60 秒内多次调用只落一次；whoami 为高频握手，不更新）。
+## 统一信封与错误码
 
-## 2. 统一信封与错误码
+成功 HTTP 200：`{ "ok": true, "data": … }`。失败：`{ "error": { "code": "…", "message": "中文文案" } }`。管理入口封装产生的响应均带 `Cache-Control: private, no-store`。
 
-成功：`{ "ok": true, "data": … }`（HTTP 200）
-失败：`{ "error": { "code": "…", "message": "中文文案" } }` + 语义状态码：
-
-| code | HTTP | 语义 |
+| 错误码 | HTTP | 语义 |
 |---|---|---|
-| `unauthorized` | 401 | 凭证缺失、无效或已失效（含过期/吊销/持有人注销） |
-| `forbidden` | 403 | 凭证有效但权限不足 |
-| `not_found` | 404 | 资源不存在（越权同型，存在性不泄露） |
-| `bad_request` | 400 | 请求参数不合法（v1 不静默回落——消费方是程序） |
-| `rate_limited` | 429 | 请求过于频繁（带 `Retry-After`） |
-| `internal` | 500 | 服务内部错误（不透传细节） |
+| `unauthorized` | 401 | 无凭证、格式错误、查无、过期、已吊销、持有人注销或凭证的授权模型无效 |
+| `forbidden` | 403 | 凭证有效，但持有人资格、端点授权或所需的全局业务权限不足 |
+| `not_found` | 404 | 对象不存在或对象越权，两者同型；被转发到入口的非登记方法也不运行处理器 |
+| `bad_request` | 400 | 路径参数、查询参数、幂等键或 JSON 无效 |
+| `state_conflict` | 409 | 审核对象状态或版本不符合前置条件；重新读取后再决定是否操作 |
+| `idempotency_conflict` | 409 | 同一令牌、端点下，未过期的同一键已用于不同目标或参数 |
+| `payload_too_large` | 413 | 请求体超过 16 KiB |
+| `unsupported_media_type` | 415 | 请求体媒体类型不是 `application/json` |
+| `rate_limited` | 429 | 超出频控，按 `Retry-After` 等待 |
+| `internal` | 500 | 服务内部错误，不透传细节 |
+| `writes_disabled` | 503 | 管理 REST 写入口未开启 |
 
-所有响应带 `cache-control: private, no-store`。分页 data 统一 `{items, total, page, totalPages}`，
-`size` 档位白名单 **10/20/50/100**（缺省 20）。
+## 端点清单
 
-## 3. 端点（v1 全部只读；写端点按 M21 工具需求反推，逐个过站长确认）
+路径使用权限目录中的模板，不含查询串。以下权限还须满足上文的通用门禁。框架派生的 `HEAD`、`OPTIONS` 不授予数据权限，不调用管理业务。
 
-| # | 端点 | 权限 | 说明 |
-|---|---|---|---|
-| 1 | `GET /api/manage/whoami` | 资格 | token 元信息 + 持有人 + 有效权限点全清单；**不写审计**（握手高频） |
-| 2 | `GET /api/manage/stats` | `admin.logs` | 看板统计：`registered30/threads30/replies30`（逐日）、`todayLogins`、`totals{users,threads,posts}` |
-| 3 | `GET /api/manage/users` | `admin.users` | 用户治理列表。query：`q`（纯数字=uid，否则用户名包含）、`status=all|restricted`、`lifecycle=active|closure_pending|deleted|all`、`credential=all|email_unverified|no_password|legacy_password_pending`、`sort=recent|id|threads`、`page`、`size` |
-| 4 | `GET /api/manage/users/{uid}` | `admin.users` | 用户详情三签聚合（资料/邮箱/积分/角色/限制/申诉/会话/审计台账）；`email/ip` 类字段仅当持有人另具 `user.viewIp` 权限 |
-| 5 | `GET /api/manage/contents` | 资格 | 内容列表。query：`kind=thread|reply`、`q`（标题/正文）、`forumId`、`state=all|visible|pending|rejected|hidden|deleted|disabled`、`order=recent|queue`（queue=待审先到先审正序）、`page`、`size` |
-| 6 | `GET /api/manage/contents/{id}?kind=` | 资格 | 内容行级详情（thread 含首帖正文 bodyMd；reply 含所属主题与正文）；越权与不存在一律 404 |
-| 7 | `GET /api/manage/audit-logs` | `admin.logs` | 审计日志检索。query：`action`、`actor`（纯数字=uid，否则用户名精确）、`targetType`、`from`/`to`（YYYY-MM-DD，含当日） |
-| 8 | `GET /api/manage/emails` | `admin.logs` | 邮件日志 + 近 24h 成败摘要（`summary{sent,failed}`）。query：`status`、`kind=verify|security|notice|digest|system`、`scene`、`q`（纯数字=userId，否则收件地址包含） |
-| 9 | `GET /api/manage/push-logs` | `admin.logs` | 推送日志 + 近 24h 摘要。query：`status`、`scene=pm-received|post-replied|post-mentioned`、`q` |
+| 方法 | 路径 | 权限 | 稳定端点 ID | 附加业务判定 |
+|---|---|---|---|---|
+| `GET` | `/api/manage/whoami` | `identity:read` | `whoami` | 无附加全局权限 |
+| `GET` | `/api/manage/stats` | `stats:read` | `stats` | `admin.logs` |
+| `GET` | `/api/manage/users` | `users:read` | `users` | `admin.users` |
+| `GET` | `/api/manage/users/{uid}` | `users:read` | `users.detail` | `admin.users`；敏感字段另需 `user.viewIp` |
+| `GET` | `/api/manage/contents` | `contents:read` | `contents` | `resolveContentScope` |
+| `GET` | `/api/manage/contents/{id}` | `contents:read` | `contents.detail` | `resolveContentScope`；范围外同不存在 |
+| `GET` | `/api/manage/audit-logs` | `audit-logs:read` | `audit-logs` | `admin.logs` |
+| `GET` | `/api/manage/emails` | `emails:read` | `emails` | `admin.logs` |
+| `GET` | `/api/manage/push-logs` | `push-logs:read` | `push-logs` | `admin.logs` |
+| `POST` | `/api/manage/posts/{postId}/review` | `contents:write` | `posts.review` | 帖子所在版块的 `forum.moderate` |
+| `PUT` | `/api/manage/threads/{threadId}/lock` | `contents:write` | `threads.lock` | 既有 `site.admin` 或目标版块 `forum.moderate` 判定 |
 
-共同 query：`page`（≥1）、`size`（档位白名单）。除 whoami 外，**每次调用写一条审计**
-（`targetType="manage_api"`、`action="api.<endpoint>"`、after 含 query 摘要与 token 尾号，
-`via="api"`，可在后台「审计日志」页按 action 过滤回看）。
+## 读取端点说明
 
-## 4. 端点实现索引（web 侧 Service，供维护）
+列表分页参数为 `page`（整数 ≥1，默认 1）、`size`（只接受 10/20/50/100；用户与内容列表默认 20，审计、邮件、推送日志默认 50）。下面列出成功信封的 `data`；各端点保留原有分页返回结构。
 
-| 端点 | Service | route |
-|---|---|---|
-| whoami | `lib/manage/whoami.ts loadWhoami` | `app/api/manage/whoami/route.ts` |
-| stats | `lib/admin/dashboard.ts dashboardData`（60s 进程缓存） | `app/api/manage/stats/route.ts` |
-| users / users/{uid} | `lib/authz/admin-user-views.ts` | `app/api/manage/users/**` |
-| contents / contents/{id} | `lib/moderation/contents.ts listContentsPage / loadContentDetail / resolveContentScope` | `app/api/manage/contents/**` |
-| audit-logs | `lib/admin/logs.ts queryAuditLogs / resolveActorId` | `app/api/manage/audit-logs/route.ts` |
-| emails | `lib/mail/log-query.ts` | `app/api/manage/emails/route.ts` |
-| push-logs | `lib/push/log-query.ts` | `app/api/manage/push-logs/route.ts` |
-| 门禁/信封/入口封装 | `lib/manage/guard.ts / errors.ts / route.ts` | — |
+- **令牌身份（`whoami`）**：默认仍为 `{token, user, permissions}`；`token` 含 `name`、`suffix`、`createdAt`、`expiresAt`、`lastUsedAt`，`user` 含 `id`、`username`，`permissions` 是持有人通过评估的权限点，不是令牌授权。仅在 `include=token_permissions` 时增返 `tokenPermissions: {granted, effective}`，两组元素均为 `{id, method, path, scope}`。`granted` 是精确快照，`effective` 再按实时全局业务权限裁剪；后者不反映停写开关、不保证具体对象可操作。此端点也必须在令牌授权内。
+- **统计（`stats`）**：`registered30`、`threads30`、`replies30`（近 30 日逐日值），`todayLogins`，`totals: {users, threads, posts}`。
+- **用户列表（`users`）**：`q` 纯数字按 UID，否则用户名包含；`status` 为 `all` 或 `restricted`；`lifecycle` 为 `active`（默认）、`closure_pending`、`deleted` 或 `all`；`credential` 为 `all`、`email_unverified`、`no_password` 或 `legacy_password_pending`；`sort` 为 `recent`（默认）、`id` 或 `threads`。返回 `{items, total, page, totalPages}`。
+- **用户详情（`users.detail`）**：按 `uid` 返回资料、积分、角色、限制、申诉、会话、审计台账等聚合；邮箱/IP 等敏感字段受 `user.viewIp` 控制。
+- **内容列表（`contents`）**：`kind` 为 `thread`（默认）或 `reply`；`q` 在主题时搜标题，回帖时搜正文或主题标题；`forumId` 限定版块；`state` 为 `all`（默认）、`visible`、`pending`、`rejected`、`hidden`、`deleted` 或 `disabled`；`order` 为 `recent`（默认，最新在前）或 `queue`（最早在前；待审队列另传 `state=pending`）。返回 `{items, total, page, totalPages}`。
+- **内容详情（`contents.detail`）**：`kind=thread`（默认）时 `id` 是 TID，首帖在 `firstPost`；`kind=reply` 时 `id` 是 PID，详情含所属主题和正文。审核需要 PID 与编辑版本：分别取 `firstPost.postId` / `firstPost.editedAt`，或回复详情的 `postId` / `editedAt`。`editedAt` 可为 `null`。
+- **审计日志（`audit-logs`）**：`action`、`actor`（纯数字按 UID，否则按用户名精确查找；无法解析出 UID 时不添加操作者过滤条件）、`targetType`、`from` / `to`（`YYYY-MM-DD`，含起止当日）。返回 `{items, total}`。
+- **邮件日志（`emails`）**：`status` 为 `sent` 或 `failed`；`kind`、`scene` 各接受 `verify`、`security`、`notice`、`digest`、`system`；`q` 纯数字按用户 ID，否则按收件地址包含。返回 `{items, total, summary: {sent, failed}}`，摘要为近 24 小时成败计数。
+- **推送日志（`push-logs`）**：`status` 为 `sent` 或 `failed`；`scene` 为 `pm-received`、`post-replied` 或 `post-mentioned`；`q` 纯数字按用户 ID，否则按订阅地址包含。返回 `{items, total, summary: {sent, failed}}`，摘要为近 24 小时成败计数，不返回推送正文。
 
-- 架构守卫：`app/api/manage/manage-api-guard.test.ts`（route 禁业务 import、必须走 manageEndpoint）。
-- Token 生命周期 Service：`lib/manage/tokens.ts`（签发/吊销/联动/节流）——**任何新入口都不得绕过它**。
-- 明文 token 永不进 URL / 日志 / 数据库（仅签发响应一次）。
+## 写入端点与无损重试
+
+**默认停写。** 仅应用进程中 `MANAGE_API_WRITES=on`（精确小写）启用写入，留空或其它值均关闭。先检查凭证、快照和附加全局权限，再检查开关和写入桶（10 次/分钟/令牌、30 次/分钟/持有人），通过后才读取正文。停写不影响九个 GET，也不撤销已提交的数据。
+
+两端点都要求路径目标为十进制正安全整数、`Content-Type: application/json`，正文为严格 JSON 对象（UTF-8，实际读取至多 16 KiB；不收未知字段或批量），以及 `Idempotency-Key`（16–128 个字符，只允许 `A–Z`、`a–z`、`0–9`、`.`、`_`、`:`、`-`）。
+
+- **单帖审核（`posts.review`）**：正文为 `{"decision":"approve","expectedEditedAt":null}` 或 `{"decision":"reject","expectedEditedAt":"2026-11-18 12:00:00","reason":"…"}`。`expectedEditedAt` 必传，原样使用刚读取的北京时间秒级 `YYYY-MM-DD HH:mm:ss` 或 `null`，不要换算为 UTC。驳回理由去首尾空白后须为 1–255 字，通过不接受 `reason`。首次实际执行只允许待审帖子，事务锁内核对帖子、主题、版块归属及编辑版本；错版或不再待审为 `state_conflict`。返回 `{postId, threadId, state}`，其中 `state` 为 `visible` 或 `rejected`。沿用既有审核历史、计数及事务性事件链路（通知、通过时的首次积分）。
+- **主题锁定／解锁（`threads.lock`）**：正文为 `{"locked":true}` 或 `{"locked":false}`，只设置目标值，不翻转，不收置顶或精华字段。锁内复核主题归属并比较原值，返回 `{threadId, locked, changed}`；同值时 `changed: false`，不改主题、不记变更审计。相反目标值按事务串行顺序生效；没有版本前置条件。
+
+**重试协议：** 每次新的业务意图使用新键；客户端先保存原令牌、方法、目标、参数和键。如果超时、断线或无法判断响应是否到达，24 小时窗口内用**同一令牌、端点、目标、规范化参数和键**重试（遇 429 先等待），不要为重试换新键，也不要悄悄换审核版本。键按「令牌 + 端点 ID + 键」隔离，只保存键的摘要；指纹由目标和校验后的参数生成，字段顺序不影响判断。
+
+- 每次重试仍须经过当前鉴权、权限、开关、频控及目标范围检查；落库前的同键并发由数据库唯一键串行。24 小时内同键同请求返回原成功 `data`（包括原 `changed`），不会再次检查业务状态前置条件、变更、写变更审计或发业务事件。不能把回放当作当前状态。同键改目标或参数、且目标可访问时返回 `idempotency_conflict`。
+- 幂等结果与业务数据、变更审计、需要入队的 outbox 事件在同一事务提交；事务失败不会留下成功记录。同键可在失败原因排除后重试；如果响应丢失但事务已提交，回放取原结果。HTTP 同键回放不会重复作出变更或入队；提交后快派失败不改变已保存的成功结果，持久化 outbox 仍按既有至少一次语义补派，不承诺 SMTP 邮件或 Web Push 端到端仅投递一次。
+- 超过 24 小时不保证回放，即使记录尚未清扫也可能重新执行。此时或无法再使用原凭证时应先读回最新状态（必要时结合审计），再决定要不要发起新操作；不要盲目改键或换令牌重试。
+
+## 审计与维护入口
+
+- **调用审计**：除 `whoami`（既不记调用记录也不更新使用时间）外，通过入口门禁的请求在业务处理前写 `action=api.<端点 ID>`、`targetType=manage_api`。读请求记路径和截断的查询摘要；写请求记目录路径模板、令牌尾号、`via: "api"`、`requestId`，不记录原始 query、请求体、幂等键、Bearer 或完整哈希。使用时间/IP 在这里以 60 秒节流更新。参数失败、对象拒绝及成功回放也可能有调用记录；它不是写成功证明。未通过门禁（例如停写或缺授权）不记该调用记录。
+- **变更审计**：真正的审核和锁位变化随业务事务写 `post.state.visible` / `post.state.rejected` 或 `admin.thread.flags`，含操作者、业务目标、前后状态、`via: "api"`、令牌尾号和关联 `requestId`；审核另含业务理由（如有），不写帖子正文或原始请求体。锁位同值、失败事务和成功回放没有新的变更记录。
+- **源码入口**：`apps/web/src/app/api/manage/` 的路由由 `manage-api-guard.test.ts` 核对方法、路径和端点 ID。`lib/manage/route.ts` / `guard.ts` / `errors.ts` 统一门禁、信封和错误；`tokens.ts` / `permissions.ts` 负责令牌与授权目录；`content-writes.ts` / `idempotency.ts` 连接写入事务及业务服务 `lib/moderation/review.ts`、`lib/moderation/contents.ts`。过期幂等记录由[定时任务](SCHEDULED-JOBS.md#管理-rest-幂等记录清扫)有界清扫。

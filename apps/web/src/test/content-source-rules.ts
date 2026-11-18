@@ -167,9 +167,9 @@ export const IDENTITY_EXCEPTIONS: IdentityException[] = [
   },
   {
     path: "lib/authz/subject.ts",
-    owner: "loadSubject",
+    owner: "loadSubjectFrom",
     states: CLOSING,
-    reason: "主体独立 Promise.all 查询 closure，保留查询顺序与游客回退，不合并前置拒绝。",
+    reason: "主体的共享查询独立读取注销状态，保留游客回退；锁内复验也复用同一出口。",
   },
   {
     path: "lib/badges/service.ts",

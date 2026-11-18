@@ -1,7 +1,8 @@
 import "server-only";
 import { sendNotification, setVapidDetails, WebPushError } from "web-push";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getWebDb, pushLog, pushSubscriptions } from "@funwind/db";
+import { DeliveryTransportError } from "@/lib/net/delivery-error";
 import type { PushMessage, PushSubscriptionKeys } from "./types";
 
 /**
@@ -21,27 +22,35 @@ import type { PushMessage, PushSubscriptionKeys } from "./types";
 const RETENTION_DAYS = 90;
 const SWEEP_PROBABILITY = 0.01;
 
+const SOCKET_TIMEOUT_MS = 10_000;
+const RESPONSE_BUDGET_MS = 12_000;
+
 let vapidReady = false;
 
-/** 惰性配置 VAPID（密钥只在 env，不入库）；未配置返回 false，调用方据此跳过发送 */
-function ensureVapid(): boolean {
+/** 惰性配置 VAPID；此处失败发生在调用推送服务之前，因此明确未投递。 */
+function ensureVapid(): void {
   const publicKey = process.env.VAPID_PUBLIC_KEY ?? "";
   const privateKey = process.env.VAPID_PRIVATE_KEY ?? "";
-  if (!publicKey || !privateKey) return false;
+  if (!publicKey || !privateKey) throw new DeliveryTransportError("pushVapidMissing");
   if (!vapidReady) {
-    setVapidDetails(
-      process.env.VAPID_SUBJECT ?? "mailto:admin@qingyisub.top",
-      publicKey,
-      privateKey,
-    );
+    try {
+      setVapidDetails(
+        process.env.VAPID_SUBJECT ?? "mailto:admin@qingyisub.top",
+        publicKey,
+        privateKey,
+      );
+    } catch {
+      throw new DeliveryTransportError("pushVapidInvalid");
+    }
     vapidReady = true;
   }
-  return true;
 }
 
 export interface PushSendMeta {
   /** 收件用户 id（能解析到时传入，后台可按用户追查） */
   userId?: number | null;
+  /** 本次投递所用的订阅行 id；提供时可防止迟到的响应影响重建后的订阅。 */
+  subscriptionId?: number;
 }
 
 export async function sendPush(
@@ -50,50 +59,53 @@ export async function sendPush(
   meta: PushSendMeta = {},
 ): Promise<void> {
   const started = Date.now();
+  const { endpoint, p256dh, auth } = sub;
+  const { userId, subscriptionId } = meta;
+  const target = { endpoint, p256dh, auth, userId, subscriptionId };
   const base = {
     kind: message.kind,
     scene: message.scene,
-    endpoint: sub.endpoint.slice(0, 500),
-    userId: meta.userId ?? null,
+    endpoint: endpoint.slice(0, 500),
+    userId: userId ?? null,
     title: message.title.slice(0, 255),
   };
-  if (!ensureVapid()) {
-    await record({ ...base, status: "failed", error: "VAPID 密钥未配置", durationMs: 0 });
-    throw new Error("VAPID 密钥未配置，跳过推送");
-  }
+  let res: Awaited<ReturnType<typeof sendNotification>>;
   try {
-    const res = await sendNotification(
-      { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+    ensureVapid();
+    res = await sendWithResponseBudget(
+      target,
       JSON.stringify({ title: message.title, body: message.body, url: message.url }),
     );
-    await record({
-      ...base,
-      status: "sent",
-      // 推送服务 Location 头才是消息标识（状态码无追查价值）；缺失时回落状态码
-      messageId: String(res.headers?.location ?? res.statusCode).slice(0, 255),
-      durationMs: Date.now() - started,
-    });
-    // 刷新最后投递时刻：卫生清扫按最后活跃判超期，避免误删长期活跃订阅；失败不反噬发送
-    await getWebDb()
-      .update(pushSubscriptions)
-      .set({ lastSentAt: sql`NOW()` })
-      .where(eq(pushSubscriptions.endpoint, sub.endpoint))
-      .catch(() => undefined);
-  } catch (e) {
-    // 404/410 = 订阅已失效（用户退订/浏览器过期）：即时清理，避免反复投递失效 endpoint
-    const statusCode = e instanceof WebPushError ? e.statusCode : undefined;
-    if (statusCode === 404 || statusCode === 410) {
-      await deleteSubscription(sub.endpoint);
-    }
+  } catch (cause) {
+    // 404/410 才清理，且不能删除投递期间换绑或重建的订阅。
+    const statusCode: unknown =
+      cause instanceof WebPushError
+        ? Object.getOwnPropertyDescriptor(cause, "statusCode")?.value
+        : undefined;
+    if (statusCode === 404 || statusCode === 410) await deleteSubscription(target);
+    const error =
+      cause instanceof DeliveryTransportError
+        ? cause
+        : new DeliveryTransportError(
+            isExplicitRejection(statusCode) ? "pushRejected" : "pushUncertain",
+          );
     await record({
       ...base,
       status: "failed",
-      error: String(e instanceof Error ? e.message : e).slice(0, 500),
+      error: error.message,
       durationMs: Date.now() - started,
     });
-    console.error(`[push] ${message.scene} 发送失败:`, e);
-    throw e;
+    console.error(`[push] ${error.message}`);
+    throw error;
   }
+  // web-push 只在 2xx 时 resolve；之后的日志与订阅维护不再影响投递结果。
+  await record({
+    ...base,
+    status: "sent",
+    messageId: String(res.headers?.location ?? res.statusCode).slice(0, 255),
+    durationMs: Date.now() - started,
+  });
+  await markSubscriptionActive(target);
 }
 
 export async function trySendPush(
@@ -109,12 +121,74 @@ export async function trySendPush(
   }
 }
 
-/** 删除失效订阅（404/410 即时清理）；失败只打日志，不反噬发送 */
-async function deleteSubscription(endpoint: string): Promise<void> {
+/** SDK 超时只限制 socket 空闲；总预算只限制应用等待，不撤销服务商可能已接纳的投递。 */
+async function sendWithResponseBudget(
+  { endpoint, p256dh, auth }: PushSubscriptionKeys,
+  payload: string,
+) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new DeliveryTransportError("pushUncertain")),
+      RESPONSE_BUDGET_MS,
+    );
+  });
   try {
-    await getWebDb().delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, endpoint));
-  } catch (e) {
-    console.error("[push] 失效订阅清理失败:", e);
+    return await Promise.race([
+      deadline,
+      sendNotification({ endpoint, keys: { p256dh, auth } }, payload, {
+        timeout: SOCKET_TIMEOUT_MS,
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** 服务端或网关可能已转发，5xx、超时及断连均不能证明未接纳。 */
+function isExplicitRejection(statusCode: unknown): boolean {
+  return (
+    typeof statusCode === "number" &&
+    Number.isInteger(statusCode) &&
+    statusCode >= 400 &&
+    statusCode < 500 &&
+    statusCode !== 408 &&
+    statusCode !== 499
+  );
+}
+
+type DeliveryTarget = PushSubscriptionKeys & PushSendMeta;
+
+/** 仅匹配投递时的订阅快照；二进制比较避免默认不区分大小写的排序规则误匹配密钥。 */
+function subscriptionMatch(target: DeliveryTarget) {
+  return and(
+    eq(pushSubscriptions.endpoint, target.endpoint),
+    sql`${pushSubscriptions.endpoint} = CAST(${target.endpoint} AS BINARY)`,
+    sql`${pushSubscriptions.p256dh} = CAST(${target.p256dh} AS BINARY)`,
+    sql`${pushSubscriptions.auth} = CAST(${target.auth} AS BINARY)`,
+    target.userId == null ? undefined : eq(pushSubscriptions.userId, target.userId),
+    target.subscriptionId == null ? undefined : eq(pushSubscriptions.id, target.subscriptionId),
+  );
+}
+
+/** 删除失效订阅（404/410 即时清理）；失败只记录固定诊断。 */
+async function deleteSubscription(target: DeliveryTarget): Promise<void> {
+  try {
+    await getWebDb().delete(pushSubscriptions).where(subscriptionMatch(target));
+  } catch {
+    console.error("[push] 失效订阅清理失败");
+  }
+}
+
+/** 刷新订阅活跃时间，避免卫生清扫误删；失败不改变投递结果。 */
+async function markSubscriptionActive(target: DeliveryTarget): Promise<void> {
+  try {
+    await getWebDb()
+      .update(pushSubscriptions)
+      .set({ lastSentAt: sql`NOW()` })
+      .where(subscriptionMatch(target));
+  } catch {
+    console.error("[push] 更新订阅最后投递时间失败");
   }
 }
 
@@ -126,8 +200,8 @@ async function record(row: PushLogInsert): Promise<void> {
       .insert(pushLog)
       .values({ ...row, createdAt: sql`NOW()` });
     if (Math.random() < SWEEP_PROBABILITY) await sweepExpired();
-  } catch (e) {
-    console.error("[push] 发送记录落库失败:", e);
+  } catch {
+    console.error("[push] 写入发送记录或清理历史记录失败");
   }
 }
 

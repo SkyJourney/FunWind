@@ -7,12 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 
 /**
- * 文档站左树导航（M20.1）：概览组 + 功能域分组，接口条目带 GET 色标。
- * 桌面 = sticky 树；移动 = 顶条汉堡呼出的受控抽屉——锚点点击即关（onClick 手动关，
- * 锚点 hash 导航不触发 Next 软导航，无竞态窗口）。
+ * 桌面与移动抽屉共用分域导航；端点徽标显示目录登记的方法。
+ * 点击移动端的原生锚点时关闭抽屉，不触发 Next 软导航。
  */
-
-const METHOD_BADGE = "rounded bg-success/10 px-1 font-mono text-[10px] font-medium text-success";
+const METHOD_BADGE = "shrink-0 rounded px-1 font-mono text-[10px] font-medium";
+const METHOD_TONE = {
+  read: "bg-success/10 text-success",
+  write: "bg-warning/10 text-warning",
+};
 
 export function DocsNav({ onNavigate }: { onNavigate?: () => void }) {
   const groups = docsNavGroups();
@@ -38,7 +40,11 @@ export function DocsNav({ onNavigate }: { onNavigate?: () => void }) {
                   onClick={onNavigate}
                   className="flex items-center gap-2 rounded-md py-1.5 pr-2 pl-6 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                 >
-                  {item.withMethod && <span className={METHOD_BADGE}>GET</span>}
+                  {"method" in item && (
+                    <span className={`${METHOD_BADGE} ${METHOD_TONE[item.access]}`}>
+                      {item.method}
+                    </span>
+                  )}
                   <span>{item.nav}</span>
                 </a>
               </li>

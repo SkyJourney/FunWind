@@ -6,7 +6,11 @@
  */
 import { eq, sql } from "drizzle-orm";
 import mysql, { type RowDataPacket } from "mysql2/promise";
+import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   BUILTIN_ROLE_KEYS,
@@ -18,12 +22,17 @@ import {
 import { bootstrapDb, PATCHES, seedSystemData } from "./bootstrap.js";
 import { createDb, createPool } from "./client.js";
 import { newDbConfig } from "./env.js";
+import { checkAdminApiTokenPermissions } from "./integrity.js";
 import { BUILTIN_THEME_PACK_SEEDS } from "./theme-pack-seeds.js";
 import { DEMO, seedDemoData } from "./seed-data.js";
 import {
+  adminApiTokens,
   contentReviews,
+  eventOutbox,
   files,
   forums,
+  notificationDeliveries,
+  notificationReceipts,
   notifications,
   permissions,
   pointAccounts,
@@ -89,7 +98,28 @@ describe.skipIf(skip)("bootstrap / seed 集成（临时库）", () => {
     }
   };
 
-  it("bootstrap 建出 schema v2.x 全部 61 张表（含 theme_packages、email_log、campaigns、ops_tasks、ops_triggers、rum_samples、csp_reports、push_subscriptions、push_log、admin_api_tokens），且列级排序规则补丁生效", async () => {
+  const verify = () =>
+    promisify(execFile)(process.execPath, ["--import", "tsx", "scripts/verify.ts"], {
+      cwd: fileURLToPath(new URL("../", import.meta.url)),
+      env: {
+        ...process.env,
+        NEW_DB_HOST: config.host,
+        NEW_DB_PORT: String(config.port),
+        NEW_DB_USER: config.user,
+        NEW_DB_PASSWORD: config.password,
+        NEW_DB_NAME: config.database,
+      },
+    });
+
+  /** 按生成的语句分隔符应用版本化 SQL，避免复制表或列定义。 */
+  async function applyMigration(pool: ReturnType<typeof createPool>, file: string) {
+    const migration = await readFile(new URL(`../drizzle/${file}`, import.meta.url), "utf8");
+    for (const statement of migration.split("--> statement-breakpoint")) {
+      if (statement.trim()) await pool.query(statement);
+    }
+  }
+
+  it("bootstrap 建出 schema v2.x 全部 64 张表，且列级排序规则补丁生效", async () => {
     const pool = createPool(config);
     try {
       const [tables] = await pool.query<RowDataPacket[]>(
@@ -97,7 +127,7 @@ describe.skipIf(skip)("bootstrap / seed 集成（临时库）", () => {
          WHERE TABLE_SCHEMA = ? AND TABLE_NAME <> '__drizzle_migrations'`,
         [dbName],
       );
-      expect(Number(tables[0]?.n)).toBe(61);
+      expect(Number(tables[0]?.n)).toBe(64);
       for (const p of PATCHES) {
         const [rows] = await pool.query<RowDataPacket[]>(
           `SELECT COLLATION_NAME AS c FROM information_schema.COLUMNS
@@ -108,6 +138,357 @@ describe.skipIf(skip)("bootstrap / seed 集成（临时库）", () => {
       }
     } finally {
       await pool.end();
+    }
+  });
+
+  it("管理 API 幂等表：零数据安装有复合主键、可用的到期索引和可空响应，无令牌外键，且通过 db:verify", async () => {
+    const pool = createPool(config);
+    try {
+      const [columns] = await pool.query<RowDataPacket[]>(`
+        SELECT COLUMN_NAME AS name, IS_NULLABLE AS nullable
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'manage_api_idempotency'
+        ORDER BY ORDINAL_POSITION
+      `);
+      expect(columns).toEqual([
+        { name: "token_id", nullable: "NO" },
+        { name: "endpoint", nullable: "NO" },
+        { name: "key_hash", nullable: "NO" },
+        { name: "request_hash", nullable: "NO" },
+        { name: "response", nullable: "YES" },
+        { name: "expires_at", nullable: "NO" },
+      ]);
+      const [indexes] = await pool.query<RowDataPacket[]>(`
+        SELECT INDEX_NAME AS name, COLUMN_NAME AS col
+        FROM information_schema.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'manage_api_idempotency'
+          AND IS_VISIBLE = 'YES' AND INDEX_TYPE = 'BTREE'
+        ORDER BY INDEX_NAME, SEQ_IN_INDEX
+      `);
+      expect(indexes.filter((row) => row.name === "PRIMARY").map((row) => row.col)).toEqual([
+        "token_id",
+        "endpoint",
+        "key_hash",
+      ]);
+      expect(indexes.filter((row) => row.name === "idx_mai_expires").map((row) => row.col)).toEqual(
+        ["expires_at"],
+      );
+      const [foreignKeys] = await pool.query<RowDataPacket[]>(`
+        SELECT CONSTRAINT_NAME FROM information_schema.REFERENTIAL_CONSTRAINTS
+        WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = 'manage_api_idempotency'
+      `);
+      expect(foreignKeys).toEqual([]);
+      const [rows] = await pool.query<RowDataPacket[]>(
+        "SELECT 1 FROM manage_api_idempotency LIMIT 1",
+      );
+      expect(rows).toEqual([]);
+      expect(await verify()).toMatchObject({ stdout: expect.stringContaining("全部通过") });
+    } finally {
+      await pool.end();
+    }
+  });
+
+  it("管理令牌：零数据安装的权限列及健康数据通过 db:verify，损坏组合令命令失败", async () => {
+    const pool = createPool(config);
+    const db = createDb(pool);
+    const legacyId = "a".repeat(64);
+    const scopedId = "b".repeat(64);
+    const baseRow = {
+      userId: 1,
+      name: "临时测试令牌",
+      suffix: "12345678",
+      createdAt: "2026-11-01 00:00:00",
+      expiresAt: "2026-12-01 00:00:00",
+    };
+    try {
+      expect(await checkAdminApiTokenPermissions(pool)).toEqual({
+        profileColumnOk: true,
+        snapshotColumnOk: true,
+        invalidRows: 0,
+      });
+      await db.insert(adminApiTokens).values([
+        { ...baseRow, id: legacyId },
+        {
+          ...baseRow,
+          id: scopedId,
+          permissionProfile: "scoped_v2",
+          permissionSnapshot: ["whoami", "contents.detail"],
+        },
+      ]);
+      expect(await verify()).toMatchObject({ stdout: expect.stringContaining("全部通过") });
+
+      const invalidCases: [string, string | null][] = [
+        ["unknown_v3", '["whoami"]'],
+        ["SCOPED_V2", '["whoami"]'],
+        ["legacy_m20_read", "null"],
+        ["legacy_m20_read", '["whoami"]'],
+        ["scoped_v2", null],
+        ["scoped_v2", "null"],
+        ["scoped_v2", "[]"],
+        ["scoped_v2", '{"id":"whoami"}'],
+        ["scoped_v2", JSON.stringify('["whoami"]')],
+        ["scoped_v2", '["whoami",11]'],
+        ["scoped_v2", '["whoami",""]'],
+        ["scoped_v2", '["whoami","whoami"]'],
+      ];
+      for (const [profile, snapshot] of invalidCases) {
+        await pool.execute(
+          "UPDATE admin_api_tokens SET permission_profile = ?, permission_snapshot = ? WHERE id = ?",
+          [profile, snapshot, scopedId],
+        );
+        const health = await checkAdminApiTokenPermissions(pool);
+        expect(health.invalidRows, `应拒绝 ${profile} + ${snapshot}`).toBe(1);
+      }
+      await expect(verify()).rejects.toMatchObject({
+        code: 1,
+        stdout: expect.stringContaining("未知权限模型或非法快照组合 1 行"),
+      });
+    } finally {
+      try {
+        await pool.execute("DELETE FROM admin_api_tokens WHERE id IN (?, ?)", [legacyId, scopedId]);
+      } finally {
+        await pool.end();
+      }
+    }
+  });
+
+  it("迁移 0032 保留令牌原值和旧签发兼容性；0033 仅新增空幂等表", async () => {
+    const oldName = `${dbName}_m20`;
+    const connection = await admin();
+    const pool = createPool({ ...base, database: oldName });
+    const id = "c".repeat(64);
+    const newId = "d".repeat(64);
+    /** 旧版签发语句省略两个新增列。 */
+    const insertLegacy = (tokenId: string) =>
+      pool.execute(
+        `INSERT INTO admin_api_tokens
+           (id, user_id, name, suffix, created_at, expires_at, last_used_at, last_used_ip, revoked_at)
+         VALUES (?, 17, '旧令牌', '87654321', '2026-11-01 10:10:10', '2026-12-01 00:00:00',
+                 '2026-11-13 11:12:13', '192.0.2.5', '2026-11-15 12:12:12')`,
+        [tokenId],
+      );
+    try {
+      await connection.query(
+        `CREATE DATABASE \`${oldName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+      );
+      await applyMigration(pool, "0031_m20_admin_api_tokens.sql");
+      await insertLegacy(id);
+      const [[before]] = await pool.execute<RowDataPacket[]>(
+        "SELECT * FROM admin_api_tokens WHERE id = ?",
+        [id],
+      );
+      expect(await checkAdminApiTokenPermissions(pool)).toEqual({
+        profileColumnOk: false,
+        snapshotColumnOk: false,
+        invalidRows: null,
+      });
+
+      await applyMigration(pool, "0032_m20_2_admin_api_token_permissions.sql");
+      await insertLegacy(newId);
+      const [rows] = await pool.query<RowDataPacket[]>(
+        "SELECT * FROM admin_api_tokens ORDER BY id",
+      );
+      const expected = {
+        ...before,
+        permission_profile: "legacy_m20_read",
+        permission_snapshot: null,
+      };
+      expect(rows).toEqual([expected, { ...expected, id: newId }]);
+      expect(await checkAdminApiTokenPermissions(pool)).toEqual({
+        profileColumnOk: true,
+        snapshotColumnOk: true,
+        invalidRows: 0,
+      });
+      const [before0033] = await pool.query<RowDataPacket[]>(`
+        SELECT TABLE_NAME FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'manage_api_idempotency'
+      `);
+      expect(before0033).toEqual([]);
+      await applyMigration(pool, "0033_m20_2_manage_api_idempotency.sql");
+      const [after0033] = await pool.query<RowDataPacket[]>(
+        "SELECT * FROM admin_api_tokens ORDER BY id",
+      );
+      const [idempotencyRows] = await pool.query<RowDataPacket[]>(
+        "SELECT 1 FROM manage_api_idempotency LIMIT 1",
+      );
+      expect(after0033).toEqual(rows);
+      expect(idempotencyRows).toEqual([]);
+
+      await pool.query("ALTER TABLE admin_api_tokens ALTER COLUMN permission_profile DROP DEFAULT");
+      expect(await checkAdminApiTokenPermissions(pool)).toEqual({
+        profileColumnOk: false,
+        snapshotColumnOk: true,
+        invalidRows: 0,
+      });
+    } finally {
+      try {
+        await pool.end();
+        await connection.query(`DROP DATABASE IF EXISTS \`${oldName}\``);
+      } finally {
+        await connection.end();
+      }
+    }
+  });
+
+  it("审核通知零数据安装通过 db:verify，错误默认值和主键顺序会被拦截", async () => {
+    await withTestDb(async (db) => {
+      expect(await db.select().from(eventOutbox)).toEqual([]);
+      expect(await db.select().from(notificationReceipts)).toEqual([]);
+      expect(await db.select().from(notificationDeliveries)).toEqual([]);
+    });
+    expect(await verify()).toMatchObject({
+      stdout: expect.stringMatching(
+        /✔ outbox:通知投递策略列[\s\S]*✔ outbox:站内通知凭证[\s\S]*✔ outbox:外送通知凭证[\s\S]*全部通过/,
+      ),
+    });
+
+    const pool = createPool(config);
+    try {
+      await pool.query(
+        "ALTER TABLE event_outbox ALTER COLUMN delivery_policy SET DEFAULT 'moderation_notification_v1'",
+      );
+      await pool.query(
+        "ALTER TABLE notification_receipts DROP PRIMARY KEY, ADD PRIMARY KEY (type, outbox_id, user_id)",
+      );
+      await pool.query(
+        "ALTER TABLE notification_deliveries ALTER COLUMN status SET DEFAULT 'sent'",
+      );
+      await expect(verify()).rejects.toMatchObject({
+        code: 1,
+        stdout: expect.stringMatching(
+          /✘ outbox:通知投递策略列[\s\S]*✘ outbox:站内通知凭证[\s\S]*✘ outbox:外送通知凭证/,
+        ),
+      });
+    } finally {
+      try {
+        await pool.query(
+          "ALTER TABLE notification_deliveries ALTER COLUMN status SET DEFAULT 'uncertain'",
+        );
+        await pool.query("ALTER TABLE event_outbox ALTER COLUMN delivery_policy DROP DEFAULT");
+        await pool.query(
+          "ALTER TABLE notification_receipts DROP PRIMARY KEY, ADD PRIMARY KEY (outbox_id, type, user_id)",
+        );
+      } finally {
+        await pool.end();
+      }
+    }
+  });
+
+  it("迁移 0034/0035 保留已有出箱和站内凭证；外送凭证四列同键不能重新占位", async () => {
+    const oldName = `${dbName}_moderation`;
+    const connection = await admin();
+    const pool = createPool({ ...base, database: oldName });
+    const db = createDb(pool);
+    const createdAt = "2026-11-18 10:00:00";
+    const selectOutbox = () =>
+      pool.query<RowDataPacket[]>("SELECT * FROM event_outbox ORDER BY id");
+    /** 老版本写入语句不显式设置投递策略。 */
+    const insertLegacy = () =>
+      pool.execute(
+        `INSERT INTO event_outbox
+           (event_name, payload, actor_id, source, created_at, dispatched_at, dispatch_error)
+         VALUES ('content.reviewed', '{"postId":1}', 7, 'moderation', ?, NULL, '{"attempts":2}'),
+                ('content.reviewed', '{"postId":2}', 7, 'moderation', ?, ?, NULL)`,
+        [createdAt, createdAt, "2026-11-18 10:01:00"],
+      );
+    try {
+      await connection.query(
+        `CREATE DATABASE \`${oldName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+      );
+      // 0000 提供 0005 所需的积分与权限基础表；0005 的出箱结构直到 0034 才改动。
+      await applyMigration(pool, "0000_init_v2_1.sql");
+      await applyMigration(pool, "0005_outbox_and_point_rewards.sql");
+      await insertLegacy();
+      const [before] = await selectOutbox();
+      expect(before).toHaveLength(2);
+      expect(before[0]).not.toHaveProperty("delivery_policy");
+
+      await applyMigration(pool, "0034_m20_2_moderation_notification_receipts.sql");
+      const [after] = await selectOutbox();
+      expect(after).toEqual(before.map((row) => ({ ...row, delivery_policy: null })));
+      expect(await db.select().from(notificationReceipts)).toEqual([]);
+
+      await insertLegacy();
+      await db.insert(eventOutbox).values({
+        eventName: "content.reviewed",
+        createdAt,
+        deliveryPolicy: "moderation_notification_v1",
+      });
+      const policies = await db
+        .select({ policy: eventOutbox.deliveryPolicy })
+        .from(eventOutbox)
+        .orderBy(eventOutbox.id);
+      expect(policies.map((row) => row.policy)).toEqual([
+        null,
+        null,
+        null,
+        null,
+        "moderation_notification_v1",
+      ]);
+
+      const receipt = { outboxId: 1, type: "moderation.approved", userId: 9, createdAt };
+      await db
+        .insert(notificationReceipts)
+        .values([
+          receipt,
+          { ...receipt, outboxId: 2 },
+          { ...receipt, type: "moderation.rejected" },
+          { ...receipt, userId: 10 },
+        ]);
+      await expect(
+        db.insert(notificationReceipts).values({ ...receipt, createdAt: "2026-11-18 10:02:00" }),
+      ).rejects.toMatchObject({ cause: { code: "ER_DUP_ENTRY" } });
+      const receipts = await db.select().from(notificationReceipts);
+      expect(receipts).toHaveLength(4);
+      expect(receipts).toContainEqual(receipt);
+
+      const [before0035] = await selectOutbox();
+      await applyMigration(pool, "0035_m20_2_notification_deliveries.sql");
+      const [after0035] = await selectOutbox();
+      expect(after0035).toEqual(before0035);
+      expect(await db.select().from(notificationReceipts)).toEqual(receipts);
+      expect(await db.select().from(notificationDeliveries)).toEqual([]);
+
+      // 两个大整数均超过 32 位；没有对应出箱或账号仍允许保留凭证。
+      const delivery = {
+        outboxId: 5_000_000_001,
+        channel: "email",
+        scene: "moderation.approved",
+        recipientId: 5_000_000_002,
+        createdAt,
+      };
+      const sent = { ...delivery, status: "sent" as const, finishedAt: "2026-11-18 10:03:00" };
+      await db
+        .insert(notificationDeliveries)
+        .values([
+          sent,
+          { ...delivery, outboxId: delivery.outboxId + 1 },
+          { ...delivery, channel: "push" },
+          { ...delivery, scene: "moderation.rejected", status: "failed", finishedAt: createdAt },
+          { ...delivery, recipientId: delivery.recipientId + 1 },
+        ]);
+      await expect(db.insert(notificationDeliveries).values(delivery)).rejects.toMatchObject({
+        cause: { code: "ER_DUP_ENTRY" },
+      });
+      const deliveries = await db.select().from(notificationDeliveries);
+      expect(deliveries).toHaveLength(5);
+      expect(deliveries).toContainEqual(sent);
+      expect(deliveries).toContainEqual({
+        ...delivery,
+        channel: "push",
+        status: "uncertain",
+        finishedAt: null,
+      });
+      await expect(
+        pool.execute("UPDATE notification_deliveries SET status = 'SENT' WHERE channel = 'email'"),
+      ).rejects.toMatchObject({ code: "ER_CHECK_CONSTRAINT_VIOLATED" });
+    } finally {
+      try {
+        await pool.end();
+        await connection.query(`DROP DATABASE IF EXISTS \`${oldName}\``);
+      } finally {
+        await connection.end();
+      }
     }
   });
 

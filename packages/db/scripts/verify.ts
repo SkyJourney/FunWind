@@ -14,6 +14,8 @@
  *  4e. 缓存计数与明细一致（recount.ts 干跑：零漂移才过；漂移时用 pnpm db:recount 修正）
  *  5. 权限数据健康：role_grants / user_roles 中的角色键与权限点必须在 roles / 词汇表内（脏键零容忍）；
  *     系统种子已就位（内置角色 + 词汇表）
+ *  5a. 管理 API 令牌：权限模型与快照列定义、默认值及存量数据组合
+ *  6. 出箱滞留；审核通知投递策略列、站内及外送凭证的复合主键与约束
  */
 import { getTableConfig } from "drizzle-orm/mysql-core";
 import type { RowDataPacket } from "mysql2/promise";
@@ -22,6 +24,7 @@ import { PATCHES } from "../src/bootstrap.js";
 import { createPool } from "../src/client.js";
 import { newDbConfig } from "../src/env.js";
 import {
+  checkAdminApiTokenPermissions,
   findAttachmentGateAnomalies,
   findInlineAttachmentAnomalies,
   findStructuralAnomalies,
@@ -280,6 +283,21 @@ try {
     `内置角色 ${seed.builtin} / 权限点 ${seed.perms}（词汇表 ${PERMISSION_DEFINITIONS.length}）`,
   );
 
+  // 5a. 管理 API 令牌的权限列与数据组合（M20.2）
+  const tokenPermissions = await checkAdminApiTokenPermissions(pool);
+  add(
+    "authz:管理 API 令牌权限列",
+    tokenPermissions.profileColumnOk && tokenPermissions.snapshotColumnOk,
+    `模型列 ${tokenPermissions.profileColumnOk ? "正常" : "应为 varchar(32) NOT NULL，默认 legacy_m20_read"}；快照列 ${tokenPermissions.snapshotColumnOk ? "正常" : "应为可空 JSON，默认 SQL NULL"}`,
+  );
+  add(
+    "authz:管理 API 令牌权限数据",
+    tokenPermissions.invalidRows === 0,
+    tokenPermissions.invalidRows === null
+      ? "缺列或快照列不是 JSON，无法检查数据"
+      : `未知权限模型或非法快照组合 ${tokenPermissions.invalidRows} 行`,
+  );
+
   // 5b. 积分对账（M7）：台账只增不改不删，余额快照必须恒等于其台账之和
   const [pointsMismatch] = await pool.query<RowDataPacket[]>(
     `SELECT
@@ -294,6 +312,77 @@ try {
     Number(pts.mismatch) === 0 && Number(pts.negative) === 0
       ? "全部账户余额 = 台账之和，无负余额"
       : `余额与台账不一致 ${pts.mismatch} 户 / 负余额 ${pts.negative} 户`,
+  );
+
+  // 审核通知：列类型已由通用对账覆盖；这里只核对可空、默认值及凭证的去重键。
+  const [deliveryColumns] = await pool.query<RowDataPacket[]>(
+    `SELECT IS_NULLABLE AS nullable, COLUMN_DEFAULT AS defaultValue
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'event_outbox' AND COLUMN_NAME = 'delivery_policy'`,
+    [config.database],
+  );
+  const deliveryColumn = deliveryColumns[0];
+  add(
+    "outbox:通知投递策略列",
+    deliveryColumn?.nullable === "YES" && deliveryColumn.defaultValue === null,
+    "delivery_policy 应允许 SQL NULL 且默认 SQL NULL（受控值由应用定义）",
+  );
+
+  const [receiptRequiredColumns] = await pool.query<RowDataPacket[]>(
+    `SELECT COLUMN_NAME AS name FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'notification_receipts' AND IS_NULLABLE = 'NO'`,
+    [config.database],
+  );
+  const [receiptPkColumns] = await pool.query<RowDataPacket[]>(
+    `SELECT COLUMN_NAME AS name, SUB_PART AS prefixLength FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'notification_receipts' AND INDEX_NAME = 'PRIMARY'
+     ORDER BY SEQ_IN_INDEX`,
+    [config.database],
+  );
+  const receiptKey = ["outbox_id", "type", "user_id"];
+  const required = new Set(receiptRequiredColumns.map((row) => row.name));
+  add(
+    "outbox:站内通知凭证",
+    [...receiptKey, "created_at"].every((name) => required.has(name)) &&
+      receiptPkColumns.length === receiptKey.length &&
+      receiptPkColumns.every((row, i) => row.name === receiptKey[i] && row.prefixLength === null),
+    "notification_receipts 四列应非空；主键应为 (outbox_id, type, user_id) 的完整列",
+  );
+
+  const [externalColumns] = await pool.query<RowDataPacket[]>(
+    `SELECT COLUMN_NAME AS name, IS_NULLABLE AS nullable, COLUMN_DEFAULT AS defaultValue
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'notification_deliveries'`,
+    [config.database],
+  );
+  const [externalPkColumns] = await pool.query<RowDataPacket[]>(
+    `SELECT COLUMN_NAME AS name, SUB_PART AS prefixLength FROM information_schema.STATISTICS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'notification_deliveries' AND INDEX_NAME = 'PRIMARY'
+     ORDER BY SEQ_IN_INDEX`,
+    [config.database],
+  );
+  const [externalConstraints] = await pool.query<RowDataPacket[]>(
+    `SELECT CONSTRAINT_NAME AS name, CONSTRAINT_TYPE AS type, ENFORCED AS enforced
+     FROM information_schema.TABLE_CONSTRAINTS
+     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'notification_deliveries'`,
+    [config.database],
+  );
+  const externalKey = ["outbox_id", "channel", "scene", "recipient_id"];
+  const externalByName = new Map(externalColumns.map((row) => [row.name, row]));
+  add(
+    "outbox:外送通知凭证",
+    [...externalKey, "status", "created_at"].every(
+      (name) => externalByName.get(name)?.nullable === "NO",
+    ) &&
+      externalByName.get("status")?.defaultValue === "uncertain" &&
+      externalByName.get("finished_at")?.nullable === "YES" &&
+      externalPkColumns.length === externalKey.length &&
+      externalPkColumns.every(
+        (row, i) => row.name === externalKey[i] && row.prefixLength === null,
+      ) &&
+      !externalConstraints.some((row) => row.type === "FOREIGN KEY") &&
+      externalConstraints.some((row) => row.name === "ck_nd_status" && row.enforced === "YES"),
+    "仅 finished_at 可空；status 默认 uncertain 且检查生效；主键为完整四列，无外键",
   );
 
   // 6. outbox 滞留（M7）：快路径失败或崩溃留下的 pending 行——补派脚本可清，但长期滞留须人工过目

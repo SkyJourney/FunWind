@@ -3,9 +3,26 @@ import "server-only";
 import { and, count, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import { adminApiTokens, affectedRowsOf, getWebDb } from "@funwind/db";
 import { writeAudit } from "@/lib/audit";
+import { getRegisterMode } from "@/lib/auth/settings";
 import { generateToken, hashToken } from "@/lib/auth/token";
 import { AdminError } from "@/lib/authz/admin-error";
-import { isEffectiveSiteAdmin, type AuthzTransaction } from "@/lib/authz/site-admin-invariant";
+import { checkPermission } from "@/lib/authz/service";
+import {
+  isEffectiveSiteAdmin,
+  lockSiteAdminInvariant,
+  type AuthzTransaction,
+} from "@/lib/authz/site-admin-invariant";
+import { loadFreshAuthzSnapshot } from "@/lib/authz/snapshot";
+import { loadSubject, loadSubjectFrom } from "@/lib/authz/subject";
+import type { AuthzSnapshot, Subject } from "@/lib/authz/types";
+import {
+  expandManagePermissionSelection,
+  getManageEndpoint,
+  LEGACY_M20_ENDPOINTS,
+  MANAGE_ENDPOINTS,
+  parseManagePermissionSnapshot,
+  type ManageEndpointId,
+} from "@/lib/manage/permissions";
 
 /**
  * 管理员 Access Token 的 Service 层（M20）。
@@ -29,8 +46,49 @@ export const ADMIN_API_TOKEN_DAYS = [30, 90, 180, 365] as const;
 /** 默认有效期（天） */
 export const ADMIN_API_TOKEN_DEFAULT_DAYS: number = 90;
 
-/** 明文前缀：标识这是 FunWind 管理 token（扫描器可识别，避免误提交告警误报项目源码） */
-const TOKEN_PREFIX = "fw_at_";
+/** 旧版只接受历史前缀；细粒度凭证退版后失效，不会被当成九读令牌。 */
+const TOKEN_PREFIXES = {
+  legacy_m20_read: "fw_at_",
+  scoped_v2: "fw_at2_",
+} as const;
+
+type ManageTokenProfile = keyof typeof TOKEN_PREFIXES;
+type StoredManageTokenGrant = {
+  permissionProfile: string;
+  permissionSnapshot: unknown;
+  snapshotIsSqlNull: number;
+};
+
+/** 读库时只认可两种授权模型；坏行不可用于认证或被展示为完整授权。 */
+function endpointGrantsOf(row: StoredManageTokenGrant): readonly ManageEndpointId[] | null {
+  if (row.permissionProfile === "legacy_m20_read") {
+    return row.snapshotIsSqlNull === 1 ? LEGACY_M20_ENDPOINTS : null;
+  }
+  return row.permissionProfile === "scoped_v2"
+    ? parseManagePermissionSnapshot(row.permissionSnapshot)
+    : null;
+}
+
+const permissionColumns = {
+  permissionProfile: adminApiTokens.permissionProfile,
+  permissionSnapshot: adminApiTokens.permissionSnapshot,
+  snapshotIsSqlNull: sql`${adminApiTokens.permissionSnapshot} IS NULL`.mapWith(Number),
+};
+
+/** 只接受两种明确版本，不剥前缀或降级重试。 */
+export function manageTokenProfileOf(plain: string): ManageTokenProfile | null {
+  for (const profile of ["legacy_m20_read", "scoped_v2"] as const) {
+    const prefix = TOKEN_PREFIXES[profile];
+    if (
+      plain.length === prefix.length + 43 &&
+      plain.startsWith(prefix) &&
+      /^[A-Za-z0-9_-]{43}$/.test(plain.slice(prefix.length))
+    ) {
+      return profile;
+    }
+  }
+  return null;
+}
 
 /** last_used 落库节流：距上次使用超过该秒数才写（对齐 sessions.lastSeenAt 的写放大防护） */
 export const TOKEN_USAGE_TOUCH_INTERVAL_SEC = 60;
@@ -84,9 +142,12 @@ export async function isEffectiveSiteAdminOf(userId: number): Promise<boolean> {
   return getWebDb().transaction((tx) => isEffectiveSiteAdmin(tx, userId));
 }
 
-/** 明文形如 fw_at_<43 字符 base64url>；返回明文与库内哈希主键 */
-export function buildPlainToken(): { plain: string; id: string } {
-  const plain = TOKEN_PREFIX + generateToken();
+/** 按授权模型生成明文（版本前缀 + 43 字符）及其库内哈希主键。 */
+export function buildPlainToken(profile: ManageTokenProfile = "legacy_m20_read"): {
+  plain: string;
+  id: string;
+} {
+  const plain = TOKEN_PREFIXES[profile] + generateToken();
   return { plain, id: hashToken(plain) };
 }
 
@@ -123,23 +184,64 @@ export type CreatedAdminApiToken = {
   expiresAt: string;
 };
 
-/**
- * 签发管理 token（后台页面调用）。事务内完成：有效数量上限校验 → 落库 → 审计。
- * 明文只在本函数返回值中出现一次，任何日志/回跳都不得携带。
- */
-export async function createAdminApiToken(input: {
+type CreateAdminApiTokenInput = {
   userId: number;
   name: string;
   days: number;
   /** 操作者（页面签发时即持有人本人） */
   actor: { userId: number | null; via: "admin" | "api" };
   ip?: string | null;
-}): Promise<CreatedAdminApiToken> {
+};
+
+/** 按持有人实时权限筛选端点；签发事务传入它自己的规则快照。 */
+async function filterAssignableEndpoints(
+  subject: Subject,
+  ids: readonly ManageEndpointId[],
+  snapshot?: AuthzSnapshot,
+): Promise<ManageEndpointId[]> {
+  if (subject.userId === null) return [];
+  const matching = await Promise.all(
+    ids.map(async (id) => {
+      const { permission } = getManageEndpoint(id);
+      return !permission || (await checkPermission(subject, permission, {}, snapshot)).allowed;
+    }),
+  );
+  return ids.filter((_, index) => matching[index]);
+}
+
+/** 已通过页面资格门禁时，供表单区分未开放端点和缺少主体权限。 */
+export async function getAssignableManageEndpointIds(userId: number): Promise<ManageEndpointId[]> {
+  return filterAssignableEndpoints(
+    await loadSubject(userId),
+    Object.keys(MANAGE_ENDPOINTS) as ManageEndpointId[],
+  );
+}
+
+/** 仅接受域和档位，在同一事务校验资格、权限和配额，再落库并审计。 */
+export async function createScopedAdminApiToken(
+  input: CreateAdminApiTokenInput & { permissions: unknown },
+): Promise<CreatedAdminApiToken> {
+  const permissionSnapshot = expandManagePermissionSelection(input.permissions);
+  if (!permissionSnapshot) throw new AdminError("请选择至少一项可用的令牌权限。");
+  if (input.actor.userId !== input.userId) throw new AdminError("无法为该账号签发令牌。");
   const name = ensureTokenName(input.name);
   const days = ensureTokenDurationDays(input.days);
-  const { plain, id } = buildPlainToken();
+  const { plain, id } = buildPlainToken("scoped_v2");
+  // 注册模式读取可能触及其他服务，先读取；事务中只从 tx 取数。
+  const registerMode = await getRegisterMode();
 
   return getWebDb().transaction(async (tx) => {
+    // 和撤管理员、封禁、注销共用同一锁，也串行化两个签发对最后名额的竞争。
+    await lockSiteAdminInvariant(tx);
+    if (!(await isEffectiveSiteAdmin(tx, input.userId))) {
+      throw new AdminError("只有有效站点管理员可以签发令牌。");
+    }
+    const subject = await loadSubjectFrom(tx, input.userId, registerMode);
+    const snapshot = await loadFreshAuthzSnapshot(tx);
+    const assignable = await filterAssignableEndpoints(subject, permissionSnapshot, snapshot);
+    if (assignable.length !== permissionSnapshot.length) {
+      throw new AdminError("不能授予持有人不具备的权限。");
+    }
     // 上限按「有效 token」计：已吊销/已过期的行不占名额（过期行由 cleanup 物理删除）
     const [usage] = await tx
       .select({ n: count() })
@@ -164,6 +266,8 @@ export async function createAdminApiToken(input: {
       createdAt: sql`NOW()`,
       expiresAt: sql`NOW() + INTERVAL ${days} DAY`,
       createdVia: "admin",
+      permissionProfile: "scoped_v2",
+      permissionSnapshot,
     });
     const [row] = await tx
       .select({ expiresAt: adminApiTokens.expiresAt })
@@ -176,7 +280,13 @@ export async function createAdminApiToken(input: {
       action: "api_token.create",
       targetType: "admin_api_token",
       targetId: id,
-      after: { name, suffix: tokenSuffixOf(plain), days, via: input.actor.via },
+      after: {
+        name,
+        suffix: tokenSuffixOf(plain),
+        days,
+        via: input.actor.via,
+        endpointGrants: permissionSnapshot,
+      },
       ip: input.ip ?? null,
     });
 
@@ -189,16 +299,20 @@ export type UsableAdminApiToken = {
   userId: number;
   name: string;
   suffix: string;
+  endpointGrants: readonly ManageEndpointId[];
 };
 
-/** 门禁用：按明文解析可用 token；查无 / 已吊销 / 已过期一律返回 null（存在性不泄露） */
+/** 门禁用：无效、过期、已吊销或前缀与授权模型不符一律返回 null。 */
 export async function resolveUsableApiToken(plain: string): Promise<UsableAdminApiToken | null> {
+  const profile = manageTokenProfileOf(plain);
+  if (!profile) return null;
   const [row] = await getWebDb()
     .select({
       id: adminApiTokens.id,
       userId: adminApiTokens.userId,
       name: adminApiTokens.name,
       suffix: adminApiTokens.suffix,
+      ...permissionColumns,
     })
     .from(adminApiTokens)
     .where(
@@ -209,7 +323,11 @@ export async function resolveUsableApiToken(plain: string): Promise<UsableAdminA
       ),
     )
     .limit(1);
-  return row ?? null;
+  if (!row || row.permissionProfile !== profile) return null;
+  const endpointGrants = endpointGrantsOf(row);
+  return endpointGrants
+    ? { id: row.id, userId: row.userId, name: row.name, suffix: row.suffix, endpointGrants }
+    : null;
 }
 
 /**
@@ -318,11 +436,14 @@ export type AdminApiTokenListItem = {
   revokedAt: string | null;
   /** 未吊销且未过期（SQL 内按 NOW() 判定） */
   active: boolean;
+  permissionProfile: string;
+  /** null 表示存量行授权结构异常，不作九读回落。 */
+  endpointGrants: readonly ManageEndpointId[] | null;
 };
 
 /** 某管理员的全部 token（上限 5 个，无需分页），新签在前 */
 export async function listAdminApiTokens(userId: number): Promise<AdminApiTokenListItem[]> {
-  return getWebDb()
+  const rows = await getWebDb()
     .select({
       id: adminApiTokens.id,
       name: adminApiTokens.name,
@@ -333,10 +454,19 @@ export async function listAdminApiTokens(userId: number): Promise<AdminApiTokenL
       lastUsedIp: adminApiTokens.lastUsedIp,
       revokedAt: adminApiTokens.revokedAt,
       active: sql<boolean>`(${adminApiTokens.revokedAt} IS NULL AND ${adminApiTokens.expiresAt} > NOW())`,
+      ...permissionColumns,
     })
     .from(adminApiTokens)
     .where(eq(adminApiTokens.userId, userId))
     .orderBy(desc(adminApiTokens.createdAt));
+  return rows.map(({ permissionSnapshot, snapshotIsSqlNull, ...item }) => ({
+    ...item,
+    endpointGrants: endpointGrantsOf({
+      permissionProfile: item.permissionProfile,
+      permissionSnapshot,
+      snapshotIsSqlNull,
+    }),
+  }));
 }
 
 // ── 凭据卫生清扫（api-tokens.cleanup 调度任务，M20 Step 6；顺还 sessions/email_tokens 两笔 GC 旧账） ──

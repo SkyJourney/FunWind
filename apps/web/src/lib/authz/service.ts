@@ -13,7 +13,7 @@ import {
 } from "./evaluator";
 import { getAuthzSnapshot } from "./snapshot";
 import { getCurrentSubject } from "./subject";
-import type { Decision, Subject } from "./types";
+import type { AuthzSnapshot, Decision, Subject } from "./types";
 
 /**
  * 权限服务：评估器 + 规则快照 + 主体 的组合入口。
@@ -25,8 +25,9 @@ export async function checkPermission(
   subject: Subject,
   permissionKey: string,
   ctx: EvalContext = {},
+  snapshot?: AuthzSnapshot,
 ): Promise<Decision> {
-  return evaluate(subject, permissionKey, ctx, await getAuthzSnapshot());
+  return evaluate(subject, permissionKey, ctx, snapshot ?? (await getAuthzSnapshot()));
 }
 
 /** 当前请求用户的便捷封装 */

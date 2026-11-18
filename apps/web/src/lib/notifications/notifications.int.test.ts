@@ -3,22 +3,29 @@
  * 通知核心集成测试（M8 S4）：notify 聚合与已读新开、偏好与强制类型、模块停用、
  * 事件 → 通知（经真实模块消费者）、读取契约（unreadSummary/list 合并公告/markRead）。
  */
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import {
   announcementReads,
   DEMO,
+  eventOutbox,
   getWebDb,
   notificationPreferences,
+  notificationReceipts,
   notifications,
   siteSettings,
   users,
 } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { sql } from "drizzle-orm";
+import { dispatchOutboxRows, drainOutbox, enqueueEventInTx } from "@/lib/events/outbox";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 // 模块注册表求值：notify 依赖 notificationTypes 声明（与事件消费者同源）
 import "@/modules";
 import { emit } from "@/modules/kernel/bus";
+import {
+  MODERATION_NOTIFICATION_DELIVERY_POLICY as reviewPolicy,
+  type EventDeliveryContext,
+} from "@/modules/kernel/types";
+import { notificationsModule } from "@/modules/notifications";
 import { notify } from "./notify";
 import { listFeed, markRead, unreadSummary } from "./queries";
 
@@ -256,7 +263,6 @@ describe.skipIf(skipDb)("事件 → 通知（真实模块消费者）", () => {
       .execute(sql`INSERT INTO event_outbox (event_name, payload, actor_id, source, created_at)
       VALUES ('gate.unlocked', JSON_OBJECT('gateId', 990001, 'userId', ${TEAM}, 'authorId', ${author}, 'price', 10), ${TEAM}, 'gate', NOW())`);
     // 快路径失败（注入抛错收集器 → 行保持 pending）
-    const { drainOutbox } = await import("@/lib/events/outbox");
     await drainOutbox({
       emitter: async (name, payload) => {
         void name;
@@ -418,5 +424,226 @@ describe.skipIf(skipDb)("读取契约", () => {
       .where(eq(announcementReads.userId, TEAM));
     expect(rows2.length).toBe(rows1.length);
     expect((await unreadSummary(TEAM)).announcement).toBe(0);
+  });
+});
+
+describe.skipIf(skipDb)("M20.2 审核站内投递凭证", () => {
+  const delivery = (outboxId: number): EventDeliveryContext => ({
+    outboxId,
+    originalSource: "review",
+    deliveryPolicy: reviewPolicy,
+  });
+  const receiptsFor = (outboxId: number) =>
+    db().select().from(notificationReceipts).where(eq(notificationReceipts.outboxId, outboxId));
+  const groupRows = (groupKey: string) =>
+    db().select().from(notifications).where(eq(notifications.groupKey, groupKey));
+
+  it("同一审核回帖并发只聚合一次；引用通知保留楼层，已读后重放不开新未读", async () => {
+    const reply = {
+      threadId: 900002,
+      postId: 990201,
+      forumId: 902,
+      authorId: TEAM,
+      threadAuthorId: DEMO.xiaoyi,
+      replyToPostId: 900003,
+      replyToAuthorId: ALICE,
+    };
+    const context = delivery(990201);
+    const consume = notificationsModule.events["thread.replied"];
+    const [threadGroup, quotedGroup] = ["thread:900002:replied", "post:900003:replied"];
+    const unreadBefore = (await unreadSummary(ALICE)).interaction;
+
+    await Promise.all(Array.from({ length: 8 }, () => consume(reply, context)));
+    const thread = await groupRows(threadGroup);
+    const quoted = await groupRows(quotedGroup);
+    expect(thread).toMatchObject([
+      { userId: DEMO.xiaoyi, type: "post.replied", data: { count: 1, actorIds: [TEAM] } },
+    ]);
+    expect(quoted).toMatchObject([
+      { userId: ALICE, type: "post.reply_to", data: { count: 1, floor: 2, actorIds: [TEAM] } },
+    ]);
+    expect(await receiptsFor(context.outboxId)).toMatchObject([
+      { type: "post.replied", userId: DEMO.xiaoyi },
+      { type: "post.reply_to", userId: ALICE },
+    ]);
+    expect((await unreadSummary(ALICE)).interaction).toBe(unreadBefore + 1);
+
+    await markRead(DEMO.xiaoyi, { ids: [thread[0].id] });
+    await markRead(ALICE, { ids: [quoted[0].id] });
+    const [readThread, readQuoted] = await Promise.all([
+      groupRows(threadGroup),
+      groupRows(quotedGroup),
+    ]);
+    await consume(reply, context);
+    expect(await groupRows(threadGroup)).toEqual(readThread);
+    expect(await groupRows(quotedGroup)).toEqual(readQuoted);
+    expect((await unreadSummary(ALICE)).interaction).toBe(unreadBefore);
+
+    // 后续真实回帖使用新凭证，正常新开未读；被引用人是楼主时不重复通知。
+    await consume(
+      { ...reply, postId: 990202, replyToAuthorId: reply.threadAuthorId, replyToPostId: 900102 },
+      delivery(990202),
+    );
+    const newThread = await groupRows(threadGroup);
+    expect(newThread).toHaveLength(2);
+    expect(newThread.find((r) => r.readAt === null)?.data).toMatchObject({ count: 1 });
+    expect(await receiptsFor(990202)).toMatchObject([
+      { type: "post.replied", userId: DEMO.xiaoyi },
+    ]);
+  });
+
+  it("未标记或标识无效的回帖按旧规则聚合，不按来源或载荷猜测审核策略", async () => {
+    const reply = {
+      threadId: 900003,
+      postId: 990203,
+      forumId: 902,
+      authorId: TEAM,
+      threadAuthorId: ALICE,
+    };
+    await emit("thread.replied", reply, { source: "review" });
+    const consume = notificationsModule.events["thread.replied"];
+    const legacy = { outboxId: 990203, originalSource: "review" };
+    await consume(reply, legacy);
+    await consume(reply, legacy);
+    const invalidIds = [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1];
+    for (const id of invalidIds) await consume(reply, delivery(id));
+    expect(await groupRows("thread:900003:replied")).toMatchObject([
+      { data: { count: 3 + invalidIds.length } },
+    ]);
+    expect(await receiptsFor(legacy.outboxId)).toHaveLength(0);
+  });
+
+  it("拒绝重放跨快路径和补派去重，同一帖子的新驳回独立保存理由", async () => {
+    const postId = 900107;
+    const rejection = { postId, operatorId: DEMO.admin, action: "reject" } as const;
+    for (const reason of ["旧驳回", "旧驳回重放"]) {
+      await emit("content.moderated", { ...rejection, reason }, { source: "review" });
+    }
+    const enqueueRejection = (reason: string) =>
+      db().transaction((tx) =>
+        enqueueEventInTx(
+          tx,
+          "content.moderated",
+          { ...rejection, reason },
+          {
+            source: "review",
+            deliveryPolicy: reviewPolicy,
+          },
+        ),
+      );
+    const first = await enqueueRejection("第一轮新理由");
+    await dispatchOutboxRows([first]);
+    expect(await receiptsFor(first.id)).toMatchObject([
+      { type: "content.rejected", userId: DEMO.xiaoyi },
+    ]);
+    // 模拟站内事务已提交，但出箱完成标记未持久化。
+    await db().update(eventOutbox).set({ dispatchedAt: null }).where(eq(eventOutbox.id, first.id));
+    expect(await drainOutbox()).toMatchObject({ dispatched: 1, failed: 0 });
+    const second = await enqueueRejection("第二轮新理由");
+    await drainOutbox();
+    expect(await receiptsFor(second.id)).toMatchObject([
+      { type: "content.rejected", userId: DEMO.xiaoyi },
+    ]);
+    const rows = await db()
+      .select({ data: notifications.data })
+      .from(notifications)
+      .where(and(eq(notifications.targetId, postId), eq(notifications.type, "content.rejected")))
+      .orderBy(asc(notifications.id));
+    expect(rows.map((r) => r.data)).toEqual(
+      ["旧驳回", "第一轮新理由", "第二轮新理由"].map((reason) => ({ reason })),
+    );
+
+    // 标记不能让非审批动作改变历史 dedup 行为。
+    const hide = (outboxId: number) =>
+      notificationsModule.events["content.moderated"](
+        { ...rejection, action: "hide" },
+        delivery(outboxId),
+      );
+    await hide(990204);
+    await hide(990205);
+    expect(await unreadOf(DEMO.xiaoyi, "content.hidden")).toBe(1);
+    expect(await receiptsFor(990204)).toHaveLength(0);
+    expect(await receiptsFor(990205)).toHaveLength(0);
+  });
+
+  it("聚合更新故障回滚凭证和计数，故障恢复后同一事件可重试", async () => {
+    const groupKey = "thread:990206:replied";
+    const initial = {
+      type: "post.replied",
+      recipients: [ALICE],
+      actorId: TEAM,
+      groupKey,
+    };
+    await notify(initial);
+    const before = await groupRows(groupKey);
+    const input = { ...initial, outboxId: 990206 };
+    await db()
+      .execute(sql`CREATE TRIGGER fail_review_notification_update BEFORE UPDATE ON notifications
+      FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '测试通知更新失败'`);
+    try {
+      await expect(notify(input)).rejects.toHaveProperty("cause.code", "ER_SIGNAL_EXCEPTION");
+      expect(await receiptsFor(input.outboxId)).toHaveLength(0);
+      expect(await groupRows(groupKey)).toEqual(before);
+    } finally {
+      await db().execute(sql`DROP TRIGGER fail_review_notification_update`);
+    }
+    await notify(input);
+    expect(await groupRows(groupKey)).toMatchObject([{ data: { count: 2 } }]);
+    expect(await receiptsFor(input.outboxId)).toHaveLength(1);
+  });
+
+  it("通知唯一键冲突不视为凭证重放，通知及凭证一起回滚", async () => {
+    const input = {
+      type: "content.approved",
+      recipients: [ALICE],
+      dedupKey: () => "review-test-collision",
+    };
+    await notify(input);
+    const marked = { ...input, outboxId: 990207 };
+    await expect(notify(marked)).rejects.toHaveProperty("cause.code", "ER_DUP_ENTRY");
+    expect(await receiptsFor(marked.outboxId)).toHaveLength(0);
+    await notify({ ...marked, dedupKey: () => "review-test-no-collision" });
+    expect(await receiptsFor(marked.outboxId)).toHaveLength(1);
+  });
+
+  it("凭证插入触发的其他表主键冲突会抛出；关闭偏好的投递不会在重放时补发", async () => {
+    const preference = {
+      userId: TEAM,
+      type: "post.replied",
+      channel: "in_app",
+      enabled: false,
+    } as const;
+    const input = {
+      type: preference.type,
+      recipients: [TEAM],
+      groupKey: "thread:990208:replied",
+      outboxId: 990208,
+    };
+    await db().insert(notificationPreferences).values(preference);
+    await db()
+      .execute(sql`CREATE TRIGGER fail_review_receipt_insert AFTER INSERT ON notification_receipts
+      FOR EACH ROW INSERT INTO notification_preferences (user_id, type, channel, enabled)
+      VALUES (NEW.user_id, NEW.type, 'in_app', FALSE)`);
+    try {
+      await expect(notify(input)).rejects.toHaveProperty("cause.code", "ER_DUP_ENTRY");
+      expect(await receiptsFor(input.outboxId)).toHaveLength(0);
+      expect(await groupRows(input.groupKey)).toHaveLength(0);
+    } finally {
+      await db().execute(sql`DROP TRIGGER fail_review_receipt_insert`);
+    }
+    await notify(input);
+    expect(await receiptsFor(input.outboxId)).toHaveLength(1);
+    await db()
+      .delete(notificationPreferences)
+      .where(
+        and(
+          eq(notificationPreferences.userId, TEAM),
+          eq(notificationPreferences.type, preference.type),
+        ),
+      );
+    await notify(input);
+    expect(await groupRows(input.groupKey)).toHaveLength(0);
+    await notify({ ...input, outboxId: 990209 });
+    expect(await groupRows(input.groupKey)).toHaveLength(1);
   });
 });

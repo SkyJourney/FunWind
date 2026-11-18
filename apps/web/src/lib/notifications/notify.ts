@@ -1,7 +1,12 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { getNotificationTypeDecls } from "@/modules/kernel/registry";
 import { getEnabledModuleIds } from "@/modules/kernel/state";
-import { getWebDb, notificationPreferences, notifications } from "@funwind/db";
+import {
+  getWebDb,
+  notificationPreferences,
+  notificationReceipts,
+  notifications,
+} from "@funwind/db";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import { isDuplicateKey } from "@/lib/auth/register";
 import { isDeadlock } from "@/lib/points/retry";
@@ -27,7 +32,38 @@ export interface NotifyInput {
    * 同一业务动作对同一接收人应稳定（如 `mod:{postId}:reject:{userId}`）；聚合类型不适用（行原位更新）。
    */
   dedupKey?: (userId: number) => string;
+  /** 已启用站内投递凭证的出箱事件 ID；同一事件、类型、收件人只处理一次。 */
+  outboxId?: number;
   data?: Record<string, unknown>;
+}
+
+/** 只识别凭证表主键冲突，不把触发器等其它写入的冲突当成成功。 */
+function isReceiptDuplicate(error: unknown): boolean {
+  type MysqlError = { code?: string; errno?: number; sqlMessage?: string };
+  const err = error as (MysqlError & { cause?: MysqlError }) | null | undefined;
+  return [err, err?.cause].some(
+    (e) =>
+      (e?.code === "ER_DUP_ENTRY" || e?.errno === 1062) &&
+      e.sqlMessage?.endsWith("'notification_receipts.PRIMARY'"),
+  );
+}
+
+/** 在通知事务内抢占凭证；返回 false 表示同一站内投递已处理。 */
+async function reserveReceipt(
+  tx: DbTx,
+  outboxId: number,
+  type: string,
+  userId: number,
+): Promise<boolean> {
+  try {
+    await tx
+      .insert(notificationReceipts)
+      .values({ outboxId, type, userId, createdAt: nowBeijingWallTime() });
+    return true;
+  } catch (error) {
+    if (isReceiptDuplicate(error)) return false;
+    throw error;
+  }
 }
 
 /** 用户偏好：无记录 = in_app 开；返回 false 表示该用户关掉了此类型的站内通知 */
@@ -103,6 +139,10 @@ async function aggregateUnread(
  * 类型未注册（或所属模块停用）→ 抛错：调用方是消费者，抛错 = 补派，不是静默丢失。
  */
 export async function notify(input: NotifyInput): Promise<void> {
+  const { outboxId } = input;
+  if (outboxId !== undefined && (!Number.isSafeInteger(outboxId) || outboxId <= 0)) {
+    throw new Error("[notify] 出箱事件 ID 必须为正安全整数");
+  }
   const enabled = await getEnabledModuleIds();
   const decl = getNotificationTypeDecls().find(
     (d) => d.def.key === input.type && enabled.has(d.moduleId),
@@ -115,11 +155,14 @@ export async function notify(input: NotifyInput): Promise<void> {
   const db = getWebDb();
   for (const userId of new Set(input.recipients)) {
     if (userId <= 0) continue;
-    // 重试一次：并发双 INSERT 时唯一索引 uq_nf_open_group 让败者抛 duplicate key——
-    // 重跑整笔（胜者行已提交，FOR UPDATE 聚合路径命中）。（事务已回滚，重放安全）
+    const canAggregate = decl.def.aggregate && Boolean(input.groupKey);
     for (let attempt = 1; ; attempt++) {
       try {
         await db.transaction(async (tx) => {
+          // 偏好关闭也是一次已处理的站内投递，补派不应因偏好变化而补发旧通知。
+          if (outboxId !== undefined && !(await reserveReceipt(tx, outboxId, input.type, userId))) {
+            return;
+          }
           // mandatory 短路偏好（docs/NOTIFICATIONS.md 实现决定 3）
           if (!decl.def.mandatory && !(await inAppEnabled(tx, userId, input.type))) return;
 
@@ -153,18 +196,16 @@ export async function notify(input: NotifyInput): Promise<void> {
         });
         break;
       } catch (e) {
-        // 聚合并发：撞 uq_nf_open_group（duplicate key）或间隙锁死锁（ER_LOCK_DEADLOCK）
-        //   → 重跑整笔（胜者行已提交，FOR UPDATE 聚合路径命中）。事务已回滚，重放安全。
-        // dedup 重放：撞 uq_nf_dedup → 幂等跳过（成功返回）。
+        // 聚合双写或持锁死锁时重跑整笔；失败事务里的凭证也已回滚。
         if (
           attempt < 5 &&
-          (isDuplicateKey(e) || isDeadlock(e)) &&
-          decl.def.aggregate &&
-          input.groupKey
+          ((canAggregate && isDuplicateKey(e)) ||
+            ((canAggregate || outboxId !== undefined) && isDeadlock(e)))
         ) {
           continue;
         }
-        if (isDuplicateKey(e) && input.dedupKey) break;
+        // 历史路径保留原有 dedup；新路径不把通知写入的约束错误当成已处理。
+        if (outboxId === undefined && isDuplicateKey(e) && input.dedupKey) break;
         throw e;
       }
     }

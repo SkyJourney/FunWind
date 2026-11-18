@@ -193,6 +193,8 @@ created_via varchar(16)  NOT NULL DEFAULT 'admin'（预留）
 - 不做 OpenAPI 生成（手写 docs/MANAGE-API.md）；不做 Redis 分布式限流（注释保留升级位）。
 - 不做 token 权限子集裁剪（D1）。
 
+> **后续交接（2026-11-18）**：D1、D3 与本节保留 M20 上线时的历史范围。后续由 [M20.2](M20.2-manage-api-writes.md) 先交付令牌域权限矩阵和首批 REST 写端点，不再由 M21 工具反推 REST。旧令牌迁移后仅保留原九个 GET 的令牌授权，仍按持有人实时权限裁剪，不获得写权。M21 只消费已发布契约，令牌自管理仍不通过 REST。
+
 ## 12. 测试与门禁清单
 
 - 单测：信封/错误码表、guard 纯逻辑分支、签发/吊销/上限/节流、resolveContentScope。

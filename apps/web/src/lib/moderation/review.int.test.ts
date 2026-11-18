@@ -12,6 +12,7 @@ import {
   eventOutbox,
   forums,
   getWebDb,
+  manageApiIdempotency,
   notifications,
   pointLedger,
   posts,
@@ -21,20 +22,29 @@ import {
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import * as outbox from "@/lib/events/outbox";
 import * as dbPackage from "@funwind/db";
+import { assignUserRole, createCustomRole, grantRolePermission } from "@/lib/authz/admin";
+import { checkPermission } from "@/lib/authz/service";
 import { loadSubject } from "@/lib/authz/subject";
 import { invalidateAuthzSnapshot } from "@/lib/authz/snapshot";
 import type { Subject } from "@/lib/authz/types";
+import { createForum, updateForum } from "@/lib/forums/admin";
+import { ManageApiError } from "@/lib/manage/errors";
+import { runIdempotentManageWrite } from "@/lib/manage/idempotency";
+import { makeActiveUser } from "@/lib/manage/int-fixtures";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import {
   approveReview,
   disableContent,
   hidePost,
   listContentReviews,
+  prepareApiReview,
   rejectReview,
 } from "./review";
-import { listContentsPage } from "./contents";
+import { listContentsPage, loadContentDetail, prepareApiThreadLock } from "./contents";
 import { createReply, createThread } from "@/lib/posting/service";
+import { editPost } from "@/lib/posting/mutate";
 import { lockUserStats } from "@/lib/locks";
+import { POINTS_TX_OPTIONS } from "@/lib/points/retry";
 
 let tdb: TempDb;
 let admin: Subject;
@@ -53,11 +63,13 @@ async function postState(postId: number): Promise<string> {
 }
 
 /** 在审核版块发一篇待审主题，返回 {threadId, postId} */
-async function seedPendingThread(): Promise<{ threadId: number; postId: number }> {
+async function seedPendingThread(
+  forumId = REVIEW_FORUM,
+): Promise<{ threadId: number; postId: number }> {
   const author = await loadSubject(DEMO.xiaoyi);
   const out = await createThread(
     author,
-    { forumId: REVIEW_FORUM, title: `待审 ${Date.now()}-${Math.random()}`, source: "待审正文" },
+    { forumId, title: `待审 ${Date.now()}-${Math.random()}`, source: "待审正文" },
     {},
   );
   if (!out.ok) throw new Error(out.message);
@@ -86,6 +98,242 @@ afterAll(async () => {
 });
 
 afterEach(() => vi.restoreAllMocks());
+
+describe.skipIf(skipDb)("管理 API 审核业务", () => {
+  const apiActor = { ...ACTOR, via: "api" as const };
+  const trace = { requestId: "review-integration", tokenSuffix: "tail0001" };
+
+  it("以详情版本审查真实编辑和重提，锁与实际执行分离，审计和 outbox 随事务提交", async () => {
+    const { threadId, postId } = await seedPendingThread();
+    const author = await loadSubject(DEMO.xiaoyi);
+    async function version() {
+      const detail = await loadContentDetail("thread", threadId, [REVIEW_FORUM]);
+      if (!detail.ok || detail.detail.kind !== "thread") throw new Error("未找到主题详情");
+      return detail.detail.firstPost.editedAt;
+    }
+    async function execute(decision: "approve" | "reject", expectedEditedAt: string | null) {
+      const prepared = await prepareApiReview(
+        admin,
+        postId,
+        { decision, expectedEditedAt, ...(decision === "reject" ? { reason: "  请修改  " } : {}) },
+        apiActor,
+        trace,
+      );
+      if (!prepared.ok) throw new Error(prepared.code);
+      return db().transaction(async (tx) => {
+        const locked = await prepared.lock(tx);
+        if (!locked.ok) throw new Error(locked.code);
+        return locked.execute();
+      }, POINTS_TX_OPTIONS);
+    }
+
+    expect(await version()).toBeNull();
+    const rejected = await execute("reject", null);
+    expect(rejected).toMatchObject({ ok: true, data: { postId, threadId, state: "rejected" } });
+    await expect(
+      editPost(author, {
+        postId,
+        title: "审核重提新标题",
+        source: "再次提交正文",
+        expectedEditedAt: null,
+      }),
+    ).resolves.toMatchObject({ ok: true, state: "pending", resubmitted: true });
+    const freshVersion = await version();
+    expect(freshVersion).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+    expect(await execute("approve", null)).toMatchObject({ ok: false, code: "conflict" });
+    expect(await postState(postId)).toBe("pending");
+
+    const approved = await execute("approve", freshVersion);
+    if (!approved.ok) throw new Error(approved.code);
+    expect(approved.data).toEqual({ postId, threadId, state: "visible" });
+    const [created] = await outboxOf("thread.created", { k: "postId", v: postId });
+    expect(created.payload).toMatchObject({ title: "审核重提新标题" });
+    expect(created.dispatchedAt).toBeNull();
+    await approved.afterCommit?.();
+    expect(
+      (await outboxOf("thread.created", { k: "postId", v: postId }))[0].dispatchedAt,
+    ).not.toBeNull();
+
+    const replay = await prepareApiReview(
+      admin,
+      postId,
+      { decision: "approve", expectedEditedAt: freshVersion },
+      apiActor,
+      trace,
+    );
+    if (!replay.ok) throw new Error(replay.code);
+    await db().transaction(async (tx) => {
+      const locked = await replay.lock(tx);
+      expect(locked.ok).toBe(true);
+    }, POINTS_TX_OPTIONS);
+    expect(await listContentReviews(postId)).toMatchObject([
+      { decision: "approved", note: "" },
+      { decision: "rejected", note: "请修改" },
+    ]);
+    const audits = await db()
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.targetType, "post"), eq(auditLog.targetId, String(postId))))
+      .orderBy(desc(auditLog.id));
+    expect(audits.filter((row) => row.action.startsWith("post.state."))).toMatchObject([
+      {
+        actorId: DEMO.admin,
+        beforeJson: { state: "pending" },
+        afterJson: {
+          state: "visible",
+          kind: "thread",
+          threadId,
+          reason: null,
+          via: "api",
+          ...trace,
+        },
+      },
+      {
+        actorId: DEMO.admin,
+        beforeJson: { state: "pending" },
+        afterJson: {
+          state: "rejected",
+          kind: "thread",
+          threadId,
+          reason: "请修改",
+          via: "api",
+          ...trace,
+        },
+      },
+    ]);
+  });
+
+  it("旧事务快照下同 ID 版块迁出授权父级，拒绝新审核、锁帖与实际幂等回放", async () => {
+    const parentId = 900;
+    const forumInput = {
+      parentId,
+      kind: "forum" as const,
+      name: "父级授权审核夹具",
+      description: null,
+      sortOrder: 0,
+      isListed: true,
+    };
+    const forum = await createForum(ACTOR, forumInput);
+    if (!forum.ok) throw new Error(forum.code);
+    const forumId = forum.id;
+    const settings = {
+      ...forumInput,
+      readPolicy: "inherit" as const,
+      writePolicy: "inherit" as const,
+      reviewPolicy: "all" as const,
+      isArchived: false,
+    };
+    expect(await updateForum(ACTOR, forumId, settings)).toEqual({ ok: true });
+    const roleKey = "review-parent-moderator";
+    await createCustomRole(ACTOR, roleKey, "父级授权版主", "");
+    await grantRolePermission(ACTOR, roleKey, "forum.moderate", parentId);
+    const moderatorId = await makeActiveUser("review_parent_moderator");
+    await assignUserRole(ACTOR, moderatorId, roleKey, 0, null, "继承权限回归夹具");
+    const subject = await loadSubject(moderatorId);
+    expect((await checkPermission(subject, "site.admin")).allowed).toBe(false);
+    expect((await checkPermission(subject, "forum.moderate", { forumId })).allowed).toBe(true);
+
+    const done = await seedPendingThread(forumId);
+    const pending = await seedPendingThread(forumId);
+    const actor = { ...apiActor, userId: moderatorId };
+    const input = { decision: "approve", expectedEditedAt: null } as const;
+    const replay = await prepareApiReview(subject, done.postId, input, actor, trace);
+    const newReview = await prepareApiReview(subject, pending.postId, input, actor, trace);
+    const lock = await prepareApiThreadLock(subject, pending.threadId, true, actor, trace);
+    if (!replay.ok || !newReview.ok || !lock.ok) throw new Error("无法准备治理操作");
+    const identity = {
+      tokenId: "a".repeat(64),
+      endpoint: "posts.review" as const,
+      idempotencyKey: "parent-scope-replay-key",
+      requestId: trace.requestId,
+    };
+    const applyReview = (move = false) =>
+      runIdempotentManageWrite(identity, done.postId, input, async (tx) => {
+        if (move) {
+          const readParent = async () =>
+            (
+              await tx
+                .select({ parentId: forums.parentId })
+                .from(forums)
+                .where(eq(forums.id, forumId))
+            )[0]?.parentId;
+          expect(await readParent()).toBe(parentId);
+          // 第二条连接在当前事务的可重复读视图建立后，通过真实管理服务迁版并提交。
+          expect(await updateForum(ACTOR, forumId, { ...settings, parentId: 0 })).toEqual({
+            ok: true,
+          });
+          expect(await readParent()).toBe(parentId);
+        }
+        const target = await replay.lock(tx);
+        if (!target.ok) throw new ManageApiError("not_found");
+        return async () => {
+          const result = await target.execute();
+          if (!result.ok) throw new Error(result.code);
+          return result;
+        };
+      });
+    expect(await applyReview()).toEqual({
+      postId: done.postId,
+      threadId: done.threadId,
+      state: "visible",
+    });
+    const readReplay = () =>
+      db()
+        .select()
+        .from(manageApiIdempotency)
+        .where(eq(manageApiIdempotency.tokenId, identity.tokenId));
+    const cached = await readReplay();
+    expect(cached).toHaveLength(1);
+    await expect(applyReview(true)).rejects.toMatchObject({ code: "not_found" });
+    const missingReview = await prepareApiReview(subject, 99_999_999, input, actor, trace);
+    const missingLock = await prepareApiThreadLock(subject, 99_999_999, true, actor, trace);
+    expect(missingReview).toMatchObject({ ok: false, code: "not_found" });
+    expect(missingLock).toMatchObject({ ok: false, code: "not_found" });
+    expect(await db().transaction((tx) => newReview.lock(tx))).toEqual(missingReview);
+    expect(await db().transaction((tx) => lock.lock(tx))).toEqual(missingLock);
+    expect(await readReplay()).toEqual(cached);
+    expect(await postState(pending.postId)).toBe("pending");
+    expect(await listContentReviews(pending.postId)).toHaveLength(0);
+    expect(await listContentReviews(done.postId)).toHaveLength(1);
+    expect(await outboxOf("content.moderated", { k: "postId", v: pending.postId })).toHaveLength(0);
+    expect(await outboxOf("content.moderated", { k: "postId", v: done.postId })).toHaveLength(1);
+    expect(await loadContentDetail("thread", pending.threadId, null)).toMatchObject({
+      ok: true,
+      detail: { forumId, isLocked: false },
+    });
+  });
+
+  it("调用方回滚时状态、审核历史、审计和 outbox 均不提交", async () => {
+    const { postId } = await seedPendingThread();
+    const prepared = await prepareApiReview(
+      admin,
+      postId,
+      { decision: "approve", expectedEditedAt: null },
+      apiActor,
+      trace,
+    );
+    if (!prepared.ok) throw new Error(prepared.code);
+    await expect(
+      db().transaction(async (tx) => {
+        const locked = await prepared.lock(tx);
+        if (!locked.ok) throw new Error(locked.code);
+        expect((await locked.execute()).ok).toBe(true);
+        throw new Error("回滚本次操作");
+      }, POINTS_TX_OPTIONS),
+    ).rejects.toThrow("回滚本次操作");
+    expect(await postState(postId)).toBe("pending");
+    expect(await listContentReviews(postId)).toEqual([]);
+    expect(await outboxOf("content.moderated", { k: "postId", v: postId })).toEqual([]);
+    expect(
+      await db()
+        .select()
+        .from(auditLog)
+        .where(
+          and(eq(auditLog.action, "post.state.visible"), eq(auditLog.targetId, String(postId))),
+        ),
+    ).toEqual([]);
+  });
+});
 
 describe.skipIf(skipDb)("审核动作（M9）", () => {
   it("approve：pending→visible、content_reviews 落行、补发 thread.created、计数就位、作者积分入账", async () => {
@@ -276,6 +524,50 @@ describe.skipIf(skipDb)("审核动作（M9）", () => {
     expect(cr.note).toBe("与版块主题无关");
 
     // 作者通知在 S4 接线后由 notifications.int.test 断言（content.moderated 消费者）
+  });
+
+  it("真实编辑重提后第二轮驳回独立通知，补派不重发各轮", async () => {
+    const { postId } = await seedPendingThread();
+    expect(await rejectReview(admin, postId, "第一轮：缺少引用", ACTOR)).toMatchObject({
+      ok: true,
+    });
+    const author = await loadSubject(DEMO.xiaoyi);
+    expect(
+      await editPost(author, {
+        postId,
+        title: "补充引用后重提",
+        source: "回填的正文",
+        expectedEditedAt: null,
+      }),
+    ).toMatchObject({ ok: true, resubmitted: true });
+    expect(await rejectReview(admin, postId, "第二轮：请补署名", ACTOR)).toMatchObject({
+      ok: true,
+    });
+
+    const rows = await outboxOf("content.moderated", { k: "postId", v: postId });
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.deliveryPolicy === "moderation_notification_v1")).toBe(true);
+    async function reasons() {
+      const result = await db()
+        .select({ data: notifications.data })
+        .from(notifications)
+        .where(
+          and(
+            eq(notifications.userId, DEMO.xiaoyi),
+            eq(notifications.type, "content.rejected"),
+            eq(notifications.targetId, postId),
+          ),
+        )
+        .orderBy(notifications.id);
+      return result.map((row) => (row.data as { reason?: string } | null)?.reason);
+    }
+    const expected = ["第一轮：缺少引用", "第二轮：请补署名"];
+    expect(await reasons()).toEqual(expected);
+    for (const row of rows) {
+      await db().update(eventOutbox).set({ dispatchedAt: null }).where(eq(eventOutbox.id, row.id));
+    }
+    await outbox.drainOutbox();
+    expect(await reasons()).toEqual(expected);
   });
 
   it("reject 空理由拒绝；非 pending 拒绝拒绝", async () => {

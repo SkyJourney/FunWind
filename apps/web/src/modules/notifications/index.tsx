@@ -1,8 +1,18 @@
-import { defineModule } from "../kernel/types";
+import {
+  defineModule,
+  MODERATION_NOTIFICATION_DELIVERY_POLICY,
+  type EventDeliveryContext,
+} from "../kernel/types";
 import { NOTIFICATION_TYPE_SPECS } from "@/lib/notifications/render";
 import { notify } from "@/lib/notifications/notify";
-import { securityEmailEnabled, sendUserEmail, userEmailEnabled } from "@/lib/notifications/email";
+import {
+  securityEmailEnabled,
+  sendModerationEmail,
+  sendUserEmail,
+  userEmailEnabled,
+} from "@/lib/notifications/email";
 import { trySendUserPush } from "@/lib/push";
+import { sendModerationReplyPush } from "@/lib/push/notify";
 import { appealResultMail, gateSoldMail, restrictionMail, contentApprovedMail } from "@/lib/mail";
 import { getForumModerators } from "@/lib/authz/service";
 import { publicUserDeleted } from "@/lib/identity-expr";
@@ -25,6 +35,13 @@ async function threadTitle(threadId: number): Promise<string | null> {
   return row?.title ?? null;
 }
 
+/** 仅审核生产方显式标记的持久事件启用新站内去重；来源文字本身不能开启。 */
+function moderationOutboxId(delivery?: EventDeliveryContext): number | undefined {
+  if (delivery?.deliveryPolicy !== MODERATION_NOTIFICATION_DELIVERY_POLICY) return undefined;
+  const { outboxId } = delivery;
+  return Number.isSafeInteger(outboxId) && outboxId > 0 ? outboxId : undefined;
+}
+
 export const notificationsModule = defineModule({
   id: "notifications",
   description:
@@ -36,7 +53,8 @@ export const notificationsModule = defineModule({
     mandatory: s.mandatory,
   })),
   events: {
-    "thread.replied": async (p) => {
+    "thread.replied": async (p, delivery) => {
+      const outboxId = moderationOutboxId(delivery);
       const title = await threadTitle(p.threadId);
       const recipients: { userId: number; type: string; groupKey: string; floor?: number }[] = [];
       if (p.threadAuthorId !== p.authorId) {
@@ -74,20 +92,23 @@ export const notificationsModule = defineModule({
           targetType: "thread",
           targetId: p.threadId,
           groupKey: r.groupKey,
+          outboxId,
           data:
             r.type === "post.reply_to" && r.floor !== undefined
               ? { floor: r.floor }
               : { title: title ?? "", threadId: p.threadId },
         });
-        // 推送附带渠道（M18 Step 6）：仅 post.replied（D2 三类之一）；trySendUserPush 永不抛出，不重放事件
+        // 仅楼主收到推送；审核补发采用持久凭证，普通回复仍走原附带通道。
         if (r.type === "post.replied") {
-          await trySendUserPush(r.userId, "post.replied", () => ({
-            kind: "notice",
+          const build = () => ({
+            kind: "notice" as const,
             scene: "post-replied",
             title: "新回复",
             body: `你的主题「${title ?? ""}」有新回复`,
             url: `/t/${p.threadId}`,
-          }));
+          });
+          if (outboxId === undefined) await trySendUserPush(r.userId, "post.replied", build);
+          else await sendModerationReplyPush(outboxId, r.userId);
         }
       }
     },
@@ -220,7 +241,7 @@ export const notificationsModule = defineModule({
       }
     },
 
-    "content.moderated": async (p) => {
+    "content.moderated": async (p, delivery) => {
       const typeByAction: Record<string, string> = {
         approve: "content.approved",
         reject: "content.rejected",
@@ -237,20 +258,27 @@ export const notificationsModule = defineModule({
         .where(eq(posts.id, p.postId))
         .limit(1);
       if (!post || post.authorId === p.operatorId) return;
+      const outboxId =
+        p.action === "approve" || p.action === "reject" ? moderationOutboxId(delivery) : undefined;
       await notify({
         type,
         recipients: [post.authorId],
         actorId: p.operatorId,
         targetType: "post",
         targetId: p.postId,
-        dedupKey: (uid) => `mod:${p.postId}:${p.action}:${uid}`,
+        outboxId,
+        dedupKey: (uid) =>
+          outboxId === undefined
+            ? `mod:${p.postId}:${p.action}:${uid}`
+            : `mod:outbox:${outboxId}:${p.action}:${uid}`,
         data: p.reason ? { reason: p.reason } : {},
       });
       // S6 场景邮件：审核通过（用户偏好，docs/EMAIL-SCENARIOS.md）
       if (type === "content.approved" && (await userEmailEnabled(post.authorId, type))) {
-        await sendUserEmail(post.authorId, ({ brand }) =>
-          contentApprovedMail({ threadId: post.threadId }, brand),
-        );
+        const build = ({ brand }: { brand: Parameters<typeof contentApprovedMail>[1] }) =>
+          contentApprovedMail({ threadId: post.threadId }, brand);
+        if (outboxId === undefined) await sendUserEmail(post.authorId, build);
+        else await sendModerationEmail(outboxId, post.authorId, build);
       }
     },
 

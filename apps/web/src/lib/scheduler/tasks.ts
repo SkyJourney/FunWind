@@ -8,9 +8,8 @@ import "server-only";
 // 放在任务本体而不是调度器里：命令行脚本也直接引用本文件，脚本与服务进程行为一致。
 // 现有的 modules-import-guard 只认 route.ts 与 "use server" 文件，不认定时任务入口，
 // 所以这条由 src/test/scheduler-entry-guard.test.ts 单独钉住。
-import { and, eq } from "drizzle-orm";
-import { roles, userRoles, users } from "@funwind/db";
-import { getWebDb } from "@funwind/db";
+import { and, eq, sql } from "drizzle-orm";
+import { affectedRowsOf, getWebDb, roles, siteSettings, userRoles, users } from "@funwind/db";
 import "@/modules";
 import { listFailedRuns } from "@/lib/ops/runs";
 import { sendOpsAlertMails, type OpsFailureMail } from "@/lib/ops/alert-mail";
@@ -18,6 +17,7 @@ import { notify } from "@/lib/notifications/notify";
 import { getDigestHour } from "@/lib/notifications/email";
 import { runDigestOnce } from "@/lib/notifications/digest";
 import { cleanupStalePushSubscriptions } from "@/lib/push/subscriptions";
+import { cleanupExpiredManageApiIdempotency } from "@/lib/manage/idempotency-cleanup";
 import { cleanupStaleCredentialRows } from "@/lib/manage/tokens";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import { processDueAccountDeletions } from "@/lib/auth/account-deletion";
@@ -215,7 +215,135 @@ export function pushCleanupJob(overrides: Partial<JobDef> = {}): JobDef {
   };
 }
 
-// ── 凭据卫生清扫（M20 Step 6）：token / sessions / email_tokens 三表 GC（顺还 sessions 无 GC 的旧账） ──
+// ── 凭据、管理 API 幂等记录和通知凭证清扫，共用原任务与命名锁 ──
+
+const DELIVERY_BATCH_SIZE = 500;
+const DELIVERY_MAX_BATCHES = 20;
+const DELIVERY_BUDGET_MS = 5000;
+
+/** 按出箱事件最早到期顺序删除一批；派发未结清或无匹配出箱的凭证不能证明安全到期。 */
+async function deleteExpiredNotificationDeliveryBatch(): Promise<number> {
+  // 以数据库北京时间比较出箱创建时间：90 天外送界限外再留 1 天缓冲；站内凭证不参与清扫。
+  // 先从凭证反查出箱，避免遍历完整出箱历史；LIMIT 使派生表物化，外层只按主键删除入选行。
+  const result = await getWebDb().execute(sql`
+    DELETE delivery
+    FROM (
+      SELECT candidate.outbox_id, candidate.channel, candidate.scene, candidate.recipient_id
+      FROM notification_deliveries AS candidate
+      STRAIGHT_JOIN event_outbox AS outbox ON outbox.id = candidate.outbox_id
+      WHERE outbox.dispatched_at IS NOT NULL AND outbox.created_at < NOW() - INTERVAL 91 DAY
+      ORDER BY outbox.created_at, candidate.outbox_id, candidate.channel, candidate.scene, candidate.recipient_id
+      LIMIT ${DELIVERY_BATCH_SIZE}
+    ) AS due
+    STRAIGHT_JOIN notification_deliveries AS delivery
+      ON delivery.outbox_id = due.outbox_id AND delivery.channel = due.channel
+      AND delivery.scene = due.scene AND delivery.recipient_id = due.recipient_id
+  `);
+  return affectedRowsOf(result);
+}
+
+/** 汇总实际删除的凭证数；预算到期后不再发起新批次。 */
+export async function cleanupExpiredNotificationDeliveries(now = () => performance.now()) {
+  const deadline = now() + DELIVERY_BUDGET_MS;
+  let total = 0;
+  for (let batch = 0; batch < DELIVERY_MAX_BATCHES; batch++) {
+    if (batch > 0 && now() >= deadline) break;
+    const removed = await deleteExpiredNotificationDeliveryBatch();
+    total += removed;
+    if (removed < DELIVERY_BATCH_SIZE) break;
+  }
+  return total;
+}
+
+const ORPHAN_SCAN_SIZE = 2000;
+const ORPHAN_DELETE_SIZE = 500;
+const ORPHAN_LEDGERS = {
+  notification_deliveries: ["outbox_id", "channel", "scene", "recipient_id"],
+  notification_receipts: ["outbox_id", "type", "user_id"],
+} as const;
+
+/** 每表扫描一个主键页，只删页内最旧的成熟孤儿；游标跨进程持久化，到表尾回绕。 */
+async function cleanupOrphanedNotificationLedger(ledger: keyof typeof ORPHAN_LEDGERS) {
+  const db = getWebDb();
+  const key = `scheduler.${ledger}.orphan-cursor`;
+  const table = sql.identifier(ledger);
+  const keys = ORPHAN_LEDGERS[ledger];
+  const column = (alias: string, name: string) =>
+    sql`${sql.identifier(alias)}.${sql.identifier(name)}`;
+  const keyList = (alias: string) =>
+    sql.join(
+      keys.map((name) => column(alias, name)),
+      sql`, `,
+    );
+  const id = (i: number) => i === 0 || i === keys.length - 1;
+  const parseCursor = (value: unknown): string[] | null =>
+    Array.isArray(value) &&
+    value.length === keys.length &&
+    value.every((part, i) => typeof part === "string" && (!id(i) || /^\d+$/.test(part)))
+      ? value
+      : null;
+  const [setting] = await db
+    .select({ value: siteSettings.value })
+    .from(siteSettings)
+    .where(eq(siteSettings.key, key));
+  const cursor = parseCursor(setting?.value);
+  const boundary = cursor?.map((value, i) =>
+    id(i) ? sql`CAST(${value} AS UNSIGNED)` : sql`${value}`,
+  );
+  // 将复合键比较展开为索引范围，避免行值比较退化为从主键头部逐行过滤。
+  const after = boundary
+    ? keys.reduceRight(
+        (next, name, i) => {
+          const col = column("candidate", name);
+          return sql`(${col} > ${boundary[i]} OR (${col} = ${boundary[i]} AND ${next}))`;
+        },
+        sql`FALSE`,
+      )
+    : sql`TRUE`;
+  const source = sql`${table} AS candidate FORCE INDEX (PRIMARY)`;
+  // 先记删除前的页尾，防止已删行导致 OFFSET 越界而跳过尚未扫描的下一页。
+  const keyParts = keys.map((name, i) => {
+    const col = column("candidate", name);
+    return id(i) ? sql`CAST(${col} AS CHAR)` : col;
+  });
+  const [end] = await db
+    .select({ cursorValue: sql<unknown>`JSON_ARRAY(${sql.join(keyParts, sql`, `)})` })
+    .from(source)
+    .where(after)
+    .orderBy(keyList("candidate"))
+    .limit(1)
+    .offset(ORPHAN_SCAN_SIZE - 1);
+  const result = await db.execute(sql`
+    DELETE receipt FROM (
+      SELECT ${keyList("page")} FROM (
+        SELECT ${keyList("candidate")}, candidate.created_at
+        FROM ${source} WHERE ${after} ORDER BY ${keyList("candidate")} LIMIT ${ORPHAN_SCAN_SIZE}
+      ) AS page
+      LEFT JOIN event_outbox AS parent ON parent.id = page.outbox_id
+      WHERE parent.id IS NULL AND page.created_at < NOW() - INTERVAL 91 DAY
+      ORDER BY page.created_at, ${keyList("page")}
+      LIMIT ${ORPHAN_DELETE_SIZE}
+    ) AS due
+    STRAIGHT_JOIN ${table} AS receipt ON ${sql.join(
+      keys.map((name) => sql`${column("receipt", name)} = ${column("due", name)}`),
+      sql` AND `,
+    )}
+    LEFT JOIN event_outbox AS parent ON parent.id = receipt.outbox_id
+    WHERE parent.id IS NULL AND receipt.created_at < NOW() - INTERVAL 91 DAY
+  `);
+  const removed = affectedRowsOf(result);
+  if (removed < ORPHAN_DELETE_SIZE) {
+    const next = parseCursor(end?.cursorValue);
+    if (next || cursor) {
+      const data = { value: next, updatedAt: sql`NOW()` };
+      await db
+        .insert(siteSettings)
+        .values({ key, ...data })
+        .onDuplicateKeyUpdate({ set: data });
+    }
+  }
+  return removed;
+}
 
 export const API_TOKENS_CLEANUP_JOB_KEY = "api-tokens.cleanup";
 
@@ -226,8 +354,17 @@ export function apiTokensCleanupJob(overrides: Partial<JobDef> = {}): JobDef {
     timeoutMs: 60_000,
     async run(): Promise<JobResult> {
       const stats = await cleanupStaleCredentialRows();
+      const idempotency = await cleanupExpiredManageApiIdempotency();
+      const notificationDeliveries = await cleanupExpiredNotificationDeliveries();
+      const orphanNotificationDeliveries =
+        await cleanupOrphanedNotificationLedger("notification_deliveries");
+      const orphanNotificationReceipts =
+        await cleanupOrphanedNotificationLedger("notification_receipts");
       return {
-        summary: `tokens=${stats.tokens} sessions=${stats.sessions} emailTokens=${stats.emailTokens}`,
+        summary:
+          `tokens=${stats.tokens} sessions=${stats.sessions} emailTokens=${stats.emailTokens} ` +
+          `idempotency=${idempotency} notificationDeliveries=${notificationDeliveries} ` +
+          `orphanNotificationDeliveries=${orphanNotificationDeliveries} orphanNotificationReceipts=${orphanNotificationReceipts}`,
       };
     },
     ...overrides,

@@ -99,7 +99,11 @@ describe.skipIf(skipDb)("发帖 outbox（M7）", () => {
       .where(eq(eventOutbox.eventName, "thread.created"));
     const row = rows.find((r) => JSON.stringify(r.payload).includes("崩溃窗口主题"))!;
     expect(row.dispatchedAt).not.toBeNull();
-    expect(row.dispatchError).toMatchObject({ message: "注入失败: thread.created" });
+    expect(row.dispatchError).toEqual({
+      message: `dispatch_failed outboxId=${row.id} event=thread.created`,
+      at: expect.any(String),
+      attempts: 1,
+    });
   });
 
   it("回帖：thread.replied 载荷在事务内补齐（threadAuthorId / replyToAuthorId）", async () => {

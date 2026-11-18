@@ -21,5 +21,5 @@ export const GET = manageEndpoint(
     if (!detail) throw new ManageApiError("not_found");
     return manageOk(detail);
   },
-  { endpoint: "users.detail", permission: "admin.users" },
+  { endpoint: "users.detail" },
 );

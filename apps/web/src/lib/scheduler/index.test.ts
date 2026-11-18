@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { Cron } from "croner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanupExpiredManageApiIdempotency } from "@/lib/manage/idempotency-cleanup";
 import { lockNameOf } from "./lock";
 import type { JobDef, Logger } from "./runner";
 import {
@@ -200,6 +201,16 @@ describe("任务清单自检（用真实 croner 解析表达式）", () => {
     expect(byKey["unverified-accounts.purge"]).toBe("30 3 * * *");
   });
 
+  it("凭据、幂等记录与通知台账共用每日北京时间 04:10 的任务，保留原超时", () => {
+    const job = list.find((job) => job.key === "api-tokens.cleanup")!;
+    expect(job).toMatchObject({ cron: "10 4 * * *", timeoutMs: 60_000 });
+    const cron = new Cron(job.cron, { timezone: SCHEDULER_TIMEZONE, paused: true });
+    expect(cron.nextRun(new Date("2026-11-19T00:00:00Z"))?.toISOString()).toBe(
+      "2026-11-19T20:10:00.000Z",
+    );
+    cron.stop();
+  });
+
   it("digest 每小时整点跑，发送时刻由 run 内比对后台配置（M17 Step 1）", () => {
     const job = list.find((j) => j.key === "email.digest")!;
     // 固定每日 cron 会让后台可配的发送时刻失效，所以必须是每小时 + run 内闸门
@@ -226,6 +237,38 @@ describe("任务清单自检（用真实 croner 解析表达式）", () => {
     const byKey = Object.fromEntries(list.map((j) => [j.key, j.timeoutMs]));
     expect(byKey["account-deletion.drain"]).toBe(5 * 60_000);
     expect(byKey["unverified-accounts.purge"]).toBe(10 * 60_000);
+  });
+});
+
+describe("管理 API 幂等记录清扫的停止条件", () => {
+  it("累加多批，遇到不足 1000 行的尾批即停止", async () => {
+    const deleteBatch = vi
+      .fn(async () => 1000)
+      .mockResolvedValueOnce(1000)
+      .mockResolvedValueOnce(23);
+    await expect(cleanupExpiredManageApiIdempotency({ deleteBatch, now: () => 0 })).resolves.toBe(
+      1023,
+    );
+    expect(deleteBatch.mock.calls).toEqual([[1000], [1000]]);
+  });
+
+  it("积压持续且未超时，也最多发起 60 批（60000 行）", async () => {
+    const deleteBatch = vi.fn(async (limit: number) => limit);
+    await expect(cleanupExpiredManageApiIdempotency({ deleteBatch, now: () => 0 })).resolves.toBe(
+      60_000,
+    );
+    expect(deleteBatch).toHaveBeenCalledTimes(60);
+  });
+
+  it.each([5000, 5001])("耗时 %d 毫秒不再开下一批，已完成批次仍计入总数", async (elapsed) => {
+    const now = vi
+      .fn()
+      .mockReturnValueOnce(250)
+      .mockReturnValueOnce(5249)
+      .mockReturnValue(250 + elapsed);
+    const deleteBatch = vi.fn(async () => 1000);
+    await expect(cleanupExpiredManageApiIdempotency({ deleteBatch, now })).resolves.toBe(2000);
+    expect(deleteBatch).toHaveBeenCalledTimes(2);
   });
 });
 

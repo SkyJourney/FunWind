@@ -3,6 +3,64 @@
  */
 import type { Pool, RowDataPacket } from "mysql2/promise";
 
+interface AdminApiTokenColumn extends RowDataPacket {
+  name: string;
+  type: string;
+  nullable: "YES" | "NO";
+  defaultValue: string | null;
+}
+
+interface AdminApiTokenPermissionRow extends RowDataPacket {
+  profile: string | null;
+  snapshot: string | null;
+}
+
+/** 对账权限列默认值、可空性及行内组合；不读取令牌哈希，也不依赖数据库的大小写宽松排序规则。 */
+export async function checkAdminApiTokenPermissions(pool: Pool) {
+  const [columns] = await pool.query<AdminApiTokenColumn[]>(
+    `SELECT COLUMN_NAME AS name, COLUMN_TYPE AS type, IS_NULLABLE AS nullable,
+            COLUMN_DEFAULT AS defaultValue
+       FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'admin_api_tokens'
+        AND COLUMN_NAME IN ('permission_profile', 'permission_snapshot')`,
+  );
+  const profile = columns.find((col) => col.name === "permission_profile");
+  const snapshot = columns.find((col) => col.name === "permission_snapshot");
+  const profileColumnOk =
+    profile?.type === "varchar(32)" &&
+    profile.nullable === "NO" &&
+    profile.defaultValue === "legacy_m20_read";
+  const snapshotColumnOk =
+    snapshot?.type === "json" && snapshot.nullable === "YES" && snapshot.defaultValue === null;
+
+  // 缺列或不是 JSON 时不查询数据，让对账脚本报告结构错误而不是抛出 SQL 异常。
+  if (!profile || snapshot?.type !== "json") {
+    return { profileColumnOk, snapshotColumnOk, invalidRows: null };
+  }
+
+  // 读取 JSON 文本以区分真正的 SQL NULL、JSON null 和双重编码的字符串。
+  const [rows] = await pool.query<AdminApiTokenPermissionRow[]>(
+    `SELECT permission_profile AS profile,
+            CAST(permission_snapshot AS CHAR CHARACTER SET utf8mb4) AS snapshot
+       FROM admin_api_tokens`,
+  );
+  const invalidRows = rows.filter((row) => !isValidAdminApiTokenPermissionRow(row)).length;
+  return { profileColumnOk, snapshotColumnOk, invalidRows };
+}
+
+/** 检查存储结构；具体端点权限 ID 的白名单由应用权限目录负责。 */
+function isValidAdminApiTokenPermissionRow({ profile, snapshot }: AdminApiTokenPermissionRow) {
+  if (profile === "legacy_m20_read") return snapshot === null;
+  if (profile !== "scoped_v2" || snapshot === null) return false;
+  const ids: unknown = JSON.parse(snapshot);
+  return (
+    Array.isArray(ids) &&
+    ids.length > 0 &&
+    ids.every((id) => typeof id === "string" && /^[a-z][a-z0-9.-]*$/.test(id)) &&
+    new Set(ids).size === ids.length
+  );
+}
+
 /** 附件 ↔ 门控的异常计数（docs/ATTACHMENT-GATES.md §4.1），任一项非零都是数据错误 */
 export interface AttachmentGateAnomalies {
   /** gate_id 非空，但没有这条门控 */

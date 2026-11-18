@@ -1,8 +1,9 @@
-import type { EventName, EventPayloads } from "./types";
+import type { EventDeliveryContext, EventName, EventPayloads } from "./types";
 import { getWebDb, eventLog } from "@funwind/db";
 import { nowBeijingWallTime } from "@/lib/datetime";
-import { getEnabledModuleIds } from "./state";
+import { getEnablement } from "./state";
 import { getEventConsumers } from "./registry";
+import { isEventName } from "./event-names";
 
 /**
  * 事件总线：同步顺序派发、逐消费者隔离、event_log 审计落库。
@@ -31,6 +32,8 @@ export interface EmitDeps {
   now?: string; // 北京墙面 DATETIME 字符串
   source?: string;
   actorId?: number;
+  /** 仅由持久事件派发入口提供。 */
+  delivery?: EventDeliveryContext;
 }
 
 export interface EmitResult {
@@ -99,8 +102,17 @@ export async function emit<K extends EventName>(
   payload: EventPayloads[K],
   deps: EmitDeps = {},
 ): Promise<EmitResult> {
+  if (!isEventName(name)) throw new Error("[kernel] 未注册的事件名");
   const now = deps.now ?? nowBeijingWallTime();
-  const enabled = deps.enabledModuleIds ?? (await getEnabledModuleIds());
+  let enabled = deps.enabledModuleIds;
+  if (!enabled) {
+    const state = await getEnablement();
+    // 旧快照可能仍记着已重新启用的消费者为停用，不能据此确认持久派发完成。
+    if (deps.delivery && state.source !== "database") {
+      throw new Error("[kernel] module_state_read_failed");
+    }
+    enabled = state.enabledIds;
+  }
   const writer = deps.writer ?? defaultWriter;
 
   const consumers = getEventConsumers(name).filter((c) => enabled.has(c.moduleId));
@@ -110,10 +122,12 @@ export async function emit<K extends EventName>(
 
   for (const { moduleId, consume } of consumers) {
     try {
-      await consume(payload);
+      if (deps.delivery) await consume(payload, deps.delivery);
+      else await consume(payload);
       dispatched.push({ moduleId });
-    } catch (e) {
-      errors.push({ moduleId, message: e instanceof Error ? e.message : String(e) });
+    } catch {
+      // 异常及其原因可能携带业务载荷；审计只留固定类别和注册表模块 ID。
+      errors.push({ moduleId, message: "consumer_failed" });
     }
   }
 
@@ -127,9 +141,16 @@ export async function emit<K extends EventName>(
       errorJson: errors.length > 0 ? JSON.stringify(errors) : null,
       createdAt: now,
     });
-  } catch (e) {
+  } catch {
     logged = false;
-    console.error(`[kernel] event_log 落库失败（审计降级）: ${name}`, e);
+    const outboxId = deps.delivery?.outboxId;
+    console.error("[kernel] event_log 落库失败（审计降级）", {
+      category: "audit_write_failed",
+      eventName: name,
+      ...(outboxId !== undefined && Number.isSafeInteger(outboxId) && outboxId > 0
+        ? { outboxId }
+        : {}),
+    });
   }
 
   return { dispatched, errors, logged };

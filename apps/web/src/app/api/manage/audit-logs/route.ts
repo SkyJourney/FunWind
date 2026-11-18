@@ -38,5 +38,5 @@ export const GET = manageEndpoint(
     });
     return manageOk(result);
   },
-  { endpoint: "audit-logs", permission: "admin.logs" },
+  { endpoint: "audit-logs" },
 );

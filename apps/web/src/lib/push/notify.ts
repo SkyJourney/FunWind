@@ -1,9 +1,11 @@
 import "server-only";
-import { eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { getWebDb, pushSubscriptions, siteSettings } from "@funwind/db";
 import { rateLimit } from "@/lib/auth/ratelimit";
 import { channelPreferenceEnabled, userActiveRecently } from "@/lib/notifications/email";
-import { trySendPush } from "./transport";
+import { deliverModerationNotification } from "@/lib/notifications/delivery";
+import { DeliveryTransportError } from "@/lib/net/delivery-error";
+import { sendPush, trySendPush } from "./transport";
 import type { PushMessage } from "./types";
 
 /**
@@ -40,14 +42,7 @@ export async function sendUserPush(
   build: () => PushMessage | Promise<PushMessage>,
 ): Promise<boolean> {
   try {
-    const subs = await getWebDb()
-      .select({
-        endpoint: pushSubscriptions.endpoint,
-        p256dh: pushSubscriptions.p256dh,
-        auth: pushSubscriptions.auth,
-      })
-      .from(pushSubscriptions)
-      .where(eq(pushSubscriptions.userId, userId));
+    const subs = await loadUserSubscriptions(userId);
     if (subs.length === 0) return false;
     const message = await build();
     let anySent = false;
@@ -55,9 +50,69 @@ export async function sendUserPush(
       if (await trySendPush(sub, message, { userId })) anySent = true;
     }
     return anySent;
-  } catch (e) {
-    console.error(`[notify-push] 用户 ${userId} 推送发送失败:`, e);
+  } catch {
+    console.error("[notify-push] push_prepare_failed", { userId });
     return false;
+  }
+}
+
+function loadUserSubscriptions(userId: number) {
+  return getWebDb()
+    .select({
+      id: pushSubscriptions.id,
+      endpoint: pushSubscriptions.endpoint,
+      p256dh: pushSubscriptions.p256dh,
+      auth: pushSubscriptions.auth,
+    })
+    .from(pushSubscriptions)
+    .where(eq(pushSubscriptions.userId, userId))
+    .orderBy(asc(pushSubscriptions.id));
+}
+
+async function canSendUserPush(userId: number, type: string): Promise<boolean> {
+  return (
+    (await pushEnabled()) &&
+    (await userPushEnabled(userId, type)) &&
+    !(await userActiveRecently(userId))
+  );
+}
+
+/** 审核补发的回复按订阅独立占位；前置失败交给出箱，发送后的结果由凭证吸收。 */
+export async function sendModerationReplyPush(outboxId: number, userId: number): Promise<void> {
+  if (!(await canSendUserPush(userId, "post.replied"))) return;
+  const subs = await loadUserSubscriptions(userId);
+  // 设备可在发送期间换绑，系统通知不带主题标题、编号或正文，详情仍按站内权限读取。
+  const message: PushMessage = {
+    kind: "notice",
+    scene: "post-replied",
+    title: "站内通知",
+    body: "请在站内查看通知。",
+    url: "/notifications",
+  };
+  for (const { id, ...sub } of subs) {
+    await deliverModerationNotification(
+      { outboxId, channel: "push", scene: "post.replied", recipientId: id },
+      async () => {
+        const [current] = await getWebDb()
+          .select({
+            endpoint: pushSubscriptions.endpoint,
+            p256dh: pushSubscriptions.p256dh,
+            auth: pushSubscriptions.auth,
+          })
+          .from(pushSubscriptions)
+          .where(and(eq(pushSubscriptions.id, id), eq(pushSubscriptions.userId, userId)))
+          .limit(1);
+        if (
+          !current ||
+          current.endpoint !== sub.endpoint ||
+          current.p256dh !== sub.p256dh ||
+          current.auth !== sub.auth
+        ) {
+          throw new DeliveryTransportError("pushSubscriptionChanged");
+        }
+        await sendPush(sub, message, { userId, subscriptionId: id });
+      },
+    );
   }
 }
 
@@ -80,14 +135,12 @@ export async function trySendUserPush(
   conversationId?: number,
 ): Promise<boolean> {
   try {
-    if (!(await pushEnabled())) return false;
-    if (!(await userPushEnabled(userId, type))) return false;
-    if (await userActiveRecently(userId)) return false;
+    if (!(await canSendUserPush(userId, type))) return false;
     if (conversationId !== undefined && !(await pmPushAllowed(userId, conversationId)))
       return false;
     return await sendUserPush(userId, build);
-  } catch (e) {
-    console.error(`[notify-push] 用户 ${userId} ${type} 推送附带渠道失败:`, e);
+  } catch {
+    console.error("[notify-push] push_channel_failed", { userId });
     return false;
   }
 }
