@@ -14,6 +14,15 @@ describe("Bearer 解析（M20 门禁第一环）", () => {
     );
   });
 
+  it("新版接受细粒度令牌，但 M20 解析器不会接受同一凭证", () => {
+    const scoped = `fw_at2_${"a".repeat(43)}`;
+    const oldParser = /^Bearer fw_at_[A-Za-z0-9_-]{43}$/;
+    expect(parseBearerToken(`Bearer ${scoped}`)).toBe(scoped);
+    expect(oldParser.test(`Bearer ${scoped}`)).toBe(false);
+    expect(oldParser.test(`Bearer ${PLAIN}`)).toBe(true);
+    expect(parseBearerToken(`Bearer ${scoped}\n`)).toBeNull();
+  });
+
   it("缺头 / 空串 / 非 Bearer 模式一律拒绝", () => {
     expect(parseBearerToken(null)).toBeNull();
     expect(parseBearerToken("")).toBeNull();

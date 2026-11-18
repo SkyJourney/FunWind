@@ -1,5 +1,7 @@
 // @vitest-environment node
 import { and, count, eq, isNull, sql } from "drizzle-orm";
+import { NextRequest } from "next/server";
+import { GET as whoami } from "@/app/api/manage/whoami/route";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   adminApiTokens,
@@ -29,10 +31,13 @@ import { revokeTeamMembership } from "@/lib/authz/team-membership";
 import {
   ADMIN_API_TOKEN_LIMIT,
   cleanupStaleCredentialRows,
-  createAdminApiToken,
+  createScopedAdminApiToken,
+  getAssignableManageEndpointIds,
+  listAdminApiTokens,
   resolveUsableApiToken,
   revokeAdminApiToken,
 } from "./tokens";
+import { insertLegacyToken } from "./int-fixtures";
 
 /**
  * 撤权联动吊销穷举（M20 D4，真实临时库）：
@@ -41,6 +46,9 @@ import {
  * api_token.cascade_revoke 审计落库」；非降权路径断言不误伤。
  * demo_admin(90004) 全程不动、只作「另一位有效管理员」兜底不变量断言。
  */
+const issueScoped = (input: Omit<Parameters<typeof createScopedAdminApiToken>[0], "permissions">) =>
+  createScopedAdminApiToken({ ...input, permissions: { identity: "read" } });
+
 describe.skipIf(skipDb)("管理 token 签发/吊销/撤权联动（M20 · 真实临时库）", () => {
   let teardown: () => Promise<void>;
   const ACTOR: AdminActor = { userId: 90004, ip: null };
@@ -134,13 +142,13 @@ describe.skipIf(skipDb)("管理 token 签发/吊销/撤权联动（M20 · 真实
 
   it("签发/解析/手动吊销与上限（D2/D5）", async () => {
     const uid = await makeSiteAdmin("tok_basic");
-    const created = await createAdminApiToken({
+    const created = await issueScoped({
       userId: uid,
       name: "CI 脚本",
       days: 90,
       actor: { userId: uid, via: "admin" },
     });
-    expect(created.plain).toMatch(/^fw_at_[A-Za-z0-9_-]{43}$/);
+    expect(created.plain).toMatch(/^fw_at2_[A-Za-z0-9_-]{43}$/);
     expect((await resolveUsableApiToken(created.plain))?.userId).toBe(uid);
     expect(await resolveUsableApiToken(`fw_at_${"z".repeat(43)}`)).toBeNull();
 
@@ -163,7 +171,7 @@ describe.skipIf(skipDb)("管理 token 签发/吊销/撤权联动（M20 · 真实
 
     // 上限按有效 token 计：签满 5 个后拒绝第 6 个；吊销一个后可再签
     for (let i = 0; i < ADMIN_API_TOKEN_LIMIT; i++) {
-      await createAdminApiToken({
+      await issueScoped({
         userId: uid,
         name: `tk${i}`,
         days: 30,
@@ -171,7 +179,7 @@ describe.skipIf(skipDb)("管理 token 签发/吊销/撤权联动（M20 · 真实
       });
     }
     await expect(
-      createAdminApiToken({
+      issueScoped({
         userId: uid,
         name: "超额",
         days: 30,
@@ -189,7 +197,7 @@ describe.skipIf(skipDb)("管理 token 签发/吊销/撤权联动（M20 · 真实
       userId: uid,
       actor: { userId: uid, via: "admin" },
     });
-    await createAdminApiToken({
+    await issueScoped({
       userId: uid,
       name: "补签",
       days: 30,
@@ -200,9 +208,95 @@ describe.skipIf(skipDb)("管理 token 签发/吊销/撤权联动（M20 · 真实
     expect(await tokenCountOf(uid)).toBe(ADMIN_API_TOKEN_LIMIT + 2);
   });
 
+  it("并发争最后一个名额只有一个签发成功", async () => {
+    const userId = await makeSiteAdmin("tok_concurrent");
+    const issue = (name: string) =>
+      issueScoped({ userId, name, days: 30, actor: { userId, via: "admin" } });
+    for (let i = 0; i < ADMIN_API_TOKEN_LIMIT - 1; i++) await issue(`已有-${i}`);
+    const results = await Promise.allSettled([issue("并发一"), issue("并发二")]);
+    expect(results.filter((outcome) => outcome.status === "fulfilled")).toHaveLength(1);
+    expect(results.find((outcome) => outcome.status === "rejected")).toMatchObject({
+      reason: expect.objectContaining({ message: expect.stringContaining("最多签发") }),
+    });
+    expect(await activeCountOf(userId)).toBe(ADMIN_API_TOKEN_LIMIT);
+  });
+
+  it("并发撤权不会留下签发后的有效令牌", async () => {
+    const userId = await makeSiteAdmin("tok_downgrade_race");
+    const [issued, revoked] = await Promise.allSettled([
+      issueScoped({ userId, name: "并发撤权", days: 30, actor: { userId, via: "admin" } }),
+      revokeUserRole(ACTOR, userId, "admin", 0, "并发撤销"),
+    ]);
+    expect(revoked.status).toBe("fulfilled");
+    expect(await tokenCountOf(userId)).toBe(0);
+    if (issued.status === "fulfilled")
+      expect(await resolveUsableApiToken(issued.value.plain)).toBeNull();
+    else expect(issued.reason).toMatchObject({ name: "AdminError" });
+  });
+
+  it("列出历史和细粒度快照；whoami 显式显示生效差异，不更新用量", async () => {
+    const userId = await makeActiveUser("tok_whoami");
+    const role = "token-diagnostics";
+    await makeCustomRoleAdmin(role, userId);
+    const input = {
+      userId,
+      name: "诊断",
+      days: 90,
+      actor: { userId, via: "admin" as const },
+      permissions: { identity: "read", stats: "read" },
+    };
+    expect(await getAssignableManageEndpointIds(userId)).not.toContain("stats");
+    await expect(createScopedAdminApiToken(input)).rejects.toThrow("不能授予持有人不具备的权限");
+    await grantRolePermission(ACTOR, role, "admin.logs", 0);
+    const issued = await createScopedAdminApiToken(input);
+    const old = await insertLegacyToken(userId);
+    expect(await listAdminApiTokens(userId)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: old.id,
+          permissionProfile: "legacy_m20_read",
+          endpointGrants: expect.arrayContaining(["whoami", "stats"]),
+        }),
+        expect.objectContaining({
+          id: issued.id,
+          permissionProfile: "scoped_v2",
+          endpointGrants: ["whoami", "stats"],
+        }),
+      ]),
+    );
+    const call = async (query = "") => {
+      const response = await whoami(
+        new NextRequest(`http://localhost/api/manage/whoami${query}`, {
+          headers: { authorization: `Bearer ${issued.plain}` },
+        }),
+      );
+      expect(response.status).toBe(200);
+      return (await response.json()).data;
+    };
+    expect(await call()).not.toHaveProperty("tokenPermissions");
+    await revokeRolePermission(ACTOR, role, "admin.logs", 0);
+    const details = await call("?include=token_permissions");
+    const identity = {
+      id: "whoami",
+      method: "GET",
+      path: "/api/manage/whoami",
+      scope: "identity:read",
+    };
+    expect(details.tokenPermissions).toEqual({
+      granted: [
+        identity,
+        { id: "stats", method: "GET", path: "/api/manage/stats", scope: "stats:read" },
+      ],
+      effective: [identity],
+    });
+    expect(details.token.lastUsedAt).toBeNull();
+    const rows = await getWebDb().select().from(auditLog).where(eq(auditLog.action, "api.whoami"));
+    expect(rows).toHaveLength(0);
+  });
+
   it("撤角色绑定（revokeUserRole）联动吊销", async () => {
     const uid = await makeSiteAdmin("tok_role_revoke");
-    const created = await createAdminApiToken({
+    const created = await issueScoped({
       userId: uid,
       name: "t",
       days: 90,
@@ -219,7 +313,7 @@ describe.skipIf(skipDb)("管理 token 签发/吊销/撤权联动（M20 · 真实
     // 先绑一个无 admin 授权的自定义角色，撤它不动管理员资格
     await createCustomRole(ACTOR, "plain-role", "plain", "无授权角色");
     await assignUserRole(ACTOR, uid, "plain-role", 0, null, "int 绑定");
-    await createAdminApiToken({
+    await issueScoped({
       userId: uid,
       name: "t",
       days: 90,
@@ -234,7 +328,7 @@ describe.skipIf(skipDb)("管理 token 签发/吊销/撤权联动（M20 · 真实
     // 只持 grant-holder 双持角色的用户：撤其 site.admin 授权后即失格（并存 admin@0 会让不变量仍满足）
     const uid = await makeActiveUser("tok_grant_revoke");
     await makeCustomRoleAdmin("grant-holder", uid);
-    const created = await createAdminApiToken({
+    const created = await issueScoped({
       userId: uid,
       name: "t",
       days: 90,
@@ -249,7 +343,7 @@ describe.skipIf(skipDb)("管理 token 签发/吊销/撤权联动（M20 · 真实
   it("撤全局授权的 admin.roles 腿（双持另一条腿）同样联动吊销", async () => {
     const uid = await makeActiveUser("tok_grant_roles_leg");
     await makeCustomRoleAdmin("roles-holder", uid);
-    const created = await createAdminApiToken({
+    const created = await issueScoped({
       userId: uid,
       name: "t",
       days: 90,
@@ -264,7 +358,7 @@ describe.skipIf(skipDb)("管理 token 签发/吊销/撤权联动（M20 · 真实
   it("删自定义角色（deleteCustomRole）联动吊销", async () => {
     const uid = await makeActiveUser("tok_role_delete");
     await makeCustomRoleAdmin("deleted-holder", uid);
-    const created = await createAdminApiToken({
+    const created = await issueScoped({
       userId: uid,
       name: "t",
       days: 90,
@@ -282,7 +376,7 @@ describe.skipIf(skipDb)("管理 token 签发/吊销/撤权联动（M20 · 真实
 
   it("全站封禁（createRestriction globalBan）联动吊销；重复封禁幂等分支同样吊销", async () => {
     const uid = await makeSiteAdmin("tok_banned");
-    const created = await createAdminApiToken({
+    const created = await issueScoped({
       userId: uid,
       name: "t",
       days: 90,
@@ -306,13 +400,8 @@ describe.skipIf(skipDb)("管理 token 签发/吊销/撤权联动（M20 · 真实
       { userId: uid, kind: "ban", scopeId: 0, reason: "int 首封", endsAt: null },
     );
     expect(await tokenCountOf(uid)).toBe(0);
-    // 解封后重签（Service 不校验资格，模拟历史数据/异常路径），再次封禁走 already 幂等分支
-    await createAdminApiToken({
-      userId: uid,
-      name: "t2",
-      days: 90,
-      actor: { userId: uid, via: "admin" },
-    });
+    // 注入历史异常残留行，再次封禁走 already 幂等分支
+    await insertLegacyToken(uid, "t2");
     const again = await createRestriction(
       { userId: ACTOR.userId, via: "admin", ip: null },
       { userId: uid, kind: "ban", scopeId: 0, reason: "int 重复封禁", endsAt: null },
@@ -325,7 +414,7 @@ describe.skipIf(skipDb)("管理 token 签发/吊销/撤权联动（M20 · 真实
 
   it("注销申请（closure_pending）联动吊销；purge 完成兜底再清", async () => {
     const uid = await makeSiteAdmin("tok_closing");
-    await createAdminApiToken({
+    await issueScoped({
       userId: uid,
       name: "t1",
       days: 90,
@@ -339,12 +428,7 @@ describe.skipIf(skipDb)("管理 token 签发/吊销/撤权联动（M20 · 真实
 
     // pending 期间异常残留的 token：purge 不清理（受「不扩大删表」守卫纪律约束）——
     // 残留行已成孤儿（guard 的 loadSubject 对非 active 用户返回 GUEST → 401 双保险），由 cleanup 物理删
-    await createAdminApiToken({
-      userId: uid,
-      name: "t2",
-      days: 90,
-      actor: { userId: uid, via: "admin" },
-    });
+    await insertLegacyToken(uid, "t2");
     await getWebDb().transaction((tx) => purgeUserDataInTx(tx, uid));
     expect(await tokenCountOf(uid)).toBe(1);
     // purge 连用户角色一并清理
@@ -363,7 +447,7 @@ describe.skipIf(skipDb)("管理 token 签发/吊销/撤权联动（M20 · 真实
     await getWebDb()
       .insert(userRoles)
       .values({ userId: uid, roleKey: "team-tech", scopeId: 0, grantedAt: "2026-11-17 00:00:00" });
-    const created = await createAdminApiToken({
+    const created = await issueScoped({
       userId: uid,
       name: "t",
       days: 90,

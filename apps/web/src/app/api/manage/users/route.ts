@@ -37,5 +37,5 @@ export const GET = manageEndpoint(
     );
     return manageOk(result);
   },
-  { endpoint: "users", permission: "admin.users" },
+  { endpoint: "users" },
 );

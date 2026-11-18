@@ -3,6 +3,7 @@ import {
   bigint,
   boolean,
   char,
+  check,
   date,
   datetime,
   index,
@@ -254,7 +255,7 @@ export const accountDeletionTokens = mysqlTable(
 
 /**
  * 管理员 Access Token（M20）：`/api/manage/**` 的 Bearer 凭证，挂在管理员个人身份下。
- * 明文形如 fw_at_<43 字符 base64url>，仅签发响应中展示一次；库内只存哈希。
+ * 旧令牌前缀为 fw_at_，新版为 fw_at2_；明文仅签发时展示一次，库内只存哈希。
  * 三重失效：自身过期（expires_at）、手动吊销（revoked_at）、
  * 持有人不再满足站点管理员不变量时事务内联动吊销（apps/web/src/lib/manage/tokens.ts）。
  */
@@ -274,6 +275,12 @@ export const adminApiTokens = mysqlTable(
     lastUsedIp: varchar("last_used_ip", { length: 64 }),
     /** 手动/联动吊销时刻；非 NULL 即失效 */
     revokedAt: dt("revoked_at"),
+    /** 默认值仅供旧版签发兼容；新版签发必须显式写入 scoped_v2，读取时拒绝未知值。 */
+    permissionProfile: varchar("permission_profile", { length: 32 })
+      .notNull()
+      .default("legacy_m20_read"),
+    /** 旧模型为 SQL NULL；新版保存非空的端点权限 ID 数组，读取时必须校验。 */
+    permissionSnapshot: json("permission_snapshot"),
     /** 签发渠道（预留；v1 仅后台页面签发） */
     createdVia: varchar("created_via", { length: 16 }).notNull().default("admin"),
   },
@@ -281,6 +288,25 @@ export const adminApiTokens = mysqlTable(
     primaryKey({ columns: [t.id] }),
     index("idx_aat_user").on(t.userId),
     index("idx_aat_expires").on(t.expiresAt),
+  ],
+);
+
+/** 管理 API 写请求的幂等记录；独立于令牌的撤权和物理清理，仅按过期时间丢弃。 */
+export const manageApiIdempotency = mysqlTable(
+  "manage_api_idempotency",
+  {
+    /** 已哈希的令牌标识，不存 Bearer 明文，也不设令牌外键。 */
+    tokenId: varchar("token_id", { length: 64 }).notNull(),
+    endpoint: varchar("endpoint", { length: 64 }).notNull(),
+    keyHash: varchar("key_hash", { length: 64 }).notNull(),
+    requestHash: varchar("request_hash", { length: 64 }).notNull(),
+    /** 已提交的成功响应；事务内占位时为 SQL NULL。 */
+    response: json("response"),
+    expiresAt: dt("expires_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.tokenId, t.endpoint, t.keyHash] }),
+    index("idx_mai_expires").on(t.expiresAt),
   ],
 );
 
@@ -793,6 +819,38 @@ export const notifications = mysqlTable(
   ],
 );
 
+/** 站内通知持久凭证：不依赖收件箱行的生命周期，按出箱事件、通知类型和接收人去重。 */
+export const notificationReceipts = mysqlTable(
+  "notification_receipts",
+  {
+    outboxId: bigint("outbox_id", { mode: "number", unsigned: true }).notNull(),
+    type: varchar("type", { length: 64 }).notNull(),
+    userId: int("user_id", { unsigned: true }).notNull(),
+    createdAt: dt("created_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.outboxId, t.type, t.userId] })],
+);
+
+/** 外送凭证：首次插入即占位，已有凭证不得重新占位。 */
+export const notificationDeliveries = mysqlTable(
+  "notification_deliveries",
+  {
+    outboxId: bigint("outbox_id", { mode: "number", unsigned: true }).notNull(),
+    channel: varchar("channel", { length: 16 }).notNull(),
+    scene: varchar("scene", { length: 64 }).notNull(),
+    recipientId: bigint("recipient_id", { mode: "number", unsigned: true }).notNull(),
+    status: varchar("status", { length: 16, enum: ["uncertain", "sent", "failed"] })
+      .notNull()
+      .default("uncertain"),
+    createdAt: dt("created_at").notNull(),
+    finishedAt: dt("finished_at"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.outboxId, t.channel, t.scene, t.recipientId] }),
+    check("ck_nd_status", sql`BINARY ${t.status} IN ('uncertain', 'sent', 'failed')`),
+  ],
+);
+
 /** 通知偏好：无记录 = 取注册边界里的默认值；强制类型（审核/限制/安全）不可关闭 */
 export const notificationPreferences = mysqlTable(
   "notification_preferences",
@@ -1053,6 +1111,8 @@ export const eventOutbox = mysqlTable(
     createdAt: dt("created_at").notNull(),
     dispatchedAt: dt("dispatched_at"),
     dispatchError: json("dispatch_error"), // 最近一次补派失败的摘要
+    /** 通知投递策略由应用控制；NULL 保留原有派发行为。 */
+    deliveryPolicy: varchar("delivery_policy", { length: 32 }),
   },
   (t) => [primaryKey({ columns: [t.id] }), index("idx_eo_pending").on(t.dispatchedAt, t.id)],
 );

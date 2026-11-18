@@ -2,6 +2,7 @@ import nodemailer from "nodemailer";
 import type { Transporter } from "nodemailer";
 import { sql } from "drizzle-orm";
 import { emailLog, getWebDb } from "@funwind/db";
+import { DeliveryTransportError } from "@/lib/net/delivery-error";
 import type { MailMessage } from "./types";
 
 /**
@@ -24,7 +25,12 @@ let transporter: Transporter | undefined;
 
 function getTransporter(): Transporter {
   if (!transporter) {
-    transporter = nodemailer.createTransport(process.env.SMTP_URL ?? "smtp://127.0.0.1:1025");
+    const url = new URL(process.env.SMTP_URL ?? "smtp://127.0.0.1:1025");
+    // SDK 的协议调试日志会带地址、应答甚至正文，不允许连接串打开。
+    for (const option of ["logger", "debug", "transactionLog"]) {
+      url.searchParams.set(option, "false");
+    }
+    transporter = nodemailer.createTransport(url.href);
   }
   return transporter;
 }
@@ -47,30 +53,53 @@ export async function sendMail(
     userId: meta.userId ?? null,
     subject: message.subject.slice(0, 255),
   };
+  let info: { messageId?: unknown } | undefined;
   try {
-    const info = await getTransporter().sendMail({
+    info = await getTransporter().sendMail({
       from: FROM,
       to,
       subject: message.subject,
       html: message.html,
       text: message.text,
     });
-    await record({
-      ...base,
-      status: "sent",
-      messageId: typeof info?.messageId === "string" ? info.messageId.slice(0, 255) : null,
-      durationMs: Date.now() - started,
-    });
-  } catch (e) {
+  } catch (cause) {
+    const error = classifyFailure(cause);
     await record({
       ...base,
       status: "failed",
-      error: String(e instanceof Error ? e.message : e).slice(0, 500),
+      error: error.message,
       durationMs: Date.now() - started,
     });
-    console.error(`[mail] ${message.scene} → ${to} 发送失败:`, e);
-    throw e;
+    console.error(`[mail] ${error.message}`);
+    throw error;
   }
+  await record({
+    ...base,
+    status: "sent",
+    messageId: typeof info?.messageId === "string" ? info.messageId.slice(0, 255) : null,
+    durationMs: Date.now() - started,
+  });
+}
+
+/** 只认 SDK 提供的 SMTP 否定应答码；连接关闭期间的应答不能作为投递事务的结论。 */
+function classifyFailure(cause: unknown): DeliveryTransportError {
+  if (cause instanceof Error) {
+    const responseCode: unknown = Object.getOwnPropertyDescriptor(cause, "responseCode")?.value;
+    const code: unknown = Object.getOwnPropertyDescriptor(cause, "code")?.value;
+    if (
+      code !== "ECONNECTION" &&
+      code !== "ETIMEDOUT" &&
+      code !== "ECONNRESET" &&
+      code !== "ESOCKET" &&
+      typeof responseCode === "number" &&
+      Number.isInteger(responseCode) &&
+      responseCode >= 400 &&
+      responseCode < 600
+    ) {
+      return new DeliveryTransportError("smtpRejected");
+    }
+  }
+  return new DeliveryTransportError("smtpUncertain");
 }
 
 export async function trySendMail(
@@ -94,8 +123,8 @@ async function record(row: EmailLogInsert): Promise<void> {
       .insert(emailLog)
       .values({ ...row, createdAt: sql`NOW()` });
     if (Math.random() < SWEEP_PROBABILITY) await sweepExpired();
-  } catch (e) {
-    console.error("[mail] 发送记录落库失败:", e);
+  } catch {
+    console.error("[mail] 写入发送记录或清理历史记录失败");
   }
 }
 

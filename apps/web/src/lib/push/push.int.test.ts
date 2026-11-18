@@ -6,6 +6,7 @@
 import { eq, sql } from "drizzle-orm";
 import {
   getWebDb,
+  getWebPool,
   notificationPreferences,
   pushLog,
   pushSubscriptions,
@@ -13,6 +14,7 @@ import {
   siteSettings,
 } from "@funwind/db";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { DeliveryTransportError } from "@/lib/net/delivery-error";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 
 // mock web-push：只替「真发送」一步，VAPID 配置空操作；WebPushError 带 statusCode 供 404/410 判定
@@ -75,6 +77,7 @@ afterAll(async () => {
   await tdb?.teardown();
 });
 afterEach(async () => {
+  if (vi.isFakeTimers()) vi.useRealTimers();
   await db()
     .delete(pushLog)
     .where(sql`1 = 1`);
@@ -140,45 +143,160 @@ describe.skipIf(skipDb)("sendUserPush 多设备尽力而为", () => {
 });
 
 describe.skipIf(skipDb)("404/410 失效订阅即时清理", () => {
-  it("404 删除订阅行并记 failed", async () => {
+  it.each([404, 410])("%d 删除原订阅行并记明确拒绝", async (statusCode) => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     await seedSub();
-    sendNotification.mockRejectedValue(new WebPushError("gone", 404));
-    expect(
-      await trySendPush(
-        { endpoint: "https://push.example.invalid/sub-1", p256dh: "k", auth: "a" },
-        msg(),
-        { userId: UID },
-      ),
-    ).toBe(false);
-    const subs = await db().select().from(pushSubscriptions);
-    expect(subs).toHaveLength(0); // 失效订阅已删
-    const [log] = await db().select().from(pushLog);
-    expect(log?.status).toBe("failed");
-  });
-
-  it("410 同样删除订阅行并记 failed", async () => {
-    await seedSub();
-    sendNotification.mockRejectedValue(new WebPushError("gone", 410));
-    expect(
-      await trySendPush(
-        { endpoint: "https://push.example.invalid/sub-1", p256dh: "k", auth: "a" },
-        msg(),
-        { userId: UID },
-      ),
-    ).toBe(false);
+    const [sub] = await db().select().from(pushSubscriptions);
+    const raw = Object.assign(new WebPushError(`${sub.endpoint} ${sub.auth}`, statusCode), {
+      body: "服务商返回的私密正文",
+      headers: { authorization: "私密密钥" },
+      cause: new Error("其他私密信息"),
+    });
+    sendNotification.mockRejectedValue(raw);
+    const error = await sendPush(sub, msg(), { userId: UID, subscriptionId: sub.id }).catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(DeliveryTransportError);
+    expect(error).toMatchObject({ outcome: "failed", message: "推送服务明确拒绝投递" });
+    expect(error).not.toBe(raw);
+    expect(error).not.toHaveProperty("cause");
+    expect(error).not.toHaveProperty("body");
+    expect(error).not.toHaveProperty("headers");
     expect(await db().select().from(pushSubscriptions)).toHaveLength(0);
+    const [log] = await db().select().from(pushLog);
+    expect(log).toMatchObject({ status: "failed", error: "推送服务明确拒绝投递" });
+    expect(consoleError.mock.calls).toEqual([["[push] 推送服务明确拒绝投递"]]);
   });
 
-  it("500 等非失效错误不删订阅", async () => {
+  it.each(["换绑用户", "密钥仅大小写变化", "删除后重建"])(
+    "迟到的 410 不删除已%s的订阅",
+    async (change) => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      await seedSub();
+      const [sub] = await db().select().from(pushSubscriptions);
+      sendNotification.mockImplementationOnce(async () => {
+        if (change === "删除后重建") {
+          await db().delete(pushSubscriptions).where(eq(pushSubscriptions.id, sub.id));
+          await seedSub(sub.endpoint);
+        } else {
+          await db()
+            .update(pushSubscriptions)
+            .set(change === "换绑用户" ? { userId: UID + 1 } : { auth: sub.auth.toUpperCase() })
+            .where(eq(pushSubscriptions.id, sub.id));
+        }
+        throw new WebPushError("gone", 410);
+      });
+      expect(await trySendPush(sub, msg(), { userId: UID, subscriptionId: sub.id })).toBe(false);
+      expect(await db().select().from(pushSubscriptions)).toHaveLength(1);
+    },
+  );
+
+  it.each([
+    [new WebPushError("超时", 408), "uncertain"],
+    [new WebPushError("断连", 499), "uncertain"],
+    [new WebPushError("服务故障", 500), "uncertain"],
+    [new WebPushError("网关故障", 502), "uncertain"],
+    [new WebPushError("限流", 429), "failed"],
+    [Object.assign(new Error("未知错误也可能碰巧带状态码"), { statusCode: 410 }), "uncertain"],
+    [Object.assign(new Error("传输断开"), { code: "ECONNRESET" }), "uncertain"],
+  ])("非失效错误 %s 不删订阅，且分类为 %s", async (raw, outcome) => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
     await seedSub();
-    sendNotification.mockRejectedValue(new WebPushError("server error", 500));
-    await sendPush(
-      { endpoint: "https://push.example.invalid/sub-1", p256dh: "k", auth: "a" },
-      msg(),
-      { userId: UID },
-    ).catch(() => undefined);
-    const subs = await db().select().from(pushSubscriptions);
-    expect(subs).toHaveLength(1); // 非 404/410 保留
+    const [sub] = await db().select().from(pushSubscriptions);
+    sendNotification.mockRejectedValue(raw);
+    const error = await sendPush(sub, msg(), { userId: UID }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(DeliveryTransportError);
+    expect(error).toMatchObject({ outcome });
+    expect(await db().select().from(pushSubscriptions)).toHaveLength(1);
+  });
+
+  it("失效清理及失败审计写入都失败，仍只抛受控拒绝错误", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    await seedSub();
+    const [sub] = await db().select().from(pushSubscriptions);
+    const dbError = new Error(`SQL 参数包含 ${sub.endpoint} 和 ${sub.auth}`);
+    vi.spyOn(getWebPool(), "query").mockRejectedValueOnce(dbError).mockRejectedValueOnce(dbError);
+    sendNotification.mockRejectedValueOnce(new WebPushError("gone", 404));
+    await expect(sendPush(sub, msg(), { userId: UID })).rejects.toMatchObject({
+      outcome: "failed",
+    });
+    expect(consoleError.mock.calls).toEqual([
+      ["[push] 失效订阅清理失败"],
+      ["[push] 写入发送记录或清理历史记录失败"],
+      ["[push] 推送服务明确拒绝投递"],
+    ]);
+  });
+
+  it("服务已接纳后，审计写入和订阅活跃更新抛错也返回成功", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    await seedSub();
+    const [sub] = await db().select().from(pushSubscriptions);
+    const dbError = new Error(`SQL 参数包含 ${sub.endpoint} 和 ${sub.auth}`);
+    vi.spyOn(getWebPool(), "query").mockRejectedValueOnce(dbError).mockRejectedValueOnce(dbError);
+    sendNotification.mockResolvedValueOnce({ statusCode: 201 });
+    await expect(trySendPush(sub, msg(), { userId: UID })).resolves.toBe(true);
+    expect(sendNotification).toHaveBeenCalledTimes(1);
+    expect(consoleError.mock.calls).toEqual([
+      ["[push] 写入发送记录或清理历史记录失败"],
+      ["[push] 更新订阅最后投递时间失败"],
+    ]);
+  });
+});
+
+describe.skipIf(skipDb)("Web Push 传输超时", () => {
+  it("传给 SDK 的空闲超时为 10 秒；socket 超时归 uncertain，不重发", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await seedSub();
+    const [sub] = await db().select().from(pushSubscriptions);
+    sendNotification.mockRejectedValueOnce(new Error("Socket timeout"));
+    await expect(sendPush(sub, msg())).rejects.toMatchObject({ outcome: "uncertain" });
+    expect(sendNotification).toHaveBeenCalledExactlyOnceWith(
+      { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+      expect.any(String),
+      { timeout: 10_000 },
+    );
+    const [log] = await db().select().from(pushLog);
+    expect(log).toMatchObject({ status: "failed", error: "推送投递结果未知" });
+  });
+
+  it("总预算结束前一毫秒收齐 2xx，仍记 sent 并清除计时器", async () => {
+    await seedSub();
+    const [sub] = await db().select().from(pushSubscriptions);
+    const service = Promise.withResolvers<{ statusCode: number }>();
+    sendNotification.mockReturnValueOnce(service.promise);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const result = sendPush(sub, msg());
+    await vi.advanceTimersByTimeAsync(11_999);
+    service.resolve({ statusCode: 201 });
+    await expect(result).resolves.toBeUndefined();
+    expect(vi.getTimerCount()).toBe(0);
+    const [log] = await db().select().from(pushLog);
+    expect(log).toMatchObject({ status: "sent" });
+  });
+
+  it.each([201, 410])("12 秒后不再等待 SDK，迟到的 %d 不改判或修改订阅", async (statusCode) => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    await seedSub();
+    const [sub] = await db().select().from(pushSubscriptions);
+    const service = Promise.withResolvers<{ statusCode: number }>();
+    sendNotification.mockReturnValueOnce(service.promise);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const error = sendPush(sub, msg(), { userId: UID, subscriptionId: sub.id }).catch(
+      (cause: unknown) => cause,
+    );
+    await vi.advanceTimersByTimeAsync(12_000);
+    expect(await error).toMatchObject({ outcome: "uncertain", message: "推送投递结果未知" });
+    if (statusCode === 201) service.resolve({ statusCode });
+    else service.reject(new WebPushError("gone", statusCode));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sendNotification).toHaveBeenCalledTimes(1);
+    expect(consoleError.mock.calls).toEqual([["[push] 推送投递结果未知"]]);
+    expect(await db().select().from(pushLog)).toMatchObject([
+      { status: "failed", error: "推送投递结果未知" },
+    ]);
+    expect(await db().select().from(pushSubscriptions)).toMatchObject([
+      { id: sub.id, lastSentAt: null },
+    ]);
   });
 });
 

@@ -1,6 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { getWebDb, notificationPreferences, siteSettings, users } from "@funwind/db";
-import { getMailBrand, trySendMail, type MailBrand, type MailMessage } from "@/lib/mail";
+import { getMailBrand, sendMail, trySendMail, type MailBrand, type MailMessage } from "@/lib/mail";
+import { deliverModerationNotification } from "./delivery";
 import { rateLimit } from "@/lib/auth/ratelimit";
 
 /**
@@ -85,18 +86,39 @@ export async function sendUserEmail(
   build: (ctx: { email: string; brand: MailBrand }) => MailMessage,
 ): Promise<boolean> {
   try {
-    const [row] = await getWebDb()
-      .select({ email: users.email })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1);
-    if (!row?.email) return false;
-    const brand = await getMailBrand();
-    return await trySendMail(row.email, build({ email: row.email, brand }), { userId });
-  } catch (e) {
-    console.error(`[notify-email] 用户 ${userId} 邮件发送失败:`, e);
+    const mail = await prepareUserEmail(userId, build);
+    return mail ? await trySendMail(mail.email, mail.message, { userId }) : false;
+  } catch {
+    console.error("[notify-email] email_prepare_failed", { userId });
     return false;
   }
+}
+
+async function prepareUserEmail(
+  userId: number,
+  build: (ctx: { email: string; brand: MailBrand }) => MailMessage,
+) {
+  const [row] = await getWebDb()
+    .select({ email: users.email })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (!row?.email) return null;
+  return { email: row.email, message: build({ email: row.email, brand: await getMailBrand() }) };
+}
+
+/** 已启用审核邮件偏好才调用；占位前的内部失败交给出箱补派。 */
+export async function sendModerationEmail(
+  outboxId: number,
+  userId: number,
+  build: (ctx: { email: string; brand: MailBrand }) => MailMessage,
+): Promise<void> {
+  const mail = await prepareUserEmail(userId, build);
+  if (!mail) return;
+  await deliverModerationNotification(
+    { outboxId, channel: "email", scene: "content.approved", recipientId: userId },
+    () => sendMail(mail.email, mail.message, { userId }),
+  );
 }
 
 /** S4 频控：同一会话对同一收件人每小时最多 1 封 */

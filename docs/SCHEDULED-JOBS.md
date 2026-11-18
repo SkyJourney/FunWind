@@ -1,6 +1,6 @@
 # 定时任务汇总
 
-> 一处看全所有周期性任务，上线时对着它核对，不会漏配。最后更新：2026-11-10（M14 Step 5）。
+> 一处看全所有周期性任务，上线时对着它核对，不会漏配。最后更新：2026-11-18（M20.2 仓库契约）。
 > 设计与取舍见 [M11.5](milestones/M11.5-scheduler.md)。
 
 ## 1. 总表
@@ -20,7 +20,7 @@
 | `ops.alerts`（M14） | 扫描运维台账（`ops_runs`）近 7 天的失败记录，给 admin 角色用户发系统类告警（dedup 按运行 id 防重） | **进程内调度器**（`SCHEDULER=on`） | 每 15 分钟 | —（告警扫描无命令行入口） | 无（读-only 扫描 + 通知 dedup 幂等） |
 | `email.digest`（M17） | 给近 24 小时未登录、开了邮件汇总的用户发每日汇总 | **进程内调度器**（`SCHEDULER=on`） | 每小时整点跑，run 内按北京墙面时间比对后台配置时刻（默认 20 点） | `pnpm --filter @funwind/web digest:run [--user <id>] [--force]` | 命名锁 + **当日幂等**（同一北京日只发一封） |
 | `push.cleanup`（M18） | 清除超期（180 天）未重建的失效推送订阅，兜底投递时 404/410 即时清理 | **进程内调度器**（`SCHEDULER=on`） | 每天 03:40 | —（清扫无命令行入口） | 命名锁 |
-| `api-tokens.cleanup`（M20） | 凭据卫生清扫：`admin_api_tokens` 过期/吊销超 30 天、`sessions` 过期超 7 天（M20 前无 GC）、`email_tokens` 已用/过期超 30 天，三类各至多 1000 行/批 | **进程内调度器**（`SCHEDULER=on`） | 每天 04:10 | `pnpm --filter @funwind/web api-tokens:cleanup` | 命名锁 |
+| `api-tokens.cleanup`（M20，M20.2 扩展） | `admin_api_tokens` 过期/吊销超 30 天、`sessions` 过期超 7 天、`email_tokens` 已用/过期超 30 天（每表每轮最多 1000 行）；`manage_api_idempotency` 和 `notification_deliveries` 到期记录另做有界多批清扫 | **进程内调度器**（`SCHEDULER=on`） | 每天 04:10 | `pnpm --filter @funwind/web api-tokens:cleanup` | 命名锁 |
 | outbox 补派 | 把消费失败而停在 outbox 里的事件补派出去 | **手动** | — | `pnpm --filter @funwind/web outbox:drain` | 无 |
 | 孤儿文件巡检 | 报告库内无引用的文件与磁盘上有而库里没有的孤儿 | **手动** | — | `pnpm db:gc-files --dry-run` | 无 |
 | 缓存计数重算 | 全量重算缓存计数 | **手动** | — | `pnpm db:recount [--check]` | 无 |
@@ -72,6 +72,14 @@
 
 迁移后请删除这两个任务对应的系统 crontab 条目；不删也安全（命令行会和调度器互斥），只是多一次空跑。
 
+### 管理 REST 幂等记录清扫
+
+M20.2 在原 `api-tokens.cleanup` 中追加有界多批清扫，**不新增任务、锁或命令**。应用 `0033` 建表后，新版计划运行或手动 `pnpm --filter @funwind/web api-tokens:cleanup` 都在同一任务命名锁下，在三类凭据清扫之后处理幂等记录。手动命令不要求 `SCHEDULER=on`；停写也不影响清扫。
+
+- 每批只删 `manage_api_idempotency` 中 `expires_at <= NOW()` 的行，按 `expires_at` 从早到晚最多删 1000 行；`NOW()` 由数据库会话按北京时间求值。批次分别提交，不开启跨批事务，未到期记录保留。
+- 一轮最多 60 批（最多 60,000 行）；一批不足 1000 行即停止，从幂等清扫开始满 5 秒后也不再启动新批。时间预算不强中断正在执行的删除；积压留给后续运行。重复执行只会继续删除已到期行。24 小时的回放窗口以写入流程的到期判断为准，而非物理删除时刻；清扫延迟不会延长回放窗口。
+- 任务摘要新增 `idempotency=<本轮实际删除总数>`，与 `tokens`、`sessions`、`emailTokens` 同行；幂等清扫本身不另写业务审计。退到旧镜像时，原任务只清理三类凭据，保留幂等表，复升后新版任务继续清扫。
+
 ## 3. 新增一个定时任务
 
 1. 在 `apps/web/src/lib/scheduler/tasks.ts` 写任务工厂，返回 `{ key, cron, timeoutMs, run }`。`key` 同时是命名锁与日志标识，**定了就不要改名**；`run` 返回 `{ summary, failed? }`。
@@ -84,6 +92,12 @@
 ## 4. 已知限制
 
 - **单进程内的调度**：只在应用进程运行时才执行。进程停了就不跑。
-- **没有持久化的运行记录表**：运行结果只在日志里。破坏性任务（清理）本身写 `audit_log`。
+- **没有持久化的调度运行记录表**：任务运行结果看日志；业务动作是否另写 `audit_log` 由任务决定，`api-tokens.cleanup` 的删除计数只进任务日志。
 - **没有后台管理页**：看不到下次运行时间。需要时可用 croner 的 `nextRun()` 做只读状态页，列为后续。
 - 命名锁占用连接池里的 1 条专用连接，调度器串行执行，所以最多额外占 1 条；连接池共 8 条。
+
+### 审核通知外送凭证清扫
+
+`0035` 后，`api-tokens.cleanup` 同轮处理外送凭证，不新增任务。事件创建满 90 天不再进入新外送占位；对于仍有出箱父行的外送凭证，只清理已派发且事件创建超过 91 天的记录。每批最多 500 行，每轮最多 20 批，批次间检查 5 秒软预算。仍有待派发父行的凭证不删除；站内凭证在父行存续期间保留。
+
+注销等路径删除出箱后，两张凭证表各按主键扫描一页（最多 2,000 行），只清理自身创建超过 91 天且无父行的凭证，页内从旧到新最多删 500 行。扫描游标跨进程保留，到表尾回绕。任务汇总输出 `notificationDeliveries=`、`orphanNotificationDeliveries=` 和 `orphanNotificationReceipts=`，不记录目标或地址。

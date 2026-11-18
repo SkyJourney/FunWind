@@ -1,8 +1,9 @@
 import "server-only";
 
 import { sql } from "drizzle-orm";
-import { getWebDb, userRoles, users } from "@funwind/db";
+import { adminApiTokens, getWebDb, userRoles, users } from "@funwind/db";
 import { hashPassword } from "@/lib/auth/password";
+import { buildPlainToken, tokenSuffixOf } from "./tokens";
 
 /**
  * manage 模块 int 测试共享夹具（tokens.int.test.ts / guard.int.test.ts）。
@@ -39,4 +40,20 @@ export async function makeSiteAdmin(username: string): Promise<number> {
     .insert(userRoles)
     .values({ userId: uid, roleKey: "admin", scopeId: 0, grantedAt: sql`NOW()` });
   return uid;
+}
+
+/** 模拟 M20 在旧版数据库格式下写入的存量令牌；新版应用不签发这类凭证。 */
+export async function insertLegacyToken(userId: number, name = "历史令牌") {
+  const token = buildPlainToken("legacy_m20_read");
+  await getWebDb()
+    .insert(adminApiTokens)
+    .values({
+      id: token.id,
+      userId,
+      name,
+      suffix: tokenSuffixOf(token.plain),
+      createdAt: sql`NOW()`,
+      expiresAt: sql`NOW() + INTERVAL 90 DAY`,
+    });
+  return token;
 }

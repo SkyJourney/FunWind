@@ -2,10 +2,24 @@ import { describe, expect, it } from "vitest";
 import { MANAGE_ERROR_CODES, ManageApiError, manageErrorBody, manageOkBody } from "./errors";
 
 describe("管理 API 信封与错误码注册表（M20 G-15）", () => {
-  it("注册表六码齐全，状态码与文案非空且成对", () => {
-    expect(Object.keys(MANAGE_ERROR_CODES).sort()).toEqual(
-      ["bad_request", "forbidden", "internal", "not_found", "rate_limited", "unauthorized"].sort(),
-    );
+  it("读写错误码、状态码与文案成对", () => {
+    expect(
+      Object.fromEntries(
+        Object.entries(MANAGE_ERROR_CODES).map(([code, def]) => [code, def.status]),
+      ),
+    ).toEqual({
+      bad_request: 400,
+      unauthorized: 401,
+      forbidden: 403,
+      not_found: 404,
+      state_conflict: 409,
+      idempotency_conflict: 409,
+      payload_too_large: 413,
+      unsupported_media_type: 415,
+      rate_limited: 429,
+      internal: 500,
+      writes_disabled: 503,
+    });
     expect(MANAGE_ERROR_CODES.unauthorized.status).toBe(401);
     expect(MANAGE_ERROR_CODES.forbidden.status).toBe(403);
     expect(MANAGE_ERROR_CODES.not_found.status).toBe(404);

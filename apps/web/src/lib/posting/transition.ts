@@ -22,6 +22,8 @@ export interface TransitionOptions {
   reason?: string;
   /** 是否写审计（作者删自己的帖子默认不写，版主动作必须写） */
   audit?: boolean;
+  /** 管理 API 的审计关联信息；仅写入审计，不进入业务事件。 */
+  apiTrace?: { requestId: string; tokenSuffix: string };
   /**
    * 执行者角色（M9.5 状态机中央白名单）：白名单按「谁执行」区分——
    * author（作者本人：只允许 rejected→pending 重提、删除自己的内容）
@@ -318,7 +320,19 @@ export async function transitionContent(
       targetType: "post",
       targetId: post.id,
       before: { state: from },
-      after: { state: to, kind, threadId: thread.id, reason: opts.reason ?? null },
+      after: {
+        state: to,
+        kind,
+        threadId: thread.id,
+        reason: opts.reason ?? null,
+        ...(opts.apiTrace
+          ? {
+              via: "api",
+              requestId: opts.apiTrace.requestId,
+              tokenSuffix: opts.apiTrace.tokenSuffix,
+            }
+          : {}),
+      },
       ip: opts.ip ?? null,
     });
   }

@@ -17,8 +17,13 @@ export const MANAGE_ERROR_CODES = {
   forbidden: { status: 403, message: "凭证有效但权限不足。" },
   not_found: { status: 404, message: "资源不存在。" },
   bad_request: { status: 400, message: "请求参数不合法。" },
+  state_conflict: { status: 409, message: "资源状态或版本已变化，请读取最新值后再操作。" },
+  idempotency_conflict: { status: 409, message: "同一个幂等键已用于不同的请求。" },
+  payload_too_large: { status: 413, message: "请求体超过允许大小。" },
+  unsupported_media_type: { status: 415, message: "仅支持 application/json 请求体。" },
   rate_limited: { status: 429, message: "请求过于频繁，请稍后再试。" },
   internal: { status: 500, message: "服务内部错误。" },
+  writes_disabled: { status: 503, message: "管理 API 写入当前已关闭。" },
 } as const;
 
 export type ManageErrorCode = keyof typeof MANAGE_ERROR_CODES;

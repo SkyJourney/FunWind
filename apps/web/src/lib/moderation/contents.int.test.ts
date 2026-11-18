@@ -4,13 +4,20 @@
  * 关键词、作用域过滤、封禁作者徽标、setThreadFlags 的权限递减（版主置顶上限 1）。
  */
 import "@/modules";
-import { and, eq } from "drizzle-orm";
-import { DEMO, getWebDb, posts, threads, userRoles } from "@funwind/db";
+import { and, asc, eq } from "drizzle-orm";
+import { auditLog, DEMO, getWebDb, posts, threads, userRoles } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { assignUserRole, createCustomRole, grantRolePermission } from "@/lib/authz/admin";
 import { invalidateAuthzSnapshot } from "@/lib/authz/snapshot";
+import { loadSubject } from "@/lib/authz/subject";
+import { POINTS_TX_OPTIONS } from "@/lib/points/retry";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
-import { listContentsPage, setThreadFlags } from "./contents";
+import {
+  listContentsPage,
+  loadContentDetail,
+  prepareApiThreadLock,
+  setThreadFlags,
+} from "./contents";
 
 let tdb: TempDb;
 const db = () => getWebDb();
@@ -309,5 +316,115 @@ describe.skipIf(skipDb)("内容管理（M9.5）", () => {
       ok: false,
       code: "not_found",
     });
+  });
+});
+
+describe.skipIf(skipDb)("管理 API 锁帖与内容版本", () => {
+  const actor = { userId: DEMO.admin, via: "api" as const, ip: null };
+  const trace = { requestId: "lock-integration", tokenSuffix: "tail0002" };
+
+  it("相反锁位按持锁顺序串行，同值不写审计", async () => {
+    const { threadId } = await seedThread({ state: "visible", title: "显式锁位" });
+    const subject = await loadSubject(DEMO.admin);
+    const lock = await prepareApiThreadLock(subject, threadId, true, actor, trace);
+    const unlockTrace = { ...trace, requestId: "unlock-integration" };
+    const unlock = await prepareApiThreadLock(subject, threadId, false, actor, unlockTrace);
+    if (!lock.ok || !unlock.ok) throw new Error("未能准备锁帖操作");
+
+    const firstApplied = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const first = db().transaction(async (tx) => {
+      const target = await lock.lock(tx);
+      if (!target.ok) throw new Error(target.code);
+      const result = await target.execute();
+      firstApplied.resolve();
+      await release.promise;
+      return result;
+    }, POINTS_TX_OPTIONS);
+    await Promise.race([firstApplied.promise, first]);
+    const secondEntered = Promise.withResolvers<void>();
+    const second = db().transaction(async (tx) => {
+      secondEntered.resolve();
+      const target = await unlock.lock(tx);
+      if (!target.ok) throw new Error(target.code);
+      return target.execute();
+    }, POINTS_TX_OPTIONS);
+    try {
+      await Promise.race([secondEntered.promise, second]);
+    } finally {
+      release.resolve();
+    }
+    expect(await first).toEqual({ ok: true, data: { threadId, locked: true, changed: true } });
+    expect(await second).toEqual({ ok: true, data: { threadId, locked: false, changed: true } });
+    const same = await db().transaction(async (tx) => {
+      const target = await unlock.lock(tx);
+      if (!target.ok) throw new Error(target.code);
+      return target.execute();
+    }, POINTS_TX_OPTIONS);
+    expect(same).toEqual({ ok: true, data: { threadId, locked: false, changed: false } });
+    expect(await loadContentDetail("thread", threadId, null)).toMatchObject({
+      ok: true,
+      detail: { isLocked: false },
+    });
+    const audits = await db()
+      .select()
+      .from(auditLog)
+      .where(
+        and(eq(auditLog.action, "admin.thread.flags"), eq(auditLog.targetId, String(threadId))),
+      )
+      .orderBy(asc(auditLog.id));
+    expect(audits).toMatchObject([
+      {
+        actorId: DEMO.admin,
+        beforeJson: { isLocked: false },
+        afterJson: { isLocked: true, via: "api", ...trace },
+      },
+      {
+        actorId: DEMO.admin,
+        beforeJson: { isLocked: true },
+        afterJson: { isLocked: false, via: "api", ...unlockTrace },
+      },
+    ]);
+  });
+
+  it("作用域外与目标不存在同形，事务前授权后移版仍拒绝", async () => {
+    const { threadId } = await seedThread({ state: "visible", title: "跨版块锁帖" });
+    const member = await loadSubject(DEMO.member);
+    const denied = await prepareApiThreadLock(member, threadId, true, actor, trace);
+    expect(denied).toEqual(await prepareApiThreadLock(member, 99_999_999, true, actor, trace));
+    expect(denied).toMatchObject({ ok: false, code: "not_found" });
+    const subject = await loadSubject(DEMO.admin);
+    const prepared = await prepareApiThreadLock(subject, threadId, true, actor, trace);
+    if (!prepared.ok) throw new Error(prepared.code);
+    await db().update(threads).set({ forumId: 901 }).where(eq(threads.id, threadId));
+    expect(await db().transaction((tx) => prepared.lock(tx), POINTS_TX_OPTIONS)).toEqual(denied);
+    expect(await loadContentDetail("thread", threadId, null)).toMatchObject({
+      ok: true,
+      detail: { forumId: 901, isLocked: false },
+    });
+  });
+
+  it("回复详情返回帖子时间原值，主题版本只在首帖内", async () => {
+    const { threadId } = await seedThread({ state: "visible", title: "内容版本详情" });
+    const editedAt = "2026-11-18 08:09:10";
+    const [{ insertId }] = await db().insert(posts).values({
+      threadId,
+      authorId: DEMO.member,
+      floor: 2,
+      bodyMd: "编辑后的回复",
+      state: "pending",
+      createdAt: "2026-11-18 08:00:00",
+      editedAt,
+    });
+    expect(await loadContentDetail("reply", Number(insertId), [REVIEW_FORUM])).toMatchObject({
+      ok: true,
+      detail: { kind: "reply", editedAt },
+    });
+    const result = await loadContentDetail("thread", threadId, [REVIEW_FORUM]);
+    expect(result).toMatchObject({
+      ok: true,
+      detail: { kind: "thread", firstPost: { editedAt: null } },
+    });
+    if (result.ok) expect(result.detail).not.toHaveProperty("editedAt");
   });
 });

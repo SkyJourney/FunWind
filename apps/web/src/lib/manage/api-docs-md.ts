@@ -1,54 +1,100 @@
-/**
- * 管理 REST API 在线文档的内容源（M20.1，markdown + 站内渲染器管线）：
- * 每节一段 markdown，页面用 RichContent（renderMarkdown：GFM 表格 / 代码围栏 / sanitize）统一渲染。
- * 形态说明：md 以行数组 + join("\n") 承载——内容含代码围栏（三反引号）与行内反引号，
- * 模板字符串无法安全承载；单引号串行数组是结构最稳的形态。
- * 同步责任：端点实现（app/api/manage/**）变更时同步本文件与 docs/MANAGE-API.md。
- */
+import { MANAGE_ENDPOINTS, MANAGE_PERMISSION_DOMAINS, getManageEndpoint } from "./permissions";
+import type {
+  ManageEndpointDefinition,
+  ManageEndpointId,
+  ManagePermissionDomain,
+} from "./permissions";
+import { MANAGE_ERROR_CODES, type ManageErrorCode } from "./errors";
+import { DOCS_OVERVIEW } from "./api-docs-md-overview";
+import { ENDPOINT_DOCS } from "./api-docs-md-endpoints";
 
-import { DOCS_SECTIONS_PART1 } from "./api-docs-md-overview";
-import { DOCS_SECTIONS_PART2 } from "./api-docs-md-endpoints";
+export type DocsOverviewSection = { slug: string; nav: string; md: string };
 
-export interface DocsSection {
-  /** 节锚点 id（页面 section id 与左树导航 href 共用） */
+/** 仅维护端点说明；方法、路径、域和令牌权限不在文案中重复定义。 */
+export type EndpointDoc = {
   slug: string;
-  /** 左树导航条目名（语义功能名，不使用接口路径） */
   nav: string;
-  /** 左树分组名（概览组 / 功能域组） */
-  group: string;
-  /** 是否携带 GET 方法徽标（概览组与域说明段无） */
-  withMethod?: boolean;
-  /** 资格外权限徽标文本（与实现一致；缺省 = 仅站点管理员资格） */
-  permission?: string;
-  /** 端点路径（接口节元信息表展示） */
-  path?: string;
-  md: string;
+  restrictions?: string;
+  errors?: readonly ManageErrorCode[];
+  lines: readonly string[];
+};
+
+type DocsEndpointSection = DocsOverviewSection & {
+  id: ManageEndpointId;
+  endpoint: ManageEndpointDefinition;
+};
+
+const COMMON_ERRORS = ["unauthorized", "forbidden", "rate_limited", "internal"] as const;
+const WRITE_ERRORS = [
+  "bad_request",
+  "not_found",
+  "idempotency_conflict",
+  "payload_too_large",
+  "unsupported_media_type",
+  "writes_disabled",
+] as const;
+
+/** 用同一端点定义生成正文元信息和导航方法徽标。 */
+function endpointSection(id: ManageEndpointId): DocsEndpointSection {
+  const endpoint = getManageEndpoint(id);
+  const { method, path, domain, access, permission } = endpoint;
+  const { slug, nav, restrictions, errors = [], lines }: EndpointDoc = ENDPOINT_DOCS[id];
+  const errorCodes = [
+    ...new Set<ManageErrorCode>([
+      ...COMMON_ERRORS,
+      ...(access === "write" ? WRITE_ERRORS : []),
+      ...errors,
+    ]),
+  ];
+  const md = [
+    `### ${nav}`,
+    "",
+    "| 项目 | 端点信息 |",
+    "|---|---|",
+    `| 请求 | \`${method} ${path}\` |`,
+    `| 数据域 | ${MANAGE_PERMISSION_DOMAINS[domain]} |`,
+    `| 令牌权限 | \`${domain}:${access}\`（${access === "read" ? "读" : "写"}）；端点 ID：\`${id}\` |`,
+    `| 持有人全局权限 | \`site.admin\` + \`admin.roles\`${permission ? ` + \`${permission}\`` : ""} |`,
+    ...(restrictions ? [`| 资源或字段限制 | ${restrictions} |`] : []),
+    "",
+    ...lines,
+    "",
+    `**错误**（见[统一信封与错误码](#docs-envelope)）：${errorCodes.map((code) => `\`${code}\`（${MANAGE_ERROR_CODES[code].status}）`).join("、")}。`,
+  ].join("\n");
+  return { id, endpoint, slug, nav, md };
 }
 
-// 内容拆两个部分文件（行数软限 600）：概览组+站点域 / 用户+内容+日志域；此处组装导出
-export const DOCS_SECTIONS: DocsSection[] = [...DOCS_SECTIONS_PART1, ...DOCS_SECTIONS_PART2];
+const endpoints = (Object.keys(MANAGE_ENDPOINTS) as ManageEndpointId[]).map(endpointSection);
+const domains = (Object.keys(MANAGE_PERMISSION_DOMAINS) as ManagePermissionDomain[]).map((id) => ({
+  id,
+  title: MANAGE_PERMISSION_DOMAINS[id],
+  sections: endpoints.filter(({ endpoint }) => endpoint.domain === id),
+}));
 
-/** 左树分组结构（由 DOCS_SECTIONS 归组派生；域说明段不作为导航条目——导航只到接口粒度） */
-export interface DocsNavGroup {
-  group: string;
-  items: { slug: string; nav: string; withMethod?: boolean; permission?: string }[];
-}
+/** 页面正文、桌面导航和移动导航共用锚点；保留旧审计日志总节锚点。 */
+export const DOCS_SECTIONS = [
+  ...DOCS_OVERVIEW,
+  ...domains.flatMap(({ id, title, sections }) => [
+    { slug: `docs-${id === "audit-logs" ? "logs" : id}`, md: `## ${title}` },
+    ...sections,
+  ]),
+];
 
-export function docsNavGroups(): DocsNavGroup[] {
-  const groups: DocsNavGroup[] = [];
-  for (const section of DOCS_SECTIONS) {
-    if (section.group === "功能域" && !section.withMethod) continue;
-    let g = groups.find((x) => x.group === section.group);
-    if (!g) {
-      g = { group: section.group, items: [] };
-      groups.push(g);
-    }
-    g.items.push({
-      slug: section.slug,
-      nav: section.nav,
-      withMethod: section.withMethod,
-      permission: section.permission,
-    });
-  }
-  return groups;
+/** 导航展示概览和端点；数据域标题不作为可点条目。 */
+export function docsNavGroups() {
+  const intro = DOCS_OVERVIEW.map(({ slug, nav }) => ({ slug, nav }));
+  return [
+    { group: "概览", items: intro },
+    ...domains.map(({ id, title, sections }) => ({
+      domain: id,
+      group: title,
+      items: sections.map(({ id, slug, nav, endpoint: { method, access } }) => ({
+        id,
+        slug,
+        nav,
+        method,
+        access,
+      })),
+    })),
+  ];
 }

@@ -1,9 +1,14 @@
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { forums, getWebDb, posts, threads, users } from "@funwind/db";
+import { writeAudit, type ConfigActor, type DbTx } from "@/lib/audit";
 import { publicUsername } from "@/lib/identity-expr";
 import { pageBounds } from "@/lib/paging";
 import { checkPermission, getModeratedForumIds } from "@/lib/authz/service";
-import type { Subject } from "@/lib/authz/types";
+import { loadFreshAuthzSnapshot } from "@/lib/authz/snapshot";
+import { loadSubject, loadSubjectFrom } from "@/lib/authz/subject";
+import type { AuthzSnapshot, Subject } from "@/lib/authz/types";
+import { forumSelectCols } from "@/lib/forums/select";
+import { lockThread } from "@/lib/posting/locks";
 
 /**
  * 内容管理查询（M9.5 §9.2-A；M19 吸收审核队列）：后台跨主题/回帖的**定位**能力——
@@ -193,8 +198,112 @@ export async function listContentsPage(
  * 主题级设置（锁定 / 置顶 / 精华）——M9.5 §9.2-C 补写入口。
  * 权限：版主可设所辖版块的主题；置顶级别版主最高 1（版块级），site.admin 可设到 3（全站）。
  */
+export type ModerationWriteDenial<Code extends string> = {
+  ok: false;
+  code: Code;
+  message?: string;
+};
+export type ModerationApiTrace = { requestId: string; tokenSuffix: string };
+export type PreparedModerationWrite<T, Code extends string> = {
+  ok: true;
+  lock(tx: DbTx): Promise<
+    | {
+        ok: true;
+        execute(): Promise<
+          { ok: true; data: T; afterCommit?: () => Promise<void> } | ModerationWriteDenial<Code>
+        >;
+      }
+    | ModerationWriteDenial<Code>
+  >;
+};
+
+/** 锁住已确认归属的目标版块，再按同事务的最新主体、实际祖先和读策略复验 API 权限。 */
+export async function lockModerationAccess(
+  tx: DbTx,
+  subject: Subject,
+  forumId: number,
+  action: "review" | "thread_flags",
+): Promise<boolean> {
+  if (subject.userId === null) return false;
+  // 审核可能改版块计数，维持原排他锁；锁帖只需共享锁稳住版块归属。
+  const [lockedForum] = await tx
+    .select(forumSelectCols)
+    .from(forums)
+    .where(eq(forums.id, forumId))
+    .for(action === "review" ? "update" : "share");
+  if (!lockedForum) return false;
+  const current = await loadSubjectFrom(tx, subject.userId, subject.registerMode, true);
+  if (current.userId !== subject.userId) return false;
+  const snapshot = await loadFreshAuthzSnapshot(tx, {
+    lockedForum,
+    roleKeys: [...new Set(current.roles.map(({ key }) => key))],
+  });
+  if (!snapshot.tree.has(forumId)) return false;
+  if (action === "thread_flags")
+    return (await threadFlagsAccess(current, forumId, snapshot)).allowed;
+  return (await checkPermission(current, "forum.moderate", { forumId }, snapshot)).allowed;
+}
+
 export type ThreadFlagsResult =
   { ok: true } | { ok: false; code: "not_found" | "forbidden" | "bad_pin"; message: string };
+
+const threadNotFound = { ok: false, code: "not_found", message: "主题不存在" } as const;
+type ThreadFlagsPatch = { isLocked?: boolean; isFeatured?: boolean; pinLevel?: number };
+
+/** 在事务外按现有管理员／版主规则授权，并记住本次已授权的版块。 */
+async function authorizeThreadFlags(subject: Subject, threadId: number) {
+  const [row] = await getWebDb()
+    .select({ forumId: threads.forumId })
+    .from(threads)
+    .where(eq(threads.id, threadId))
+    .limit(1);
+  if (!row) return threadNotFound;
+  const { forumId } = row;
+  const { allowed, isSiteAdmin } = await threadFlagsAccess(subject, forumId);
+  if (!allowed) {
+    return { ok: false as const, code: "forbidden" as const, message: "你不是该版块的版主" };
+  }
+  return { ok: true as const, forumId, isSiteAdmin };
+}
+
+/** 锁帖沿用后台权限：站点管理员或目标版块的版主。 */
+async function threadFlagsAccess(subject: Subject, forumId: number, snapshot?: AuthzSnapshot) {
+  const isSiteAdmin = (await checkPermission(subject, "site.admin", {}, snapshot)).allowed;
+  const allowed =
+    isSiteAdmin ||
+    (await checkPermission(subject, "forum.moderate", { forumId }, snapshot)).allowed;
+  return { allowed, isSiteAdmin };
+}
+
+/** 持锁后先核对主题归属。 */
+async function lockThreadFlagsTarget(tx: DbTx, threadId: number, forumId: number) {
+  const thread = await lockThread(tx, threadId);
+  return thread?.forumId === forumId ? thread : null;
+}
+
+/** 两个入口共用锁内更新；仅 API 同值不写入，原后台保留修改与审计语义。 */
+async function applyThreadFlags(
+  tx: DbTx,
+  thread: NonNullable<Awaited<ReturnType<typeof lockThreadFlagsTarget>>>,
+  patch: ThreadFlagsPatch,
+  actor: ConfigActor,
+  trace?: ModerationApiTrace,
+): Promise<boolean> {
+  if (trace && patch.isLocked === thread.isLocked) return false;
+  await tx.update(threads).set(patch).where(eq(threads.id, thread.id));
+  await writeAudit(tx, {
+    actorId: actor.userId,
+    action: "admin.thread.flags",
+    targetType: "thread",
+    targetId: thread.id,
+    ...(trace ? { before: { isLocked: thread.isLocked } } : {}),
+    after: trace
+      ? { ...patch, via: "api", requestId: trace.requestId, tokenSuffix: trace.tokenSuffix }
+      : { ...patch, via: actor.via },
+    ip: actor.ip,
+  });
+  return true;
+}
 
 export async function setThreadFlags(
   operator: { userId: number | null },
@@ -203,49 +312,60 @@ export async function setThreadFlags(
   actor: { userId: number; via: "admin"; ip: string | null },
 ): Promise<ThreadFlagsResult> {
   if (operator.userId === null) return { ok: false, code: "forbidden", message: "请先登录" };
-  // 评估器需要完整 Subject（roles）——只有 userId 时先加载
-  const { loadSubject } = await import("@/lib/authz/subject");
+  // 评估器需要完整主体；后台入口只有用户 ID。
   const subject = await loadSubject(operator.userId);
-  const db = getWebDb();
-  const [row] = await db
-    .select({ forumId: threads.forumId })
-    .from(threads)
-    .where(eq(threads.id, threadId))
-    .limit(1);
-  if (!row) return { ok: false, code: "not_found", message: "主题不存在" };
-
-  const { checkPermission } = await import("@/lib/authz/service");
-  const isSiteAdmin = (await checkPermission(subject, "site.admin")).allowed;
-  if (!isSiteAdmin) {
-    const allowed = (await checkPermission(subject, "forum.moderate", { forumId: row.forumId }))
-      .allowed;
-    if (!allowed) return { ok: false, code: "forbidden", message: "你不是该版块的版主" };
-  }
-  // 版主置顶上限 1（版块级）；全站置顶仅 site.admin
-  const maxPin = isSiteAdmin ? 3 : 1;
+  const access = await authorizeThreadFlags(subject, threadId);
+  if (!access.ok) return access;
+  const maxPin = access.isSiteAdmin ? 3 : 1;
   if (flags.pinLevel !== undefined && flags.pinLevel > maxPin) {
     return { ok: false, code: "bad_pin", message: `置顶级别超出权限（最高 ${maxPin}）` };
   }
 
-  const patch: Record<string, unknown> = {};
+  const patch: ThreadFlagsPatch = {};
   if (flags.locked !== undefined) patch.isLocked = flags.locked;
   if (flags.featured !== undefined) patch.isFeatured = flags.featured;
   if (flags.pinLevel !== undefined) patch.pinLevel = flags.pinLevel;
   if (Object.keys(patch).length === 0) return { ok: false, code: "not_found", message: "没有变更" };
 
-  const { writeAudit } = await import("@/lib/audit");
-  await db.transaction(async (tx) => {
-    await tx.update(threads).set(patch).where(eq(threads.id, threadId));
-    await writeAudit(tx, {
-      actorId: actor.userId,
-      action: "admin.thread.flags",
-      targetType: "thread",
-      targetId: threadId,
-      after: { ...patch, via: actor.via },
-      ip: actor.ip,
-    });
+  return getWebDb().transaction(async (tx) => {
+    const thread = await lockThreadFlagsTarget(tx, threadId, access.forumId);
+    if (!thread) return threadNotFound;
+    await applyThreadFlags(tx, thread, patch, actor);
+    return { ok: true };
   });
-  return { ok: true };
+}
+
+type ApiThreadLockData = { threadId: number; locked: boolean; changed: boolean };
+type PreparedApiThreadLock = PreparedModerationWrite<ApiThreadLockData, "not_found">;
+
+/** 设置明确的目标锁位，不承诺版本；读取旧锁位、更新和变更审计均用调用方事务。 */
+export async function prepareApiThreadLock(
+  subject: Subject,
+  threadId: number,
+  locked: boolean,
+  actor: ConfigActor,
+  trace: ModerationApiTrace,
+): Promise<PreparedApiThreadLock | typeof threadNotFound> {
+  if (subject.userId === null) return threadNotFound;
+  const access = await authorizeThreadFlags(subject, threadId);
+  if (!access.ok) return threadNotFound;
+  const apiActor = { ...actor, userId: subject.userId };
+  return {
+    ok: true,
+    async lock(tx) {
+      const thread = await lockThreadFlagsTarget(tx, threadId, access.forumId);
+      if (!thread || !(await lockModerationAccess(tx, subject, thread.forumId, "thread_flags"))) {
+        return threadNotFound;
+      }
+      return {
+        ok: true,
+        async execute() {
+          const changed = await applyThreadFlags(tx, thread, { isLocked: locked }, apiActor, trace);
+          return { ok: true, data: { threadId, locked, changed } };
+        },
+      };
+    },
+  };
 }
 
 // ---------- 内容详情（M20：/api/manage/contents/[id] 的 Service；此前无导出的行级读取） ----------
@@ -271,6 +391,7 @@ export type ThreadDetail = {
     state: string;
     bodyMd: string;
     createdAt: string;
+    editedAt: string | null;
   };
 };
 
@@ -281,6 +402,7 @@ export type ReplyDetail = {
   state: string;
   bodyMd: string;
   createdAt: string;
+  editedAt: string | null;
   authorId: number;
   authorName: string | null;
   threadId: number;
@@ -328,6 +450,7 @@ export async function loadContentDetail(
         firstPostState: posts.state,
         bodyMd: posts.bodyMd,
         firstPostCreatedAt: posts.createdAt,
+        firstPostEditedAt: posts.editedAt,
       })
       .from(threads)
       .innerJoin(forums, eq(forums.id, threads.forumId))
@@ -363,6 +486,7 @@ export async function loadContentDetail(
           state: row.firstPostState,
           bodyMd: row.bodyMd ?? "",
           createdAt: row.firstPostCreatedAt,
+          editedAt: row.firstPostEditedAt,
         },
       },
     };
@@ -375,6 +499,7 @@ export async function loadContentDetail(
       state: posts.state,
       bodyMd: posts.bodyMd,
       createdAt: posts.createdAt,
+      editedAt: posts.editedAt,
       authorId: posts.authorId,
       authorName: publicUsername(users.username, users.state, users.id),
       threadId: threads.id,
@@ -402,6 +527,7 @@ export async function loadContentDetail(
       state: row.state,
       bodyMd: row.bodyMd ?? "",
       createdAt: row.createdAt,
+      editedAt: row.editedAt,
       authorId: row.authorId,
       authorName: row.authorName,
       threadId: row.threadId,

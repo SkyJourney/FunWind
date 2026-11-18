@@ -6,7 +6,7 @@ import { defineAction } from "@/lib/actions/define-action";
 import { appendQueryParam } from "@/lib/admin/query";
 import {
   ADMIN_API_TOKEN_DEFAULT_DAYS,
-  createAdminApiToken,
+  createScopedAdminApiToken,
   isEffectiveSiteAdminOf,
   revokeAdminApiToken,
   stashPlainForOnce,
@@ -20,6 +20,7 @@ import {
  */
 
 const BASE = "/admin/api-tokens";
+const PERMISSION_PREFIX = "permission.";
 
 /** 页面与 API 共同的「有效站点管理员」资格口径（判定在 Service，入口零 db 直连） */
 async function ensureSiteAdminInvariant(userId: number): Promise<void> {
@@ -29,7 +30,7 @@ async function ensureSiteAdminInvariant(userId: number): Promise<void> {
 export const createApiTokenAction = defineAction({
   name: "api_token.create",
   auth: { admin: "site.admin" },
-  input: z.object({
+  input: z.looseObject({
     name: z.string().min(1).max(64),
     days: z.coerce.number().int().optional(),
   }),
@@ -43,14 +44,25 @@ export const createApiTokenAction = defineAction({
   ],
   run: async (ctx, input) => {
     await ensureSiteAdminInvariant(ctx.userId);
+    const permissions: Record<string, unknown> = Object.create(null);
+    for (const [key, value] of Object.entries(input)) {
+      if (key.startsWith(PERMISSION_PREFIX)) {
+        // 保留未知域和重复值（数组），由服务层验证完整选择，不静默丢弃。
+        permissions[key.slice(PERMISSION_PREFIX.length)] = value;
+      } else if (key !== "name" && key !== "days" && !key.startsWith("$ACTION_")) {
+        // 原生提交会附带 Next 元字段；其它额外字段（包括端点快照）不接受。
+        redirect(appendQueryParam(BASE, "err", "invalid-fields"));
+      }
+    }
     let created;
     try {
-      created = await createAdminApiToken({
+      created = await createScopedAdminApiToken({
         userId: ctx.userId,
         name: input.name,
         days: input.days ?? ADMIN_API_TOKEN_DEFAULT_DAYS,
         actor: ctx.actor,
         ip: ctx.ip,
+        permissions,
       });
     } catch (error) {
       // AdminError = 业务规则文案（上限/名称/档位），M19 err 裸文案形态直达页面；

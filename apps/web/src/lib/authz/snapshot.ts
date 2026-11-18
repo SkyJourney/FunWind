@@ -1,6 +1,8 @@
 import "server-only";
 
+import { and, eq, inArray } from "drizzle-orm";
 import { forums, getWebDb, roleGrants } from "@funwind/db";
+import type { DbTx } from "@/lib/audit";
 import { ForumTree, type ForumNode } from "@/lib/forums/forum-tree";
 import { forumSelectCols } from "@/lib/forums/select";
 import { buildSnapshot, type AuthzSnapshot } from "./types";
@@ -21,25 +23,67 @@ interface Holder {
 const g = globalThis as unknown as { __fwAuthzSnapshot?: Holder };
 const holder: Holder = (g.__fwAuthzSnapshot ??= { value: null, loadedAt: 0 });
 
-async function load(): Promise<AuthzSnapshot> {
-  const db = getWebDb();
-  const [forumRows, grantRows] = await Promise.all([
-    db.select(forumSelectCols).from(forums),
-    db
-      .select({
-        roleKey: roleGrants.roleKey,
-        permissionKey: roleGrants.permissionKey,
-        scopeId: roleGrants.scopeId,
-      })
-      .from(roleGrants),
-  ]);
-  return buildSnapshot(new ForumTree(forumRows as ForumNode[]), grantRows);
+/** 沿已锁目标的实际父指针逐级做当前读；祖先缺失或成环时拒绝使用不完整的授权链。 */
+async function readLockedForumChain(
+  tx: Pick<DbTx, "select">,
+  target: ForumNode,
+): Promise<ForumNode[]> {
+  const chain = [target];
+  const seen = new Set([target.id]);
+  let parentId = target.parentId;
+  while (parentId !== 0) {
+    if (seen.has(parentId)) return [];
+    const [parent] = await tx
+      .select(forumSelectCols)
+      .from(forums)
+      .where(eq(forums.id, parentId))
+      .for("share");
+    if (!parent) return [];
+    chain.push(parent);
+    seen.add(parentId);
+    parentId = parent.parentId;
+  }
+  return chain;
+}
+
+/** 从指定连接重新读取规则；锁内模式仅加载持锁目标的祖先和相关授权，并绕过旧事务读视图。 */
+export async function loadFreshAuthzSnapshot(
+  db: Pick<ReturnType<typeof getWebDb>, "select">,
+  current?: { lockedForum: ForumNode; roleKeys: readonly string[] },
+): Promise<AuthzSnapshot> {
+  const grants = db
+    .select({
+      roleKey: roleGrants.roleKey,
+      permissionKey: roleGrants.permissionKey,
+      scopeId: roleGrants.scopeId,
+    })
+    .from(roleGrants);
+  if (!current) {
+    const [forumRows, grantRows] = await Promise.all([
+      db.select(forumSelectCols).from(forums),
+      grants,
+    ]);
+    return buildSnapshot(new ForumTree(forumRows), grantRows);
+  }
+  const chain = await readLockedForumChain(db, current.lockedForum);
+  const grantRows =
+    chain.length > 0 && current.roleKeys.length > 0
+      ? await grants
+          .where(
+            and(
+              inArray(roleGrants.roleKey, current.roleKeys),
+              inArray(roleGrants.scopeId, [0, ...chain.map((node) => node.id)]),
+            ),
+          )
+          .for("share")
+      : [];
+  return buildSnapshot(new ForumTree(chain), grantRows);
 }
 
 export function getAuthzSnapshot(): Promise<AuthzSnapshot> {
   const now = Date.now();
   if (!holder.value || now - holder.loadedAt > TTL_MS) {
-    const p = load();
+    const p = loadFreshAuthzSnapshot(getWebDb());
     holder.value = p;
     holder.loadedAt = now;
     // 加载失败不缓存失败结果，下次请求重试

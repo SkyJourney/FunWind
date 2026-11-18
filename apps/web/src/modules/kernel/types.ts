@@ -134,8 +134,19 @@ export interface EventPayloads {
 }
 
 export type EventName = keyof EventPayloads;
+export const MODERATION_NOTIFICATION_DELIVERY_POLICY = "moderation_notification_v1";
+export type EventDeliveryPolicy = typeof MODERATION_NOTIFICATION_DELIVERY_POLICY;
+
+/** 持久事件的身份与原始来源；直接派发不伪造这一上下文。 */
+export type EventDeliveryContext = Readonly<{
+  outboxId: number;
+  originalSource: string | null;
+  deliveryPolicy?: EventDeliveryPolicy;
+}>;
+
 export type EventConsumer<K extends EventName = EventName> = (
   payload: EventPayloads[K],
+  delivery?: EventDeliveryContext,
 ) => void | Promise<void>;
 
 // ---------- 槽位清单（M2 仅启用 home.*；页面级槽位随 M3 建页扩充） ----------

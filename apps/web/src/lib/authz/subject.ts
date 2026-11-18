@@ -18,8 +18,17 @@ export async function loadSubject(userId: number | null): Promise<Subject> {
   const registerMode = await getRegisterMode();
   if (userId === null) return { ...GUEST_SUBJECT, registerMode };
 
-  const db = getWebDb();
-  const [userRows, roleRows, restrictionRows, closureRows] = await Promise.all([
+  return loadSubjectFrom(getWebDb(), userId, registerMode);
+}
+
+/** 同一事务内读取主体，不使用请求缓存，也不另借数据库连接。 */
+export async function loadSubjectFrom(
+  db: Pick<ReturnType<typeof getWebDb>, "select">,
+  userId: number,
+  registerMode: Subject["registerMode"],
+  currentRead = false,
+): Promise<Subject> {
+  const reads = [
     db
       .select({
         emailVerifiedAt: users.emailVerifiedAt,
@@ -61,7 +70,19 @@ export async function loadSubject(userId: number | null): Promise<Subject> {
         ),
       )
       .limit(1),
-  ]);
+  ] as const;
+  // 共享锁读绕过可重复读事务已建立的一致性快照。
+  const [userRead, rolesRead, restrictionsRead, closureRead] = reads;
+  const [userRows, roleRows, restrictionRows, closureRows] = await Promise.all(
+    currentRead
+      ? [
+          userRead.for("share"),
+          rolesRead.for("share"),
+          restrictionsRead.for("share"),
+          closureRead.for("share"),
+        ]
+      : reads,
+  );
 
   const user = userRows[0];
   if (!user || closureRows.length > 0) return { ...GUEST_SUBJECT, registerMode };

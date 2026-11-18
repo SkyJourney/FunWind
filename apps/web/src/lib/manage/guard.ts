@@ -7,7 +7,11 @@ import { checkPermission } from "@/lib/authz/service";
 import { loadSubject } from "@/lib/authz/subject";
 import type { Subject } from "@/lib/authz/types";
 import { ManageApiError } from "@/lib/manage/errors";
-import { resolveUsableApiToken, type UsableAdminApiToken } from "@/lib/manage/tokens";
+import {
+  manageTokenProfileOf,
+  resolveUsableApiToken,
+  type UsableAdminApiToken,
+} from "@/lib/manage/tokens";
 
 /**
  * 管理 REST API 的 Bearer 门禁（M20）。JSON 语义，绝不复用 requireAdmin/requireModerator
@@ -23,13 +27,12 @@ import { resolveUsableApiToken, type UsableAdminApiToken } from "@/lib/manage/to
 export const TOKEN_RATE_PER_MIN = 60;
 
 /**
- * 严格解析 Authorization 头。明文形如 fw_at_<43 字符 base64url>：
- * 非 Bearer 认证、前缀不符、长度/字符集不符一律返回 null（统一 401，存在性不泄露）。
+ * 严格解析 Authorization 头：仅接受历史和细粒度两种前缀，错误格式一律返回 null。
  */
 export function parseBearerToken(header: string | null): string | null {
   if (!header?.startsWith("Bearer ")) return null;
   const value = header.slice("Bearer ".length);
-  return /^fw_at_[A-Za-z0-9_-]{43}$/.test(value) ? value : null;
+  return manageTokenProfileOf(value) ? value : null;
 }
 
 export type ManageIdentity = {

@@ -4,7 +4,13 @@ import { nowBeijingWallTime } from "@/lib/datetime";
 import type { DbExecutor } from "@/lib/audit";
 import { emit } from "@/modules/kernel/bus";
 import { isEventName, validateEventPayload } from "@/modules/kernel/event-names";
-import type { EventName, EventPayloads } from "@/modules/kernel/types";
+import {
+  MODERATION_NOTIFICATION_DELIVERY_POLICY,
+  type EventDeliveryContext,
+  type EventDeliveryPolicy,
+  type EventName,
+  type EventPayloads,
+} from "@/modules/kernel/types";
 
 /**
  * 事务性 outbox（M7 拍板，docs/MODULES.md §8）：业务事务内 enqueue，提交后同步派发为快路径，
@@ -26,6 +32,29 @@ export interface EnqueuedEvent {
   source: string | null;
   /** 动作发起者（透传给 emit 的 deps.actorId，优先于 payload 字段映射） */
   actorId: number | null;
+  deliveryPolicy?: EventDeliveryPolicy;
+}
+
+type DispatchableRow = Pick<EnqueuedEvent, "id" | "actorId" | "source"> & {
+  payload: unknown;
+  deliveryPolicy?: string | null;
+};
+
+type DeliveryFailure = "invalid_outbox_id" | "unsupported_delivery_policy";
+
+type DispatchFailure = {
+  category: DeliveryFailure | "unknown_event" | "dispatch_failed" | "consumer_failed";
+  moduleIds?: readonly string[];
+};
+
+/** 持久身份与来源来自记录；无法识别的新策略不降级成历史派发。 */
+function deliveryOf(row: DispatchableRow): EventDeliveryContext | DeliveryFailure {
+  if (!Number.isSafeInteger(row.id) || row.id <= 0) return "invalid_outbox_id";
+  const policy = row.deliveryPolicy ?? undefined;
+  if (policy !== undefined && policy !== MODERATION_NOTIFICATION_DELIVERY_POLICY) {
+    return "unsupported_delivery_policy";
+  }
+  return Object.freeze({ outboxId: row.id, originalSource: row.source, deliveryPolicy: policy });
 }
 
 /** 补派/派发的 emitter 形态（与内核 emit 同签名，测试可注入收集器） */
@@ -42,9 +71,9 @@ export async function enqueueEventInTx(
   tx: DbExecutor,
   name: EventName,
   payload: EventPayloads[EventName],
-  opts: { actorId?: number; source?: string } = {},
+  opts: { actorId?: number; source?: string; deliveryPolicy?: EventDeliveryPolicy } = {},
 ): Promise<EnqueuedEvent> {
-  if (!isEventName(name)) throw new Error(`[outbox] 未注册的事件名: ${String(name)}`);
+  if (!isEventName(name)) throw new Error("[outbox] 未注册的事件名");
   const invalid = validateEventPayload(name, payload);
   if (invalid) throw new Error(`[outbox] ${name} 载荷非法: ${invalid}`);
   const id = insertIdOf(
@@ -53,6 +82,7 @@ export async function enqueueEventInTx(
       payload: payload as object,
       actorId: opts.actorId ?? null,
       source: opts.source ?? null,
+      deliveryPolicy: opts.deliveryPolicy ?? null,
       createdAt: nowBeijingWallTime(),
     }),
   );
@@ -62,6 +92,7 @@ export async function enqueueEventInTx(
     payload,
     source: opts.source ?? null,
     actorId: opts.actorId ?? null,
+    ...(opts.deliveryPolicy ? { deliveryPolicy: opts.deliveryPolicy } : {}),
   };
 }
 
@@ -74,59 +105,78 @@ export async function dispatchOutboxRows(
   deps: { emitter?: OutboxEmitter } = {},
 ): Promise<void> {
   for (const row of rows) {
-    // 快路径沿用入队时声明的业务来源；deps.emitter 是测试/调用方注入
-    const emitFn: OutboxEmitter =
-      deps.emitter ??
-      ((name, payload) =>
-        emit(name, payload, {
-          source: row.source ?? "outbox",
-          actorId: row.actorId ?? undefined,
-        }));
-    try {
-      const result = await emitFn(row.name, row.payload as never);
-      // 内核 emit 吞掉消费者异常（只进 EmitResult.errors 与 event_log.errorJson）——
-      // 那也是「消费失败」：行保持 pending 等补派，而不是标记完成（否则奖励静默丢失）
-      if (hasConsumerErrors(result)) {
-        await recordDispatchError(row.id, new Error(describeConsumerErrors(result)));
-        continue;
-      }
-    } catch (e) {
-      await recordDispatchError(row.id, e);
+    const failure = await dispatchFailureOf(row, row.name, row.source ?? "outbox", deps.emitter);
+    if (failure) {
+      await recordDispatchError(row.id, row.name, failure);
       continue;
     }
-    try {
-      await getWebDb()
-        .update(eventOutbox)
-        .set({ dispatchedAt: sql`NOW()` })
-        .where(eq(eventOutbox.id, row.id));
-    } catch (e) {
-      // 标记失败 → 行仍 pending → 事后重放；消费端幂等，记日志即可
-      console.error(`[outbox] #${row.id} ${row.name} 已派发但标记失败（将重放）:`, e);
-    }
+    await markDispatched(row.id, row.name, "快派");
   }
 }
 
-/**
- * 内核 emit 的返回值里带消费者错误数组（EmitResult.errors）；注入的 emitter 不返回该形状。
- * 有消费者错误 = 本次消费没有完成 = 不能标记已派发。
- */
-function hasConsumerErrors(result: unknown): boolean {
-  return (
-    typeof result === "object" &&
-    result !== null &&
-    Array.isArray((result as { errors?: unknown }).errors) &&
-    (result as { errors: unknown[] }).errors.length > 0
-  );
+/** 诊断只引用稳定的数值标识和运行时白名单中的事件名。 */
+function diagnosticContext(id: number, name: unknown): string {
+  const outboxId = Number.isSafeInteger(id) && id > 0 ? id : "unknown";
+  return `outboxId=${outboxId}${isEventName(name) ? ` event=${name}` : ""}`;
 }
 
-function describeConsumerErrors(result: unknown): string {
-  const errors = (result as { errors: { moduleId: string; message: string }[] }).errors;
-  return `消费者失败: ${errors.map((e) => `${e.moduleId}: ${e.message}`).join("; ")}`;
+/** 标记失败时保留待补派状态，业务已提交，不把标记异常反抛给调用方。 */
+async function markDispatched(id: number, name: unknown, phase: "快派" | "补派"): Promise<void> {
+  try {
+    await getWebDb()
+      .update(eventOutbox)
+      .set({ dispatchedAt: sql`NOW()` })
+      .where(eq(eventOutbox.id, id));
+  } catch {
+    console.error(
+      `[outbox] ${phase}成功但标记失败（将重放）: mark_dispatched_failed ${diagnosticContext(id, name)}`,
+    );
+  }
 }
 
-async function recordDispatchError(id: number, e: unknown): Promise<void> {
-  const message = e instanceof Error ? e.message : String(e);
-  console.error(`[outbox] #${id} 派发失败（保持 pending，等待补派）: ${message}`);
+/** 快派、补派共用失败判定；不读取异常内容或注入派发器返回的明细。 */
+async function dispatchFailureOf(
+  row: DispatchableRow,
+  name: unknown,
+  source: string,
+  emitter?: OutboxEmitter,
+): Promise<DispatchFailure | null> {
+  if (!isEventName(name)) return { category: "unknown_event" };
+  try {
+    if (emitter) {
+      const result = await emitter(name, row.payload as never);
+      // 注入派发器的非空 errors 仍表示失败，但其中的模块和消息不可信。
+      const errors =
+        typeof result === "object" && result !== null
+          ? (result as { errors?: unknown }).errors
+          : null;
+      return Array.isArray(errors) && errors.length > 0 ? { category: "consumer_failed" } : null;
+    }
+    const delivery = deliveryOf(row);
+    if (typeof delivery === "string") return { category: delivery };
+    const { errors } = await emit(name, row.payload as never, {
+      source,
+      actorId: row.actorId ?? undefined,
+      delivery,
+    });
+    // 内核隔离消费者异常，errors 非空才是消费失败；审计写入失败不要求补派。
+    return errors.length > 0
+      ? { category: "consumer_failed", moduleIds: errors.map(({ moduleId }) => moduleId) }
+      : null;
+  } catch {
+    return { category: "dispatch_failed" };
+  }
+}
+
+async function recordDispatchError(
+  id: number,
+  name: unknown,
+  failure: DispatchFailure,
+): Promise<void> {
+  const context = diagnosticContext(id, name);
+  const modules = failure.moduleIds?.length ? ` modules=${failure.moduleIds.join(",")}` : "";
+  const message = `${failure.category} ${context}${modules}`;
+  console.error(`[outbox] 派发失败（保持 pending，等待补派）: ${message}`);
   try {
     // 累计尝试次数：退避只针对「重复失败」的行（首次失败立即补派，瞬态故障不被延迟）
     const [prev] = await getWebDb()
@@ -145,8 +195,8 @@ async function recordDispatchError(id: number, e: unknown): Promise<void> {
         },
       })
       .where(eq(eventOutbox.id, id));
-  } catch (e2) {
-    console.error(`[outbox] #${id} 派发错误摘要写入失败:`, e2);
+  } catch {
+    console.error(`[outbox] 派发错误摘要写入失败: dispatch_error_write_failed ${context}`);
   }
 }
 
@@ -180,6 +230,7 @@ export async function drainOutbox(
       payload: eventOutbox.payload,
       actorId: eventOutbox.actorId,
       source: eventOutbox.source,
+      deliveryPolicy: eventOutbox.deliveryPolicy,
     })
     .from(eventOutbox)
     .where(
@@ -196,44 +247,15 @@ export async function drainOutbox(
   let dispatched = 0;
   let failed = 0;
   for (const row of pending) {
-    const name = row.eventName;
-    if (!isEventName(name)) {
-      // 库里出现未知事件名：不可能是本文件写入的（enqueue 校验过），记错误并跳过，留给人工处理
-      await recordDispatchError(row.id, new Error(`未知事件名 ${name}（疑似人工写入）`));
+    // 补派仍用 source="outbox" 标记重放，动作发起者和原始来源从入队记录恢复。
+    const failure = await dispatchFailureOf(row, row.eventName, "outbox", deps.emitter);
+    if (failure) {
+      await recordDispatchError(row.id, row.eventName, failure);
       failed++;
       continue;
     }
-    try {
-      // 补派：source="outbox" 标记重放；actorId 用入队时的动作发起者（payload 映射仅在缺省时兜底）。
-      // 注入 emitter（测试/收集器）时不写 event_log，语义由注入方负责
-      let result: unknown;
-      if (deps.emitter) {
-        result = await deps.emitter(name, row.payload as never);
-      } else {
-        result = await emit(name, row.payload as never, {
-          source: "outbox",
-          actorId: row.actorId ?? undefined,
-        });
-      }
-      if (hasConsumerErrors(result)) {
-        await recordDispatchError(row.id, new Error(describeConsumerErrors(result)));
-        failed++;
-        continue;
-      }
-      dispatched++;
-    } catch (e) {
-      await recordDispatchError(row.id, e);
-      failed++;
-      continue;
-    }
-    try {
-      await getWebDb()
-        .update(eventOutbox)
-        .set({ dispatchedAt: sql`NOW()` })
-        .where(eq(eventOutbox.id, row.id));
-    } catch (e) {
-      console.error(`[outbox] #${row.id} 已补派但标记失败（将再次重放）:`, e);
-    }
+    dispatched++;
+    await markDispatched(row.id, row.eventName, "补派");
   }
   const [{ n }] = await getWebDb()
     .select({ n: sql<number>`COUNT(*)` })
@@ -252,8 +274,8 @@ export async function sweepPending(deps: { emitter?: OutboxEmitter } = {}): Prom
     if (pendingLeft > 0) {
       console.warn(`[outbox] 捎带巡检后仍有 ${pendingLeft} 行 pending（脚本可继续补派）`);
     }
-  } catch (e) {
-    console.error("[outbox] 捎带巡检失败（不影响业务）:", e);
+  } catch {
+    console.error("[outbox] 捎带巡检失败（不影响业务）: sweep_failed");
   }
 }
 

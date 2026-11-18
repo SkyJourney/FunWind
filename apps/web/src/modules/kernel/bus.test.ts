@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emit, type EventLogRow } from "./bus";
 import { registerModule, resetRegistryForTests } from "./registry";
 import { defineModule } from "./types";
 
 beforeEach(() => resetRegistryForTests());
+afterEach(() => vi.restoreAllMocks());
 
 function fakeWriter() {
   const rows: EventLogRow[] = [];
@@ -79,7 +80,9 @@ describe("emit", () => {
         description: "",
         events: {
           "thread.created": () => {
-            throw new Error("boom!");
+            throw new Error("synthetic_consumer_message", {
+              cause: { sql: "synthetic_consumer_sql" },
+            });
           },
         },
       }),
@@ -99,8 +102,10 @@ describe("emit", () => {
     );
     expect(calls).toEqual(["after"]); // 后续消费者未受影响
     expect(r.dispatched).toEqual([{ moduleId: "after" }]);
-    expect(r.errors).toEqual([{ moduleId: "boom", message: "boom!" }]);
-    expect(w.rows[0].errorJson).toBe(JSON.stringify([{ moduleId: "boom", message: "boom!" }]));
+    const summary = [{ moduleId: "boom", message: "consumer_failed" }];
+    expect(r.errors).toEqual(summary);
+    expect(w.rows[0].errorJson).toBe(JSON.stringify(summary));
+    expect(w.rows[0].errorJson).not.toContain("synthetic_consumer_");
     expect(w.rows[0].actorId).toBe(2); // actor 按事件映射：thread.created → authorId
   });
 
@@ -124,7 +129,7 @@ describe("emit", () => {
         description: "",
         events: {
           "user.registered": () => {
-            throw "字符串异常";
+            throw "synthetic_thrown_string";
           },
         },
       }),
@@ -135,21 +140,46 @@ describe("emit", () => {
       { userId: 1 },
       { enabledModuleIds: new Set(["throw-string"]), writer: w.write },
     );
-    expect(r.errors[0].message).toBe("字符串异常");
+    expect(r.errors).toEqual([{ moduleId: "throw-string", message: "consumer_failed" }]);
+    expect(w.rows[0].errorJson).toBe(JSON.stringify(r.errors));
+    expect(w.rows[0].errorJson).not.toContain("synthetic_thrown_string");
   });
 
   it("审计落库失败不反噬派发（logged=false 降级）", async () => {
     registerModule(
       defineModule({ id: "m", description: "", events: { "user.logged_in": () => {} } }),
     );
-    const writer = vi.fn().mockRejectedValue(new Error("db down"));
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const writer = vi
+      .fn()
+      .mockRejectedValue(
+        new Error("synthetic_audit_query", { cause: { sql: "synthetic_audit_sql" } }),
+      );
     const r = await emit(
       "user.logged_in",
       { userId: 1 },
-      { enabledModuleIds: new Set(["m"]), writer },
+      {
+        enabledModuleIds: new Set(["m"]),
+        writer,
+        source: "outbox",
+        delivery: { outboxId: 12, originalSource: "moderation" },
+      },
     );
-    expect(r.dispatched).toEqual([{ moduleId: "m" }]);
-    expect(r.logged).toBe(false);
+    expect(r).toEqual({ dispatched: [{ moduleId: "m" }], errors: [], logged: false });
+    expect(errorLog.mock.calls).toEqual([
+      [
+        "[kernel] event_log 落库失败（审计降级）",
+        { category: "audit_write_failed", eventName: "user.logged_in", outboxId: 12 },
+      ],
+    ]);
+  });
+
+  it("未知事件在派发前被拒绝且不回显原值", async () => {
+    const writer = vi.fn();
+    await expect(emit("synthetic_unknown_event" as never, {} as never, { writer })).rejects.toThrow(
+      /^\[kernel\] 未注册的事件名$/,
+    );
+    expect(writer).not.toHaveBeenCalled();
   });
 
   it("无消费者时静默落审计", async () => {
@@ -170,7 +200,7 @@ describe("emit", () => {
     await emit(
       "user.logged_in",
       { userId: 5 },
-      { writer: w.write, actorId: 42, source: "dev-api", now },
+      { enabledModuleIds: new Set(), writer: w.write, actorId: 42, source: "dev-api", now },
     );
     expect(w.rows[0].actorId).toBe(42);
     expect(w.rows[0].source).toBe("dev-api");

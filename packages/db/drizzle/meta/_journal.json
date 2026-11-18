@@ -225,6 +225,34 @@
       "when": 1794909907545,
       "tag": "0031_m20_admin_api_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "5",
+      "when": 1795006211716,
+      "tag": "0032_m20_2_admin_api_token_permissions",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "5",
+      "when": 1795009703233,
+      "tag": "0033_m20_2_manage_api_idempotency",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "5",
+      "when": 1795016917349,
+      "tag": "0034_m20_2_moderation_notification_receipts",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "5",
+      "when": 1795019309450,
+      "tag": "0035_m20_2_notification_deliveries",
+      "breakpoints": true
     }
   ]
 }

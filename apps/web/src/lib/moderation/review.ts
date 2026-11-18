@@ -1,6 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
-import { contentReviews, getWebDb, posts, threads, users } from "@funwind/db";
-import type { ConfigActor } from "@/lib/audit";
+import { contentReviews, getWebDb, posts, threads, users, userStats } from "@funwind/db";
+import type { ConfigActor, DbTx } from "@/lib/audit";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import { transitionContent } from "@/lib/posting/transition";
@@ -15,6 +15,13 @@ import {
   sweepPending,
   type EnqueuedEvent,
 } from "@/lib/events/outbox";
+import { MODERATION_NOTIFICATION_DELIVERY_POLICY } from "@/modules/kernel/types";
+import {
+  lockModerationAccess,
+  type ModerationApiTrace,
+  type ModerationWriteDenial,
+  type PreparedModerationWrite,
+} from "./contents";
 
 /**
  * 内容审核动作（M9，docs/milestones/M9-admin.md §2）：approve / reject / hide / disable。
@@ -35,15 +42,10 @@ export type ReviewOutcome<T = undefined> =
 async function loadPostContext(postId: number) {
   const [row] = await getWebDb()
     .select({
-      postId: posts.id,
-      floor: posts.floor,
       postState: posts.state,
       authorId: posts.authorId,
       threadId: threads.id,
       forumId: threads.forumId,
-      threadState: threads.state,
-      firstPostId: threads.firstPostId,
-      title: threads.title,
     })
     .from(posts)
     .innerJoin(threads, eq(threads.id, posts.threadId))
@@ -100,7 +102,169 @@ const MODERATION_ACTIONS: Record<ModerationAction, ModerationSpec> = {
   },
 };
 
-/** 共用审核流程；先鉴权、再状态、后理由，每次事务尝试只返回本次提交的事件。 */
+type PostContext = NonNullable<Awaited<ReturnType<typeof loadPostContext>>>;
+
+/** 按原锁序稳定作者、主题、帖子、版块；回放可以在此后结束，不判断状态或版本。 */
+async function lockModerationTarget(
+  tx: DbTx,
+  postId: number,
+  ctx: PostContext,
+  apiSubject?: Subject,
+) {
+  let hasStats = true;
+  if (apiSubject) {
+    // API 锁阶段不写数据；不能在持主题锁后再尝试补统计行。
+    const [stats] = await tx
+      .select({ userId: userStats.userId })
+      .from(userStats)
+      .where(eq(userStats.userId, ctx.authorId))
+      .for("update");
+    hasStats = !!stats;
+  } else {
+    await lockUserStats(tx, ctx.authorId);
+  }
+  const thread = await lockThread(tx, ctx.threadId);
+  if (!thread || thread.forumId !== ctx.forumId) return null;
+  const [post] = await tx
+    .select({
+      threadId: posts.threadId,
+      authorId: posts.authorId,
+      state: posts.state,
+      editedAt: posts.editedAt,
+      replyToPostId: posts.replyToPostId,
+    })
+    .from(posts)
+    .where(eq(posts.id, postId))
+    .for("update");
+  if (!post || post.threadId !== ctx.threadId || post.authorId !== ctx.authorId) return null;
+  if (apiSubject) {
+    if (!(await lockModerationAccess(tx, apiSubject, thread.forumId, "review"))) return null;
+  } else {
+    await lockForum(tx, thread.forumId);
+  }
+  return { post, hasStats };
+}
+
+type LockedReviewTarget = NonNullable<Awaited<ReturnType<typeof lockModerationTarget>>>;
+
+/** 两个入口共用真实变更；任何重试的事件只随本次事务结果交给提交后快派。 */
+async function executeModeration(
+  tx: DbTx,
+  postId: number,
+  target: LockedReviewTarget,
+  action: ModerationAction,
+  operatorId: number,
+  actor: ConfigActor,
+  note: string,
+  api?: { expectedEditedAt: string | null; trace: ModerationApiTrace },
+) {
+  const { post } = target;
+  const spec = MODERATION_ACTIONS[action];
+  const stateError = spec.stateError(post.state);
+  if (stateError) return { ok: false as const, code: "bad_state" as const, message: stateError };
+  if (api && post.editedAt !== api.expectedEditedAt) {
+    return { ok: false as const, code: "conflict" as const, message: "内容已编辑，请刷新后再审核" };
+  }
+  if (!target.hasStats) {
+    throw new Error(`用户 ${post.authorId} 缺少统计行，拒绝迁移；请先 db:recount`);
+  }
+  const enqueued: EnqueuedEvent[] = [];
+  const transition = await transitionContent(tx, postId, spec.to, {
+    actorId: operatorId,
+    ip: actor.ip,
+    audit: true,
+    ...(action !== "approve" ? { reason: note } : {}),
+    ...(action === "disable" ? { actor: "moderator" as const } : {}),
+    ...(api ? { apiTrace: api.trace } : {}),
+  });
+  if (!transition.ok) {
+    return {
+      ok: false as const,
+      code: transition.code === "not_found" ? ("not_found" as const) : ("bad_state" as const),
+      message: "状态迁移失败",
+    };
+  }
+  const { threadId, forumId, authorId } = transition;
+  if (spec.decision) {
+    await tx.insert(contentReviews).values({
+      postId,
+      reviewerId: operatorId,
+      decision: spec.decision,
+      note,
+      createdAt: nowBeijingWallTime(),
+    });
+  }
+  if (action === "approve") {
+    // 补发创建事件（待审路径未发过；作者首次获得积分入账）。
+    const source = { actorId: authorId, source: "moderation" };
+    if (transition.kind === "thread") {
+      const [thread] = await tx
+        .select({ title: threads.title })
+        .from(threads)
+        .where(eq(threads.id, threadId))
+        .limit(1);
+      enqueued.push(
+        await enqueueEventInTx(
+          tx,
+          "thread.created",
+          { threadId, postId, forumId, authorId, title: thread!.title },
+          source,
+        ),
+      );
+    } else {
+      const [replyTarget] =
+        post.replyToPostId !== null
+          ? await tx
+              .select({ authorId: posts.authorId })
+              .from(posts)
+              .where(and(eq(posts.id, post.replyToPostId), eq(posts.threadId, threadId)))
+              .limit(1)
+          : [];
+      enqueued.push(
+        await enqueueEventInTx(
+          tx,
+          "thread.replied",
+          {
+            threadId,
+            postId,
+            forumId,
+            authorId,
+            threadAuthorId: transition.threadAuthorId,
+            ...(post.replyToPostId !== null && replyTarget
+              ? { replyToPostId: post.replyToPostId, replyToAuthorId: replyTarget.authorId }
+              : {}),
+          },
+          { ...source, deliveryPolicy: MODERATION_NOTIFICATION_DELIVERY_POLICY },
+        ),
+      );
+    }
+  }
+  enqueued.push(
+    await enqueueEventInTx(
+      tx,
+      "content.moderated",
+      { postId, operatorId, action, ...(action !== "approve" ? { reason: note } : {}) },
+      {
+        actorId: operatorId,
+        source: "moderation",
+        deliveryPolicy:
+          action === "approve" || action === "reject"
+            ? MODERATION_NOTIFICATION_DELIVERY_POLICY
+            : undefined,
+      },
+    ),
+  );
+  return {
+    ok: true as const,
+    threadId,
+    async afterCommit() {
+      await dispatchOutboxRows(enqueued);
+      await sweepPending();
+    },
+  };
+}
+
+/** 原后台先鉴权、再状态、后理由，保留各动作对锁内失败的错误映射。 */
 async function runModerationAction(
   action: ModerationAction,
   operator: Subject,
@@ -115,8 +279,7 @@ async function runModerationAction(
   if (!(await canModerate(operator, ctx.forumId))) {
     return { ok: false, code: "forbidden", message: "你不是该版块的版主" };
   }
-  const spec = MODERATION_ACTIONS[action];
-  const stateError = spec.stateError(ctx.postState);
+  const stateError = MODERATION_ACTIONS[action].stateError(ctx.postState);
   if (stateError) return { ok: false, code: "bad_state", message: stateError };
   if (action !== "approve") {
     const reasonCheck = checkReason(reason!);
@@ -126,112 +289,79 @@ async function runModerationAction(
 
   const result = await withDeadlockRetry(() =>
     getWebDb().transaction(async (tx) => {
-      // 被回滚尝试的事件不进入快路径缓存，也不泄露到下一次重试。
-      const enqueued: EnqueuedEvent[] = [];
-      // 沿用迁移入口的锁序；同一事务内重验动作前置状态，不能把恢复白名单当成审核通过。
-      await lockUserStats(tx, ctx.authorId);
-      const lockedThread = await lockThread(tx, ctx.threadId);
-      const [lockedPost] = await tx
-        .select({ state: posts.state, replyToPostId: posts.replyToPostId })
-        .from(posts)
-        .where(eq(posts.id, postId))
-        .for("update");
-      if (!lockedThread || !lockedPost) {
-        return {
-          ok: false as const,
-          code: action === "approve" ? ("not_found" as const) : ("bad_state" as const),
-        };
-      }
-      await lockForum(tx, lockedThread.forumId);
-      if (spec.stateError(lockedPost.state)) {
-        return { ok: false as const, code: "bad_state" as const };
-      }
-      const transition = await transitionContent(tx, postId, spec.to, {
-        actorId: operatorId,
-        ip: actor.ip,
-        audit: true,
-        ...(action !== "approve" ? { reason: note } : {}),
-        ...(action === "disable" ? { actor: "moderator" as const } : {}),
-      });
-      if (!transition.ok) {
-        return {
-          ok: false as const,
-          code:
-            action === "approve" && transition.code === "not_found"
-              ? ("not_found" as const)
-              : ("bad_state" as const),
-        };
-      }
-      if (spec.decision) {
-        await tx.insert(contentReviews).values({
-          postId,
-          reviewerId: operatorId,
-          decision: spec.decision,
-          note,
-          createdAt: nowBeijingWallTime(),
-        });
-      }
-      if (action === "approve") {
-        // 补发创建事件（pending 路径从未发过；作者首次获得积分入账）。
-        const [replyTarget] =
-          transition.kind === "reply" && lockedPost.replyToPostId !== null
-            ? await tx
-                .select({ authorId: posts.authorId })
-                .from(posts)
-                .where(
-                  and(eq(posts.id, lockedPost.replyToPostId), eq(posts.threadId, ctx.threadId)),
-                )
-                .limit(1)
-            : [];
-        enqueued.push(
-          transition.kind === "thread"
-            ? await enqueueEventInTx(
-                tx,
-                "thread.created",
-                {
-                  threadId: ctx.threadId,
-                  postId,
-                  forumId: ctx.forumId,
-                  authorId: ctx.authorId,
-                  title: ctx.title,
-                },
-                { actorId: ctx.authorId, source: "moderation" },
-              )
-            : await enqueueEventInTx(
-                tx,
-                "thread.replied",
-                {
-                  threadId: ctx.threadId,
-                  postId,
-                  forumId: ctx.forumId,
-                  authorId: ctx.authorId,
-                  threadAuthorId: transition.threadAuthorId,
-                  ...(lockedPost.replyToPostId !== null && replyTarget
-                    ? {
-                        replyToPostId: lockedPost.replyToPostId,
-                        replyToAuthorId: replyTarget.authorId,
-                      }
-                    : {}),
-                },
-                { actorId: ctx.authorId, source: "moderation" },
-              ),
-        );
-      }
-      enqueued.push(
-        await enqueueEventInTx(
-          tx,
-          "content.moderated",
-          { postId, operatorId, action, ...(action !== "approve" ? { reason: note } : {}) },
-          { actorId: operatorId, source: "moderation" },
-        ),
-      );
-      return { ok: true as const, enqueued };
+      const target = await lockModerationTarget(tx, postId, ctx);
+      return target
+        ? executeModeration(tx, postId, target, action, operatorId, actor, note)
+        : { ok: false as const, code: "not_found" as const };
     }, POINTS_TX_OPTIONS),
   );
-  if (!result.ok) return { ok: false, code: result.code, message: "状态迁移失败" };
-  await dispatchOutboxRows(result.enqueued);
-  await sweepPending();
+  if (!result.ok) {
+    const code = action === "approve" && result.code === "not_found" ? "not_found" : "bad_state";
+    return { ok: false, code, message: "状态迁移失败" };
+  }
+  await result.afterCommit();
   return { ok: true };
+}
+
+type ApiReviewInput = {
+  decision: "approve" | "reject";
+  expectedEditedAt: string | null;
+  reason?: string;
+};
+type ApiReviewData = { postId: number; threadId: number; state: "visible" | "rejected" };
+type ApiReviewCode = "not_found" | "bad_state" | "conflict";
+type PreparedApiReview = PreparedModerationWrite<ApiReviewData, ApiReviewCode>;
+
+/** 事务外鉴权；锁定只确认目标范围，审核前置条件留到无回放的实际执行阶段。 */
+export async function prepareApiReview(
+  subject: Subject,
+  postId: number,
+  input: ApiReviewInput,
+  actor: ConfigActor,
+  trace: ModerationApiTrace,
+): Promise<PreparedApiReview | ModerationWriteDenial<"not_found">> {
+  const notFound = { ok: false as const, code: "not_found" as const, message: "帖子不存在" };
+  if (subject.userId === null) return notFound;
+  const operatorId = subject.userId;
+  const ctx = await loadPostContext(postId);
+  if (!ctx || !(await canModerate(subject, ctx.forumId))) return notFound;
+  const { decision, expectedEditedAt } = input;
+  const note = decision === "reject" ? (input.reason?.trim() ?? "") : "";
+  return {
+    ok: true,
+    async lock(tx) {
+      const target = await lockModerationTarget(tx, postId, ctx, subject);
+      if (!target) return notFound;
+      return {
+        ok: true,
+        async execute() {
+          const result = await executeModeration(
+            tx,
+            postId,
+            target,
+            decision,
+            operatorId,
+            actor,
+            note,
+            {
+              expectedEditedAt,
+              trace,
+            },
+          );
+          if (!result.ok) return result.code === "not_found" ? notFound : result;
+          return {
+            ok: true,
+            data: {
+              postId,
+              threadId: result.threadId,
+              state: decision === "approve" ? "visible" : "rejected",
+            },
+            afterCommit: result.afterCommit,
+          };
+        },
+      };
+    },
+  };
 }
 
 /** 审核通过：pending → visible；写审核记录，补发创建事件与审核事件。 */

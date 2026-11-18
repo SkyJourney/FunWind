@@ -13,6 +13,8 @@ import { getModules } from "./registry";
 export interface ModuleEnablement {
   enabledIds: ReadonlySet<string>;
   disabledIds: ReadonlySet<string>;
+  /** 区分本次成功读取、沿用进程旧快照和冷启动降级。 */
+  source: "database" | "last_known" | "unavailable";
 }
 
 export interface ModuleOverride {
@@ -27,11 +29,8 @@ export interface EnablementMemory {
 const lastKnown: EnablementMemory = { overrides: null };
 
 /**
- * 计算启用状态。读取失败时的降级策略（复查 B3）：
- *  · 有上一次成功的结果 → 沿用（记日志）；
- *  · 冷启动就读不到 → **全部视为停用**。
- * 旧实现是「读不到就全启用」，意味着管理员停用的模块会在连接池耗尽等压力时刻被重新打开——停用开关恰好在
- * 最需要它的时候失效。模块是可选能力，停用不会拖垮宿主页；数据库连主表都读不到时页面本来也出不来。
+ * 计算启用状态。读取失败时保留页面和直接派发的降级策略（复查 B3）：有旧快照则沿用，否则全禁。
+ * 同时标记结果来源，让持久派发能区分「暂时读不到状态」和「按真实配置停用」。
  */
 export async function resolveEnablement(
   allIds: readonly string[],
@@ -39,16 +38,18 @@ export async function resolveEnablement(
   memory: EnablementMemory = lastKnown,
 ): Promise<ModuleEnablement> {
   let overrideMap: Map<string, boolean>;
+  let source: ModuleEnablement["source"] = "database";
   try {
     overrideMap = new Map((await read()).map((r) => [r.moduleId, r.enabled]));
     memory.overrides = overrideMap;
-  } catch (e) {
+  } catch {
     if (memory.overrides) {
-      console.error("[kernel] module_state 读取失败，沿用上一次成功读到的启停状态:", e);
+      console.error("[kernel] module_state_read_failed：沿用上一次成功读到的启停状态");
+      source = "last_known";
       overrideMap = memory.overrides;
     } else {
-      console.error("[kernel] module_state 读取失败且没有可沿用的状态，所有模块暂按停用处理:", e);
-      return { enabledIds: new Set(), disabledIds: new Set(allIds) };
+      console.error("[kernel] module_state_read_failed：没有可沿用的状态，所有模块暂按停用处理");
+      return { enabledIds: new Set(), disabledIds: new Set(allIds), source: "unavailable" };
     }
   }
   const enabledIds = new Set<string>();
@@ -57,7 +58,7 @@ export async function resolveEnablement(
     const on = overrideMap.get(id) ?? true;
     (on ? enabledIds : disabledIds).add(id);
   }
-  return { enabledIds, disabledIds };
+  return { enabledIds, disabledIds, source };
 }
 
 async function loadEnablement(): Promise<ModuleEnablement> {

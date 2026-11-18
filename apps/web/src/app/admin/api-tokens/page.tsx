@@ -5,11 +5,19 @@ import {
   ADMIN_API_TOKEN_DAYS,
   ADMIN_API_TOKEN_DEFAULT_DAYS,
   ADMIN_API_TOKEN_LIMIT,
+  getAssignableManageEndpointIds,
   isEffectiveSiteAdminOf,
   listAdminApiTokens,
   takePlainOnce,
   type AdminApiTokenListItem,
 } from "@/lib/manage/tokens";
+import {
+  getManageEndpoint,
+  MANAGE_ENDPOINTS,
+  MANAGE_PERMISSION_DOMAINS,
+  type ManageEndpointId,
+  type ManagePermissionDomain,
+} from "@/lib/manage/permissions";
 import { flashText } from "@/lib/admin/flash";
 import { AdminFlash } from "@/components/admin/admin-flash";
 import { CopyCode } from "@/components/admin/copy-code";
@@ -29,7 +37,11 @@ const TOKENS_OK: Record<string, string> = {
 const TOKENS_ERR: Record<string, string> = {
   "already-revoked": "该 Token 已吊销过，无需重复操作。",
   "rate-limited": "签发过于频繁，请稍后再试。",
+  "invalid-fields": "签发表单包含不受支持的字段，请重新提交。",
 };
+
+const DOMAINS = Object.keys(MANAGE_PERMISSION_DOMAINS) as ManagePermissionDomain[];
+const ENDPOINT_IDS = Object.keys(MANAGE_ENDPOINTS) as ManageEndpointId[];
 
 const COLUMNS: AdminColumn[] = [
   { label: "名称", className: "" },
@@ -37,6 +49,7 @@ const COLUMNS: AdminColumn[] = [
   { label: "创建时间", className: "whitespace-nowrap hidden md:table-cell" },
   { label: "过期时间", className: "whitespace-nowrap hidden md:table-cell" },
   { label: "最后使用", className: "whitespace-nowrap hidden lg:table-cell" },
+  { label: "授权", className: "" },
   { label: "状态", className: "" },
   { label: "操作", className: "" },
 ];
@@ -47,7 +60,113 @@ function statusBadgeOf(t: AdminApiTokenListItem) {
     return <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">已吊销</span>;
   if (!t.active)
     return <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">已过期</span>;
+  if (t.endpointGrants === null)
+    return <span className="rounded-full bg-warning/10 px-2 py-0.5 text-warning">不可用</span>;
   return <span className="rounded-full bg-success/10 px-2 py-0.5 text-success">生效中</span>;
+}
+
+/** 只允许授予持有人具备的整档端点；提交后仍以服务端重新检查为准。 */
+function PermissionMatrix({ assignableIds }: { assignableIds: readonly ManageEndpointId[] }) {
+  const assignable = new Set(assignableIds);
+  return (
+    <fieldset className="min-w-0 space-y-2">
+      <legend className="font-medium">权限矩阵</legend>
+      <p className="text-xs text-muted-foreground">
+        所有域默认禁止，签发时至少选择一项可用权限。只读包含所选域的读端点，读写同时包含读、写端点；实际调用仍受持有人的实时权限和资源范围限制。
+      </p>
+      <div className="divide-y rounded-lg border">
+        {DOMAINS.map((domain) => {
+          const endpoints = ENDPOINT_IDS.filter((id) => getManageEndpoint(id).domain === domain);
+          const reads = endpoints.filter((id) => getManageEndpoint(id).access === "read");
+          const hasWrites = endpoints.some((id) => getManageEndpoint(id).access === "write");
+          const canRead = reads.length > 0 && reads.every((id) => assignable.has(id));
+          const canWrite = hasWrites && endpoints.every((id) => assignable.has(id));
+          const hint = [
+            canRead ? "" : reads.length === 0 ? "尚无读端点。" : "权限不足，不能选只读。",
+            canWrite ? "" : !hasWrites ? "尚无写端点。" : "权限不足，不能选读写。",
+          ].join("");
+          const fieldId = `permission-${domain}`;
+          return (
+            <div
+              key={domain}
+              className="grid min-w-0 gap-2 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_8rem] sm:items-center"
+            >
+              <div className="min-w-0">
+                <label htmlFor={fieldId} className="font-medium">
+                  {MANAGE_PERMISSION_DOMAINS[domain]}
+                </label>
+                {hint && (
+                  <p id={`${fieldId}-hint`} className="mt-0.5 text-xs text-muted-foreground">
+                    {hint}
+                  </p>
+                )}
+              </div>
+              <select
+                id={fieldId}
+                name={`permission.${domain}`}
+                aria-describedby={hint ? `${fieldId}-hint` : undefined}
+                defaultValue="none"
+                className="w-full min-w-0 rounded-lg border bg-background px-2.5 py-1.5"
+              >
+                <option value="none">禁止</option>
+                <option value="read" disabled={!canRead}>
+                  只读
+                </option>
+                <option value="write" disabled={!canWrite}>
+                  读写
+                </option>
+              </select>
+            </div>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
+/** 按签发时的快照列出端点，不从域级档位反推已授权能力。 */
+function TokenPermissions({ token }: { token: AdminApiTokenListItem }) {
+  const grants = token.endpointGrants;
+  if (grants === null) return <span className="font-medium text-warning">授权异常</span>;
+
+  const profile = token.permissionProfile === "legacy_m20_read" ? "旧版 · 固定九读" : "新版 · 快照";
+  const grantSet = new Set(grants);
+  const ungrantedCount = ENDPOINT_IDS.filter((id) => !grantSet.has(id)).length;
+  return (
+    <details className="text-xs">
+      <summary className="cursor-pointer rounded-sm font-medium">
+        {profile} · {grants.length} 个端点
+      </summary>
+      <div className="mt-2 space-y-2">
+        {DOMAINS.map((domain) => {
+          const domainGrants = grants.filter((id) => getManageEndpoint(id).domain === domain);
+          if (domainGrants.length === 0) return null;
+          return (
+            <div key={domain}>
+              <p className="font-medium">{MANAGE_PERMISSION_DOMAINS[domain]}</p>
+              <ul className="mt-1 space-y-0.5 text-muted-foreground">
+                {domainGrants.map((id) => {
+                  const { method, path, access } = getManageEndpoint(id);
+                  return (
+                    <li key={id}>
+                      <span className="mr-1">{access === "read" ? "读" : "写"} ·</span>
+                      <code className="font-mono [overflow-wrap:anywhere]">
+                        {method} {path}
+                      </code>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          );
+        })}
+        <p className="text-muted-foreground">
+          {ungrantedCount > 0 ? `当前目录中另有 ${ungrantedCount} 个端点未授权。` : ""}
+          授权不会随目录变化而扩大。
+        </p>
+      </div>
+    </details>
+  );
 }
 
 /**
@@ -63,8 +182,11 @@ export default async function AdminApiTokensPage({
   const admin = await requireAdmin("site.admin");
   if (!(await isEffectiveSiteAdminOf(admin.userId))) notFound();
 
-  const sp = await searchParams;
-  const tokens = await listAdminApiTokens(admin.userId);
+  const [sp, tokens, assignableIds] = await Promise.all([
+    searchParams,
+    listAdminApiTokens(admin.userId),
+    getAssignableManageEndpointIds(admin.userId),
+  ]);
   // 一次性明文：?created=<id> 命中暂存则展示并立即失效（刷新/转发不重放）
   const freshPlain =
     typeof sp.created === "string" && sp.created ? takePlainOnce(sp.created, admin.userId) : null;
@@ -117,31 +239,37 @@ export default async function AdminApiTokensPage({
           <CardTitle>签发新 Token</CardTitle>
         </CardHeader>
         <CardContent>
-          <form action={createApiTokenAction} className="flex flex-wrap items-end gap-3 text-sm">
-            <label className="space-y-1">
-              <span className="block text-muted-foreground">名称（便于辨识用途）</span>
-              <input
-                name="name"
-                required
-                maxLength={64}
-                placeholder="如：CI 脚本 / 本地 MCP"
-                className="w-64 rounded-lg border bg-background px-3 py-1.5"
-              />
-            </label>
-            <label className="space-y-1">
-              <span className="block text-muted-foreground">有效期</span>
-              <select
-                name="days"
-                defaultValue={String(ADMIN_API_TOKEN_DEFAULT_DAYS)}
-                className="rounded-lg border bg-background px-2.5 py-1.5"
-              >
-                {ADMIN_API_TOKEN_DAYS.map((d) => (
-                  <option key={d} value={d}>
-                    {d} 天
-                  </option>
-                ))}
-              </select>
-            </label>
+          <form action={createApiTokenAction} className="space-y-4 text-sm">
+            <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_8rem]">
+              <label className="min-w-0 space-y-1">
+                <span className="block text-muted-foreground">名称（便于辨识用途）</span>
+                <input
+                  name="name"
+                  required
+                  maxLength={64}
+                  placeholder="如：CI 脚本 / 本地 MCP"
+                  className="w-full min-w-0 rounded-lg border bg-background px-3 py-1.5"
+                />
+              </label>
+              <label className="min-w-0 space-y-1">
+                <span className="block text-muted-foreground">有效期</span>
+                <select
+                  name="days"
+                  defaultValue={String(ADMIN_API_TOKEN_DEFAULT_DAYS)}
+                  className="w-full min-w-0 rounded-lg border bg-background px-2.5 py-1.5"
+                >
+                  {ADMIN_API_TOKEN_DAYS.map((d) => (
+                    <option key={d} value={d}>
+                      {d} 天
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <PermissionMatrix assignableIds={assignableIds} />
+            <p className="text-xs text-muted-foreground">
+              授权以签发时的端点为准，不会自动包含后续新增端点，也不能原地修改；如需变更，请签发新令牌后吊销旧令牌。
+            </p>
             <SubmitButton pendingText="签发中…">签发</SubmitButton>
           </form>
           <p className="mt-2 text-xs text-muted-foreground">
@@ -168,7 +296,7 @@ export default async function AdminApiTokensPage({
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
         <p>
           共 {tokens.length} 个 Token（上限 {ADMIN_API_TOKEN_LIMIT}） · 生效{" "}
-          {tokens.filter((t) => t.active).length} 个
+          {tokens.filter((t) => t.active && t.endpointGrants !== null).length} 个
         </p>
         <p>
           调用方式：<code className="font-mono">Authorization: Bearer &lt;token&gt;</code> →{" "}
@@ -183,7 +311,7 @@ export default async function AdminApiTokensPage({
         rows={tokens.map((t) => {
           const cells: AdminCell[] = [
             {
-              cls: "font-medium max-w-56 truncate",
+              cls: "max-w-40 font-medium [overflow-wrap:anywhere] lg:max-w-56",
               node: <div title={t.name}>{t.name}</div>,
             },
             { cls: "font-mono", node: t.suffix },
@@ -197,11 +325,12 @@ export default async function AdminApiTokensPage({
                 "—"
               ),
             },
-            { cls: "text-xs", node: statusBadgeOf(t) },
+            { cls: "min-w-24 max-w-80", node: <TokenPermissions token={t} /> },
+            { cls: "text-xs whitespace-nowrap", node: statusBadgeOf(t) },
             {
-              cls: "",
+              cls: "whitespace-nowrap",
               node:
-                t.revokedAt === null && t.active ? (
+                t.revokedAt === null && (t.active || t.endpointGrants === null) ? (
                   <form action={revokeApiTokenAction}>
                     <input type="hidden" name="tokenId" value={t.id} />
                     <ConfirmSubmit
