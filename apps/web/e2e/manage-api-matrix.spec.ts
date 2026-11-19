@@ -87,6 +87,9 @@ const PROFILE_LEVELS: Record<
   "contents-write": { contents: "write" },
   users: { users: "read" },
   "users-write": { users: "write" },
+  "announcements-write": { announcements: "write" },
+  "campaigns-write": { campaigns: "write" },
+  "invites-write": { invites: "write" },
   "reports-read": { reports: "read" },
   "reports-write": { reports: "write" },
   stats: { stats: "read" },
@@ -97,6 +100,9 @@ const PROFILE_LEVELS: Record<
     identity: "read",
     contents: "read",
     users: "read",
+    announcements: "read",
+    campaigns: "read",
+    invites: "read",
     stats: "read",
     "audit-logs": "read",
     emails: "read",
@@ -124,11 +130,14 @@ const SECONDARY_OF: ReadonlySet<ProfileKey> = new Set([
   "emails",
   "push-logs",
   "all-read",
+  "announcements-write",
 ]);
 const TERTIARY_OF: ReadonlySet<ProfileKey> = new Set([
   "reports-read",
   "reports-write",
   "users-write",
+  "campaigns-write",
+  "invites-write",
 ]);
 
 const tokens = new Map<ProfileKey, string>();
@@ -177,6 +186,18 @@ test.describe("管理 REST 权限矩阵 × 全端点", () => {
     }
   });
 
+  test.afterAll(async () => {
+    // 矩阵探测的集合型创建端点留下 probe 行（真实创建），统一回收
+    await withE2eDb((q) => {
+      void q.exec("DELETE FROM announcements WHERE title = 'probe'");
+      void q.exec("DELETE FROM campaigns WHERE name = 'probe'");
+      void q.exec("DELETE FROM invite_codes WHERE batch = 'probe'");
+      void q.exec(
+        "DELETE FROM audit_log WHERE target_type = 'invite_batch' AND target_id = 'probe'",
+      );
+    });
+  });
+
   test("准备：签发新版令牌、注入历史令牌与 pending 举报夹具", async ({ page }) => {
     FIX.reportId = (
       await withE2eDb((q) =>
@@ -195,7 +216,7 @@ test.describe("管理 REST 权限矩阵 × 全端点", () => {
     );
     tokens.set("legacy", legacy);
     tokenNames.push(`${NAME_PREFIX}legacy`);
-    expect(tokens.size).toBe(13);
+    expect(tokens.size).toBe(16);
   });
 
   /** 矩阵主体：十档位 × 十一端点的状态断言。 */
@@ -205,6 +226,9 @@ test.describe("管理 REST 权限矩阵 × 全端点", () => {
     "contents-write",
     "users",
     "users-write",
+    "announcements-write",
+    "campaigns-write",
+    "invites-write",
     "stats",
     "audit-logs",
     "emails",
@@ -239,11 +263,17 @@ test.describe("管理 REST 权限矩阵 × 全端点", () => {
           },
           data: endpoint.sampleBody,
         });
-        const expected = granted.has(endpoint.domain) && hasWrite(key) ? 404 : 403;
+        // 集合型创建端点（POST /announcements|/campaigns|/invites）无路径目标、没有 404 形态：
+        // 授权通过即真实创建（probe 体，afterAll 统一清理）；其余写端点用不存在目标 → 404。
+        const collects = "collects" in endpoint && endpoint.collects;
+        const expected =
+          granted.has(endpoint.domain) && hasWrite(key) ? (collects ? 200 : 404) : 403;
         expect(response.status(), `${key} → ${endpoint.method} ${endpoint.path}`).toBe(expected);
-        expect(await response.json()).toMatchObject({
-          error: { code: expected === 404 ? "not_found" : "forbidden" },
-        });
+        if (expected !== 200) {
+          expect(await response.json()).toMatchObject({
+            error: { code: expected === 404 ? "not_found" : "forbidden" },
+          });
+        }
       }
     });
   }

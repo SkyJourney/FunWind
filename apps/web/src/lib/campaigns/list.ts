@@ -1,6 +1,6 @@
 import "server-only";
 
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { campaigns, getWebDb } from "@funwind/db";
 import { findCampaignEffect, targetOfConfig, validateCampaignConfig } from "./effects";
 import { campaignStatus, overriddenBy, type CampaignStatus } from "./status";
@@ -60,4 +60,31 @@ export async function listCampaigns(): Promise<{ items: CampaignListItem[]; now:
     };
   });
   return { items, now };
+}
+
+/** 管理单条详情（M20.3 Step 3 供 GET /api/manage/campaigns/{id} 使用）：与列表同口径映射；不存在返回 null。 */
+export async function getCampaign(id: number): Promise<CampaignListItem | null> {
+  const [row] = await getWebDb().select().from(campaigns).where(eq(campaigns.id, id)).limit(1);
+  if (!row) return null;
+  const rows = [row];
+  const [clockRows] = (await getWebDb().execute(
+    sql`SELECT DATE_FORMAT(NOW(), '%Y-%m-%d %H:%i:%s') AS now`,
+  )) as unknown as [{ now: string }[]];
+  const now = clockRows?.[0]?.now ?? "";
+  const effect = findCampaignEffect(row.effect);
+  return {
+    id: row.id,
+    name: row.name,
+    effect: row.effect,
+    effectLabel: effect?.label ?? row.effect,
+    target: targetOfConfig(row.effect, row.config),
+    startsAt: row.startsAt,
+    endsAt: row.endsAt,
+    enabled: row.enabled,
+    priority: row.priority,
+    revision: row.revision,
+    status: campaignStatus(row, now),
+    invalid: !effect || !validateCampaignConfig(row.effect, row.config).ok,
+    overriddenBy: overriddenBy(rows, now).get(row.id) ?? null,
+  };
 }
