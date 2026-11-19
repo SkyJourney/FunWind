@@ -181,8 +181,10 @@ describe.skipIf(skipDb)("版块管理服务（M10.6a）", () => {
     expect(await deleteForum(ACTOR, parent.id)).toEqual({ ok: false, code: "has_children" });
 
     // 子版块挂上前缀 + 伪造主题计数 → has_threads
+    // M20.3 Step 4：addPrefix 内核返回新前缀 id（REST 响应载荷需要它来移除）
     expect(await addPrefix(ACTOR, child.id, { name: "测试前缀", sortOrder: 0 })).toEqual({
       ok: true,
+      prefixId: expect.any(Number),
     });
     const db = getWebDb();
     await db.update(forums).set({ threadCount: 3 }).where(eq(forums.id, child.id));

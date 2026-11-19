@@ -310,7 +310,7 @@ describe("G13 合成源码", () => {
   it("必要治理/安全例外不豁免同文件新增函数，site-admin 不列例外", () => {
     for (const [path, owner] of [
       ["lib/authz/subject.ts", "loadSubjectFrom"],
-      ["lib/badges/service.ts", "grantBadgeByAdmin"],
+      ["lib/badges/service.ts", "applyBadgeGrant"],
       ["lib/auth/session.ts", "readCurrentSessionUser"],
       ["lib/auth/tokens.ts", "consumeEmailTokenInTx"],
       ["lib/identity.ts", "lockActiveUserInTx"],

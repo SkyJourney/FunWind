@@ -1,0 +1,690 @@
+import "server-only";
+
+import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { emojiGroups, emojis, getWebDb, insertIdOf } from "@funwind/db";
+import { writeAudit, type ConfigActor, type DbTx } from "@/lib/audit";
+import { isDuplicateKey } from "@/lib/auth/register";
+import type {
+  ModerationApiTrace,
+  ModerationWriteDenial,
+  PreparedModerationWrite,
+} from "@/lib/moderation/contents";
+
+/**
+ * 表情管理服务（M20.3 Step 4 从 admin/emojis/actions.ts 抽出的元数据七动作）：
+ * 组建 / 组改名 / 组启停 / 组删（组内非空拒删）/ 组排序 / 表情改名排序 / 表情启停。
+ * 后台 Action 与管理 REST 双入口共享写入与审计语义（审计 action 名与原 Action 一致）；
+ * 上传类两动作（组标题图、表情批量上传）耦合图片处理管线，不进 REST，仍留在 Action。
+ * 停用只影响面板，已发布正文里的 /emoji/{id}.{ext} 引用永远可渲染（提供路由不检查 enabled）。
+ * emoji_groups.name 唯一：重名冲突由唯一键兜底捕获为 name_exists。
+ */
+
+export type EmojiDenialCode = "not_found" | "name_exists" | "not_empty" | "bad_name";
+type EmojiDenial = ModerationWriteDenial<EmojiDenialCode>;
+
+/** 业务拒绝码 → 对外信封映射（REST 适配层使用；未登记码由入口兜底 internal）。 */
+export const EMOJIS_DENIAL_HTTP = {
+  not_found: "not_found",
+  name_exists: "state_conflict",
+  not_empty: "state_conflict",
+  bad_name: "bad_request",
+} as const;
+
+const checkGroupName = (name: string): { ok: true; name: string } | EmojiDenial => {
+  const trimmed = name.trim();
+  if (!trimmed || trimmed.length > 50) return { ok: false, code: "bad_name" };
+  return { ok: true, name: trimmed };
+};
+
+/** 审计 after 的统一附加：via 取 actor 实际入口（REST 带	trace 时另附 requestId/tokenSuffix）。 */
+const emojiAuditFields = (actor: ConfigActor, trace?: ModerationApiTrace) => ({
+  via: actor.via,
+  ...(trace ? { requestId: trace.requestId, tokenSuffix: trace.tokenSuffix } : {}),
+});
+
+async function lockEmojiGroup(tx: DbTx, id: number) {
+  const [group] = await tx
+    .select()
+    .from(emojiGroups)
+    .where(eq(emojiGroups.id, id))
+    .limit(1)
+    .for("update");
+  return group ?? null;
+}
+
+// ------------------------------------------------------------
+// 共享写入内核（后台与 REST 共用；事务内调用）
+// ------------------------------------------------------------
+
+/** 组建内核：插入（唯一键兜底 name_exists）+ 审计。 */
+async function applyGroupCreate(
+  tx: DbTx,
+  actor: ConfigActor,
+  name: string,
+  trace?: ModerationApiTrace,
+): Promise<{ ok: true; groupId: number } | EmojiDenial> {
+  try {
+    const id = insertIdOf(
+      await tx.insert(emojiGroups).values({
+        name,
+        sort: 0,
+        createdAt: sql`NOW()`,
+        updatedAt: sql`NOW()`,
+      }),
+    );
+    await writeAudit(tx, {
+      actorId: actor.userId,
+      action: "admin.emoji.group.create",
+      targetType: "emoji_group",
+      targetId: id,
+      after: { name, ...emojiAuditFields(actor, trace) },
+      ip: actor.ip,
+    });
+    return { ok: true, groupId: id };
+  } catch (error) {
+    if (isDuplicateKey(error)) return { ok: false, code: "name_exists" };
+    throw error;
+  }
+}
+
+/** 组改名内核：同值 unchanged（不写审计）；重名 clash 拒绝；唯一键兜底同码。 */
+async function applyGroupRename(
+  tx: DbTx,
+  actor: ConfigActor,
+  id: number,
+  before: { name: string },
+  name: string,
+  trace?: ModerationApiTrace,
+): Promise<{ ok: true; changed: boolean } | EmojiDenial> {
+  if (before.name === name) return { ok: true, changed: false };
+  const [clash] = await tx
+    .select({ id: emojiGroups.id })
+    .from(emojiGroups)
+    .where(eq(emojiGroups.name, name))
+    .limit(1);
+  if (clash) return { ok: false, code: "name_exists" };
+  try {
+    await tx
+      .update(emojiGroups)
+      .set({ name, updatedAt: sql`NOW()` })
+      .where(eq(emojiGroups.id, id));
+  } catch (error) {
+    if (isDuplicateKey(error)) return { ok: false, code: "name_exists" };
+    throw error;
+  }
+  await writeAudit(tx, {
+    actorId: actor.userId,
+    action: "admin.emoji.group.rename",
+    targetType: "emoji_group",
+    targetId: id,
+    before: { name: before.name },
+    after: { name, ...emojiAuditFields(actor, trace) },
+    ip: actor.ip,
+  });
+  return { ok: true, changed: true };
+}
+
+/** 组启停内核：同值零审计。 */
+async function applyGroupToggle(
+  tx: DbTx,
+  actor: ConfigActor,
+  id: number,
+  before: { enabled: boolean },
+  enabled: boolean,
+  trace?: ModerationApiTrace,
+): Promise<{ ok: true; changed: boolean }> {
+  if (before.enabled === enabled) return { ok: true, changed: false };
+  await tx
+    .update(emojiGroups)
+    .set({ enabled, updatedAt: sql`NOW()` })
+    .where(eq(emojiGroups.id, id));
+  await writeAudit(tx, {
+    actorId: actor.userId,
+    action: "admin.emoji.group.toggle",
+    targetType: "emoji_group",
+    targetId: id,
+    before: { enabled: before.enabled },
+    after: { enabled, ...emojiAuditFields(actor, trace) },
+    ip: actor.ip,
+  });
+  return { ok: true, changed: true };
+}
+
+/** 组删内核：组内还有表情就不允许删（与板块「有内容仅归档」同一保护思路）。 */
+async function applyGroupDelete(
+  tx: DbTx,
+  actor: ConfigActor,
+  id: number,
+  before: { name: string; sort: number },
+  trace?: ModerationApiTrace,
+): Promise<{ ok: true } | EmojiDenial> {
+  const [{ n }] = await tx
+    .select({ n: sql<number>`COUNT(*)` })
+    .from(emojis)
+    .where(eq(emojis.groupId, id));
+  if (Number(n) > 0) return { ok: false, code: "not_empty" };
+  await tx.delete(emojiGroups).where(eq(emojiGroups.id, id));
+  await writeAudit(tx, {
+    actorId: actor.userId,
+    action: "admin.emoji.group.delete",
+    targetType: "emoji_group",
+    targetId: id,
+    before: { name: before.name, sort: before.sort },
+    after: emojiAuditFields(actor, trace),
+    ip: actor.ip,
+  });
+  return { ok: true };
+}
+
+/** 组排序内核：直接改 sort 值（展示按 (sort, id) 升序），同值零审计。 */
+async function applyGroupReorder(
+  tx: DbTx,
+  actor: ConfigActor,
+  id: number,
+  before: { sort: number },
+  sort: number,
+  trace?: ModerationApiTrace,
+): Promise<{ ok: true; changed: boolean }> {
+  if (before.sort === sort) return { ok: true, changed: false };
+  await tx
+    .update(emojiGroups)
+    .set({ sort, updatedAt: sql`NOW()` })
+    .where(eq(emojiGroups.id, id));
+  await writeAudit(tx, {
+    actorId: actor.userId,
+    action: "admin.emoji.group.reorder",
+    targetType: "emoji_group",
+    targetId: id,
+    before: { sort: before.sort },
+    after: { sort, ...emojiAuditFields(actor, trace) },
+    ip: actor.ip,
+  });
+  return { ok: true, changed: true };
+}
+
+/** 表情更新内核（改名+keywords+排序一动作三事）：值未变不写审计。 */
+async function applyEmojiUpdate(
+  tx: DbTx,
+  actor: ConfigActor,
+  id: number,
+  before: { name: string; keywords: string; sort: number },
+  input: { name: string; keywords: string; sort: number },
+  trace?: ModerationApiTrace,
+): Promise<{ ok: true; changed: boolean }> {
+  if (
+    before.name === input.name &&
+    before.keywords === input.keywords &&
+    before.sort === input.sort
+  ) {
+    return { ok: true, changed: false };
+  }
+  await tx
+    .update(emojis)
+    .set({ name: input.name, keywords: input.keywords, sort: input.sort, updatedAt: sql`NOW()` })
+    .where(eq(emojis.id, id));
+  await writeAudit(tx, {
+    actorId: actor.userId,
+    action: "admin.emoji.update",
+    targetType: "emoji",
+    targetId: id,
+    before: { name: before.name, keywords: before.keywords, sort: before.sort },
+    after: { ...input, ...emojiAuditFields(actor, trace) },
+    ip: actor.ip,
+  });
+  return { ok: true, changed: true };
+}
+
+/** 表情启停内核：同值零审计。 */
+async function applyEmojiToggle(
+  tx: DbTx,
+  actor: ConfigActor,
+  id: number,
+  before: { enabled: boolean },
+  enabled: boolean,
+  trace?: ModerationApiTrace,
+): Promise<{ ok: true; changed: boolean }> {
+  if (before.enabled === enabled) return { ok: true, changed: false };
+  await tx
+    .update(emojis)
+    .set({ enabled, updatedAt: sql`NOW()` })
+    .where(eq(emojis.id, id));
+  await writeAudit(tx, {
+    actorId: actor.userId,
+    action: "admin.emoji.toggle",
+    targetType: "emoji",
+    targetId: id,
+    before: { enabled: before.enabled },
+    after: { enabled, ...emojiAuditFields(actor, trace) },
+    ip: actor.ip,
+  });
+  return { ok: true, changed: true };
+}
+
+// ------------------------------------------------------------
+// 后台入口（返回结果码；Action 负责 redirect/notFound/revalidatePath）
+// ------------------------------------------------------------
+
+export type EmojiGroupMutation =
+  { ok: true; changed?: boolean } | { ok: false; code: EmojiDenialCode };
+
+export async function createEmojiGroup(
+  actor: ConfigActor,
+  name: string,
+): Promise<{ ok: true; groupId: number } | { ok: false; code: EmojiDenialCode }> {
+  const checked = checkGroupName(name);
+  if (!checked.ok) return checked;
+  return getWebDb().transaction((tx) => applyGroupCreate(tx, actor, checked.name));
+}
+
+export async function renameEmojiGroup(
+  actor: ConfigActor,
+  id: number,
+  name: string,
+): Promise<EmojiGroupMutation> {
+  const checked = checkGroupName(name);
+  if (!checked.ok) return checked;
+  return getWebDb().transaction(async (tx) => {
+    const before = await lockEmojiGroup(tx, id);
+    if (!before) return { ok: false, code: "not_found" };
+    return applyGroupRename(tx, actor, id, { name: before.name }, checked.name);
+  });
+}
+
+export async function toggleEmojiGroupEnabled(
+  actor: ConfigActor,
+  id: number,
+  enabled: boolean,
+): Promise<EmojiGroupMutation> {
+  return getWebDb().transaction(async (tx) => {
+    const before = await lockEmojiGroup(tx, id);
+    if (!before) return { ok: false, code: "not_found" };
+    return applyGroupToggle(tx, actor, id, { enabled: before.enabled }, enabled);
+  });
+}
+
+export async function deleteEmojiGroup(
+  actor: ConfigActor,
+  id: number,
+): Promise<EmojiGroupMutation> {
+  return getWebDb().transaction(async (tx) => {
+    const before = await lockEmojiGroup(tx, id);
+    if (!before) return { ok: false, code: "not_found" };
+    return applyGroupDelete(tx, actor, id, { name: before.name, sort: before.sort });
+  });
+}
+
+export async function reorderEmojiGroup(
+  actor: ConfigActor,
+  id: number,
+  sort: number,
+): Promise<EmojiGroupMutation> {
+  return getWebDb().transaction(async (tx) => {
+    const before = await lockEmojiGroup(tx, id);
+    if (!before) return { ok: false, code: "not_found" };
+    return applyGroupReorder(tx, actor, id, { sort: before.sort }, sort);
+  });
+}
+
+export async function updateEmoji(
+  actor: ConfigActor,
+  id: number,
+  input: { name: string; keywords: string; sort: number },
+): Promise<EmojiGroupMutation> {
+  return getWebDb().transaction(async (tx) => {
+    const [before] = await tx.select().from(emojis).where(eq(emojis.id, id)).limit(1).for("update");
+    if (!before) return { ok: false, code: "not_found" };
+    return applyEmojiUpdate(
+      tx,
+      actor,
+      id,
+      { name: before.name, keywords: before.keywords, sort: before.sort },
+      input,
+    );
+  });
+}
+
+export async function toggleEmojiEnabled(
+  actor: ConfigActor,
+  id: number,
+  enabled: boolean,
+): Promise<EmojiGroupMutation> {
+  return getWebDb().transaction(async (tx) => {
+    const [before] = await tx.select().from(emojis).where(eq(emojis.id, id)).limit(1).for("update");
+    if (!before) return { ok: false, code: "not_found" };
+    return applyEmojiToggle(tx, actor, id, { enabled: before.enabled }, enabled);
+  });
+}
+
+// ------------------------------------------------------------
+// REST 写变体（prepare/lock/execute；合法回放已被幂等缓存短路）
+// ------------------------------------------------------------
+
+export type PreparedEmojiWrite = PreparedModerationWrite<
+  {
+    groupId?: number;
+    emojiId?: number;
+    changed?: boolean;
+    enabled?: boolean;
+    sort?: number;
+    deleted?: boolean;
+  },
+  EmojiDenialCode
+>;
+
+/** REST 组建：组名校验在 prepare；唯一键冲突在 execute 兜底为 name_exists。 */
+export async function prepareApiEmojiGroupCreate(
+  actor: ConfigActor,
+  name: string,
+  trace?: ModerationApiTrace,
+): Promise<PreparedEmojiWrite | EmojiDenial> {
+  const checked = checkGroupName(name);
+  if (!checked.ok) return checked;
+  return {
+    ok: true,
+    async lock(tx) {
+      // 组建无行锁目标；唯一键冲突在 execute（幂等事务内）兜底为 name_exists
+      return {
+        ok: true as const,
+        async execute() {
+          const applied = await applyGroupCreate(tx, actor, checked.name, trace);
+          return applied.ok ? { ok: true as const, data: { groupId: applied.groupId } } : applied;
+        },
+      };
+    },
+  };
+}
+
+/** REST 组改名：存在性在锁段；同值/重名裁决在 execute。 */
+export async function prepareApiEmojiGroupRename(
+  actor: ConfigActor,
+  id: number,
+  name: string,
+  trace?: ModerationApiTrace,
+): Promise<PreparedEmojiWrite | EmojiDenial> {
+  const checked = checkGroupName(name);
+  if (!checked.ok) return checked;
+  return {
+    ok: true,
+    async lock(tx) {
+      const before = await lockEmojiGroup(tx, id);
+      if (!before) return { ok: false, code: "not_found" };
+      return {
+        ok: true as const,
+        async execute() {
+          const applied = await applyGroupRename(
+            tx,
+            actor,
+            id,
+            { name: before.name },
+            checked.name,
+            trace,
+          );
+          return applied.ok
+            ? { ok: true as const, data: { groupId: id, changed: applied.changed } }
+            : applied;
+        },
+      };
+    },
+  };
+}
+
+/** REST 组启停：同值裁决在 execute。 */
+export async function prepareApiEmojiGroupEnabled(
+  actor: ConfigActor,
+  id: number,
+  enabled: boolean,
+  trace?: ModerationApiTrace,
+): Promise<PreparedEmojiWrite | EmojiDenial> {
+  return {
+    ok: true,
+    async lock(tx) {
+      const before = await lockEmojiGroup(tx, id);
+      if (!before) return { ok: false, code: "not_found" };
+      return {
+        ok: true as const,
+        async execute() {
+          const applied = await applyGroupToggle(
+            tx,
+            actor,
+            id,
+            { enabled: before.enabled },
+            enabled,
+            trace,
+          );
+          return {
+            ok: true as const,
+            data: { groupId: id, enabled, changed: applied.changed },
+          };
+        },
+      };
+    },
+  };
+}
+
+/** REST 组删：非空裁决在 execute。 */
+export async function prepareApiEmojiGroupDelete(
+  actor: ConfigActor,
+  id: number,
+  trace?: ModerationApiTrace,
+): Promise<PreparedEmojiWrite | EmojiDenial> {
+  return {
+    ok: true,
+    async lock(tx) {
+      const before = await lockEmojiGroup(tx, id);
+      if (!before) return { ok: false, code: "not_found" };
+      return {
+        ok: true as const,
+        async execute() {
+          const applied = await applyGroupDelete(
+            tx,
+            actor,
+            id,
+            { name: before.name, sort: before.sort },
+            trace,
+          );
+          return applied.ok ? { ok: true as const, data: { groupId: id, deleted: true } } : applied;
+        },
+      };
+    },
+  };
+}
+
+/** REST 组排序：同值裁决在 execute。 */
+export async function prepareApiEmojiGroupReorder(
+  actor: ConfigActor,
+  id: number,
+  sort: number,
+  trace?: ModerationApiTrace,
+): Promise<PreparedEmojiWrite | EmojiDenial> {
+  return {
+    ok: true,
+    async lock(tx) {
+      const before = await lockEmojiGroup(tx, id);
+      if (!before) return { ok: false, code: "not_found" };
+      return {
+        ok: true as const,
+        async execute() {
+          const applied = await applyGroupReorder(
+            tx,
+            actor,
+            id,
+            { sort: before.sort },
+            sort,
+            trace,
+          );
+          return {
+            ok: true as const,
+            data: { groupId: id, sort, changed: applied.changed },
+          };
+        },
+      };
+    },
+  };
+}
+
+/** REST 表情更新（改名+keywords+排序）：存在性在锁段；值未变不写审计。 */
+export async function prepareApiEmojiUpdate(
+  actor: ConfigActor,
+  id: number,
+  input: { name: string; keywords: string; sort: number },
+  trace?: ModerationApiTrace,
+): Promise<PreparedEmojiWrite | EmojiDenial> {
+  const name = input.name.trim();
+  if (!name || name.length > 50) return { ok: false, code: "bad_name" };
+  return {
+    ok: true,
+    async lock(tx) {
+      const [before] = await tx
+        .select()
+        .from(emojis)
+        .where(eq(emojis.id, id))
+        .limit(1)
+        .for("update");
+      if (!before) return { ok: false, code: "not_found" };
+      return {
+        ok: true as const,
+        async execute() {
+          const applied = await applyEmojiUpdate(
+            tx,
+            actor,
+            id,
+            { name: before.name, keywords: before.keywords, sort: before.sort },
+            { name, keywords: input.keywords, sort: input.sort },
+            trace,
+          );
+          return {
+            ok: true as const,
+            data: { emojiId: id, changed: applied.changed },
+          };
+        },
+      };
+    },
+  };
+}
+
+/** REST 表情启停：同值裁决在 execute。 */
+export async function prepareApiEmojiEnabled(
+  actor: ConfigActor,
+  id: number,
+  enabled: boolean,
+  trace?: ModerationApiTrace,
+): Promise<PreparedEmojiWrite | EmojiDenial> {
+  return {
+    ok: true,
+    async lock(tx) {
+      const [before] = await tx
+        .select()
+        .from(emojis)
+        .where(eq(emojis.id, id))
+        .limit(1)
+        .for("update");
+      if (!before) return { ok: false, code: "not_found" };
+      return {
+        ok: true as const,
+        async execute() {
+          const applied = await applyEmojiToggle(
+            tx,
+            actor,
+            id,
+            { enabled: before.enabled },
+            enabled,
+            trace,
+          );
+          return {
+            ok: true as const,
+            data: { emojiId: id, enabled, changed: applied.changed },
+          };
+        },
+      };
+    },
+  };
+}
+
+// ------------------------------------------------------------
+// 管理读（含停用全量；公开面板目录只出 enabled，口径不同）
+// ------------------------------------------------------------
+
+export type AdminEmojiGroupRow = {
+  id: number;
+  name: string;
+  sort: number;
+  iconKey: string | null;
+  enabled: boolean;
+  emojiCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AdminEmojiRow = {
+  id: number;
+  groupId: number;
+  groupName: string | null;
+  name: string;
+  keywords: string;
+  ext: string | null;
+  sort: number;
+  enabled: boolean;
+  updatedAt: string;
+};
+
+/** 管理视角：全部组（含停用）+ 组内表情计数聚合（leftJoin + groupBy 标准口径）。 */
+export async function listEmojiGroupsAdmin(): Promise<AdminEmojiGroupRow[]> {
+  const rows = await getWebDb()
+    .select({
+      id: emojiGroups.id,
+      name: emojiGroups.name,
+      sort: emojiGroups.sort,
+      iconKey: emojiGroups.iconKey,
+      enabled: emojiGroups.enabled,
+      createdAt: emojiGroups.createdAt,
+      updatedAt: emojiGroups.updatedAt,
+      emojiCount: sql<number>`COUNT(${emojis.id})`,
+    })
+    .from(emojiGroups)
+    .leftJoin(emojis, eq(emojis.groupId, emojiGroups.id))
+    .groupBy(emojiGroups.id)
+    .orderBy(asc(emojiGroups.sort), asc(emojiGroups.id));
+  return rows.map((row) => ({ ...row, emojiCount: Number(row.emojiCount) }));
+}
+
+/** 管理视角：表情分页（含停用；组与名称/keywords 搜索），按 (sort, id) 升序。 */
+export async function listEmojisAdminPage(filters: {
+  groupId?: number;
+  q?: string;
+  page: number;
+  perPage?: number;
+}): Promise<{ items: AdminEmojiRow[]; total: number; page: number; totalPages: number }> {
+  const perPage = filters.perPage ?? 50;
+  const conds = [];
+  if (filters.groupId) conds.push(eq(emojis.groupId, filters.groupId));
+  const q = filters.q?.trim();
+  if (q) conds.push(sql`(${emojis.name} LIKE ${`%${q}%`} OR ${emojis.keywords} LIKE ${`%${q}%`})`);
+  const where = conds.length > 0 ? and(...conds) : undefined;
+  const base = getWebDb();
+  const [countRow] = await base
+    .select({ total: sql<number>`COUNT(*)` })
+    .from(emojis)
+    .where(where);
+  const total = Number(countRow?.total ?? 0);
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
+  const page = Math.min(Math.max(1, filters.page), totalPages);
+  const rows = await base
+    .select({
+      id: emojis.id,
+      groupId: emojis.groupId,
+      groupName: emojiGroups.name,
+      name: emojis.name,
+      keywords: emojis.keywords,
+      ext: emojis.ext,
+      sort: emojis.sort,
+      enabled: emojis.enabled,
+      updatedAt: emojis.updatedAt,
+    })
+    .from(emojis)
+    .leftJoin(emojiGroups, eq(emojiGroups.id, emojis.groupId))
+    .where(where)
+    .orderBy(desc(emojis.enabled), asc(emojis.sort), asc(emojis.id))
+    .limit(perPage)
+    .offset((page - 1) * perPage);
+  return { items: rows, total, page, totalPages };
+}

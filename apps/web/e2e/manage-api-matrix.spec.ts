@@ -76,6 +76,7 @@ type ProfileKey =
   | "emails"
   | "push-logs"
   | "all-read"
+  | "all-read-probe"
   | "legacy";
 
 const PROFILE_LEVELS: Record<
@@ -90,6 +91,12 @@ const PROFILE_LEVELS: Record<
   "announcements-write": { announcements: "write" },
   "campaigns-write": { campaigns: "write" },
   "invites-write": { invites: "write" },
+  "forums-write": { forums: "write" },
+  "polls-write": { polls: "write" },
+  "pm-write": { pm: "write" },
+  "badges-write": { badges: "write" },
+  "points-write": { points: "write" },
+  "emojis-write": { emojis: "write" },
   "reports-read": { reports: "read" },
   "reports-write": { reports: "write" },
   stats: { stats: "read" },
@@ -103,6 +110,28 @@ const PROFILE_LEVELS: Record<
     announcements: "read",
     campaigns: "read",
     invites: "read",
+    forums: "read",
+    polls: "read",
+    badges: "read",
+    points: "read",
+    emojis: "read",
+    stats: "read",
+    "audit-logs": "read",
+    emails: "read",
+    "push-logs": "read",
+  },
+  "all-read-probe": {
+    identity: "read",
+    contents: "read",
+    users: "read",
+    announcements: "read",
+    campaigns: "read",
+    invites: "read",
+    forums: "read",
+    polls: "read",
+    badges: "read",
+    points: "read",
+    emojis: "read",
     stats: "read",
     "audit-logs": "read",
     emails: "read",
@@ -139,11 +168,22 @@ const TERTIARY_OF: ReadonlySet<ProfileKey> = new Set([
   "campaigns-write",
   "invites-write",
 ]);
+/** 第四/第五专用管理员：M20.3 Step 4 六域写档位（单管理员有效令牌上限 5）。 */
+const QUATERNARY_OF: ReadonlySet<ProfileKey> = new Set([
+  "forums-write",
+  "polls-write",
+  "badges-write",
+  "points-write",
+  "emojis-write",
+]);
+const QUINARY_OF: ReadonlySet<ProfileKey> = new Set(["pm-write", "all-read-probe"]);
 
 const tokens = new Map<ProfileKey, string>();
 const tokenNames: string[] = [];
 const adminUserIds: number[] = [];
 let primaryAdmin = 0;
+let quaternaryAdmin = 0;
+let quinaryAdmin = 0;
 let secondaryAdmin = 0;
 let tertiaryAdmin = 0;
 
@@ -155,7 +195,11 @@ async function ensureToken(page: Page, key: Exclude<ProfileKey, "legacy">) {
     ? secondaryAdmin
     : TERTIARY_OF.has(key)
       ? tertiaryAdmin
-      : primaryAdmin;
+      : QUATERNARY_OF.has(key)
+        ? quaternaryAdmin
+        : QUINARY_OF.has(key)
+          ? quinaryAdmin
+          : primaryAdmin;
   await loginAs(page.context(), holder);
   const name = `${NAME_PREFIX}${key}`;
   const plain = await issueManageToken(page, name, PROFILE_LEVELS[key]);
@@ -171,7 +215,9 @@ test.describe("管理 REST 权限矩阵 × 全端点", () => {
     primaryAdmin = await withE2eDb((q) => createAdminUser(q, `${TAG}-a`));
     secondaryAdmin = await withE2eDb((q) => createAdminUser(q, `${TAG}-b`));
     tertiaryAdmin = await withE2eDb((q) => createAdminUser(q, `${TAG}-c`));
-    adminUserIds.push(primaryAdmin, secondaryAdmin, tertiaryAdmin);
+    quaternaryAdmin = await withE2eDb((q) => createAdminUser(q, `${TAG}-d`));
+    quinaryAdmin = await withE2eDb((q) => createAdminUser(q, `${TAG}-e`));
+    adminUserIds.push(primaryAdmin, secondaryAdmin, tertiaryAdmin, quaternaryAdmin, quinaryAdmin);
   });
 
   test.afterAll(async () => {
@@ -192,6 +238,7 @@ test.describe("管理 REST 权限矩阵 × 全端点", () => {
       void q.exec("DELETE FROM announcements WHERE title = 'probe'");
       void q.exec("DELETE FROM campaigns WHERE name = 'probe'");
       void q.exec("DELETE FROM invite_codes WHERE batch = 'probe'");
+      void q.exec("DELETE FROM emoji_groups WHERE name = 'probe'");
       void q.exec(
         "DELETE FROM audit_log WHERE target_type = 'invite_batch' AND target_id = 'probe'",
       );
@@ -216,7 +263,7 @@ test.describe("管理 REST 权限矩阵 × 全端点", () => {
     );
     tokens.set("legacy", legacy);
     tokenNames.push(`${NAME_PREFIX}legacy`);
-    expect(tokens.size).toBe(16);
+    expect(tokens.size).toBe(23);
   });
 
   /** 矩阵主体：十档位 × 十一端点的状态断言。 */
@@ -229,6 +276,12 @@ test.describe("管理 REST 权限矩阵 × 全端点", () => {
     "announcements-write",
     "campaigns-write",
     "invites-write",
+    "forums-write",
+    "polls-write",
+    "pm-write",
+    "badges-write",
+    "points-write",
+    "emojis-write",
     "stats",
     "audit-logs",
     "emails",
@@ -253,11 +306,14 @@ test.describe("管理 REST 权限矩阵 × 全端点", () => {
         }
       }
 
+      // all-read 档的写 403 探测（40 个）与读探测（23 个）合计超单令牌频控 60/min，
+      // 写探测换用同授权的探针令牌分担（认证层对 403 请求同样计数）。
+      const writeToken = key === "all-read" ? tokens.get("all-read-probe")! : token!;
       for (const endpoint of WRITE_ENDPOINTS) {
         const response = await request.fetch(fillEndpointPath(endpoint.path, MISSING_ID), {
           method: endpoint.method,
           headers: {
-            ...bearer(token!),
+            ...bearer(writeToken),
             "Idempotency-Key": `${TAG}-${key}`,
             "content-type": "application/json",
           },

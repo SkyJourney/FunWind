@@ -7,21 +7,48 @@ import { revalidatePath } from "next/cache";
 import { redirect, notFound } from "next/navigation";
 import { emojiGroups, emojis, getWebDb, insertIdOf } from "@funwind/db";
 import { writeAudit, type DbTx } from "@/lib/audit";
-import { isDuplicateKey } from "@/lib/auth/register";
 import { getStorageDir } from "@/lib/storage";
 import { processEmojiUpload } from "@/lib/emoji/admin";
 import { upsertFileRecordInTx } from "@/lib/uploads/file-record";
+import { ConfigActor } from "@/lib/audit";
+import {
+  createEmojiGroup,
+  deleteEmojiGroup,
+  renameEmojiGroup,
+  reorderEmojiGroup,
+  toggleEmojiEnabled,
+  toggleEmojiGroupEnabled,
+  updateEmoji,
+} from "@/lib/emoji/service";
 
 /**
- * 社区表情管理动作（M10.9，设计稿 §2.5）：门禁 emoji.manage（admin 默认持有）；
+ * 社区表情管理动作（M10.9，设计稿 §2.5）：门禁 emoji.manage（admin 默认持有）。
+ * 元数据七动作的写入语义在 lib/emoji/service.ts（M20.3 Step 4 抽出，与 REST 双入口共享内核）；
+ * 本文件保留上传两动作（组标题图、表情批量上传——耦合图片处理管线，不进 REST）与
+ * redirect/notFound/revalidatePath 的表单语义。
  * 所有变更与 audit_log 同事务（不存在改了表情却没留痕的窗口）。
- * 排序动作实现为列表全量重排（sort = 1..n），避免默认值 0 的并列无法交换；
- * 停用只影响面板，已发布正文里的 /emoji/{id}.{ext} 引用永远可渲染（提供路由不检查 enabled）。
  * 上传的上限与格式校验在 lib/emoji/admin.ts（≤200×200、≤200KB、png/gif/webp）；
  * 表情不写 file_uploads、不占用户配额（files 表只做内容登记，供 gc 巡检识别）。
  */
 
 const back = z.string().max(200).default("/admin/emojis");
+const actorOf = (ctx: { userId: number | null; ip: string | null }): ConfigActor => ({
+  userId: ctx.userId,
+  ip: ctx.ip,
+  via: "admin",
+});
+
+/** 结果码 → 表单回跳（missing/not_found 统一 notFound；其余按码拼 query） */
+function redirectFor(
+  back: string,
+  result: { ok: true; changed?: boolean } | { ok: false; code: string },
+  okMark: string,
+  errMark?: string,
+): never {
+  if (!result.ok && result.code === "not_found") notFound();
+  if (!result.ok) redirect(`${back}?err=${encodeURIComponent(errMark ?? result.code)}`);
+  redirect(`${back}?ok=${okMark}`);
+}
 
 async function lockEmojiGroup(tx: DbTx, id: number) {
   const [group] = await tx
@@ -50,31 +77,8 @@ export const createGroupAction = defineAction({
     back,
   }),
   async run(ctx, input) {
-    try {
-      await getWebDb().transaction(async (tx) => {
-        const id = insertIdOf(
-          await tx.insert(emojiGroups).values({
-            name: input.name,
-            sort: 0,
-            createdAt: sql`NOW()`,
-            updatedAt: sql`NOW()`,
-          }),
-        );
-        await writeAudit(tx, {
-          actorId: ctx.userId,
-          action: "admin.emoji.group.create",
-          targetType: "emoji_group",
-          targetId: id,
-          after: { name: input.name, via: "admin" },
-          ip: ctx.ip,
-        });
-      });
-    } catch (error) {
-      if (isDuplicateKey(error)) redirect(`${input.back}?err=name-exists`);
-      throw error;
-    }
-    revalidatePath("/admin/emojis");
-    redirect(`${input.back}?ok=group-created`);
+    const result = await createEmojiGroup(actorOf(ctx), input.name);
+    redirectFor(input.back, result, "group-created", "name-exists");
   },
 });
 
@@ -133,41 +137,8 @@ export const renameGroupAction = defineAction({
     back,
   }),
   async run(ctx, input) {
-    let result: "missing" | "name-exists" | "unchanged" | "renamed";
-    try {
-      result = await getWebDb().transaction(async (tx) => {
-        const before = await lockEmojiGroup(tx, input.id);
-        if (!before) return "missing";
-        if (before.name === input.name) return "unchanged";
-        const [clash] = await tx
-          .select({ id: emojiGroups.id })
-          .from(emojiGroups)
-          .where(eq(emojiGroups.name, input.name))
-          .limit(1);
-        if (clash) return "name-exists";
-        await tx
-          .update(emojiGroups)
-          .set({ name: input.name, updatedAt: sql`NOW()` })
-          .where(eq(emojiGroups.id, input.id));
-        await writeAudit(tx, {
-          actorId: ctx.userId,
-          action: "admin.emoji.group.rename",
-          targetType: "emoji_group",
-          targetId: input.id,
-          before: { name: before.name },
-          after: { name: input.name, via: "admin" },
-          ip: ctx.ip,
-        });
-        return "renamed";
-      });
-    } catch (error) {
-      if (isDuplicateKey(error)) redirect(`${input.back}?err=name-exists`);
-      throw error;
-    }
-    if (result === "missing") notFound();
-    if (result === "name-exists") redirect(`${input.back}?err=name-exists`);
-    revalidatePath("/admin/emojis");
-    redirect(`${input.back}?ok=group-renamed`);
+    const result = await renameEmojiGroup(actorOf(ctx), input.id, input.name);
+    redirectFor(input.back, result, "group-renamed", "name-exists");
   },
 });
 
@@ -176,29 +147,8 @@ export const toggleGroupAction = defineAction({
   auth: { admin: "emoji.manage" },
   input: z.object({ id: z.coerce.number().int().positive(), enabled: z.enum(["0", "1"]), back }),
   async run(ctx, input) {
-    const enabled = input.enabled === "1";
-    const groupId = await getWebDb().transaction(async (tx) => {
-      const before = await lockEmojiGroup(tx, input.id);
-      if (!before) return null;
-      if (before.enabled === enabled) return before.id;
-      await tx
-        .update(emojiGroups)
-        .set({ enabled, updatedAt: sql`NOW()` })
-        .where(eq(emojiGroups.id, input.id));
-      await writeAudit(tx, {
-        actorId: ctx.userId,
-        action: "admin.emoji.group.toggle",
-        targetType: "emoji_group",
-        targetId: input.id,
-        before: { enabled: before.enabled },
-        after: { enabled, via: "admin" },
-        ip: ctx.ip,
-      });
-      return before.id;
-    });
-    if (groupId === null) notFound();
-    revalidatePath("/admin/emojis");
-    redirect(`${input.back}?ok=group-toggled`);
+    const result = await toggleEmojiGroupEnabled(actorOf(ctx), input.id, input.enabled === "1");
+    redirectFor(input.back, result, "group-toggled");
   },
 });
 
@@ -207,30 +157,8 @@ export const deleteGroupAction = defineAction({
   auth: { admin: "emoji.manage" },
   input: z.object({ id: z.coerce.number().int().positive(), back }),
   async run(ctx, input) {
-    const result = await getWebDb().transaction(async (tx) => {
-      const before = await lockEmojiGroup(tx, input.id);
-      if (!before) return "missing";
-      const [{ n }] = await tx
-        .select({ n: sql<number>`COUNT(*)` })
-        .from(emojis)
-        .where(eq(emojis.groupId, input.id));
-      // 与板块「有内容仅归档」同一保护思路：组内还有表情就不允许删。
-      if (Number(n) > 0) return "not-empty";
-      await tx.delete(emojiGroups).where(eq(emojiGroups.id, input.id));
-      await writeAudit(tx, {
-        actorId: ctx.userId,
-        action: "admin.emoji.group.delete",
-        targetType: "emoji_group",
-        targetId: input.id,
-        before: { name: before.name, sort: before.sort },
-        ip: ctx.ip,
-      });
-      return "deleted";
-    });
-    if (result === "missing") notFound();
-    if (result === "not-empty") redirect(`${input.back}?err=group-not-empty`);
-    revalidatePath("/admin/emojis");
-    redirect(`${input.back}?ok=group-deleted`);
+    const result = await deleteEmojiGroup(actorOf(ctx), input.id);
+    redirectFor(input.back, result, "group-deleted", "group-not-empty");
   },
 });
 
@@ -339,51 +267,14 @@ export const updateEmojiAction = defineAction({
     back,
   }),
   async run(ctx, input) {
-    const [probe] = await getWebDb()
-      .select({ groupId: emojis.groupId })
-      .from(emojis)
-      .where(eq(emojis.id, input.id))
-      .limit(1);
-    if (!probe) notFound();
-    const groupId = await getWebDb().transaction(async (tx) => {
-      const group = await lockEmojiGroup(tx, probe.groupId);
-      if (!group) return null;
-      const [before] = await tx
-        .select()
-        .from(emojis)
-        .where(eq(emojis.id, input.id))
-        .limit(1)
-        .for("update");
-      if (!before) return null;
-      if (
-        before.name !== input.name ||
-        before.keywords !== input.keywords ||
-        before.sort !== input.sort
-      ) {
-        await tx
-          .update(emojis)
-          .set({
-            name: input.name,
-            keywords: input.keywords,
-            sort: input.sort,
-            updatedAt: sql`NOW()`,
-          })
-          .where(eq(emojis.id, input.id));
-        await writeAudit(tx, {
-          actorId: ctx.userId,
-          action: "admin.emoji.update",
-          targetType: "emoji",
-          targetId: input.id,
-          before: { name: before.name, keywords: before.keywords, sort: before.sort },
-          after: { name: input.name, keywords: input.keywords, sort: input.sort, via: "admin" },
-          ip: ctx.ip,
-        });
-      }
-      return before.groupId;
+    const result = await updateEmoji(actorOf(ctx), input.id, {
+      name: input.name,
+      keywords: input.keywords,
+      sort: input.sort,
     });
-    if (groupId === null) notFound();
+    if (!result.ok && result.code === "not_found") notFound();
     revalidatePath("/admin/emojis");
-    redirect(`${input.back}?group=${groupId}&ok=emoji-renamed`);
+    redirect(`${input.back}?ok=emoji-renamed`);
   },
 });
 
@@ -392,35 +283,10 @@ export const toggleEmojiAction = defineAction({
   auth: { admin: "emoji.manage" },
   input: z.object({ id: z.coerce.number().int().positive(), enabled: z.enum(["0", "1"]), back }),
   async run(ctx, input) {
-    const enabled = input.enabled === "1";
-    const groupId = await getWebDb().transaction(async (tx) => {
-      const [before] = await tx
-        .select()
-        .from(emojis)
-        .where(eq(emojis.id, input.id))
-        .limit(1)
-        .for("update");
-      if (!before) return null;
-      if (before.enabled !== enabled) {
-        await tx
-          .update(emojis)
-          .set({ enabled, updatedAt: sql`NOW()` })
-          .where(eq(emojis.id, input.id));
-        await writeAudit(tx, {
-          actorId: ctx.userId,
-          action: "admin.emoji.toggle",
-          targetType: "emoji",
-          targetId: input.id,
-          before: { enabled: before.enabled },
-          after: { enabled, via: "admin" },
-          ip: ctx.ip,
-        });
-      }
-      return before.groupId;
-    });
-    if (groupId === null) notFound();
+    const result = await toggleEmojiEnabled(actorOf(ctx), input.id, input.enabled === "1");
+    if (!result.ok && result.code === "not_found") notFound();
     revalidatePath("/admin/emojis");
-    redirect(`${input.back}?group=${groupId}&ok=emoji-toggled`);
+    redirect(`${input.back}?ok=emoji-toggled`);
   },
 });
 
@@ -434,27 +300,8 @@ export const reorderGroupAction = defineAction({
     back,
   }),
   async run(ctx, input) {
-    const found = await getWebDb().transaction(async (tx) => {
-      const before = await lockEmojiGroup(tx, input.id);
-      if (!before) return false;
-      if (before.sort !== input.sort) {
-        await tx
-          .update(emojiGroups)
-          .set({ sort: input.sort, updatedAt: sql`NOW()` })
-          .where(eq(emojiGroups.id, input.id));
-        await writeAudit(tx, {
-          actorId: ctx.userId,
-          action: "admin.emoji.group.reorder",
-          targetType: "emoji_group",
-          targetId: input.id,
-          before: { sort: before.sort },
-          after: { sort: input.sort, via: "admin" },
-          ip: ctx.ip,
-        });
-      }
-      return true;
-    });
-    if (!found) notFound();
+    const result = await reorderEmojiGroup(actorOf(ctx), input.id, input.sort);
+    if (!result.ok && result.code === "not_found") notFound();
     revalidatePath("/admin/emojis");
     redirect(`${input.back}?ok=group-moved`);
   },

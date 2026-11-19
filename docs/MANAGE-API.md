@@ -7,7 +7,7 @@
 ## 鉴权与签发
 
 - 只接受 `Authorization: Bearer <令牌>`。后台「系统与观测 → API 令牌」自签自管（`/admin/api-tokens`）：名称去首尾空白后 1–64 字符，有效期 30/90/180/365 天（默认 90），每管理员最多 5 个未过期且未吊销的令牌。明文只显示一次，凭证仅存 SHA-256，列表可见尾 8 字符；不要在 URL、请求体或日志中传递令牌。
-- 新版签发 `fw_at2_` + 43 个 URL 安全字符，按 8 个域选择「禁止／只读／读写」，默认全部禁止、至少选择一个可用域；内容域、举报域、用户域、公告域、活动域与邀请码域支持读写。「读写」包含签发时该域的读端点与写端点。各日志域和统计域即使共用 `admin.logs`，也分别授权。
+- 新版签发 `fw_at2_` + 43 个 URL 安全字符，按 8 个域选择「禁止／只读／读写」，默认全部禁止、至少选择一个可用域；除令牌身份、站点统计与四类日志域外，其余十一域均支持读写。「读写」包含签发时该域的读端点与写端点。各日志域和统计域即使共用 `admin.logs`，也分别授权。
 - 权限标签 `domain:read` / `domain:write` 用于分类；运行时检查的是**具体端点 ID**。签发时生成不可编辑的端点快照，且复核持有人资格、全局业务权限和配额；同域以后新增端点也不会自动扩权，需签发新令牌并吊销旧令牌。
 - 历史 `fw_at_`（同样后接 43 个字符）固定为 M20 九读，不授权写入。新版凭证与库内模型必须双向匹配；未知模型、空/重复/未知 ID 的新版快照、历史模型携带快照或前缀错配均不回落而拒绝。同库退版时旧镜像不认 `fw_at2_`；迁移及复升见[上线手册](ops/LAUNCH-RUNBOOK.md#7-m202-管理-rest-升级停写与退版)。
 - 凭证有效还须持有人当前满足站点管理员资格（`site.admin` + `admin.roles`、可登录、未封禁），并具有下表所列全局权限；对象范围和敏感字段继续由业务判定。只有版主权限不能签发或使用令牌。过期、手动吊销及失去站点管理员资格的联动吊销照旧；请求入口另做实时资格校验，不保证能中断已通过门禁的在途写。
@@ -79,6 +79,32 @@ curl -H "Authorization: Bearer ${FUNWIND_MANAGE_TOKEN}" \
 | `POST` | `/api/manage/invites` | `invites:write` | `invites.generate` | 单次 ≤20 张、有效期 ≤3650 天；同键回放返回同一批码 |
 | `DELETE` | `/api/manage/invites/{code}` | `invites:write` | `invites.revoke` | 吊销=物理删除未用码；已用 409 |
 | `POST` | `/api/manage/invites/batches/{batch}/revoke` | `invites:write` | `invites.revoke-batch` | 吊销批次全部可用码（已用码不受影响）；无可用码 404 |
+| `GET` | `/api/manage/forums` | `forums:read` | `forums` | 无附加全局权限；含归档全量 |
+| `GET` | `/api/manage/forums/{fid}` | `forums:read` | `forums.detail` | 无附加全局权限 |
+| `POST` | `/api/manage/forums` | `forums:write` | `forums.create` | 父级深度自动计算；创建后权限快照失效重建 |
+| `PATCH` | `/api/manage/forums/{fid}` | `forums:write` | `forums.edit` | 子树迁移 + 环检测；板块图不经此端点 |
+| `DELETE` | `/api/manage/forums/{fid}` | `forums:write` | `forums.delete` | 硬删双守卫：有子版块或有主题 409 |
+| `POST` | `/api/manage/forums/{fid}/prefixes` | `forums:write` | `forums.prefix-add` | 前缀名 ≤64 字 |
+| `DELETE` | `/api/manage/forums/{fid}/prefixes/{prefixId}` | `forums:write` | `forums.prefix-remove` | 物理删除前缀行 |
+| `GET` | `/api/manage/polls` | `polls:read` | `polls` | 状态由 endsAt 派生（open/closed） |
+| `POST` | `/api/manage/polls/{threadId}/close` | `polls:write` | `polls.close` | 按主题 ID 定位；已截止 409 |
+| `POST` | `/api/manage/polls/{threadId}/reopen` | `polls:write` | `polls.reopen` | 清除截止时间 |
+| `DELETE` | `/api/manage/polls/{threadId}` | `polls:write` | `polls.delete` | 硬删投票/选项/选票，主题回普通帖 |
+| `DELETE` | `/api/manage/pm/messages/{messageId}` | `pm:write` | `pm.message-delete` | 软删：正文覆写 + 理由必填入审计 |
+| `GET` | `/api/manage/badges` | `badges:read` | `badges` | `admin.badges`；可授予荣誉字典口径 |
+| `POST` | `/api/manage/users/{uid}/badges/{badgeId}` | `badges:write` | `badges.grant` | `admin.badges`；team 徽章拒、已持有 409；授予通知当事人 |
+| `DELETE` | `/api/manage/users/{uid}/badges/{badgeId}` | `badges:write` | `badges.revoke` | `admin.badges`；撤销通知当事人 |
+| `GET` | `/api/manage/points/ledger` | `points:read` | `points.ledger` | `admin.points`；`userId` 必填 |
+| `GET` | `/api/manage/points/rules` | `points:read` | `points.rules` | `admin.points`；奖励与门闸费率只读聚合 |
+| `POST` | `/api/manage/points/adjustments` | `points:write` | `points.adjust` | `admin.points`；走 `adjust.admin` 渠道，台账同事务，delta 非零+备注必填 |
+| `GET` | `/api/manage/emojis` | `emojis:read` | `emojis` | `emoji.manage`；含停用全量 |
+| `POST` | `/api/manage/emoji-groups` | `emojis:write` | `emojis.group-create` | `emoji.manage`；组名唯一（重名 409） |
+| `PATCH` | `/api/manage/emoji-groups/{groupId}` | `emojis:write` | `emojis.group-rename` | `emoji.manage`；同值 `changed:false` |
+| `POST` | `/api/manage/emoji-groups/{groupId}/enabled` | `emojis:write` | `emojis.group-enabled` | `emoji.manage`；停用不影响已发布正文 |
+| `DELETE` | `/api/manage/emoji-groups/{groupId}` | `emojis:write` | `emojis.group-delete` | `emoji.manage`；组内非空 409 |
+| `POST` | `/api/manage/emoji-groups/{groupId}/sort` | `emojis:write` | `emojis.group-reorder` | `emoji.manage`；sort 0–9999 |
+| `PATCH` | `/api/manage/emojis/{emojiId}` | `emojis:write` | `emojis.update` | `emoji.manage`；改名+关键词+排序；上传新图不经此端点 |
+| `POST` | `/api/manage/emojis/{emojiId}/enabled` | `emojis:write` | `emojis.enabled` | `emoji.manage`；同值 `changed:false` |
 
 ## 读取端点说明
 

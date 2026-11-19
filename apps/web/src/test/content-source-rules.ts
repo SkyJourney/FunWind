@@ -173,9 +173,10 @@ export const IDENTITY_EXCEPTIONS: IdentityException[] = [
   },
   {
     path: "lib/badges/service.ts",
-    owner: "grantBadgeByAdmin",
+    owner: "applyBadgeGrant",
     states: CLOSING,
-    reason: "保留 missing/inactive 与 closing 两级错误映射，以及原无锁的查询协议。",
+    reason:
+      "授予内核的注销中裁决（M20.3 REST 变体归执行段）；保留 missing/inactive 与 closing 两级错误映射。",
   },
   {
     path: "lib/authz/admin-user-views.ts",

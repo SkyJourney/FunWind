@@ -52,6 +52,32 @@ const DOCUMENTED_ENDPOINTS = [
   ["GET", "/api/manage/reports/{reportId}", "reports:read"],
   ["POST", "/api/manage/reports/{reportId}/resolve", "reports:write"],
   ["POST", "/api/manage/reports/{reportId}/dismiss", "reports:write"],
+  ["GET", "/api/manage/forums", "forums:read"],
+  ["GET", "/api/manage/forums/{fid}", "forums:read"],
+  ["POST", "/api/manage/forums", "forums:write"],
+  ["PATCH", "/api/manage/forums/{fid}", "forums:write"],
+  ["DELETE", "/api/manage/forums/{fid}", "forums:write"],
+  ["POST", "/api/manage/forums/{fid}/prefixes", "forums:write"],
+  ["DELETE", "/api/manage/forums/{fid}/prefixes/{prefixId}", "forums:write"],
+  ["GET", "/api/manage/polls", "polls:read"],
+  ["POST", "/api/manage/polls/{threadId}/close", "polls:write"],
+  ["POST", "/api/manage/polls/{threadId}/reopen", "polls:write"],
+  ["DELETE", "/api/manage/polls/{threadId}", "polls:write"],
+  ["DELETE", "/api/manage/pm/messages/{messageId}", "pm:write"],
+  ["GET", "/api/manage/badges", "badges:read"],
+  ["POST", "/api/manage/users/{uid}/badges/{badgeId}", "badges:write"],
+  ["DELETE", "/api/manage/users/{uid}/badges/{badgeId}", "badges:write"],
+  ["GET", "/api/manage/points/ledger", "points:read"],
+  ["GET", "/api/manage/points/rules", "points:read"],
+  ["POST", "/api/manage/points/adjustments", "points:write"],
+  ["GET", "/api/manage/emojis", "emojis:read"],
+  ["POST", "/api/manage/emoji-groups", "emojis:write"],
+  ["PATCH", "/api/manage/emoji-groups/{groupId}", "emojis:write"],
+  ["POST", "/api/manage/emoji-groups/{groupId}/enabled", "emojis:write"],
+  ["DELETE", "/api/manage/emoji-groups/{groupId}", "emojis:write"],
+  ["POST", "/api/manage/emoji-groups/{groupId}/sort", "emojis:write"],
+  ["PATCH", "/api/manage/emojis/{emojiId}", "emojis:write"],
+  ["POST", "/api/manage/emojis/{emojiId}/enabled", "emojis:write"],
   ["GET", "/api/manage/stats", "stats:read"],
   ["GET", "/api/manage/audit-logs", "audit-logs:read"],
   ["GET", "/api/manage/emails", "emails:read"],
@@ -339,7 +365,7 @@ test.describe("在线管理 REST 文档", () => {
     );
   });
 
-  test("管理员看到 35 个独立端点的请求方法、导航徽标和作用域", async ({ context, page }) => {
+  test("管理员看到 63 个独立端点的请求方法、导航徽标和作用域", async ({ context, page }) => {
     await loginAs(context, USERS.admin);
     expect((await page.goto(REST_DOCS))?.status()).toBe(200);
     await expect(page.getByRole("heading", { name: "FunWind REST API", level: 1 })).toBeVisible();
@@ -508,7 +534,7 @@ test.describe("管理员签发与授权", () => {
       await page.goto(ADMIN_TOKENS);
       const matrix = page.getByRole("group", { name: "权限矩阵" });
       const levels = matrix.getByRole("combobox");
-      await expect(levels).toHaveCount(11);
+      await expect(levels).toHaveCount(17);
       for (const level of await levels.all()) await expect(level).toHaveValue("none");
       const identity = matrix.getByLabel("令牌身份", { exact: true });
       await expect(identity.locator('option[value="write"]')).toBeDisabled();
