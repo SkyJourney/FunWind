@@ -102,7 +102,8 @@ function auditContext(ctx: ManageHandlerContext) {
   return { actor, trace: { requestId: ctx.requestId, tokenSuffix: ctx.token.suffix } };
 }
 
-async function commitWrite(
+/** 幂等写管线封装（M20.3 起跨域复用）：prepare 结果 + 域码表 → 统一信封错误。 */
+export async function commitWrite(
   ctx: ManageHandlerContext,
   endpoint: ManageEndpointId,
   params: WriteInput<Record<string, unknown>>,

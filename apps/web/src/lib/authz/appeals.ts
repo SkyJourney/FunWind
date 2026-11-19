@@ -11,6 +11,11 @@ import {
 } from "@funwind/db";
 import { writeAudit, type ConfigActor } from "@/lib/audit";
 import { restrictionActive } from "@/lib/authz/restrictions";
+import type {
+  ModerationApiTrace,
+  ModerationWriteDenial,
+  PreparedModerationWrite,
+} from "@/lib/moderation/contents";
 import { type PasswordVerifier, verifyAccountPassword } from "@/lib/auth/password";
 import { publicUserDeleted, publicUsername } from "@/lib/identity-expr";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
@@ -250,48 +255,146 @@ export async function resolveUserAppeal(
   const trimmed = result.trim();
   if (!trimmed) throw new AppealError("result_required");
   if (trimmed.length > 1000) throw new AppealError("result_required");
-  const [candidate] = await getWebDb()
-    .select({ userId: userAppeals.userId })
-    .from(userAppeals)
-    .where(eq(userAppeals.id, appealId))
-    .limit(1);
-  if (!candidate) throw new AppealError("not_found");
   let event: EnqueuedEvent | null = null;
   await getWebDb().transaction(async (tx) => {
-    const [user] = await tx
-      .select({ state: users.state })
-      .from(users)
-      .where(eq(users.id, candidate.userId))
-      .limit(1)
-      .for("update");
-    if (!user || user.state !== "active") throw new AppealError("not_found");
-    const [appeal] = await tx
-      .select({ userId: userAppeals.userId, status: userAppeals.status })
-      .from(userAppeals)
-      .where(eq(userAppeals.id, appealId))
-      .limit(1)
-      .for("update");
-    if (!appeal || appeal.userId !== candidate.userId) throw new AppealError("not_found");
-    if (appeal.status !== "pending") throw new AppealError("already_handled");
-    await tx
-      .update(userAppeals)
-      .set({ status, handledBy: admin.userId, handledAt: sql`NOW()`, result: trimmed })
-      .where(eq(userAppeals.id, appealId));
-    await writeAudit(tx, {
-      actorId: admin.userId,
-      action: "user.appeal.resolve",
-      targetType: "user_appeal",
-      targetId: appealId,
-      after: { status, targetUserId: appeal.userId },
-      ip: admin.ip,
-    });
-    event = await enqueueEventInTx(
-      tx,
-      "account.appeal.resolved",
-      { userId: appeal.userId, appealId, status },
-      { actorId: admin.userId, source: "user-appeals" },
-    );
+    const locked = await lockAppealTarget(tx, appealId, null);
+    if (!locked.ok) throw new AppealError(locked.code);
+    const applied = await applyAppealResolve(tx, admin, appealId, status, trimmed, locked.target);
+    if (!applied.ok) throw new AppealError(applied.code);
+    event = applied.event;
   });
   if (event) await dispatchOutboxRows([event]);
   await sweepPending();
+}
+
+// ============================================================
+// REST 写变体（M20.3 Step 2）：prepare/lock/execute 三段式，与后台入口共享
+// lock/apply 内核；pending 裁决统一在 execute，合法回放已被幂等缓存短路。
+// ============================================================
+
+/** 业务拒绝码 → 对外信封映射（REST 适配层使用；仅处置侧码，提交侧码不在其中）。 */
+export const APPEALS_DENIAL_HTTP = {
+  not_found: "not_found",
+  already_handled: "state_conflict",
+  result_required: "bad_request",
+} as const;
+
+type AppealFailureCode = Extract<
+  AppealError["code"],
+  "not_found" | "already_handled" | "result_required"
+>;
+type AppealDenial = ModerationWriteDenial<AppealFailureCode>;
+
+/** 处置的行锁产物（申诉归属用户与锁内状态快照）。 */
+type LockedAppeal = { targetUserId: number; status: "pending" | "approved" | "rejected" };
+
+/** 锁段（后台与 REST 共享）：锁申诉行取归属 → 锁用户行核验 active；expectedUserId 非空时校验归属。 */
+async function lockAppealTarget(
+  tx: Parameters<Parameters<ReturnType<typeof getWebDb>["transaction"]>[0]>[0],
+  appealId: number,
+  expectedUserId: number | null,
+): Promise<{ ok: true; target: LockedAppeal } | AppealDenial> {
+  const [appeal] = await tx
+    .select({ userId: userAppeals.userId, status: userAppeals.status })
+    .from(userAppeals)
+    .where(eq(userAppeals.id, appealId))
+    .limit(1)
+    .for("update");
+  if (!appeal || (expectedUserId !== null && appeal.userId !== expectedUserId)) {
+    return { ok: false, code: "not_found" };
+  }
+  const [user] = await tx
+    .select({ state: users.state })
+    .from(users)
+    .where(eq(users.id, appeal.userId))
+    .limit(1)
+    .for("update");
+  if (!user || user.state !== "active") return { ok: false, code: "not_found" };
+  return { ok: true, target: { targetUserId: appeal.userId, status: appeal.status } };
+}
+
+/** 执行段（后台与 REST 共享）：pending 裁决 + 写入 + 审计 + 事件。 */
+async function applyAppealResolve(
+  tx: Parameters<Parameters<ReturnType<typeof getWebDb>["transaction"]>[0]>[0],
+  admin: ConfigActor & { userId: number },
+  appealId: number,
+  status: "approved" | "rejected",
+  trimmed: string,
+  target: LockedAppeal,
+  trace?: ModerationApiTrace,
+): Promise<{ ok: true; event: EnqueuedEvent } | AppealDenial> {
+  if (target.status !== "pending") return { ok: false, code: "already_handled" };
+  await tx
+    .update(userAppeals)
+    .set({ status, handledBy: admin.userId, handledAt: sql`NOW()`, result: trimmed })
+    .where(eq(userAppeals.id, appealId));
+  await writeAudit(tx, {
+    actorId: admin.userId,
+    action: "user.appeal.resolve",
+    targetType: "user_appeal",
+    targetId: appealId,
+    after: {
+      status,
+      targetUserId: target.targetUserId,
+      via: admin.via,
+      ...(trace ? { requestId: trace.requestId, tokenSuffix: trace.tokenSuffix } : {}),
+    },
+    ip: admin.ip,
+  });
+  const event = await enqueueEventInTx(
+    tx,
+    "account.appeal.resolved",
+    { userId: target.targetUserId, appealId, status },
+    { actorId: admin.userId, source: "user-appeals" },
+  );
+  return { ok: true, event };
+}
+
+/** REST 申诉处置的准备产物类型。 */
+export type PreparedApiAppealResolve = PreparedModerationWrite<
+  { appealId: number; status: "approved" | "rejected" },
+  AppealFailureCode
+>;
+
+/** REST 申诉处置：入参校验在 prepare（事务外），锁段/执行段与后台共享内核。 */
+export async function prepareApiAppealResolve(
+  admin: ConfigActor & { userId: number },
+  expectedUserId: number,
+  appealId: number,
+  status: "approved" | "rejected",
+  result: string,
+  trace?: ModerationApiTrace,
+): Promise<PreparedApiAppealResolve | AppealDenial> {
+  const trimmed = result.trim();
+  if (!trimmed || trimmed.length > 1000) return { ok: false, code: "result_required" };
+  return {
+    ok: true,
+    async lock(tx) {
+      const locked = await lockAppealTarget(tx, appealId, expectedUserId);
+      if (!locked.ok) return locked;
+      return {
+        ok: true,
+        async execute() {
+          const applied = await applyAppealResolve(
+            tx,
+            admin,
+            appealId,
+            status,
+            trimmed,
+            locked.target,
+            trace,
+          );
+          if (!applied.ok) return applied;
+          return {
+            ok: true,
+            data: { appealId, status },
+            async afterCommit() {
+              await dispatchOutboxRows([applied.event]);
+              await sweepPending();
+            },
+          };
+        },
+      };
+    },
+  };
 }

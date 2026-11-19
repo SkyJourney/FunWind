@@ -30,6 +30,10 @@ const DOCUMENTED_ENDPOINTS = [
   ["PATCH", "/api/manage/threads/{threadId}/flags", "contents:write"],
   ["GET", "/api/manage/users", "users:read"],
   ["GET", "/api/manage/users/{uid}", "users:read"],
+  ["POST", "/api/manage/users/{uid}/restrictions", "users:write"],
+  ["DELETE", "/api/manage/users/{uid}/restrictions/{restrictionId}", "users:write"],
+  ["DELETE", "/api/manage/users/{uid}/sessions/{sessionId}", "users:write"],
+  ["POST", "/api/manage/users/{uid}/appeals/{appealId}/resolve", "users:write"],
   ["GET", "/api/manage/reports", "reports:read"],
   ["GET", "/api/manage/reports/{reportId}", "reports:read"],
   ["POST", "/api/manage/reports/{reportId}/resolve", "reports:write"],
@@ -321,7 +325,7 @@ test.describe("在线管理 REST 文档", () => {
     );
   });
 
-  test("管理员看到 19 个独立端点的请求方法、导航徽标和作用域", async ({ context, page }) => {
+  test("管理员看到 23 个独立端点的请求方法、导航徽标和作用域", async ({ context, page }) => {
     await loginAs(context, USERS.admin);
     expect((await page.goto(REST_DOCS))?.status()).toBe(200);
     await expect(page.getByRole("heading", { name: "FunWind REST API", level: 1 })).toBeVisible();
