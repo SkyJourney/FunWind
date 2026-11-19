@@ -39,6 +39,17 @@ export default defineConfig({
         // 裁剪工具（M6.4d2）：react-image-crop 的拖拽与手柄是第三方交互壳，换算逻辑在 crop-math.ts 中单测，交互由 E2E 覆盖
         "src/components/upload/crop-body.tsx",
         "src/components/upload/crop-dialog.tsx",
+        // 管理 REST 适配薄层（M20.2/M20.3）：zod 解析 → 调 Service → commitWrite 的 IO 壳，
+        // 无分支逻辑；状态机/幂等/审计语义由各域 int 测试覆盖，信封与方法由矩阵 E2E 全端点覆盖
+        "src/lib/manage/content-writes.ts",
+        "src/lib/manage/report-writes.ts",
+        "src/lib/manage/user-writes.ts",
+        "src/lib/manage/ops-writes.ts",
+        "src/lib/manage/community-writes.ts",
+        "src/lib/manage/asset-writes.ts",
+        "src/lib/forums/api-writes.ts",
+        "src/lib/emoji/api-writes.ts",
+        "src/lib/emoji/queries-admin.ts",
       ],
       thresholds: {
         lines: 90,
