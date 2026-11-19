@@ -1,3 +1,4 @@
+import "@/modules";
 import { z } from "zod";
 import { listContentsPage, resolveContentScope } from "@/lib/moderation/contents";
 import { ManageApiError } from "@/lib/manage/errors";

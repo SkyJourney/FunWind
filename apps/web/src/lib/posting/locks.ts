@@ -10,7 +10,7 @@ import type { DbTx } from "@/lib/audit";
  * 不同用户首次建统计行时互相死锁（M5.6 前实测过）。
  */
 
-/** 锁住主题行并返回加锁后的最新状态；不存在返回 null */
+/** 锁住主题行并返回加锁后的最新状态；不存在返回 null（pinLevel 供 API 旗标写入的同值判定使用） */
 export async function lockThread(tx: DbTx, threadId: number) {
   const [row] = await tx
     .select({
@@ -20,6 +20,7 @@ export async function lockThread(tx: DbTx, threadId: number) {
       state: threads.state,
       isFeatured: threads.isFeatured,
       isLocked: threads.isLocked,
+      pinLevel: threads.pinLevel,
       firstPostId: threads.firstPostId,
       createdAt: threads.createdAt,
     })

@@ -38,6 +38,26 @@ const adminUserIds: number[] = [];
 const authorUserIds: number[] = [];
 const targets: PendingThread[] = [];
 
+/**
+ * 为单个写语义用例签发独立管理员与写令牌：写频控按令牌 10 次/分钟计，
+ * 共享令牌会在多用例累计后触发 429，因此每个重度写用例独占一枚。
+ */
+async function issueWriterToken(
+  page: import("@playwright/test").Page,
+  tag: string,
+  levels: { contents?: "write"; reports?: "read" | "write"; identity?: "read" } = {
+    contents: "write",
+    identity: "read",
+  },
+) {
+  const adminId = await withE2eDb((q) => createAdminUser(q, `${TAG}-${tag}`));
+  adminUserIds.push(adminId);
+  await loginAs(page.context(), adminId);
+  const name = `${NAME_PREFIX}writer · ${tag}`;
+  tokenNames.push(name);
+  return issueManageToken(page, name, levels);
+}
+
 async function issueFor(page: import("@playwright/test").Page, kind: TokenKind) {
   const cached = tokens.get(kind);
   if (cached) return cached;
@@ -146,9 +166,8 @@ test.describe.serial("管理 REST 全面验收", () => {
     expect(notices).toEqual([{ type: "content.approved" }]);
   });
 
-  test("驳回：理由送达，同键回放与异参冲突都不重复副作用", async ({ context, page, request }) => {
-    await loginAs(context, USERS.admin);
-    const writer = await issueFor(page, "writer");
+  test("驳回：理由送达，同键回放与异参冲突都不重复副作用", async ({ page, request }) => {
+    const writer = await issueWriterToken(page, "驳回：理由送");
     const tag = `${TAG}-reject`;
     const target: PendingThread = { threadId: 0, postId: 0 };
     targets.push(target);
@@ -218,9 +237,8 @@ test.describe.serial("管理 REST 全面验收", () => {
     ).toHaveLength(1);
   });
 
-  test("锁定与解锁：同值零审计，反向变更留痕", async ({ context, page, request }) => {
-    await loginAs(context, USERS.admin);
-    const writer = await issueFor(page, "writer");
+  test("锁定与解锁：同值零审计，反向变更留痕", async ({ page, request }) => {
+    const writer = await issueWriterToken(page, "锁定与解锁：");
     const tag = `${TAG}-lock`;
     const target: PendingThread = { threadId: 0, postId: 0 };
     targets.push(target);
@@ -308,6 +326,226 @@ test.describe.serial("管理 REST 全面验收", () => {
       401,
       "unauthorized",
     );
+  });
+
+  test("屏蔽与封禁：状态机迁移与恢复冲突", async ({ page, request }) => {
+    const writer = await issueWriterToken(page, "屏蔽与封禁：");
+    const tag = `${TAG}-hide`;
+    const target: PendingThread = { threadId: 0, postId: 0 };
+    targets.push(target);
+    const authorId = await withE2eDb((q) => createAuthorUser(q, tag));
+    authorUserIds.push(authorId);
+    // 屏蔽要求 visible 起点；版本号从内容详情取得（与审核同口径）。
+    await withE2eDb((q) => seedPendingThread(q, target, authorId, tag, "visible"));
+    const detail = await request.get(`/api/manage/contents/${target.threadId}?kind=thread`, {
+      headers: bearer(writer),
+    });
+    const { data } = (await detail.json()) as { data: { firstPost: { editedAt: string } } };
+    const { editedAt } = data.firstPost;
+
+    const hide = (key = randomUUID()) =>
+      request.post(`/api/manage/posts/${target.postId}/hide`, {
+        headers: { ...bearer(writer), "Idempotency-Key": key },
+        data: { expectedEditedAt: editedAt, reason: "违规内容" },
+      });
+    const disable = (key = randomUUID()) =>
+      request.post(`/api/manage/posts/${target.postId}/disable`, {
+        headers: { ...bearer(writer), "Idempotency-Key": key },
+        data: { expectedEditedAt: editedAt, reason: "严重违规" },
+      });
+    const restore = (key = randomUUID()) =>
+      request.post(`/api/manage/posts/${target.postId}/restore`, {
+        headers: { ...bearer(writer), "Idempotency-Key": key },
+        data: { expectedEditedAt: editedAt },
+      });
+
+    const hidden = await hide();
+    expect(hidden.status()).toBe(200);
+    expect(await hidden.json()).toEqual({
+      ok: true,
+      data: { postId: target.postId, threadId: target.threadId, state: "hidden" },
+    });
+    // 已屏蔽再屏蔽 → 409。
+    await expectManageError(await hide(), 409, "state_conflict");
+
+    // hidden → disabled 允许；disabled → deleted 之外不可恢复。
+    const disabled = await disable();
+    expect(disabled.status()).toBe(200);
+    expect(await disabled.json()).toMatchObject({ data: { state: "disabled" } });
+    await expectManageError(await restore(), 409, "state_conflict");
+
+    const states = await withE2eDb((q) =>
+      q.query<{ action: string }>(
+        "SELECT action FROM audit_log WHERE target_type = 'post' AND target_id = ? ORDER BY id",
+        [String(target.postId)],
+      ),
+    );
+    expect(states.map((row) => row.action)).toEqual(["post.state.hidden", "post.state.disabled"]);
+  });
+
+  test("恢复：已删内容经 API 恢复为可见，同键回放不重复", async ({ page, request }) => {
+    const writer = await issueWriterToken(page, "恢复：已删内");
+    const tag = `${TAG}-restore`;
+    const target: PendingThread = { threadId: 0, postId: 0 };
+    targets.push(target);
+    const authorId = await withE2eDb((q) => createAuthorUser(q, tag));
+    authorUserIds.push(authorId);
+    await withE2eDb((q) => seedPendingThread(q, target, authorId, tag, "deleted"));
+    const detail = await request.get(`/api/manage/contents/${target.threadId}?kind=thread`, {
+      headers: bearer(writer),
+    });
+    const { data } = (await detail.json()) as { data: { firstPost: { editedAt: string } } };
+
+    const restoreKey = randomUUID();
+    const restore = () =>
+      request.post(`/api/manage/posts/${target.postId}/restore`, {
+        headers: { ...bearer(writer), "Idempotency-Key": restoreKey },
+        data: { expectedEditedAt: data.firstPost.editedAt },
+      });
+    const restored = await restore();
+    expect(restored.status(), JSON.stringify(await restored.json())).toBe(200);
+    const accepted = {
+      ok: true,
+      data: { postId: target.postId, threadId: target.threadId, state: "visible" },
+    };
+    expect(await restored.json()).toEqual(accepted);
+    const replay = await restore();
+    expect(replay.status()).toBe(200);
+    expect(await replay.json()).toEqual(accepted);
+    const audits = await withE2eDb((q) =>
+      q.query<{ action: string }>(
+        "SELECT action FROM audit_log WHERE target_type = 'post' AND target_id = ?",
+        [String(target.postId)],
+      ),
+    );
+    expect(audits).toEqual([{ action: "post.state.visible" }]);
+  });
+
+  test("主题标记：精华与置顶留痕，同值零审计", async ({ page, request }) => {
+    const writer = await issueWriterToken(page, "主题标记：精");
+    const tag = `${TAG}-flags`;
+    const target: PendingThread = { threadId: 0, postId: 0 };
+    targets.push(target);
+    const authorId = await withE2eDb((q) => createAuthorUser(q, tag));
+    authorUserIds.push(authorId);
+    await withE2eDb((q) => seedPendingThread(q, target, authorId, tag, "visible"));
+
+    const flags = (body: Record<string, unknown>, key = randomUUID()) =>
+      request.patch(`/api/manage/threads/${target.threadId}/flags`, {
+        headers: { ...bearer(writer), "Idempotency-Key": key },
+        data: body,
+      });
+
+    const featured = await flags({ featured: true });
+    expect(featured.status()).toBe(200);
+    expect(await featured.json()).toEqual({
+      ok: true,
+      data: { threadId: target.threadId, changed: true, featured: true },
+    });
+    // 同值再设（新键）：changed=false 且不重复写审计。
+    const same = await flags({ featured: true });
+    expect(await same.json()).toMatchObject({ data: { changed: false } });
+    const pinned = await flags({ pinLevel: 1 });
+    expect(await pinned.json()).toMatchObject({ data: { changed: true, pinLevel: 1 } });
+    const audits = await withE2eDb((q) =>
+      q.query<{ action: string }>(
+        "SELECT action FROM audit_log WHERE target_type = 'thread' AND target_id = ?",
+        [String(target.threadId)],
+      ),
+    );
+    expect(audits).toHaveLength(2);
+    const detail = await request.get(`/api/manage/contents/${target.threadId}?kind=thread`, {
+      headers: bearer(writer),
+    });
+    expect(await detail.json()).toMatchObject({ data: { isFeatured: true, pinLevel: 1 } });
+  });
+
+  test("举报：处置状态机、幂等回放与列表详情", async ({ page, request }) => {
+    const writer = await issueWriterToken(page, "举报：处置状", {
+      reports: "write",
+      identity: "read",
+    });
+    // 处置人是本用例专用管理员（规避写频控跨用例累计），经 whoami 取其 ID 断言落账
+    const who = await request.get("/api/manage/whoami", { headers: bearer(writer) });
+    expect(who.status()).toBe(200);
+    const writerAdminId = ((await who.json()) as { data: { user: { id: number } } }).data.user.id;
+    const tag = `${TAG}-report`;
+    const target: PendingThread = { threadId: 0, postId: 0 };
+    targets.push(target);
+    const authorId = await withE2eDb((q) => createAuthorUser(q, tag));
+    authorUserIds.push(authorId);
+    const reporterId = await withE2eDb((q) => createAuthorUser(q, `${tag}-reporter`));
+    authorUserIds.push(reporterId);
+    // 举报列表查询只展示可见内容上的举报：目标帖用可见态。
+    await withE2eDb((q) => seedPendingThread(q, target, authorId, tag, "visible"));
+    const reportId = (
+      await withE2eDb((q) =>
+        q.exec(
+          `INSERT INTO reports (post_id, reporter_id, reason, status, created_at)
+           VALUES (?, ?, '垃圾广告', 'pending', NOW())`,
+          [target.postId, reporterId],
+        ),
+      )
+    ).insertId;
+
+    const list = await request.get("/api/manage/reports?status=pending&size=10", {
+      headers: bearer(writer),
+    });
+    expect(list.status()).toBe(200);
+    const listed = (await list.json()) as { data: { items: { id: number }[] } };
+    expect(
+      listed.data.items.some((i) => i.id === reportId),
+      `举报 ${reportId} 未在 pending 列表：${JSON.stringify(listed.data)}`,
+    ).toBe(true);
+    const detail = await request.get(`/api/manage/reports/${reportId}`, {
+      headers: bearer(writer),
+    });
+    expect(detail.status()).toBe(200);
+    expect(await detail.json()).toMatchObject({
+      data: { id: reportId, status: "pending", reason: "垃圾广告" },
+    });
+
+    const key = randomUUID();
+    const resolve = await request.post(`/api/manage/reports/${reportId}/resolve`, {
+      headers: { ...bearer(writer), "Idempotency-Key": key },
+      data: { note: "已确认并处理" },
+    });
+    expect(resolve.status()).toBe(200);
+    expect(await resolve.json()).toEqual({
+      ok: true,
+      data: { reportId, decision: "resolved" },
+    });
+    // 同键回放返回同一结果，不重复通知举报人。
+    const replay = await request.post(`/api/manage/reports/${reportId}/resolve`, {
+      headers: { ...bearer(writer), "Idempotency-Key": key },
+      data: { note: "已确认并处理" },
+    });
+    expect(replay.status()).toBe(200);
+    expect(await replay.json()).toEqual({
+      ok: true,
+      data: { reportId, decision: "resolved" },
+    });
+
+    // 已处置的报告不能再忽略（状态机 → 409）；同键换端点属新意图，同样撞状态机。
+    const dismiss = await request.post(`/api/manage/reports/${reportId}/dismiss`, {
+      headers: { ...bearer(writer), "Idempotency-Key": randomUUID() },
+      data: { note: "误报" },
+    });
+    await expectManageError(dismiss, 409, "state_conflict");
+
+    const row = await withE2eDb((q) =>
+      q.query<{ status: string; note: string; handledBy: number }>(
+        "SELECT status, handled_note AS note, handled_by AS handledBy FROM reports WHERE id = ?",
+        [reportId],
+      ),
+    );
+    expect(row).toEqual([{ status: "resolved", note: "已确认并处理", handledBy: writerAdminId }]);
+    const notices = await withE2eDb((q) =>
+      q.query("SELECT id FROM notifications WHERE user_id = ?", [reporterId]),
+    );
+    expect(notices).toHaveLength(1);
+    // 清理本次举报行（举报人通知由共享清理按 authorUserIds 回收）。
+    await withE2eDb((q) => q.exec("DELETE FROM reports WHERE id = ?", [reportId]));
   });
 
   test("新建专用管理员签发的令牌同样受矩阵约束", async ({ context, page, request }) => {

@@ -1,0 +1,337 @@
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { forums, getWebDb, posts, threads, users } from "@funwind/db";
+import { publicUsername } from "@/lib/identity-expr";
+import { pageBounds } from "@/lib/paging";
+
+/**
+ * 内容管理只读查询（M20.3 从 contents.ts 拆出的读侧）：列表定位筛选与行级详情。
+ * 写管线（锁夹具 / prepare·lock·execute）仍在 contents.ts；本文件不做任何状态变更。
+ */
+
+export type ContentKind = "thread" | "reply";
+export type ContentStateFilter =
+  "all" | "visible" | "pending" | "rejected" | "hidden" | "deleted" | "disabled";
+
+export type ContentListFilters = {
+  kind: ContentKind;
+  q?: string;
+  forumId?: number;
+  state: ContentStateFilter;
+  page: number;
+  perPage?: number;
+  /** 版主所辖版块（空数组 = 无权限）；null = 全站视角（admin.recycle / site.admin） */
+  scopeForumIds: number[] | null;
+  /**
+   * 排序语义：默认 recent（最新在前，倒序）；待审核队列传 "queue"——按提交时间正序（先到先审，
+   * M19 自 review 队列合并而来）。
+   */
+  order?: "recent" | "queue";
+};
+
+export interface ContentListItem {
+  postId: number;
+  threadId: number;
+  forumId: number;
+  forumName: string;
+  title: string;
+  /** 回帖才有：正文前 80 字 */
+  excerpt: string | null;
+  authorId: number;
+  authorName: string | null;
+  /** 作者是否被封禁（M9.5 §9.2-E：后台队列加徽标，公开页维持无标记） */
+  authorBanned: boolean;
+  state: string;
+  isThread: boolean;
+  createdAt: string;
+  replyCount: number | null;
+  isLocked: boolean | null;
+  isFeatured: boolean | null;
+  pinLevel: number | null;
+}
+
+/** 内容管理列表（分页 + 定位筛选） */
+export async function listContentsPage(
+  filters: ContentListFilters,
+): Promise<{ items: ContentListItem[]; total: number; page: number; totalPages: number }> {
+  const perPage = filters.perPage ?? 20;
+  const conds = [];
+
+  // 主题：threads.state；回帖：posts.state
+  const stateCol = filters.kind === "thread" ? threads.state : posts.state;
+  if (filters.state !== "all") conds.push(eq(stateCol, filters.state as never));
+  if (filters.forumId) conds.push(eq(threads.forumId, filters.forumId));
+  if (filters.kind === "reply") conds.push(sql`${posts.id} <> ${threads.firstPostId}`);
+  if (filters.scopeForumIds) {
+    if (filters.scopeForumIds.length === 0) return { items: [], total: 0, page: 1, totalPages: 1 };
+    conds.push(inArray(threads.forumId, filters.scopeForumIds));
+  }
+  const q = filters.q?.trim();
+  if (q) {
+    // 主题按标题搜；回帖按正文搜（作者名也搜，便于按人定位）
+    conds.push(
+      filters.kind === "thread"
+        ? sql`${threads.title} LIKE ${`%${q}%`}`
+        : sql`(${posts.bodyMd} LIKE ${`%${q}%`} OR ${threads.title} LIKE ${`%${q}%`})`,
+    );
+  }
+  const where = conds.length > 0 ? and(...conds) : undefined;
+
+  // 主查询：主题走 threads join posts(首帖)；回帖走 posts join threads
+  const base = getWebDb();
+  const listSelect =
+    filters.kind === "thread"
+      ? {
+          postId: sql<number>`threads.first_post_id`,
+          threadId: threads.id,
+          forumId: threads.forumId,
+          forumName: forums.name,
+          title: threads.title,
+          excerpt: sql<string | null>`NULL`,
+          authorId: threads.authorId,
+          authorName: publicUsername(users.username, users.state, users.id),
+          authorBanned:
+            sql<boolean>`EXISTS (SELECT 1 FROM user_restrictions ur WHERE ur.user_id = ${threads.authorId}
+              AND ur.kind = 'ban' AND ur.scope_id = 0 AND ur.starts_at <= NOW()
+              AND (ur.ends_at IS NULL OR ur.ends_at > NOW()))`.mapWith(Boolean),
+          state: threads.state,
+          isThread: sql<boolean>`TRUE`.mapWith(Boolean),
+          createdAt: threads.createdAt,
+          replyCount: threads.replyCount,
+          isLocked: threads.isLocked,
+          isFeatured: threads.isFeatured,
+          pinLevel: threads.pinLevel,
+        }
+      : {
+          postId: posts.id,
+          threadId: threads.id,
+          forumId: threads.forumId,
+          forumName: forums.name,
+          title: threads.title,
+          excerpt: sql<string | null>`SUBSTRING(${posts.bodyMd}, 1, 80)`,
+          authorId: posts.authorId,
+          authorName: publicUsername(users.username, users.state, users.id),
+          authorBanned:
+            sql<boolean>`EXISTS (SELECT 1 FROM user_restrictions ur WHERE ur.user_id = ${posts.authorId}
+              AND ur.kind = 'ban' AND ur.scope_id = 0 AND ur.starts_at <= NOW()
+              AND (ur.ends_at IS NULL OR ur.ends_at > NOW()))`.mapWith(Boolean),
+          state: posts.state,
+          isThread: sql<boolean>`FALSE`.mapWith(Boolean),
+          createdAt: posts.createdAt,
+          replyCount: sql<number | null>`NULL`,
+          isLocked: sql<boolean | null>`NULL`,
+          isFeatured: sql<boolean | null>`NULL`,
+          pinLevel: sql<number | null>`NULL`,
+        };
+
+  // 主题分支：以 threads 为主表（不 join threads——自连接会触发「Not unique table/alias」）；
+  // 回帖分支：以 posts 为主表 join threads 取所属主题。
+  const countRow =
+    filters.kind === "thread"
+      ? await base
+          .select({ total: sql<number>`COUNT(*)` })
+          .from(threads)
+          .where(where)
+      : await base
+          .select({ total: sql<number>`COUNT(*)` })
+          .from(posts)
+          .innerJoin(threads, eq(threads.id, posts.threadId))
+          .where(where);
+  const total = Number(countRow[0]?.total ?? 0);
+  const { page, totalPages, offset } = pageBounds(total, filters.page, perPage);
+  // 队列语义（state=pending）按提交时间正序（先到先审）；其余保持最新在前。
+  const primary = filters.order === "queue" ? asc : desc;
+  const rows =
+    filters.kind === "thread"
+      ? await base
+          .select(listSelect)
+          .from(threads)
+          .innerJoin(forums, eq(forums.id, threads.forumId))
+          .leftJoin(users, eq(users.id, threads.authorId))
+          .where(where)
+          .orderBy(primary(threads.createdAt), primary(threads.id))
+          .limit(perPage)
+          .offset(offset)
+      : await base
+          .select(listSelect)
+          .from(posts)
+          .innerJoin(threads, eq(threads.id, posts.threadId))
+          .innerJoin(forums, eq(forums.id, threads.forumId))
+          .leftJoin(users, eq(users.id, posts.authorId))
+          .where(where)
+          .orderBy(primary(posts.createdAt), primary(posts.id))
+          .limit(perPage)
+          .offset(offset);
+
+  return { items: rows, total, page, totalPages };
+}
+
+// ---------- 内容详情（M20：/api/manage/contents/[id] 的 Service；此前无导出的行级读取） ----------
+
+export type ThreadDetail = {
+  kind: "thread";
+  threadId: number;
+  forumId: number;
+  forumName: string;
+  title: string;
+  state: string;
+  authorId: number;
+  authorName: string | null;
+  createdAt: string;
+  replyCount: number;
+  isLocked: boolean;
+  isFeatured: boolean;
+  pinLevel: number;
+  /** 首帖（正文载体） */
+  firstPost: {
+    postId: number;
+    floor: number;
+    state: string;
+    bodyMd: string;
+    createdAt: string;
+    editedAt: string | null;
+  };
+};
+
+export type ReplyDetail = {
+  kind: "reply";
+  postId: number;
+  floor: number;
+  state: string;
+  bodyMd: string;
+  createdAt: string;
+  editedAt: string | null;
+  authorId: number;
+  authorName: string | null;
+  threadId: number;
+  threadTitle: string;
+  threadState: string;
+  forumId: number;
+  forumName: string;
+};
+
+export type ContentDetail = ThreadDetail | ReplyDetail;
+
+export type ContentDetailResult =
+  | { ok: true; detail: ContentDetail }
+  // 越权（scope 外）与不存在同型 not_found，调用方一律转 404（存在性不泄露）
+  | { ok: false; code: "not_found" | "forbidden" };
+
+/**
+ * 内容行级详情（管理 API 用；页面无需——行内链接直达公开页）。
+ * scopeForumIds 语义与 listContentsPage 一致：null = 全站，空数组 = 一律拒绝。
+ */
+export async function loadContentDetail(
+  kind: ContentKind,
+  id: number,
+  scopeForumIds: number[] | null,
+): Promise<ContentDetailResult> {
+  if (scopeForumIds !== null && scopeForumIds.length === 0) return { ok: false, code: "forbidden" };
+
+  if (kind === "thread") {
+    const [row] = await getWebDb()
+      .select({
+        threadId: threads.id,
+        forumId: threads.forumId,
+        forumName: forums.name,
+        title: threads.title,
+        state: threads.state,
+        authorId: threads.authorId,
+        authorName: publicUsername(users.username, users.state, users.id),
+        createdAt: threads.createdAt,
+        replyCount: threads.replyCount,
+        isLocked: threads.isLocked,
+        isFeatured: threads.isFeatured,
+        pinLevel: threads.pinLevel,
+        firstPostId: threads.firstPostId,
+        firstFloor: posts.floor,
+        firstPostState: posts.state,
+        bodyMd: posts.bodyMd,
+        firstPostCreatedAt: posts.createdAt,
+        firstPostEditedAt: posts.editedAt,
+      })
+      .from(threads)
+      .innerJoin(forums, eq(forums.id, threads.forumId))
+      .innerJoin(posts, eq(posts.id, threads.firstPostId))
+      .leftJoin(users, eq(users.id, threads.authorId))
+      .where(eq(threads.id, id))
+      .limit(1);
+    if (!row) return { ok: false, code: "not_found" };
+    if (scopeForumIds !== null && !scopeForumIds.includes(row.forumId)) {
+      return { ok: false, code: "forbidden" };
+    }
+    return {
+      ok: true,
+      detail: {
+        kind: "thread",
+        threadId: row.threadId,
+        forumId: row.forumId,
+        forumName: row.forumName,
+        title: row.title,
+        state: row.state,
+        authorId: row.authorId,
+        authorName: row.authorName,
+        createdAt: row.createdAt,
+        replyCount: row.replyCount,
+        isLocked: row.isLocked ?? false,
+        isFeatured: row.isFeatured ?? false,
+        pinLevel: row.pinLevel ?? 0,
+        firstPost: {
+          // firstPostId/bodyMd 列类型可空：innerJoin 逻辑上保证有行（db:verify 首帖指针完整性），
+          // 正文列历史数据可能为 NULL，详情 API 统一空串化
+          postId: row.firstPostId ?? 0,
+          floor: row.firstFloor,
+          state: row.firstPostState,
+          bodyMd: row.bodyMd ?? "",
+          createdAt: row.firstPostCreatedAt,
+          editedAt: row.firstPostEditedAt,
+        },
+      },
+    };
+  }
+
+  const [row] = await getWebDb()
+    .select({
+      postId: posts.id,
+      floor: posts.floor,
+      state: posts.state,
+      bodyMd: posts.bodyMd,
+      createdAt: posts.createdAt,
+      editedAt: posts.editedAt,
+      authorId: posts.authorId,
+      authorName: publicUsername(users.username, users.state, users.id),
+      threadId: threads.id,
+      threadTitle: threads.title,
+      threadState: threads.state,
+      forumId: threads.forumId,
+      forumName: forums.name,
+    })
+    .from(posts)
+    .innerJoin(threads, eq(threads.id, posts.threadId))
+    .innerJoin(forums, eq(forums.id, threads.forumId))
+    .leftJoin(users, eq(users.id, posts.authorId))
+    .where(eq(posts.id, id))
+    .limit(1);
+  if (!row) return { ok: false, code: "not_found" };
+  if (scopeForumIds !== null && !scopeForumIds.includes(row.forumId)) {
+    return { ok: false, code: "forbidden" };
+  }
+  return {
+    ok: true,
+    detail: {
+      kind: "reply",
+      postId: row.postId,
+      floor: row.floor,
+      state: row.state,
+      bodyMd: row.bodyMd ?? "",
+      createdAt: row.createdAt,
+      editedAt: row.editedAt,
+      authorId: row.authorId,
+      authorName: row.authorName,
+      threadId: row.threadId,
+      threadTitle: row.threadTitle,
+      threadState: row.threadState,
+      forumId: row.forumId,
+      forumName: row.forumName,
+    },
+  };
+}

@@ -48,8 +48,12 @@ test.describe("管理 REST 停写门禁", () => {
     await loginAs(context, USERS.admin);
     const name = `${NAME_PREFIX}写令牌`;
     tokenNames.push(name);
-    // contents:write 让令牌通过写端点的授权层，确保 503 确实来自停写门禁而非权限拒绝。
-    const token = await issueManageToken(page, name, { contents: "write", identity: "read" });
+    // 各写域的 write 权限让令牌通过写端点的授权层，确保 503 确实来自停写门禁而非权限拒绝。
+    const token = await issueManageToken(page, name, {
+      contents: "write",
+      reports: "write",
+      identity: "read",
+    });
 
     // 门禁先于参数解析触发：统一探测目标即可，无需按端点构造合法请求体。
     for (const endpoint of WRITE_ENDPOINTS) {
