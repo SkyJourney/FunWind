@@ -325,30 +325,56 @@ export async function updateEmoji(
   actor: ConfigActor,
   id: number,
   input: { name: string; keywords: string; sort: number },
-): Promise<EmojiGroupMutation> {
-  return getWebDb().transaction(async (tx) => {
-    const [before] = await tx.select().from(emojis).where(eq(emojis.id, id)).limit(1).for("update");
-    if (!before) return { ok: false, code: "not_found" };
-    return applyEmojiUpdate(
+): Promise<{ ok: true; groupId: number; changed: boolean } | { ok: false; code: EmojiDenialCode }> {
+  return getWebDb().transaction(
+    async (
       tx,
-      actor,
-      id,
-      { name: before.name, keywords: before.keywords, sort: before.sort },
-      input,
-    );
-  });
+    ): Promise<
+      { ok: true; groupId: number; changed: boolean } | { ok: false; code: EmojiDenialCode }
+    > => {
+      const [before] = await tx
+        .select()
+        .from(emojis)
+        .where(eq(emojis.id, id))
+        .limit(1)
+        .for("update");
+      if (!before) return { ok: false, code: "not_found" };
+      const applied = await applyEmojiUpdate(
+        tx,
+        actor,
+        id,
+        { name: before.name, keywords: before.keywords, sort: before.sort },
+        input,
+      );
+      // 内核永不拒绝（表情名无唯一约束）：not_found 已在锁段返回
+      return { ok: true, groupId: before.groupId, changed: applied.changed };
+    },
+  );
 }
 
 export async function toggleEmojiEnabled(
   actor: ConfigActor,
   id: number,
   enabled: boolean,
-): Promise<EmojiGroupMutation> {
-  return getWebDb().transaction(async (tx) => {
-    const [before] = await tx.select().from(emojis).where(eq(emojis.id, id)).limit(1).for("update");
-    if (!before) return { ok: false, code: "not_found" };
-    return applyEmojiToggle(tx, actor, id, { enabled: before.enabled }, enabled);
-  });
+): Promise<{ ok: true; groupId: number; changed: boolean } | { ok: false; code: EmojiDenialCode }> {
+  return getWebDb().transaction(
+    async (
+      tx,
+    ): Promise<
+      { ok: true; groupId: number; changed: boolean } | { ok: false; code: EmojiDenialCode }
+    > => {
+      const [before] = await tx
+        .select()
+        .from(emojis)
+        .where(eq(emojis.id, id))
+        .limit(1)
+        .for("update");
+      if (!before) return { ok: false, code: "not_found" };
+      const applied = await applyEmojiToggle(tx, actor, id, { enabled: before.enabled }, enabled);
+      // 内核永不拒绝（表情名无唯一约束）：not_found 已在锁段返回
+      return { ok: true, groupId: before.groupId, changed: applied.changed };
+    },
+  );
 }
 
 // REST 写变体与管理读已拆至 api-writes.ts / queries-admin.ts（M20.3 Step 4 棘轮拆分）；

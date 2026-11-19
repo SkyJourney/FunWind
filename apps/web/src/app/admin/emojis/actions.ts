@@ -272,9 +272,13 @@ export const updateEmojiAction = defineAction({
       keywords: input.keywords,
       sort: input.sort,
     });
-    if (!result.ok && result.code === "not_found") notFound();
+    if (!result.ok) {
+      if (result.code === "not_found") notFound();
+      redirect(`${input.back}?err=${encodeURIComponent(result.code)}`);
+    }
     revalidatePath("/admin/emojis");
-    redirect(`${input.back}?ok=emoji-renamed`);
+    // 回跳带 group：redirect 到无 group 的 URL 会命中客户端 Router Cache 旧 payload，列表不刷新
+    redirect(`${input.back}?group=${result.groupId}&ok=emoji-renamed`);
   },
 });
 
@@ -284,9 +288,12 @@ export const toggleEmojiAction = defineAction({
   input: z.object({ id: z.coerce.number().int().positive(), enabled: z.enum(["0", "1"]), back }),
   async run(ctx, input) {
     const result = await toggleEmojiEnabled(actorOf(ctx), input.id, input.enabled === "1");
-    if (!result.ok && result.code === "not_found") notFound();
+    if (!result.ok) {
+      if (result.code === "not_found") notFound();
+      redirect(`${input.back}?err=${encodeURIComponent(result.code)}`);
+    }
     revalidatePath("/admin/emojis");
-    redirect(`${input.back}?ok=emoji-toggled`);
+    redirect(`${input.back}?group=${result.groupId}&ok=emoji-toggled`);
   },
 });
 

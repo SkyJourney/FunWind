@@ -247,9 +247,15 @@ describe.skipIf(skipDb)("表情管理 REST 服务层（M20.3 Step 4）", () => {
     });
 
     // 后台入口零回归：停用 + 改名（结果码形态）
-    expect(await toggleEmojiEnabled(ADMIN, emojiId, false)).toEqual({ ok: true, changed: true });
+    expect(await toggleEmojiEnabled(ADMIN, emojiId, false)).toEqual({
+      ok: true,
+      groupId: expect.any(Number),
+      changed: true,
+    });
+    // M20.3 Step 4：后台入口多返回 groupId（Action 回跳带 group 过滤防 Router Cache 旧列表）
     expect(await updateEmoji(ADMIN, emojiId, { name: "后台名", keywords: "", sort: 5 })).toEqual({
       ok: true,
+      groupId: expect.any(Number),
       changed: true,
     });
     expect(await updateEmoji(ADMIN, 99999999, { name: "x", keywords: "", sort: 0 })).toEqual({

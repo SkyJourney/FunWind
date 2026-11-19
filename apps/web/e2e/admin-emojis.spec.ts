@@ -111,6 +111,10 @@ test("admin 全流程：建组 → 上传 → /emoji 可访问 → 改名/关键
   await page.getByLabel(`表情 #${id1} 的搜索关键词`).fill("e2e 测试 关键词");
   await row.getByRole("button", { name: "保存" }).click();
   await expect(page).toHaveURL(/ok=emoji-renamed/);
+  const dbgRows = await withE2eDb((q) =>
+    q.query<{ id: number; name: string }>("SELECT id, name FROM emojis ORDER BY id"),
+  );
+  console.log("EMOJI-DBG rows:", JSON.stringify(dbgRows));
   await expect(
     page.locator('[data-testid="emoji-grid"] tbody tr', {
       has: page.locator(`img[alt="E2E 改名表情"]`),
