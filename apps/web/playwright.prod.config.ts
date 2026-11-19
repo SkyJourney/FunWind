@@ -51,7 +51,8 @@ export default defineConfig({
       // 生产环境必须显式声明可信代理层数（0 = 直连无代理），漏配会在取 IP 时报错
       TRUSTED_PROXY_HOPS: "0",
       // 只在生产构建 E2E 的测试服务打开管理写入口；其他环境沿用默认关闭。
-      MANAGE_API_WRITES: "on",
+      // E2E_MANAGE_API_WRITES=off 单独跑一轮停写验收（写端点应 503）。
+      MANAGE_API_WRITES: process.env.E2E_MANAGE_API_WRITES ?? "on",
       // 邮件断言必须落在本地 Mailpit：显式钉死，防止根 .env 漂到真实 SMTP 中继后 E2E 断言失效（M11.1 教训）
       SMTP_URL: "smtp://127.0.0.1:1025",
       MAIL_FROM: "青翼字幕组 <noreply@qingyisub.top>",

@@ -1,9 +1,19 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { expect, test, type APIResponse, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { USERS, loginAs } from "./support/session";
-import { withE2eDb, type Q } from "./support/db";
+import { withE2eDb } from "./support/db";
+import {
+  ADMIN_TOKENS,
+  cleanupManageArtifacts,
+  expectManageError,
+  insertLegacyToken,
+  issueManageToken,
+  readFreshToken,
+  revokeManageToken,
+  seedPendingThread,
+  type PendingThread,
+} from "./support/manage-api";
 
-const ADMIN_TOKENS = "/admin/api-tokens";
 const NAME_PREFIX = "E2E API 令牌 · ";
 const REST_DOCS = "/docs/rest-api";
 
@@ -54,34 +64,6 @@ async function clearTokens(): Promise<void> {
   );
 }
 
-/** 读取签发页仅出现一次的新版明文，并核对格式。 */
-async function readFreshToken(page: Page): Promise<string> {
-  const fresh = page.getByTestId("fresh-token");
-  await expect(fresh).toBeVisible();
-  const plain = (await fresh.locator("code").textContent())?.trim() ?? "";
-  expect(plain).toMatch(/^fw_at2_[A-Za-z0-9_-]{43}$/);
-  return plain;
-}
-
-/** 签发内容域令牌；只有读写档同时勾选独立的身份只读权限。 */
-async function issueContentsToken(page: Page, name: string, access: "read" | "write") {
-  await page.goto(ADMIN_TOKENS);
-  const matrix = page.getByRole("group", { name: "权限矩阵" });
-  await page.getByLabel("名称（便于辨识用途）").fill(name);
-  await matrix.getByLabel("内容治理", { exact: true }).selectOption(access);
-  if (access === "write") {
-    await matrix.getByLabel("令牌身份", { exact: true }).selectOption("read");
-  }
-  await page.getByRole("button", { name: "签发", exact: true }).click();
-  return readFreshToken(page);
-}
-
-/** 核对拒绝确实来自管理 API 门禁，而非框架跳转或通用错误页。 */
-async function expectManageError(response: APIResponse, status: number, code: string) {
-  expect(response.status(), response.url()).toBe(status);
-  expect(await response.json()).toMatchObject({ error: { code } });
-}
-
 test("会员访问 API 令牌页 → 404（越权不暴露后台存在）", async ({ context, page }) => {
   await loginAs(context, USERS.member);
   expect((await page.goto(ADMIN_TOKENS))?.status()).toBe(404);
@@ -95,91 +77,6 @@ test("无凭证调用 /api/manage/whoami → 401（JSON 信封，不暴露页面
   });
 });
 
-type PendingThread = { threadId: number; postId: number };
-
-/** 在演示审核板块创建待审首帖；逐步记录主键，以便创建中途失败也能清理。 */
-async function seedPendingThread(q: Q, target: PendingThread, authorId: number, text: string) {
-  target.threadId = (
-    await q.exec(
-      `INSERT INTO threads (forum_id, author_id, title, state, created_at, last_posted_at)
-       VALUES (906, ?, ?, 'pending', NOW(), NOW())`,
-      [authorId, text],
-    )
-  ).insertId;
-  target.postId = (
-    await q.exec(
-      `INSERT INTO posts (thread_id, floor, author_id, body_md, state, created_at, edited_at)
-       VALUES (?, 1, ?, ?, 'pending', NOW(), NOW())`,
-      [target.threadId, authorId, text],
-    )
-  ).insertId;
-  await q.exec("UPDATE threads SET first_post_id = ? WHERE id = ?", [
-    target.postId,
-    target.threadId,
-  ]);
-}
-
-/** 仅按本次生成的名称与主键回收内容、通知、令牌及其附属记录。 */
-async function cleanupManageWrite(
-  names: [string, string, string],
-  authorId: number,
-  targets: readonly PendingThread[],
-) {
-  await withE2eDb(async (q) => {
-    const tokens = await q.query<{ id: string; suffix: string }>(
-      "SELECT id, suffix FROM admin_api_tokens WHERE user_id = ? AND name IN (?, ?, ?)",
-      [USERS.admin, ...names],
-    );
-    for (const { id, suffix } of tokens) {
-      await q.exec("DELETE FROM manage_api_idempotency WHERE token_id = ?", [id]);
-      await q.exec(
-        `DELETE FROM audit_log WHERE actor_id = ? AND (
-           (target_type = 'admin_api_token' AND target_id = ?) OR
-           (target_type = 'manage_api' AND BINARY JSON_UNQUOTE(JSON_EXTRACT(after_json, '$.tokenSuffix')) = ?)
-         )`,
-        [USERS.admin, id, suffix],
-      );
-      await q.exec("DELETE FROM admin_api_tokens WHERE id = ?", [id]);
-    }
-    for (const { postId, threadId } of targets) {
-      if (postId) {
-        for (const table of ["notification_receipts", "notification_deliveries"]) {
-          await q.exec(
-            `DELETE n FROM ${table} n JOIN event_outbox o ON o.id = n.outbox_id
-             WHERE o.event_name = 'content.moderated' AND JSON_EXTRACT(o.payload, '$.postId') = ?`,
-            [postId],
-          );
-        }
-        await q.exec("DELETE FROM notifications WHERE target_type = 'post' AND target_id = ?", [
-          postId,
-        ]);
-        for (const table of ["event_log", "event_outbox"]) {
-          await q.exec(
-            `DELETE FROM ${table} WHERE event_name = 'content.moderated' AND JSON_EXTRACT(payload, '$.postId') = ?`,
-            [postId],
-          );
-        }
-        await q.exec("DELETE FROM content_reviews WHERE post_id = ?", [postId]);
-        await q.exec("DELETE FROM audit_log WHERE target_type = 'post' AND target_id = ?", [
-          String(postId),
-        ]);
-        await q.exec("DELETE FROM posts WHERE id = ?", [postId]);
-      }
-      if (threadId) {
-        await q.exec("DELETE FROM audit_log WHERE target_type = 'thread' AND target_id = ?", [
-          String(threadId),
-        ]);
-        await q.exec("DELETE FROM threads WHERE id = ?", [threadId]);
-      }
-    }
-    if (authorId) {
-      await q.exec("DELETE FROM notifications WHERE user_id = ?", [authorId]);
-      await q.exec("DELETE FROM user_stats WHERE user_id = ?", [authorId]);
-      await q.exec("DELETE FROM users WHERE id = ?", [authorId]);
-    }
-  });
-}
-
 test("内容读写令牌：拒写 → 驳回通知与双重回放去重 → 锁定/解锁 → 吊销拒写", async ({
   context,
   page,
@@ -191,11 +88,14 @@ test("内容读写令牌：拒写 → 驳回通知与双重回放去重 → 锁�
   const target: PendingThread = { threadId: 0, postId: 0 };
   const sweepTarget: PendingThread = { threadId: 0, postId: 0 };
   let authorId = 0;
+  let legacy = "";
   try {
     await loginAs(context, USERS.admin);
-    const readOnly = await issueContentsToken(page, names[0], "read");
-    const writer = await issueContentsToken(page, names[2], "write");
-    const legacy = `fw_at_${randomBytes(32).toString("base64url")}`;
+    const readOnly = await issueManageToken(page, names[0], { contents: "read" });
+    const writer = await issueManageToken(page, names[2], {
+      contents: "write",
+      identity: "read",
+    });
     await withE2eDb(async (q) => {
       // 被审核人用本次专用账号，避免向其他用例共用的账号发送通知。
       const username = `e2e-manage-${runId}`;
@@ -207,17 +107,7 @@ test("内容读写令牌：拒写 → 驳回通知与双重回放去重 → 锁�
       ).insertId;
       await q.exec("INSERT INTO user_stats (user_id) VALUES (?)", [authorId]);
       await seedPendingThread(q, target, authorId, marker);
-      await q.exec(
-        `INSERT INTO admin_api_tokens
-           (id, user_id, name, suffix, created_at, expires_at, permission_profile, permission_snapshot)
-         VALUES (?, ?, ?, ?, NOW(), NOW() + INTERVAL 1 DAY, 'legacy_m20_read', NULL)`,
-        [
-          createHash("sha256").update(legacy).digest("hex"),
-          USERS.admin,
-          names[1],
-          legacy.slice(-8),
-        ],
-      );
+      legacy = await insertLegacyToken(q, USERS.admin, names[1]);
     });
 
     const { threadId, postId } = target;
@@ -392,17 +282,17 @@ test("内容读写令牌：拒写 → 驳回通知与双重回放去重 → 锁�
       expect(await confirmation.json()).toMatchObject({ data: { isLocked: locked } });
     }
 
-    await page
-      .getByRole("row", { name: new RegExp(names[2]) })
-      .getByRole("button", { name: "吊销" })
-      .click();
-    await page.getByRole("dialog").getByRole("button", { name: "确认" }).click();
-    await expect(page.getByText("Token 已吊销，使用它的调用即刻失效（401）。")).toBeVisible();
+    await revokeManageToken(page, names[2]);
     // 曾提交成功的同键回放也不能绕过吊销门禁。
     await expectManageError(await review(writer), 401, "unauthorized");
     await expectManageError(await lock(writer, true), 401, "unauthorized");
   } finally {
-    await cleanupManageWrite(names, authorId, [target, sweepTarget]);
+    await cleanupManageArtifacts({
+      tokenNames: names,
+      adminUserIds: [USERS.admin],
+      authorUserIds: authorId ? [authorId] : [],
+      targets: [target, sweepTarget],
+    });
   }
 });
 
