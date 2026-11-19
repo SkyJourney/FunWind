@@ -52,6 +52,7 @@ test.describe("管理 REST 停写门禁", () => {
     const token = await issueManageToken(page, name, {
       contents: "write",
       reports: "write",
+      users: "write",
       identity: "read",
     });
 

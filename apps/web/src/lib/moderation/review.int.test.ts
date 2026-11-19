@@ -209,7 +209,7 @@ describe.skipIf(skipDb)("管理 API 审核业务", () => {
     ]);
   });
 
-  it("旧事务快照下同 ID 版块迁出授权父级，拒绝新审核、锁帖与实际幂等回放", async () => {
+  it("同键回放短路返回首次结果；版块迁出授权父级后拒绝新审核与锁帖", async () => {
     const parentId = 900;
     const forumInput = {
       parentId,
@@ -253,23 +253,8 @@ describe.skipIf(skipDb)("管理 API 审核业务", () => {
       idempotencyKey: "parent-scope-replay-key",
       requestId: trace.requestId,
     };
-    const applyReview = (move = false) =>
+    const applyReview = () =>
       runIdempotentManageWrite(identity, done.postId, input, async (tx) => {
-        if (move) {
-          const readParent = async () =>
-            (
-              await tx
-                .select({ parentId: forums.parentId })
-                .from(forums)
-                .where(eq(forums.id, forumId))
-            )[0]?.parentId;
-          expect(await readParent()).toBe(parentId);
-          // 第二条连接在当前事务的可重复读视图建立后，通过真实管理服务迁版并提交。
-          expect(await updateForum(ACTOR, forumId, { ...settings, parentId: 0 })).toEqual({
-            ok: true,
-          });
-          expect(await readParent()).toBe(parentId);
-        }
         const target = await replay.lock(tx);
         if (!target.ok) throw new ManageApiError("not_found");
         return async () => {
@@ -290,7 +275,16 @@ describe.skipIf(skipDb)("管理 API 审核业务", () => {
         .where(eq(manageApiIdempotency.tokenId, identity.tokenId));
     const cached = await readReplay();
     expect(cached).toHaveLength(1);
-    await expect(applyReview(true)).rejects.toMatchObject({ code: "not_found" });
+    // 同键回放短路（M20.3 Step 2 契约）：即使版块在首次提交后被迁出授权父级，重发仍返回
+    // 首次成功结果（at-most-once），不再做当下授权复验，也不重复落账；当下授权只约束新意图。
+    expect(await updateForum(ACTOR, forumId, { ...settings, parentId: 0 })).toEqual({ ok: true });
+    expect(await applyReview()).toEqual({
+      postId: done.postId,
+      threadId: done.threadId,
+      state: "visible",
+    });
+    expect(await readReplay()).toEqual(cached);
+    expect(await listContentReviews(done.postId)).toHaveLength(1);
     const missingReview = await prepareApiReview(subject, 99_999_999, input, actor, trace);
     const missingLock = await prepareApiThreadLock(subject, 99_999_999, true, actor, trace);
     expect(missingReview).toMatchObject({ ok: false, code: "not_found" });

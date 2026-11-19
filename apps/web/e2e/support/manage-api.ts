@@ -69,6 +69,30 @@ export const REST_ENDPOINTS = [
   },
   { domain: "users", method: "GET", path: "/api/manage/users" },
   { domain: "users", method: "GET", path: "/api/manage/users/{uid}" },
+  {
+    domain: "users",
+    method: "POST",
+    path: "/api/manage/users/{uid}/restrictions",
+    sampleBody: { kind: "mute", reason: "probe", endsAt: null },
+  },
+  {
+    domain: "users",
+    method: "DELETE",
+    path: "/api/manage/users/{uid}/restrictions/{restrictionId}",
+    sampleBody: { note: "probe" },
+  },
+  {
+    domain: "users",
+    method: "DELETE",
+    path: "/api/manage/users/{uid}/sessions/{sessionId}",
+    sampleBody: {},
+  },
+  {
+    domain: "users",
+    method: "POST",
+    path: "/api/manage/users/{uid}/appeals/{appealId}/resolve",
+    sampleBody: { status: "approved", result: "probe" },
+  },
   { domain: "reports", method: "GET", path: "/api/manage/reports" },
   { domain: "reports", method: "GET", path: "/api/manage/reports/{reportId}" },
   {

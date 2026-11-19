@@ -7,7 +7,7 @@
 ## 鉴权与签发
 
 - 只接受 `Authorization: Bearer <令牌>`。后台「系统与观测 → API 令牌」自签自管（`/admin/api-tokens`）：名称去首尾空白后 1–64 字符，有效期 30/90/180/365 天（默认 90），每管理员最多 5 个未过期且未吊销的令牌。明文只显示一次，凭证仅存 SHA-256，列表可见尾 8 字符；不要在 URL、请求体或日志中传递令牌。
-- 新版签发 `fw_at2_` + 43 个 URL 安全字符，按 8 个域选择「禁止／只读／读写」，默认全部禁止、至少选择一个可用域；内容域与举报域支持读写。「读写」包含签发时该域的读端点与写端点。各日志域和统计域即使共用 `admin.logs`，也分别授权。
+- 新版签发 `fw_at2_` + 43 个 URL 安全字符，按 8 个域选择「禁止／只读／读写」，默认全部禁止、至少选择一个可用域；内容域、举报域与用户域支持读写。「读写」包含签发时该域的读端点与写端点。各日志域和统计域即使共用 `admin.logs`，也分别授权。
 - 权限标签 `domain:read` / `domain:write` 用于分类；运行时检查的是**具体端点 ID**。签发时生成不可编辑的端点快照，且复核持有人资格、全局业务权限和配额；同域以后新增端点也不会自动扩权，需签发新令牌并吊销旧令牌。
 - 历史 `fw_at_`（同样后接 43 个字符）固定为 M20 九读，不授权写入。新版凭证与库内模型必须双向匹配；未知模型、空/重复/未知 ID 的新版快照、历史模型携带快照或前缀错配均不回落而拒绝。同库退版时旧镜像不认 `fw_at2_`；迁移及复升见[上线手册](ops/LAUNCH-RUNBOOK.md#7-m202-管理-rest-升级停写与退版)。
 - 凭证有效还须持有人当前满足站点管理员资格（`site.admin` + `admin.roles`、可登录、未封禁），并具有下表所列全局权限；对象范围和敏感字段继续由业务判定。只有版主权限不能签发或使用令牌。过期、手动吊销及失去站点管理员资格的联动吊销照旧；请求入口另做实时资格校验，不保证能中断已通过门禁的在途写。
@@ -46,6 +46,10 @@ curl -H "Authorization: Bearer ${FUNWIND_MANAGE_TOKEN}" \
 | `GET` | `/api/manage/stats` | `stats:read` | `stats` | `admin.logs` |
 | `GET` | `/api/manage/users` | `users:read` | `users` | `admin.users` |
 | `GET` | `/api/manage/users/{uid}` | `users:read` | `users.detail` | `admin.users`；敏感字段另需 `user.viewIp` |
+| `POST` | `/api/manage/users/{uid}/restrictions` | `users:write` | `users.restrict` | `admin.users`；五类限制的 kind×scope 配对、`endsAt` 未来性在服务层复核 |
+| `DELETE` | `/api/manage/users/{uid}/restrictions/{restrictionId}` | `users:write` | `users.lift` | `admin.users`；uid 与限制行归属不一致按不存在处理 |
+| `DELETE` | `/api/manage/users/{uid}/sessions/{sessionId}` | `users:write` | `users.revoke-session` | `admin.users`；uid 与会话归属不一致按不存在处理 |
+| `POST` | `/api/manage/users/{uid}/appeals/{appealId}/resolve` | `users:write` | `users.resolve-appeal` | `admin.users`；approved 仅是复核结论，不自动解除限制 |
 | `GET` | `/api/manage/contents` | `contents:read` | `contents` | `resolveContentScope` |
 | `GET` | `/api/manage/contents/{id}` | `contents:read` | `contents.detail` | `resolveContentScope`；范围外同不存在 |
 | `GET` | `/api/manage/audit-logs` | `audit-logs:read` | `audit-logs` | `admin.logs` |

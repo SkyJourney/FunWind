@@ -61,12 +61,14 @@ export async function runIdempotentManageWrite(
         .for("update");
       if (!previous) throw new ManageApiError("internal");
 
-      // 即使仅取缓存结果，也先确认锁内目标仍可访问；不拿之前的授权替代当下的判断。
-      const execute = await lockTarget(tx);
+      // 同键同参的合法回放短路返回首次结果（at-most-once），先于锁内复验——删除型写
+      // （如吊销会话）首次执行即删目标行，回放若再判可达性必然误拒；异参同键仍 409。
       if (previous.active === 1) {
         if (previous.requestHash !== requestHash) throw new ManageApiError("idempotency_conflict");
         if (previous.response !== null) return { data: previous.response, afterCommit: undefined };
       }
+      // 需要真正执行的新意图：锁内确认目标仍可访问；不拿之前的授权替代当下的判断。
+      const execute = await lockTarget(tx);
       const work = await execute();
       await tx
         .update(manageApiIdempotency)

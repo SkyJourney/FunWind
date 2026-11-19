@@ -548,6 +548,250 @@ test.describe.serial("管理 REST 全面验收", () => {
     await withE2eDb((q) => q.exec("DELETE FROM reports WHERE id = ?", [reportId]));
   });
 
+  test("用户限制：入参校验、幂等回放、重复拒绝与解除留痕", async ({ page, request }) => {
+    const writer = await issueWriterToken(page, "用户限制：入", { users: "write" });
+    const authorId = await withE2eDb((q) => createAuthorUser(q, `${TAG}-restrict`));
+    authorUserIds.push(authorId);
+    const restrictPath = `/api/manage/users/${authorId}/restrictions`;
+    const post = (data: Record<string, unknown>, key = randomUUID()) =>
+      request.post(restrictPath, {
+        headers: { ...bearer(writer), "Idempotency-Key": key, "content-type": "application/json" },
+        data,
+      });
+
+    // 入参在信封层 400：非法 kind / scope 配对错误 / 过期时间非未来
+    await expectManageError(
+      await post({ kind: "banned", reason: "x", endsAt: null }),
+      400,
+      "bad_request",
+    );
+    await expectManageError(
+      await post({ kind: "ban", reason: "x", endsAt: null, scopeId: 951001 }),
+      400,
+      "bad_request",
+    );
+    await expectManageError(
+      await post({ kind: "mute", reason: "x", endsAt: "2020-01-01 00:00:00" }),
+      400,
+      "bad_request",
+    );
+
+    // 创建禁言（未来到期）：落账 + 同键回放同响应 + 新键撞已有限制 409
+    const key = randomUUID();
+    const muteData = { kind: "mute", reason: "刷屏测试", endsAt: "2027-01-01 08:00:00" };
+    const mute = await post(muteData, key);
+    expect(mute.status()).toBe(200);
+    expect(await mute.json()).toEqual({
+      ok: true,
+      data: { userId: authorId, kind: "mute", scopeId: 0, endsAt: "2027-01-01 08:00:00" },
+    });
+    const replay = await post(muteData, key);
+    expect(replay.status()).toBe(200);
+    expect(await replay.json()).toEqual({
+      ok: true,
+      data: { userId: authorId, kind: "mute", scopeId: 0, endsAt: "2027-01-01 08:00:00" },
+    });
+    await expectManageError(
+      await post({ kind: "mute", reason: "重复", endsAt: "2027-01-01 08:00:00" }),
+      409,
+      "state_conflict",
+    );
+
+    const [restriction] = await withE2eDb((q) =>
+      q.query<{ id: number }>("SELECT id FROM user_restrictions WHERE user_id = ?", [authorId]),
+    );
+    const liftPath = `${restrictPath}/${restriction.id}`;
+    const lift = (key2 = randomUUID()) =>
+      request.delete(liftPath, {
+        headers: { ...bearer(writer), "Idempotency-Key": key2, "content-type": "application/json" },
+        data: { note: "已改正" },
+      });
+    // 解除：endsAt 提前；再次解除（已过期）→ 409
+    expect((await lift()).status()).toBe(200);
+    await expectManageError(await lift(), 409, "state_conflict");
+    const [row] = await withE2eDb((q) =>
+      q.query<{ endsAt: string }>("SELECT ends_at AS endsAt FROM user_restrictions WHERE id = ?", [
+        restriction.id,
+      ]),
+    );
+    expect(row.endsAt).not.toBe("2027-01-01 08:00:00");
+    // 被限制人收到 restricted 与 lifted 两条强制通知
+    const notices = await withE2eDb((q) =>
+      q.query<{ type: string }>(
+        "SELECT type FROM notifications WHERE user_id = ? AND type IN ('account.restricted','account.restriction_lifted')",
+        [authorId],
+      ),
+    );
+    expect(notices.map((n) => n.type).sort()).toEqual([
+      "account.restricted",
+      "account.restriction_lifted",
+    ]);
+    await withE2eDb((q) => q.exec("DELETE FROM user_restrictions WHERE user_id = ?", [authorId]));
+  });
+
+  test("全站封禁：同事务吊销全部会话，回放与重复拒绝", async ({ page, request }) => {
+    const writer = await issueWriterToken(page, "全站封禁：同", { users: "write" });
+    const authorId = await withE2eDb((q) => createAuthorUser(q, `${TAG}-globalban`));
+    authorUserIds.push(authorId);
+    const sid = randomUUID().replaceAll("-", "") + randomUUID().replaceAll("-", "");
+    await withE2eDb((q) =>
+      q.exec(
+        "INSERT INTO sessions (id, user_id, created_at, expires_at, last_seen_at) VALUES (?, ?, NOW(), '2027-01-01 08:00:00', NOW())",
+        [sid, authorId],
+      ),
+    );
+
+    const banPath = `/api/manage/users/${authorId}/restrictions`;
+    const banData = { kind: "ban", reason: "严重违规", endsAt: null };
+    const post = (data: Record<string, unknown>, key = randomUUID()) =>
+      request.post(banPath, {
+        headers: { ...bearer(writer), "Idempotency-Key": key, "content-type": "application/json" },
+        data,
+      });
+
+    const key = randomUUID();
+    const ban = await post(banData, key);
+    expect(ban.status()).toBe(200);
+    expect(await ban.json()).toEqual({
+      ok: true,
+      data: { userId: authorId, kind: "ban", scopeId: 0, endsAt: null },
+    });
+    // 全站封禁同一事务吊销全部会话
+    const sessions = await withE2eDb((q) =>
+      q.query("SELECT id FROM sessions WHERE user_id = ?", [authorId]),
+    );
+    expect(sessions).toHaveLength(0);
+    // 同键回放同响应；新键重复封禁 409
+    const replay = await post(banData, key);
+    expect(replay.status()).toBe(200);
+    expect(await replay.json()).toEqual({
+      ok: true,
+      data: { userId: authorId, kind: "ban", scopeId: 0, endsAt: null },
+    });
+    await expectManageError(
+      await post({ kind: "ban", reason: "重复", endsAt: null }),
+      409,
+      "state_conflict",
+    );
+    await withE2eDb((q) => q.exec("DELETE FROM user_restrictions WHERE user_id = ?", [authorId]));
+  });
+
+  test("会话吊销：行删除、同键回放命中缓存、新意图 404", async ({ page, request }) => {
+    const writer = await issueWriterToken(page, "会话吊销：行", { users: "write" });
+    const authorId = await withE2eDb((q) => createAuthorUser(q, `${TAG}-session`));
+    authorUserIds.push(authorId);
+    const sid = randomUUID().replaceAll("-", "") + randomUUID().replaceAll("-", "");
+    await withE2eDb((q) =>
+      q.exec(
+        "INSERT INTO sessions (id, user_id, created_at, expires_at, last_seen_at) VALUES (?, ?, NOW(), '2027-01-01 08:00:00', NOW())",
+        [sid, authorId],
+      ),
+    );
+    const sessionPath = `/api/manage/users/${authorId}/sessions/${sid}`;
+    const revoke = (key: string) =>
+      request.delete(sessionPath, {
+        headers: { ...bearer(writer), "Idempotency-Key": key, "content-type": "application/json" },
+        data: {},
+      });
+
+    // 首次吊销：行删除；同键回放在行已删后仍命中缓存（删除型写的幂等语义——基建回放短路）
+    const key = randomUUID();
+    expect((await revoke(key)).status()).toBe(200);
+    const replay = await revoke(key);
+    expect(replay.status()).toBe(200);
+    expect(await replay.json()).toEqual({
+      ok: true,
+      data: { sessionId: sid, userId: authorId, revoked: true },
+    });
+    // 新键再吊销（目标已不存在）→ 404；畸形 sessionId → 404
+    await expectManageError(await revoke(randomUUID()), 404, "not_found");
+    const malformed = await request.delete(`/api/manage/users/${authorId}/sessions/not-hex`, {
+      headers: {
+        ...bearer(writer),
+        "Idempotency-Key": randomUUID(),
+        "content-type": "application/json",
+      },
+      data: {},
+    });
+    await expectManageError(malformed, 404, "not_found");
+    await withE2eDb((q) => q.exec("DELETE FROM sessions WHERE user_id = ?", [authorId]));
+  });
+
+  test("申诉处置：归属校验、approved 落账、回放与重复拒绝", async ({ page, request }) => {
+    // identity:read 供 whoami 取处置人 ID（whoami 属身份域，users:write 令牌默认跨域 403）
+    const writer = await issueWriterToken(page, "申诉处置：归", {
+      users: "write",
+      identity: "read",
+    });
+    const authorId = await withE2eDb((q) => createAuthorUser(q, `${TAG}-appeal`));
+    authorUserIds.push(authorId);
+    await withE2eDb((q) =>
+      q.exec(
+        "INSERT INTO user_restrictions (user_id, kind, scope_id, reason, starts_at, ends_at, created_by, created_at) VALUES (?, 'mute', 0, '夹具', NOW(), '2027-01-01 08:00:00', ?, NOW())",
+        [authorId, USERS.admin],
+      ),
+    );
+    const [restriction] = await withE2eDb((q) =>
+      q.query<{ id: number }>("SELECT id FROM user_restrictions WHERE user_id = ?", [authorId]),
+    );
+    const appealId = (
+      await withE2eDb((q) =>
+        q.exec(
+          "INSERT INTO user_appeals (user_id, target_type, target_id, reason, status, created_at) VALUES (?, 'restriction', ?, '请求解除', 'pending', NOW())",
+          [authorId, restriction.id],
+        ),
+      )
+    ).insertId;
+
+    // 归属不匹配（uid 与申诉人不符）→ 404
+    const otherId = await withE2eDb((q) => createAuthorUser(q, `${TAG}-appeal-b`));
+    authorUserIds.push(otherId);
+    const resolvePath = (uid: number) => `/api/manage/users/${uid}/appeals/${appealId}/resolve`;
+    const post = (uid: number, data: Record<string, unknown>, key = randomUUID()) =>
+      request.post(resolvePath(uid), {
+        headers: { ...bearer(writer), "Idempotency-Key": key, "content-type": "application/json" },
+        data,
+      });
+    await expectManageError(
+      await post(otherId, { status: "approved", result: "越权" }),
+      404,
+      "not_found",
+    );
+
+    // approved 落账 + 申诉人收到 resolved 强制通知
+    const who = await request.get("/api/manage/whoami", { headers: bearer(writer) });
+    const writerAdminId = ((await who.json()) as { data: { user: { id: number } } }).data.user.id;
+    const key = randomUUID();
+    const resolved = await post(authorId, { status: "approved", result: "核实后同意解除" }, key);
+    expect(resolved.status()).toBe(200);
+    expect(await resolved.json()).toEqual({ ok: true, data: { appealId, status: "approved" } });
+    const [row] = await withE2eDb((q) =>
+      q.query<{ status: string; handledBy: number }>(
+        "SELECT status, handled_by AS handledBy FROM user_appeals WHERE id = ?",
+        [appealId],
+      ),
+    );
+    expect(row).toEqual({ status: "approved", handledBy: writerAdminId });
+    const notices = await withE2eDb((q) =>
+      q.query<{ type: string }>(
+        "SELECT type FROM notifications WHERE user_id = ? AND type = 'account.appeal_resolved'",
+        [authorId],
+      ),
+    );
+    expect(notices).toHaveLength(1);
+    // 同键回放同响应；新键再处置 409
+    const replay = await post(authorId, { status: "approved", result: "核实后同意解除" }, key);
+    expect(replay.status()).toBe(200);
+    expect(await replay.json()).toEqual({ ok: true, data: { appealId, status: "approved" } });
+    await expectManageError(
+      await post(authorId, { status: "rejected", result: "改判" }),
+      409,
+      "state_conflict",
+    );
+    await withE2eDb((q) => q.exec("DELETE FROM user_appeals WHERE id = ?", [appealId]));
+    await withE2eDb((q) => q.exec("DELETE FROM user_restrictions WHERE user_id = ?", [authorId]));
+  });
+
   test("新建专用管理员签发的令牌同样受矩阵约束", async ({ context, page, request }) => {
     const adminId = await withE2eDb((q) => createAdminUser(q, `${TAG}-extra`));
     adminUserIds.push(adminId);

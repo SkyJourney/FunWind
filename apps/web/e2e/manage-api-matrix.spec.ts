@@ -86,6 +86,7 @@ const PROFILE_LEVELS: Record<
   "contents-read": { contents: "read" },
   "contents-write": { contents: "write" },
   users: { users: "read" },
+  "users-write": { users: "write" },
   "reports-read": { reports: "read" },
   "reports-write": { reports: "write" },
   stats: { stats: "read" },
@@ -124,7 +125,11 @@ const SECONDARY_OF: ReadonlySet<ProfileKey> = new Set([
   "push-logs",
   "all-read",
 ]);
-const TERTIARY_OF: ReadonlySet<ProfileKey> = new Set(["reports-read", "reports-write"]);
+const TERTIARY_OF: ReadonlySet<ProfileKey> = new Set([
+  "reports-read",
+  "reports-write",
+  "users-write",
+]);
 
 const tokens = new Map<ProfileKey, string>();
 const tokenNames: string[] = [];
@@ -190,7 +195,7 @@ test.describe("管理 REST 权限矩阵 × 全端点", () => {
     );
     tokens.set("legacy", legacy);
     tokenNames.push(`${NAME_PREFIX}legacy`);
-    expect(tokens.size).toBe(12);
+    expect(tokens.size).toBe(13);
   });
 
   /** 矩阵主体：十档位 × 十一端点的状态断言。 */
@@ -199,6 +204,7 @@ test.describe("管理 REST 权限矩阵 × 全端点", () => {
     "contents-read",
     "contents-write",
     "users",
+    "users-write",
     "stats",
     "audit-logs",
     "emails",
