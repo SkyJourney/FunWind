@@ -3,6 +3,8 @@ import type { EndpointDoc } from "./api-docs-md";
 import { CONTENT_ENDPOINT_DOCS } from "./api-docs-md-endpoints-content";
 import { GOVERNANCE_ENDPOINT_DOCS } from "./api-docs-md-endpoints-governance";
 import { OPERATIONS_ENDPOINT_DOCS } from "./api-docs-md-endpoints-operations";
+import { COMMUNITY_ENDPOINT_DOCS } from "./api-docs-md-endpoints-community";
+import { ASSETS_ENDPOINT_DOCS } from "./api-docs-md-endpoints-assets";
 
 /** 端点参数、资源限制和示例按稳定端点 ID 编写；条目按域拆分在相邻数据文件，此处聚合。 */
 export const ENDPOINT_DOCS = {
@@ -81,4 +83,6 @@ export const ENDPOINT_DOCS = {
   ...CONTENT_ENDPOINT_DOCS,
   ...GOVERNANCE_ENDPOINT_DOCS,
   ...OPERATIONS_ENDPOINT_DOCS,
+  ...COMMUNITY_ENDPOINT_DOCS,
+  ...ASSETS_ENDPOINT_DOCS,
 } satisfies Record<ManageEndpointId, EndpointDoc>;
