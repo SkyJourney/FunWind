@@ -72,7 +72,7 @@ function databaseEntries(sources: Sources): string[] {
 const DATABASE_ENTRIES = [
   "app/actions/auth.ts",
   "app/actions/posts.ts",
-  "app/admin/announcements/actions.ts",
+  // M20.3 Step 3：公告写操作抽至 lib/announcements/service.ts，Action 不再直连数据库
   "app/admin/announcements/page.tsx",
   "app/admin/decor/actions.ts",
   "app/admin/emojis/actions.ts",

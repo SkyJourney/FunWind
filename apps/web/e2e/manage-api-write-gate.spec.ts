@@ -53,6 +53,9 @@ test.describe("管理 REST 停写门禁", () => {
       contents: "write",
       reports: "write",
       users: "write",
+      announcements: "write",
+      campaigns: "write",
+      invites: "write",
       identity: "read",
     });
 

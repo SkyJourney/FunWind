@@ -57,21 +57,26 @@ async function readManageJson(request: Request): Promise<unknown> {
   }
 }
 
-/** 只有通过公共写门禁的 route 才应调用本函数。 */
+/** 只有通过公共写门禁的 route 才应调用本函数。
+ * idParam 省略 = 无路径目标的写（创建/批量类）：targetId 记 0，意图唯一性由请求体指纹承担。 */
 export async function parseManageWrite<S extends z.ZodType>(
   { request, params }: Pick<ManageHandlerContext, "request" | "params">,
   schema: S,
-  idParam: string,
+  idParam?: string,
 ): Promise<{ targetId: number; idempotencyKey: string; input: z.infer<S> }> {
-  const raw = (await params)[idParam];
-  const targetId = Number(raw);
-  if (
-    typeof raw !== "string" ||
-    !/^\d+$/.test(raw) ||
-    !Number.isSafeInteger(targetId) ||
-    targetId <= 0
-  ) {
-    throw new ManageApiError("bad_request");
+  let targetId = 0;
+  if (idParam !== undefined) {
+    const raw = (await params)[idParam];
+    const numeric = Number(raw);
+    if (
+      typeof raw !== "string" ||
+      !/^\d+$/.test(raw) ||
+      !Number.isSafeInteger(numeric) ||
+      numeric <= 0
+    ) {
+      throw new ManageApiError("bad_request");
+    }
+    targetId = numeric;
   }
   const idempotencyKey = request.headers.get("idempotency-key");
   if (!idempotencyKey || !/^[A-Za-z0-9._:-]{16,128}$/.test(idempotencyKey)) {

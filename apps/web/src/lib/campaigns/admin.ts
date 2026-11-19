@@ -6,6 +6,11 @@ import { writeAudit, type ConfigActor, type DbTx } from "@/lib/audit";
 import { invalidateSiteChrome } from "@/lib/chrome/site-chrome";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import { withDeadlockRetry } from "@/lib/points/retry";
+import type {
+  ModerationApiTrace,
+  ModerationWriteDenial,
+  PreparedModerationWrite,
+} from "@/lib/moderation/contents";
 import { findCampaignEffect } from "./effects";
 import { validateCampaignFields, type CampaignFields, type CampaignInputError } from "./input";
 import { campaignRefExists } from "./refs";
@@ -288,4 +293,204 @@ export async function deleteCampaign(id: number, actor: ConfigActor): Promise<Ca
   });
   if (result.ok) invalidateSiteChrome();
   return result;
+}
+
+// ============================================================
+// REST 写变体（M20.3 Step 3）：prepare/lock/execute 三段式，与后台入口共享
+// prepare（输入+引用校验）/ lockCampaign / behaviorOverlapExists / 审计脚手架。
+// execute 运行在幂等管线的外层事务内（闭包捕获 lock 的 tx，不再另开事务），
+// 幂等占位与业务写入同事务提交；revision 冲突与 overlap 等可变状态裁决在 execute，
+// 合法回放已被缓存短路，不会重复写。
+// ============================================================
+
+/** 业务拒绝码 → 对外信封映射（REST 适配层使用；未登记码由入口兜底 internal）。 */
+export const CAMPAIGNS_DENIAL_HTTP = {
+  "bad-name": "bad_request",
+  "bad-effect": "bad_request",
+  "bad-target": "bad_request",
+  "bad-start": "bad_request",
+  "bad-end": "bad_request",
+  "bad-window": "bad_request",
+  "bad-priority": "bad_request",
+  "missing-ref": "bad_request",
+  "not-found": "not_found",
+  conflict: "state_conflict",
+  overlap: "state_conflict",
+} as const;
+
+/** REST 审计的 API 追踪字段（仅传入 trace 时附加，后台审计形态不变）。 */
+const campaignTraceFields = (trace?: ModerationApiTrace) =>
+  trace ? { requestId: trace.requestId, tokenSuffix: trace.tokenSuffix } : {};
+
+export type PreparedCampaignWrite = PreparedModerationWrite<
+  { id: number; revision?: number; enabled?: boolean; changed?: boolean },
+  CampaignErrorCode
+>;
+
+/** REST 创建活动：输入与引用校验在 prepare（事务外）；overlap 裁决与写入在 execute。 */
+export async function prepareApiCampaignCreate(
+  fields: CampaignFields,
+  actor: ConfigActor,
+  trace?: ModerationApiTrace,
+): Promise<PreparedCampaignWrite | ModerationWriteDenial<CampaignErrorCode>> {
+  const checked = await prepare(fields);
+  if (!checked.ok) return checked;
+  return {
+    ok: true,
+    async lock(tx) {
+      // 创建无行锁目标；overlap 依赖事务内间隙锁读，归入 execute（同一事务）
+      return {
+        ok: true as const,
+        async execute() {
+          if (
+            await behaviorOverlapExists(
+              tx,
+              checked.value.effect,
+              { startsAt: checked.value.startsAt, endsAt: checked.value.endsAt },
+              true,
+            )
+          ) {
+            return { ok: false as const, code: "overlap" as const };
+          }
+          const now = nowBeijingWallTime();
+          const newId = insertIdOf(
+            await tx.insert(campaigns).values({
+              ...checked.value,
+              enabled: true,
+              revision: 1,
+              createdBy: actor.userId,
+              createdAt: now,
+              updatedAt: now,
+            }),
+          );
+          await writeCampaignAudit(tx, actor, "campaign.create", newId, null, {
+            ...checked.value,
+            enabled: true,
+            revision: 1,
+            ...campaignTraceFields(trace),
+          });
+          return {
+            ok: true as const,
+            data: { id: newId, revision: 1 },
+            async afterCommit() {
+              invalidateSiteChrome();
+            },
+          };
+        },
+      };
+    },
+  };
+}
+
+/** REST 编辑活动：存在性在锁段；revision 冲突与 overlap 裁决在 execute（回放短路后不再误拒）。 */
+export async function prepareApiCampaignUpdate(
+  id: number,
+  expectedRevision: number,
+  fields: CampaignFields,
+  actor: ConfigActor,
+  trace?: ModerationApiTrace,
+): Promise<PreparedCampaignWrite | ModerationWriteDenial<CampaignErrorCode>> {
+  const checked = await prepare(fields);
+  if (!checked.ok) return checked;
+  return {
+    ok: true,
+    async lock(tx) {
+      const row = await lockCampaign(tx, id);
+      if (!row) return { ok: false as const, code: "not-found" as const };
+      return {
+        ok: true as const,
+        async execute() {
+          // 锁内行快照（lock 段的 FOR UPDATE 行锁在本事务内持续持有）
+          if (row.revision !== expectedRevision) {
+            return { ok: false as const, code: "conflict" as const };
+          }
+          if (
+            await behaviorOverlapExists(
+              tx,
+              checked.value.effect,
+              { id, startsAt: checked.value.startsAt, endsAt: checked.value.endsAt },
+              row.enabled,
+            )
+          ) {
+            return { ok: false as const, code: "overlap" as const };
+          }
+          const revision = row.revision + 1;
+          await tx
+            .update(campaigns)
+            .set({ ...checked.value, revision, updatedAt: nowBeijingWallTime() })
+            .where(eq(campaigns.id, id));
+          await writeCampaignAudit(tx, actor, "campaign.update", id, snapshot(row), {
+            ...checked.value,
+            enabled: row.enabled,
+            revision,
+            ...campaignTraceFields(trace),
+          });
+          return {
+            ok: true as const,
+            data: { id, revision },
+            async afterCommit() {
+              invalidateSiteChrome();
+            },
+          };
+        },
+      };
+    },
+  };
+}
+
+/** REST 启停活动：同值幂等返回 changed:false（旁路写仍 revision+1 的 G-20 语义保持）。 */
+export async function prepareApiCampaignEnabled(
+  id: number,
+  enabled: boolean,
+  actor: ConfigActor,
+  trace?: ModerationApiTrace,
+): Promise<PreparedCampaignWrite | ModerationWriteDenial<CampaignErrorCode>> {
+  return {
+    ok: true,
+    async lock(tx) {
+      const row = await lockCampaign(tx, id);
+      if (!row) return { ok: false as const, code: "not-found" as const };
+      return {
+        ok: true as const,
+        async execute() {
+          if (row.enabled === enabled) {
+            return {
+              ok: true as const,
+              data: { id, revision: row.revision, enabled, changed: false },
+            };
+          }
+          if (
+            await behaviorOverlapExists(
+              tx,
+              row.effect,
+              { id, startsAt: row.startsAt, endsAt: row.endsAt },
+              enabled,
+            )
+          ) {
+            return { ok: false as const, code: "overlap" as const };
+          }
+          const revision = row.revision + 1;
+          await tx
+            .update(campaigns)
+            .set({ enabled, revision, updatedAt: nowBeijingWallTime() })
+            .where(eq(campaigns.id, id));
+          await writeCampaignAudit(
+            tx,
+            actor,
+            "campaign.toggle",
+            id,
+            { enabled: row.enabled, revision: row.revision },
+            { enabled, revision, ...campaignTraceFields(trace) },
+          );
+          return {
+            ok: true as const,
+            data: { id, revision, enabled, changed: true },
+            async afterCommit() {
+              invalidateSiteChrome();
+            },
+          };
+        },
+      };
+    },
+  };
 }

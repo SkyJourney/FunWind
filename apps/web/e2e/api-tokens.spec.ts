@@ -34,6 +34,20 @@ const DOCUMENTED_ENDPOINTS = [
   ["DELETE", "/api/manage/users/{uid}/restrictions/{restrictionId}", "users:write"],
   ["DELETE", "/api/manage/users/{uid}/sessions/{sessionId}", "users:write"],
   ["POST", "/api/manage/users/{uid}/appeals/{appealId}/resolve", "users:write"],
+  ["GET", "/api/manage/announcements", "announcements:read"],
+  ["GET", "/api/manage/announcements/{announcementId}", "announcements:read"],
+  ["POST", "/api/manage/announcements", "announcements:write"],
+  ["PATCH", "/api/manage/announcements/{announcementId}", "announcements:write"],
+  ["POST", "/api/manage/announcements/{announcementId}/end", "announcements:write"],
+  ["GET", "/api/manage/campaigns", "campaigns:read"],
+  ["GET", "/api/manage/campaigns/{campaignId}", "campaigns:read"],
+  ["POST", "/api/manage/campaigns", "campaigns:write"],
+  ["PATCH", "/api/manage/campaigns/{campaignId}", "campaigns:write"],
+  ["POST", "/api/manage/campaigns/{campaignId}/enabled", "campaigns:write"],
+  ["GET", "/api/manage/invites", "invites:read"],
+  ["POST", "/api/manage/invites", "invites:write"],
+  ["DELETE", "/api/manage/invites/{code}", "invites:write"],
+  ["POST", "/api/manage/invites/batches/{batch}/revoke", "invites:write"],
   ["GET", "/api/manage/reports", "reports:read"],
   ["GET", "/api/manage/reports/{reportId}", "reports:read"],
   ["POST", "/api/manage/reports/{reportId}/resolve", "reports:write"],
@@ -325,7 +339,7 @@ test.describe("在线管理 REST 文档", () => {
     );
   });
 
-  test("管理员看到 23 个独立端点的请求方法、导航徽标和作用域", async ({ context, page }) => {
+  test("管理员看到 35 个独立端点的请求方法、导航徽标和作用域", async ({ context, page }) => {
     await loginAs(context, USERS.admin);
     expect((await page.goto(REST_DOCS))?.status()).toBe(200);
     await expect(page.getByRole("heading", { name: "FunWind REST API", level: 1 })).toBeVisible();
@@ -494,7 +508,7 @@ test.describe("管理员签发与授权", () => {
       await page.goto(ADMIN_TOKENS);
       const matrix = page.getByRole("group", { name: "权限矩阵" });
       const levels = matrix.getByRole("combobox");
-      await expect(levels).toHaveCount(8);
+      await expect(levels).toHaveCount(11);
       for (const level of await levels.all()) await expect(level).toHaveValue("none");
       const identity = matrix.getByLabel("令牌身份", { exact: true });
       await expect(identity.locator('option[value="write"]')).toBeDisabled();

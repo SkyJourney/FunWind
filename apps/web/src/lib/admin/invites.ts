@@ -1,9 +1,14 @@
 import { randomBytes } from "node:crypto";
 import { alias } from "drizzle-orm/mysql-core";
 import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
-import { getWebDb, inviteCodes, users } from "@funwind/db";
+import { affectedRowsOf, getWebDb, inviteCodes, users } from "@funwind/db";
 import { writeAudit, type DbTx } from "@/lib/audit";
 import { pageBounds } from "@/lib/paging";
+import type {
+  ModerationApiTrace,
+  ModerationWriteDenial,
+  PreparedModerationWrite,
+} from "@/lib/moderation/contents";
 
 /**
  * 邀请码管理（M10.6b，docs/milestones/M10.6-feature-completion.md 批次 b）：
@@ -130,19 +135,8 @@ export async function revokeInvitesByBatch(
 ): Promise<{ ok: true; revoked: number } | { ok: false; code: "not_found" }> {
   const db = getWebDb();
   const result = await db.transaction(async (tx: DbTx) => {
-    const out = await tx
-      .delete(inviteCodes)
-      .where(and(eq(inviteCodes.batch, batch), isNull(inviteCodes.usedAt)));
-    const revoked = Number((out as unknown as { affectedRows: number }).affectedRows ?? 0);
-    if (revoked === 0) return { ok: false as const, code: "not_found" as const };
-    await writeAudit(tx, {
-      actorId: actor.userId,
-      action: "invite.revoke_batch",
-      targetType: "invite_batch",
-      targetId: batch,
-      after: { revoked },
-      ip: actor.ip,
-    });
+    const revoked = await applyInviteRevokeByBatch(tx, actor, batch);
+    if (revoked === null) return { ok: false as const, code: "not_found" as const };
     return { ok: true as const, revoked };
   });
   return result;
@@ -160,38 +154,7 @@ export async function generateInvites(
   input: InviteGenInput,
 ): Promise<{ ok: true; codes: string[] }> {
   const db = getWebDb();
-  const expiresAt = input.days > 0 ? sql`NOW() + INTERVAL ${input.days} DAY` : null;
-  const codes: string[] = [];
-  await db.transaction(async (tx: DbTx) => {
-    // 主键冲突极少（62^12 空间）；冲突重试由唯一键报错→整体回滚→外层重试
-    for (let i = 0; i < input.count; i++) {
-      let code = randomCode();
-      for (let attempt = 0; ; attempt++) {
-        try {
-          await tx.insert(inviteCodes).values({
-            code,
-            createdBy: actor.userId,
-            expiresAt,
-            batch: input.batch,
-            createdAt: sql`NOW()`,
-          });
-          break;
-        } catch (e) {
-          if (attempt >= 4) throw e;
-          code = randomCode();
-        }
-      }
-      codes.push(code);
-    }
-    await writeAudit(tx, {
-      actorId: actor.userId,
-      action: "invite.generate",
-      targetType: "invite_batch",
-      targetId: input.batch || "-",
-      after: { count: input.count, days: input.days, codes },
-      ip: actor.ip,
-    });
-  });
+  const codes = await db.transaction((tx: DbTx) => applyInviteGenerate(tx, actor, input));
   return { ok: true, codes };
 }
 
@@ -209,16 +172,191 @@ export async function revokeInvite(
       .for("update");
     if (!row) return { ok: false as const, code: "not_found" as const };
     if (row.usedBy !== null) return { ok: false as const, code: "already_used" as const };
-    await tx.delete(inviteCodes).where(eq(inviteCodes.code, code));
-    await writeAudit(tx, {
-      actorId: actor.userId,
-      action: "invite.revoke",
-      targetType: "invite",
-      targetId: code,
-      before: { batch: row.batch, expiresAt: row.expiresAt },
-      ip: actor.ip,
-    });
+    await applyInviteRevoke(tx, actor, code, row);
     return { ok: true as const };
   });
   return result;
+}
+
+// ============================================================
+// 共享写入内核 + REST 写变体（M20.3 Step 3）：后台入口与 prepare 变体共用
+// apply 内核；trace 仅 REST 传入时附加到审计 after（后台审计形态不变）。
+// 幂等契约：already_used 与「批次无可用码」等可变状态裁决在 execute；
+// 合法回放已被幂等缓存短路，不会重复生成或重复删除。
+// ============================================================
+
+/** 业务拒绝码 → 对外信封映射（REST 适配层使用）。 */
+export const INVITES_DENIAL_HTTP = {
+  not_found: "not_found",
+  already_used: "state_conflict",
+} as const;
+
+type InviteActor = { userId: number | null; ip?: string | null };
+type InviteDenialCode = "not_found" | "already_used";
+type InviteDenial = ModerationWriteDenial<InviteDenialCode>;
+
+const inviteTraceFields = (trace?: ModerationApiTrace) =>
+  trace ? { requestId: trace.requestId, tokenSuffix: trace.tokenSuffix } : {};
+
+/** 生成内核（事务内）：逐条 insert（唯一键冲突换码重试 ≤5 次）+ 一条批次级审计。 */
+async function applyInviteGenerate(
+  tx: DbTx,
+  actor: InviteActor,
+  input: InviteGenInput,
+  trace?: ModerationApiTrace,
+): Promise<string[]> {
+  const expiresAt = input.days > 0 ? sql`NOW() + INTERVAL ${input.days} DAY` : null;
+  const codes: string[] = [];
+  // 主键冲突极少（62^12 空间）；冲突重试由唯一键报错→整体回滚→外层重试
+  for (let i = 0; i < input.count; i++) {
+    let code = randomCode();
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await tx.insert(inviteCodes).values({
+          code,
+          createdBy: actor.userId,
+          expiresAt,
+          batch: input.batch,
+          createdAt: sql`NOW()`,
+        });
+        break;
+      } catch (e) {
+        if (attempt >= 4) throw e;
+        code = randomCode();
+      }
+    }
+    codes.push(code);
+  }
+  await writeAudit(tx, {
+    actorId: actor.userId,
+    action: "invite.generate",
+    targetType: "invite_batch",
+    targetId: input.batch || "-",
+    after: { count: input.count, days: input.days, codes, ...inviteTraceFields(trace) },
+    ip: actor.ip,
+  });
+  return codes;
+}
+
+/** 吊销内核（事务内）：物理删除 + 审计。 */
+async function applyInviteRevoke(
+  tx: DbTx,
+  actor: InviteActor,
+  code: string,
+  row: { batch: string; expiresAt: string | null },
+  trace?: ModerationApiTrace,
+): Promise<void> {
+  await tx.delete(inviteCodes).where(eq(inviteCodes.code, code));
+  await writeAudit(tx, {
+    actorId: actor.userId,
+    action: "invite.revoke",
+    targetType: "invite",
+    targetId: code,
+    before: { batch: row.batch, expiresAt: row.expiresAt },
+    after: { revoked: true, ...inviteTraceFields(trace) },
+    ip: actor.ip,
+  });
+}
+
+/** 批次吊销内核（事务内）：删除该批次全部可用码；无可用码返回 null（not_found）。 */
+async function applyInviteRevokeByBatch(
+  tx: DbTx,
+  actor: InviteActor,
+  batch: string,
+  trace?: ModerationApiTrace,
+): Promise<number | null> {
+  const out = await tx
+    .delete(inviteCodes)
+    .where(and(eq(inviteCodes.batch, batch), isNull(inviteCodes.usedAt)));
+  // M20.3 Step 3 修复预存缺陷：直接在 drizzle 结果数组上取 .affectedRows 恒为 undefined，
+  // 批次吊销实际删码却恒报 not_found 且不写审计；改用 affectedRowsOf 取行数。
+  const revoked = affectedRowsOf(out);
+  if (revoked === 0) return null;
+  await writeAudit(tx, {
+    actorId: actor.userId,
+    action: "invite.revoke_batch",
+    targetType: "invite_batch",
+    targetId: batch,
+    after: { revoked, ...inviteTraceFields(trace) },
+    ip: actor.ip,
+  });
+  return revoked;
+}
+
+export type PreparedInviteWrite = PreparedModerationWrite<
+  { codes?: string[]; count?: number; batch?: string; code?: string; revoked?: number | boolean },
+  InviteDenialCode
+>;
+
+/** REST 批量生成邀请码：上限规则（≤20/次、days ≤3650、batch ≤64）由请求体 zod 与后台同规则承担。 */
+export async function prepareApiInviteGenerate(
+  actor: InviteActor,
+  input: InviteGenInput,
+  trace?: ModerationApiTrace,
+): Promise<PreparedInviteWrite | InviteDenial> {
+  return {
+    ok: true,
+    async lock(tx) {
+      // 生成无行锁目标；随机码唯一键冲突在事务内换码重试
+      return {
+        ok: true as const,
+        async execute() {
+          const codes = await applyInviteGenerate(tx, actor, input, trace);
+          return {
+            ok: true as const,
+            data: { codes, count: input.count, batch: input.batch },
+          };
+        },
+      };
+    },
+  };
+}
+
+/** REST 吊销单条邀请码：存在性在锁段；已用拒绝在 execute（回放短路后不再误拒）。 */
+export async function prepareApiInviteRevoke(
+  actor: InviteActor,
+  code: string,
+  trace?: ModerationApiTrace,
+): Promise<PreparedInviteWrite | InviteDenial> {
+  return {
+    ok: true,
+    async lock(tx) {
+      const [row] = await tx
+        .select()
+        .from(inviteCodes)
+        .where(eq(inviteCodes.code, code))
+        .limit(1)
+        .for("update");
+      if (!row) return { ok: false as const, code: "not_found" as const };
+      return {
+        ok: true as const,
+        async execute() {
+          if (row.usedBy !== null) return { ok: false as const, code: "already_used" as const };
+          await applyInviteRevoke(tx, actor, code, row, trace);
+          return { ok: true as const, data: { code, revoked: true } };
+        },
+      };
+    },
+  };
+}
+
+/** REST 按批次吊销：可用码数量是可变状态，not_found 裁决在 execute。 */
+export async function prepareApiInviteRevokeByBatch(
+  actor: InviteActor,
+  batch: string,
+  trace?: ModerationApiTrace,
+): Promise<PreparedInviteWrite | InviteDenial> {
+  return {
+    ok: true,
+    async lock(tx) {
+      return {
+        ok: true as const,
+        async execute() {
+          const revoked = await applyInviteRevokeByBatch(tx, actor, batch, trace);
+          if (revoked === null) return { ok: false as const, code: "not_found" as const };
+          return { ok: true as const, data: { batch, revoked } };
+        },
+      };
+    },
+  };
 }

@@ -792,6 +792,259 @@ test.describe.serial("管理 REST 全面验收", () => {
     await withE2eDb((q) => q.exec("DELETE FROM user_restrictions WHERE user_id = ?", [authorId]));
   });
 
+  test("公告：发布、条件审计、下线与回放", async ({ page, request }) => {
+    const writer = await issueWriterToken(page, "公告：发布、", {
+      announcements: "write",
+      identity: "read",
+    });
+    const post = (data: Record<string, unknown>, key = randomUUID()) =>
+      request.post("/api/manage/announcements", {
+        headers: { ...bearer(writer), "Idempotency-Key": key, "content-type": "application/json" },
+        data,
+      });
+    const body = {
+      title: `${TAG} REST 公告`,
+      bodyMd: "v1",
+      level: "important",
+      audience: "all",
+      showBanner: false,
+      startsAt: null,
+      endsAt: null,
+    };
+
+    // 创建（startsAt null = 立即开始）：落账 + 同键回放同响应
+    const key = randomUUID();
+    const created = await post(body, key);
+    expect(created.status()).toBe(200);
+    const announcementId = ((await created.json()) as { data: { announcementId: number } }).data
+      .announcementId;
+    const replay = await post(body, key);
+    expect(replay.status()).toBe(200);
+    expect(await replay.json()).toEqual({ ok: true, data: { announcementId } });
+
+    // 详情可见；编辑值变化 → changed:true + 审计；同值编辑 → changed:false 不加审计
+    const detail = await request.get(`/api/manage/announcements/${announcementId}`, {
+      headers: bearer(writer),
+    });
+    expect(detail.status()).toBe(200);
+    expect(await detail.json()).toMatchObject({
+      data: { id: announcementId, title: body.title, status: "active" },
+    });
+    const editCount = async () =>
+      (
+        await withE2eDb((q) =>
+          q.query<{ n: number }>(
+            "SELECT COUNT(*) AS n FROM audit_log WHERE action = 'announcement.edit' AND target_id = ?",
+            [announcementId],
+          ),
+        )
+      )[0].n;
+    const patch = (data: Record<string, unknown>, key2 = randomUUID()) =>
+      request.patch(`/api/manage/announcements/${announcementId}`, {
+        headers: { ...bearer(writer), "Idempotency-Key": key2, "content-type": "application/json" },
+        data,
+      });
+    const changed = await patch({ ...body, bodyMd: "v2" });
+    expect(changed.status()).toBe(200);
+    expect(await changed.json()).toEqual({
+      ok: true,
+      data: { announcementId, changed: true },
+    });
+    expect(await editCount()).toBe(1);
+    const same = await patch({ ...body, bodyMd: "v2" });
+    expect(await same.json()).toEqual({ ok: true, data: { announcementId, changed: false } });
+    expect(await editCount()).toBe(1);
+
+    // 下线：status → ended；详情仍可见（管理视角）
+    const end = await request.post(`/api/manage/announcements/${announcementId}/end`, {
+      headers: {
+        ...bearer(writer),
+        "Idempotency-Key": randomUUID(),
+        "content-type": "application/json",
+      },
+      data: {},
+    });
+    expect(end.status()).toBe(200);
+    const after = await request.get(`/api/manage/announcements/${announcementId}`, {
+      headers: bearer(writer),
+    });
+    expect(await after.json()).toMatchObject({ data: { id: announcementId, status: "ended" } });
+    await withE2eDb((q) => q.exec("DELETE FROM announcements WHERE id = ?", [announcementId]));
+  });
+
+  test("活动：乐观锁 409、同值启停零变更与回放", async ({ page, request }) => {
+    const writer = await issueWriterToken(page, "活动：乐观锁", {
+      campaigns: "write",
+      identity: "read",
+    });
+    const fields = {
+      name: `${TAG} REST 活动`,
+      effect: "theme.pack",
+      target: "default",
+      startsAt: "2027-01-01 00:00:00",
+      endsAt: "2027-02-01 00:00:00",
+      priority: 0,
+    };
+    const created = await request.post("/api/manage/campaigns", {
+      headers: {
+        ...bearer(writer),
+        "Idempotency-Key": randomUUID(),
+        "content-type": "application/json",
+      },
+      data: fields,
+    });
+    expect(created.status()).toBe(200);
+    const campaignId = ((await created.json()) as { data: { id: number } }).data.id;
+
+    // 详情与列表同源
+    const detail = await request.get(`/api/manage/campaigns/${campaignId}`, {
+      headers: bearer(writer),
+    });
+    expect(await detail.json()).toMatchObject({
+      data: { id: campaignId, name: fields.name, revision: 1, status: "upcoming" },
+    });
+
+    const patch = (data: Record<string, unknown>, key = randomUUID()) =>
+      request.patch(`/api/manage/campaigns/${campaignId}`, {
+        headers: { ...bearer(writer), "Idempotency-Key": key, "content-type": "application/json" },
+        data,
+      });
+    // 旧 revision → 409；新 revision → 成功 revision+1
+    await expectManageError(
+      await patch({ ...fields, expectedRevision: 99 }),
+      409,
+      "state_conflict",
+    );
+    const fresh = await patch({ ...fields, expectedRevision: 1 });
+    expect(await fresh.json()).toEqual({ ok: true, data: { id: campaignId, revision: 2 } });
+
+    // 同值启停 changed:false revision 不变；异值启停 revision+1
+    const enable = (enabled: boolean, key = randomUUID()) =>
+      request.post(`/api/manage/campaigns/${campaignId}/enabled`, {
+        headers: { ...bearer(writer), "Idempotency-Key": key, "content-type": "application/json" },
+        data: { enabled },
+      });
+    expect(await enable(true).then((r) => r.json())).toEqual({
+      ok: true,
+      data: { id: campaignId, revision: 2, enabled: true, changed: false },
+    });
+    expect(await enable(false).then((r) => r.json())).toEqual({
+      ok: true,
+      data: { id: campaignId, revision: 3, enabled: false, changed: true },
+    });
+    // 启停同键回放返回首次结果
+    const toggleKey = randomUUID();
+    expect(await enable(true, toggleKey).then((r) => r.status())).toBe(200);
+    const toggleReplay = await enable(true, toggleKey);
+    expect(toggleReplay.status()).toBe(200);
+    expect(await toggleReplay.json()).toEqual({
+      ok: true,
+      data: { id: campaignId, revision: 4, enabled: true, changed: true },
+    });
+    await withE2eDb((q) => q.exec("DELETE FROM campaigns WHERE id = ?", [campaignId]));
+  });
+
+  test("邀请码：生成回放同码、吊销与批次吊销", async ({ page, request }) => {
+    const writer = await issueWriterToken(page, "邀请码：生成", {
+      invites: "write",
+      identity: "read",
+    });
+    const batch = `${TAG}-inv`;
+    // 生成 2 条：同键回放返回同一批码（码面明文只在生成时返回一次）
+    const genKey = randomUUID();
+    const gen = (key = genKey) =>
+      request.post("/api/manage/invites", {
+        headers: { ...bearer(writer), "Idempotency-Key": key, "content-type": "application/json" },
+        data: { count: 2, days: 30, batch },
+      });
+    const first = await gen();
+    expect(first.status()).toBe(200);
+    const codes = ((await first.json()) as { data: { codes: string[] } }).data.codes;
+    expect(codes).toHaveLength(2);
+    const genReplay = await gen();
+    expect(await genReplay.json()).toEqual({ ok: true, data: { codes, count: 2, batch } });
+
+    // 上限：count 21 → 400
+    await expectManageError(
+      await request.post("/api/manage/invites", {
+        headers: {
+          ...bearer(writer),
+          "Idempotency-Key": randomUUID(),
+          "content-type": "application/json",
+        },
+        data: { count: 21, days: 30, batch },
+      }),
+      400,
+      "bad_request",
+    );
+
+    // 吊销第一条：同键回放同响应；新键再吊销 404
+    const revoke = (code: string, key = randomUUID()) =>
+      request.delete(`/api/manage/invites/${code}`, {
+        headers: { ...bearer(writer), "Idempotency-Key": key, "content-type": "application/json" },
+        data: {},
+      });
+    // 首次吊销与同键回放用同一显式键（默认参数会生成新键，回放变成行已删的新意图 404）
+    const revokeKey = randomUUID();
+    const revoked1 = await revoke(codes[0], revokeKey);
+    expect(revoked1.status()).toBe(200);
+    const revokeReplay = await revoke(codes[0], revokeKey);
+    expect(revokeReplay.status()).toBe(200);
+    expect(await revokeReplay.json()).toEqual({
+      ok: true,
+      data: { code: codes[0], revoked: true },
+    });
+    await expectManageError(await revoke(codes[0]), 404, "not_found");
+
+    // 模拟第二条被使用 → 直接吊销 409（已用）
+    await withE2eDb((q) =>
+      q.exec("UPDATE invite_codes SET used_by = 90002, used_at = NOW() WHERE code = ?", [codes[1]]),
+    );
+    await expectManageError(await revoke(codes[1]), 409, "state_conflict");
+
+    // 批次吊销：无可用码 → 404
+    await expectManageError(
+      await request.post(`/api/manage/invites/batches/${encodeURIComponent(batch)}/revoke`, {
+        headers: {
+          ...bearer(writer),
+          "Idempotency-Key": randomUUID(),
+          "content-type": "application/json",
+        },
+        data: {},
+      }),
+      404,
+      "not_found",
+    );
+    // 新批次可用码 → 批次吊销返回计数
+    const seed = (
+      await request.post("/api/manage/invites", {
+        headers: {
+          ...bearer(writer),
+          "Idempotency-Key": randomUUID(),
+          "content-type": "application/json",
+        },
+        data: { count: 2, days: 0, batch: `${batch}-b2` },
+      })
+    ).status();
+    expect(seed).toBe(200);
+    const batchRevoke = await request.post(
+      `/api/manage/invites/batches/${encodeURIComponent(`${batch}-b2`)}/revoke`,
+      {
+        headers: {
+          ...bearer(writer),
+          "Idempotency-Key": randomUUID(),
+          "content-type": "application/json",
+        },
+        data: {},
+      },
+    );
+    expect(await batchRevoke.json()).toEqual({
+      ok: true,
+      data: { batch: `${batch}-b2`, revoked: 2 },
+    });
+    await withE2eDb((q) => q.exec("DELETE FROM invite_codes WHERE batch LIKE ?", [`${batch}%`]));
+  });
+
   test("新建专用管理员签发的令牌同样受矩阵约束", async ({ context, page, request }) => {
     const adminId = await withE2eDb((q) => createAdminUser(q, `${TAG}-extra`));
     adminUserIds.push(adminId);
