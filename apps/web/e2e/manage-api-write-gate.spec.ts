@@ -17,12 +17,13 @@ import {
  * 由 `pnpm test:e2e:write-gate` 单独跑一轮停写验收。
  */
 
-const WRITES_ENABLED = process.env.E2E_MANAGE_API_WRITES === "on";
+/** 仅停写轮显式传 E2E_MANAGE_API_WRITES=off（webServer 据此设 MANAGE_API_WRITES=off）；其余轮次一律跳过。 */
+const WRITE_GATE_ROUND = process.env.E2E_MANAGE_API_WRITES === "off";
 const TAG = runTag();
 const NAME_PREFIX = `E2E 停写门禁 · ${TAG} · `;
 
 test.describe("管理 REST 停写门禁", () => {
-  test.skip(WRITES_ENABLED, "当前轮次启用了写入；停写验收需要 E2E_MANAGE_API_WRITES=off");
+  test.skip(!WRITE_GATE_ROUND, "本规格仅在停写轮（E2E_MANAGE_API_WRITES=off）运行");
 
   const tokenNames: string[] = [];
 
