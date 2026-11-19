@@ -23,9 +23,17 @@ const DOCUMENTED_ENDPOINTS = [
   ["GET", "/api/manage/contents", "contents:read"],
   ["GET", "/api/manage/contents/{id}", "contents:read"],
   ["POST", "/api/manage/posts/{postId}/review", "contents:write"],
+  ["POST", "/api/manage/posts/{postId}/hide", "contents:write"],
+  ["POST", "/api/manage/posts/{postId}/disable", "contents:write"],
+  ["POST", "/api/manage/posts/{postId}/restore", "contents:write"],
   ["PUT", "/api/manage/threads/{threadId}/lock", "contents:write"],
+  ["PATCH", "/api/manage/threads/{threadId}/flags", "contents:write"],
   ["GET", "/api/manage/users", "users:read"],
   ["GET", "/api/manage/users/{uid}", "users:read"],
+  ["GET", "/api/manage/reports", "reports:read"],
+  ["GET", "/api/manage/reports/{reportId}", "reports:read"],
+  ["POST", "/api/manage/reports/{reportId}/resolve", "reports:write"],
+  ["POST", "/api/manage/reports/{reportId}/dismiss", "reports:write"],
   ["GET", "/api/manage/stats", "stats:read"],
   ["GET", "/api/manage/audit-logs", "audit-logs:read"],
   ["GET", "/api/manage/emails", "emails:read"],
@@ -313,7 +321,7 @@ test.describe("在线管理 REST 文档", () => {
     );
   });
 
-  test("管理员看到 11 个独立端点的请求方法、导航徽标和作用域", async ({ context, page }) => {
+  test("管理员看到 19 个独立端点的请求方法、导航徽标和作用域", async ({ context, page }) => {
     await loginAs(context, USERS.admin);
     expect((await page.goto(REST_DOCS))?.status()).toBe(200);
     await expect(page.getByRole("heading", { name: "FunWind REST API", level: 1 })).toBeVisible();
@@ -482,7 +490,7 @@ test.describe("管理员签发与授权", () => {
       await page.goto(ADMIN_TOKENS);
       const matrix = page.getByRole("group", { name: "权限矩阵" });
       const levels = matrix.getByRole("combobox");
-      await expect(levels).toHaveCount(7);
+      await expect(levels).toHaveCount(8);
       for (const level of await levels.all()) await expect(level).toHaveValue("none");
       const identity = matrix.getByLabel("令牌身份", { exact: true });
       await expect(identity.locator('option[value="write"]')).toBeDisabled();

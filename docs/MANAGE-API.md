@@ -7,7 +7,7 @@
 ## 鉴权与签发
 
 - 只接受 `Authorization: Bearer <令牌>`。后台「系统与观测 → API 令牌」自签自管（`/admin/api-tokens`）：名称去首尾空白后 1–64 字符，有效期 30/90/180/365 天（默认 90），每管理员最多 5 个未过期且未吊销的令牌。明文只显示一次，凭证仅存 SHA-256，列表可见尾 8 字符；不要在 URL、请求体或日志中传递令牌。
-- 新版签发 `fw_at2_` + 43 个 URL 安全字符，按 7 个域选择「禁止／只读／读写」，默认全部禁止、至少选择一个可用域；只有内容域支持读写。「读写」包含签发时该域的读端点与写端点。各日志域和统计域即使共用 `admin.logs`，也分别授权。
+- 新版签发 `fw_at2_` + 43 个 URL 安全字符，按 8 个域选择「禁止／只读／读写」，默认全部禁止、至少选择一个可用域；内容域与举报域支持读写。「读写」包含签发时该域的读端点与写端点。各日志域和统计域即使共用 `admin.logs`，也分别授权。
 - 权限标签 `domain:read` / `domain:write` 用于分类；运行时检查的是**具体端点 ID**。签发时生成不可编辑的端点快照，且复核持有人资格、全局业务权限和配额；同域以后新增端点也不会自动扩权，需签发新令牌并吊销旧令牌。
 - 历史 `fw_at_`（同样后接 43 个字符）固定为 M20 九读，不授权写入。新版凭证与库内模型必须双向匹配；未知模型、空/重复/未知 ID 的新版快照、历史模型携带快照或前缀错配均不回落而拒绝。同库退版时旧镜像不认 `fw_at2_`；迁移及复升见[上线手册](ops/LAUNCH-RUNBOOK.md#7-m202-管理-rest-升级停写与退版)。
 - 凭证有效还须持有人当前满足站点管理员资格（`site.admin` + `admin.roles`、可登录、未封禁），并具有下表所列全局权限；对象范围和敏感字段继续由业务判定。只有版主权限不能签发或使用令牌。过期、手动吊销及失去站点管理员资格的联动吊销照旧；请求入口另做实时资格校验，不保证能中断已通过门禁的在途写。
@@ -52,7 +52,15 @@ curl -H "Authorization: Bearer ${FUNWIND_MANAGE_TOKEN}" \
 | `GET` | `/api/manage/emails` | `emails:read` | `emails` | `admin.logs` |
 | `GET` | `/api/manage/push-logs` | `push-logs:read` | `push-logs` | `admin.logs` |
 | `POST` | `/api/manage/posts/{postId}/review` | `contents:write` | `posts.review` | 帖子所在版块的 `forum.moderate` |
+| `POST` | `/api/manage/posts/{postId}/hide` | `contents:write` | `posts.hide` | 帖子所在版块的 `forum.moderate` |
+| `POST` | `/api/manage/posts/{postId}/disable` | `contents:write` | `posts.disable` | 帖子所在版块的 `forum.moderate` |
+| `POST` | `/api/manage/posts/{postId}/restore` | `contents:write` | `posts.restore` | 帖子所在版块的 `forum.moderate` |
 | `PUT` | `/api/manage/threads/{threadId}/lock` | `contents:write` | `threads.lock` | 既有 `site.admin` 或目标版块 `forum.moderate` 判定 |
+| `PATCH` | `/api/manage/threads/{threadId}/flags` | `contents:write` | `threads.flags` | 既有 `site.admin` 或目标版块 `forum.moderate` 判定；置顶级别版主 ≤1、站点管理员 ≤3 |
+| `GET` | `/api/manage/reports` | `reports:read` | `reports` | `admin.reports` |
+| `GET` | `/api/manage/reports/{reportId}` | `reports:read` | `reports.detail` | `admin.reports` |
+| `POST` | `/api/manage/reports/{reportId}/resolve` | `reports:write` | `reports.resolve` | `admin.reports` |
+| `POST` | `/api/manage/reports/{reportId}/dismiss` | `reports:write` | `reports.dismiss` | `admin.reports` |
 
 ## 读取端点说明
 
@@ -72,7 +80,7 @@ curl -H "Authorization: Bearer ${FUNWIND_MANAGE_TOKEN}" \
 
 **默认停写。** 仅应用进程中 `MANAGE_API_WRITES=on`（精确小写）启用写入，留空或其它值均关闭。先检查凭证、快照和附加全局权限，再检查开关和写入桶（10 次/分钟/令牌、30 次/分钟/持有人），通过后才读取正文。停写不影响九个 GET，也不撤销已提交的数据。
 
-两端点都要求路径目标为十进制正安全整数、`Content-Type: application/json`，正文为严格 JSON 对象（UTF-8，实际读取至多 16 KiB；不收未知字段或批量），以及 `Idempotency-Key`（16–128 个字符，只允许 `A–Z`、`a–z`、`0–9`、`.`、`_`、`:`、`-`）。
+写端点都要求路径目标为十进制正安全整数、`Content-Type: application/json`，正文为严格 JSON 对象（UTF-8，实际读取至多 16 KiB；不收未知字段或批量），以及 `Idempotency-Key`（16–128 个字符，只允许 `A–Z`、`a–z`、`0–9`、`.`、`_`、`:`、`-`）。
 
 - **单帖审核（`posts.review`）**：正文为 `{"decision":"approve","expectedEditedAt":null}` 或 `{"decision":"reject","expectedEditedAt":"2026-11-18 12:00:00","reason":"…"}`。`expectedEditedAt` 必传，原样使用刚读取的北京时间秒级 `YYYY-MM-DD HH:mm:ss` 或 `null`，不要换算为 UTC。驳回理由去首尾空白后须为 1–255 字，通过不接受 `reason`。首次实际执行只允许待审帖子，事务锁内核对帖子、主题、版块归属及编辑版本；错版或不再待审为 `state_conflict`。返回 `{postId, threadId, state}`，其中 `state` 为 `visible` 或 `rejected`。沿用既有审核历史、计数及事务性事件链路（通知、通过时的首次积分）。
 - **主题锁定／解锁（`threads.lock`）**：正文为 `{"locked":true}` 或 `{"locked":false}`，只设置目标值，不翻转，不收置顶或精华字段。锁内复核主题归属并比较原值，返回 `{threadId, locked, changed}`；同值时 `changed: false`，不改主题、不记变更审计。相反目标值按事务串行顺序生效；没有版本前置条件。

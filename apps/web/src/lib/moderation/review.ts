@@ -1,11 +1,9 @@
 import { and, desc, eq } from "drizzle-orm";
-import { contentReviews, getWebDb, posts, threads, users, userStats } from "@funwind/db";
+import { contentReviews, getWebDb, posts, threads, users } from "@funwind/db";
 import type { ConfigActor, DbTx } from "@/lib/audit";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import { transitionContent } from "@/lib/posting/transition";
-import { lockForum, lockThread } from "@/lib/posting/locks";
-import { lockUserStats } from "@/lib/locks";
 import { checkPermission } from "@/lib/authz/service";
 import type { Subject } from "@/lib/authz/types";
 import { publicUsername } from "@/lib/identity-expr";
@@ -17,7 +15,8 @@ import {
 } from "@/lib/events/outbox";
 import { MODERATION_NOTIFICATION_DELIVERY_POLICY } from "@/modules/kernel/types";
 import {
-  lockModerationAccess,
+  loadPostContext,
+  lockModerationTarget,
   type ModerationApiTrace,
   type ModerationWriteDenial,
   type PreparedModerationWrite,
@@ -39,29 +38,15 @@ export type ReviewCode =
 export type ReviewOutcome<T = undefined> =
   { ok: true; data?: T } | { ok: false; code: ReviewCode; message: string };
 
-async function loadPostContext(postId: number) {
-  const [row] = await getWebDb()
-    .select({
-      postState: posts.state,
-      authorId: posts.authorId,
-      threadId: threads.id,
-      forumId: threads.forumId,
-    })
-    .from(posts)
-    .innerJoin(threads, eq(threads.id, posts.threadId))
-    .where(eq(posts.id, postId))
-    .limit(1);
-  return row ?? null;
-}
-
 /** 版主权限：帖子所在版块的 forum.moderate */
 async function canModerate(operator: Subject, forumId: number): Promise<boolean> {
   return (await checkPermission(operator, "forum.moderate", { forumId })).allowed;
 }
 
+/** 理由校验（trim 后 1–255）；只产生 reason_required / reason_too_long 两码 */
 const checkReason = (
   reason: string,
-): { ok: true } | { ok: false; code: ReviewCode; message: string } => {
+): { ok: true } | { ok: false; code: "reason_required" | "reason_too_long"; message: string } => {
   const trimmed = reason.trim();
   if (!trimmed) return { ok: false, code: "reason_required", message: "必须填写理由" };
   if (trimmed.length > 255)
@@ -101,49 +86,6 @@ const MODERATION_ACTIONS: Record<ModerationAction, ModerationSpec> = {
       state === "disabled" ? "该内容已被封禁" : state === "deleted" ? "已删除内容不能封禁" : null,
   },
 };
-
-type PostContext = NonNullable<Awaited<ReturnType<typeof loadPostContext>>>;
-
-/** 按原锁序稳定作者、主题、帖子、版块；回放可以在此后结束，不判断状态或版本。 */
-async function lockModerationTarget(
-  tx: DbTx,
-  postId: number,
-  ctx: PostContext,
-  apiSubject?: Subject,
-) {
-  let hasStats = true;
-  if (apiSubject) {
-    // API 锁阶段不写数据；不能在持主题锁后再尝试补统计行。
-    const [stats] = await tx
-      .select({ userId: userStats.userId })
-      .from(userStats)
-      .where(eq(userStats.userId, ctx.authorId))
-      .for("update");
-    hasStats = !!stats;
-  } else {
-    await lockUserStats(tx, ctx.authorId);
-  }
-  const thread = await lockThread(tx, ctx.threadId);
-  if (!thread || thread.forumId !== ctx.forumId) return null;
-  const [post] = await tx
-    .select({
-      threadId: posts.threadId,
-      authorId: posts.authorId,
-      state: posts.state,
-      editedAt: posts.editedAt,
-      replyToPostId: posts.replyToPostId,
-    })
-    .from(posts)
-    .where(eq(posts.id, postId))
-    .for("update");
-  if (!post || post.threadId !== ctx.threadId || post.authorId !== ctx.authorId) return null;
-  if (apiSubject) {
-    if (!(await lockModerationAccess(tx, apiSubject, thread.forumId, "review"))) return null;
-  } else {
-    await lockForum(tx, thread.forumId);
-  }
-  return { post, hasStats };
-}
 
 type LockedReviewTarget = NonNullable<Awaited<ReturnType<typeof lockModerationTarget>>>;
 
@@ -304,29 +246,40 @@ async function runModerationAction(
 }
 
 type ApiReviewInput = {
-  decision: "approve" | "reject";
+  decision: ModerationAction;
   expectedEditedAt: string | null;
   reason?: string;
 };
-type ApiReviewData = { postId: number; threadId: number; state: "visible" | "rejected" };
+type ApiReviewState = "visible" | "rejected" | "hidden" | "disabled";
+type ApiReviewData = { postId: number; threadId: number; state: ApiReviewState };
 type ApiReviewCode = "not_found" | "bad_state" | "conflict";
 type PreparedApiReview = PreparedModerationWrite<ApiReviewData, ApiReviewCode>;
 
-/** 事务外鉴权；锁定只确认目标范围，审核前置条件留到无回放的实际执行阶段。 */
+/**
+ * 事务外鉴权；锁定只确认目标范围，审核前置条件（状态、版本）留到无回放的实际执行阶段。
+ * 四态 decision 全部经 runModerationAction 同一套 MODERATION_ACTIONS（状态机、content_reviews、
+ * outbox 与后台一致）；hide/disable 与后台同口径要求理由（trim 后 1–255），在事务外先拒。
+ */
 export async function prepareApiReview(
   subject: Subject,
   postId: number,
   input: ApiReviewInput,
   actor: ConfigActor,
   trace: ModerationApiTrace,
-): Promise<PreparedApiReview | ModerationWriteDenial<"not_found">> {
+): Promise<
+  PreparedApiReview | ModerationWriteDenial<"not_found" | "reason_required" | "reason_too_long">
+> {
   const notFound = { ok: false as const, code: "not_found" as const, message: "帖子不存在" };
   if (subject.userId === null) return notFound;
   const operatorId = subject.userId;
   const ctx = await loadPostContext(postId);
   if (!ctx || !(await canModerate(subject, ctx.forumId))) return notFound;
   const { decision, expectedEditedAt } = input;
-  const note = decision === "reject" ? (input.reason?.trim() ?? "") : "";
+  if (decision === "hide" || decision === "disable") {
+    const reasonCheck = checkReason(input.reason ?? "");
+    if (!reasonCheck.ok) return reasonCheck;
+  }
+  const note = decision === "approve" ? "" : (input.reason?.trim() ?? "");
   return {
     ok: true,
     async lock(tx) {
@@ -354,7 +307,7 @@ export async function prepareApiReview(
             data: {
               postId,
               threadId: result.threadId,
-              state: decision === "approve" ? "visible" : "rejected",
+              state: MODERATION_ACTIONS[decision].to,
             },
             afterCommit: result.afterCommit,
           };

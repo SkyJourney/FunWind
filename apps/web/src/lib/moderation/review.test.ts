@@ -381,6 +381,47 @@ describe("管理 API 审核事务适配器", () => {
     expectNoWrite();
   });
 
+  it.each(["hide", "disable"] as const)(
+    "%s 在事务外先拒空白与超长理由，255 字边界允许",
+    async (decision) => {
+      limit.mockResolvedValue([{ ...context, postState: "visible" }]);
+      const blank = await prepareApiReview(
+        operator,
+        context.postId,
+        { decision, expectedEditedAt: null, reason: "  " },
+        apiActor,
+        trace,
+      );
+      expect(blank).toMatchObject({ ok: false, code: "reason_required" });
+      const long = await prepareApiReview(
+        operator,
+        context.postId,
+        { decision, expectedEditedAt: null, reason: "字".repeat(256) },
+        apiActor,
+        trace,
+      );
+      expect(long).toMatchObject({ ok: false, code: "reason_too_long" });
+      expectNoWrite();
+      const prepared = await prepareApiReview(
+        operator,
+        context.postId,
+        { decision, expectedEditedAt: null, reason: ` ${"字".repeat(255)} ` },
+        apiActor,
+        trace,
+      );
+      if (!prepared.ok) throw new Error(prepared.code);
+      const locked = await prepared.lock(tx as unknown as DbTx);
+      if (!locked.ok) throw new Error(locked.code);
+      const execution = await locked.execute();
+      if (!execution.ok) throw new Error(execution.code);
+      expect(execution.data).toEqual({
+        postId: 3,
+        threadId: 5,
+        state: decision === "hide" ? "hidden" : "disabled",
+      });
+    },
+  );
+
   it("使用调用方事务和原事件快派；快派错误留给提交后调用方处理", async () => {
     const prepared = await prepare();
     const locked = await prepared.lock(tx as unknown as DbTx);

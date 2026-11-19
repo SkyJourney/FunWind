@@ -51,7 +51,8 @@
 | [M19](milestones/M19-admin-console-reorg.md)    | **后台管理重塑**（按功能重塑 IA：review 并入 contents、品牌池 logo+hero 合一「品牌素材」、站点框架拆入站点配置、节日装扮归位运营排期、users/[uid] 三签；菜单 6 组 24 项 + 反向守卫制度化 + title/label 拉齐；列表统一分页库（默认 20/档位 10·20·50·100）+ 密度切换 + 日期范围/关键词/targetType 筛选扩展；Flash 键名全面统一 `?ok/?err` + 手写回显清账 + UserPicker 搜索化 + 死码清理） | 跨模块（管理后台）             | 四·运营与演进 | ✅ 已收口部署（2026-11-17：PR #18 CI 双作业绿（verify 9m36s / e2e 17m16s）合并 main `d67cd470`；生产镜像 `funwind-web:20261117-d67cd470` 部署公测，容器 healthy、健康拨测 db/storage true、后台入口 307→login 与旧路由跳转核对通过；真机清单留观察期） |
 | [M20](milestones/M20-admin-api-tokens.md)       | **管理 Access Token 与管理 REST API v1**（admin_api_tokens 表 + `Authorization: Bearer` 守卫 + 撤权联动吊销（仿封禁删会话）+ 统一响应信封/错误码注册表 + `/api/manage/**` v1 读端点（9 个）+ token/sessions/email_tokens 清理 cron；M19 移交清账三项（死权限点/兼容键搬迁/配置键 UI）；分层纪律「入口薄、Service 厚」贯穿 API 与 M21） | 管理面/平台                    | 四·运营与演进 | ✅ 已收口部署（2026-11-18：PR #19 CI 双作业绿（verify 10m30s / e2e 17m30s + 收敛后重跑第二轮同绿）合并 main `f42c1fe2`；站长验收通过（含两条验收意见落地：CopyCode 快速复制 + 后台表格样式组件收敛——users/authz-forum/ops 台账迁移唯一 AdminDataTable，emojis 编辑网格 token 对齐）；生产镜像 `funwind-web:20261118-f42c1fe2` 部署，容器 healthy、调度器 6 任务含 api-tokens.cleanup、db:verify 21 项全绿（61 表 + 词表收敛 24 + 越界授权 15 行清除）、公网拨测 /admin/api-tokens 307 与 /api/manage/whoami 401 JSON 语义正确；回滚点 `20261117-d67cd470`） |
 | [M20.1](milestones/M20.1-manage-api-docs.md)    | **管理 API 在线文档页**（M20 增补：管理员可见 `/docs/rest-api`；总述/鉴权/错误码/接口契约；分域锚点导航和移动端抽屉；Markdown 渲染源 `lib/manage/api-docs-md*.ts`；API 令牌页底部入口） | 管理面/平台 | 四·运营与演进 | ✅ 已收口部署（2026-11-18，镜像 `funwind-web:20261118-f162a30`） |
-| [M20.2](milestones/M20.2-manage-api-writes.md)  | **管理 REST API 权限矩阵与首批写能力**（按域选禁止/只读/读写；授权快照不自动扩权；旧令牌保留原九读；单条审核与主题锁定/解锁；后台、REST 门禁和在线文档统一权限定义） | 管理面/平台 | 四·运营与演进 | 🟡 实现及通知整改完成，本地 `verify:all`、生产 E2E 543/543、开发 8/8、隔离同库退版通过；待 CI 与发版确认，写入口保持关闭 |
+| [M20.2](milestones/M20.2-manage-api-writes.md)  | **管理 REST API 权限矩阵与首批写能力**（按域选禁止/只读/读写；授权快照不自动扩权；旧令牌保留原九读；单条审核与主题锁定/解锁；后台、REST 门禁和在线文档统一权限定义） | 管理面/平台 | 四·运营与演进 | ✅ 已收口部署（2026-11-19：PR #22/#23 CI 双绿合并 `2c83e85`/`8efa5e1a`；生产镜像 `funwind-web:20261119-2c83e85` 上线、迁移 0032–0035 应用、db:verify 26 项绿；通知防重（站内凭证+外送占位）与矩阵化隔离验收（110 项状态断言）随批交付；REST 写入口经隔离两轮验收（启写 32/停写 1）后仍保持关闭，启写另拍板） |
+| [M20.3](milestones/M20.3-manage-api-coverage.md)  | **管理 REST API 控制面全覆盖**（端点 11→约 50：补全内容治理、举报、用户治理写、公告/排期/邀请码、版块/投票/私信/徽章/积分/表情、角色授权/站点配置/运维/主题；T1–T4 风险分层，高危域最后解锁；文件上传类与跨服务执行明确不进；矩阵与停写验收随 CI 常态回归） | 管理面/平台 | 四·运营与演进 | 📋 方案已确认，待工程开工（2026-11-19） |
 | [M21](milestones/M21-admin-mcp.md)              | **管理 MCP**（本地 stdio + env 注入 Access Token；只封装已发布的 `/api/manage/**`；建议读工具起步，写工具逐项确认；不做远程暴露、不绕过 API；排在 M20.2 后） | 管理面/平台 | 四·运营与演进 | ⬜ 已立项（大纲） |
 | [M22](milestones/M22-rss-feeds.md)              | **RSS/Atom 订阅输出**（`/feeds/latest` + `/feeds/forum/[fid]`，游客可读红线（restricted 版块零泄露）+ RSS 2.0/Atom 双格式 + ETag 缓存 + `<link rel="alternate">` 发现；独立小里程碑可插队） | 内容触达                       | 四·运营与演进 | ⬜ 已立项（大纲） |
 
@@ -67,13 +68,15 @@ M13 ─┬─ M14（运维任务管线）
      └─ M15（统一动效管线）
 
 M19（后台管理重塑）─ M20（管理 API + Access Token）─┬─ M20.1（在线文档，交付时同步）
-                                                    └─ M20.2（权限矩阵 + REST 写）─ M21（管理 MCP）
+                                                    └─ M20.2（权限矩阵 + REST 写）─ M20.3（控制面全覆盖）─ M21（管理 MCP）
 M22（RSS/Atom）独立可插队
 ```
 
 > 2026-11-16 原编排：**M19 → M20 → M21**，M22 随时插队。
 > 2026-11-18 更新：交付顺序为 **M19 → M20 → M20.1 → M20.2 → M21**。M20.2 硬依赖 M20，M20.1 是文档同步面而非运行时依赖；
-> M21 消费已发布的 REST，写工具不随 REST 端点自动开放。M22 仍可独立插队；M21/M22 开工前须细化各自大纲并确认决策项。
+> M21 消费已发布的 REST，写工具不随 REST 端点自动开放。
+> 2026-11-19 更新：插入 **M20.3（控制面全覆盖）**——把管理 REST 扩到约 50 端点后再进 M21，MCP 直接消费完整契约；
+> T1–T4 风险分层交付，高危域（roles/settings/ops/themes）最后解锁。M22 仍可独立插队。
 
 > M14（运维任务管线）与 M15（统一动效管线）相互独立，顺序由站长定（2026-11-09 编排：建议 M14 先行）；
 > M14 建议在 M13 上线门禁（备份恢复演练签字）收口后开工，M15 无此约束。上线后立项的里程碑采用

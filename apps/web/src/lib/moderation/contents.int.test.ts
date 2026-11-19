@@ -10,16 +10,19 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { assignUserRole, createCustomRole, grantRolePermission } from "@/lib/authz/admin";
 import { invalidateAuthzSnapshot } from "@/lib/authz/snapshot";
 import { loadSubject } from "@/lib/authz/subject";
+import type { Subject } from "@/lib/authz/types";
 import { POINTS_TX_OPTIONS } from "@/lib/points/retry";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
 import {
   listContentsPage,
   loadContentDetail,
+  prepareApiThreadFlags,
   prepareApiThreadLock,
   setThreadFlags,
 } from "./contents";
 
 let tdb: TempDb;
+let admin: Subject;
 const db = () => getWebDb();
 const REVIEW_FORUM = 906; // seed 的 review_policy=all 版块（demo_admin 有 site.admin，作用域不受限）
 
@@ -53,6 +56,7 @@ async function seedThread(opts: { state: string; title: string }) {
 
 beforeAll(async () => {
   tdb = await setupTempDb();
+  admin = await loadSubject(DEMO.admin);
 });
 
 afterAll(async () => {
@@ -426,5 +430,141 @@ describe.skipIf(skipDb)("管理 API 锁帖与内容版本", () => {
       detail: { kind: "thread", firstPost: { editedAt: null } },
     });
     if (result.ok) expect(result.detail).not.toHaveProperty("editedAt");
+  });
+});
+
+describe.skipIf(skipDb)("管理 API 主题旗标（prepareApiThreadFlags）", () => {
+  const actor = { userId: DEMO.admin, via: "api" as const, ip: null };
+  const trace = { requestId: "flags-integration", tokenSuffix: "tail0006" };
+
+  /** 手动串联 prepare → lock → execute；prepare/lock 阶段的拒绝原样返回供断言 */
+  async function runFlags(
+    threadId: number,
+    input: { featured?: boolean; pinLevel?: number },
+    subject = admin,
+  ) {
+    const prepared = await prepareApiThreadFlags(subject, threadId, input, actor, trace);
+    if (!prepared.ok) return prepared;
+    return db().transaction(async (tx) => {
+      const locked = await prepared.lock(tx);
+      if (!locked.ok) return locked;
+      return locked.execute();
+    }, POINTS_TX_OPTIONS);
+  }
+
+  const flagAudits = (threadId: number) =>
+    db()
+      .select()
+      .from(auditLog)
+      .where(
+        and(eq(auditLog.action, "admin.thread.flags"), eq(auditLog.targetId, String(threadId))),
+      )
+      .orderBy(asc(auditLog.id));
+
+  it("featured 变更留痕并回显；同值 changed:false 零审计；组合变更 before/after 双键", async () => {
+    const { threadId } = await seedThread({ state: "visible", title: "旗标 API 主题" });
+
+    const first = await runFlags(threadId, { featured: true });
+    expect(first).toEqual({ ok: true, data: { threadId, changed: true, featured: true } });
+    const [row] = await db()
+      .select({ featured: threads.isFeatured, pin: threads.pinLevel })
+      .from(threads)
+      .where(eq(threads.id, threadId));
+    expect(row).toEqual({ featured: true, pin: 0 });
+    expect(await flagAudits(threadId)).toHaveLength(1);
+    expect((await flagAudits(threadId))[0]).toMatchObject({
+      actorId: DEMO.admin,
+      beforeJson: { isFeatured: false },
+      afterJson: {
+        isFeatured: true,
+        via: "api",
+        requestId: trace.requestId,
+        tokenSuffix: trace.tokenSuffix,
+      },
+    });
+
+    // 同值：幂等回执 changed:false，且零新增审计
+    expect(await runFlags(threadId, { featured: true })).toEqual({
+      ok: true,
+      data: { threadId, changed: false, featured: true },
+    });
+    expect(await flagAudits(threadId)).toHaveLength(1);
+
+    // 组合：featured + pinLevel（site.admin 可到 3），data 回显两键，before 记两键旧值
+    expect(await runFlags(threadId, { featured: false, pinLevel: 3 })).toEqual({
+      ok: true,
+      data: { threadId, changed: true, featured: false, pinLevel: 3 },
+    });
+    expect(await flagAudits(threadId)).toHaveLength(2);
+    expect((await flagAudits(threadId))[1]).toMatchObject({
+      beforeJson: { isFeatured: true, pinLevel: 0 },
+      afterJson: { isFeatured: false, pinLevel: 3, via: "api", requestId: trace.requestId },
+    });
+
+    // pinLevel 同值同样零审计
+    expect(await runFlags(threadId, { pinLevel: 3 })).toEqual({
+      ok: true,
+      data: { threadId, changed: false, pinLevel: 3 },
+    });
+    expect(await flagAudits(threadId)).toHaveLength(2);
+    const [after] = await db()
+      .select({ featured: threads.isFeatured, pin: threads.pinLevel })
+      .from(threads)
+      .where(eq(threads.id, threadId));
+    expect(after).toEqual({ featured: false, pin: 3 });
+  });
+
+  it("输入校验：空输入 bad_flags；pinLevel 非 1–3 整数 bad_pin；越权与不存在同型 not_found", async () => {
+    const { threadId } = await seedThread({ state: "visible", title: "旗标输入校验" });
+    expect(await runFlags(threadId, {})).toMatchObject({ ok: false, code: "bad_flags" });
+    for (const pinLevel of [0, 4, 1.5, -1]) {
+      expect(await runFlags(threadId, { pinLevel })).toMatchObject({ ok: false, code: "bad_pin" });
+    }
+    expect(await flagAudits(threadId)).toHaveLength(0);
+    // 非版主与不存在同型（不泄露存在性）；游客同型
+    const outsider = await loadSubject(DEMO.team);
+    expect(await runFlags(threadId, { featured: true }, outsider)).toMatchObject({
+      ok: false,
+      code: "not_found",
+    });
+    expect(await runFlags(threadId, { featured: true }, { ...admin, userId: null })).toMatchObject({
+      ok: false,
+      code: "not_found",
+    });
+    expect(await runFlags(99_999_999, { featured: true })).toMatchObject({
+      ok: false,
+      code: "not_found",
+    });
+  });
+
+  it("版主置顶上限 1：超限 bad_pin，版块级置顶放行", async () => {
+    const { threadId } = await seedThread({ state: "visible", title: "旗标版主上限" });
+    const roleKey = "flags-api-moderator";
+    const adminActor = { userId: DEMO.admin, via: "admin" as const, ip: null };
+    await createCustomRole(adminActor, roleKey, "旗标版主", "");
+    await grantRolePermission(adminActor, roleKey, "forum.moderate", REVIEW_FORUM);
+    await assignUserRole(adminActor, DEMO.member, roleKey, 0, null, "旗标 API 版主上限测试");
+    invalidateAuthzSnapshot();
+    try {
+      const moderator = await loadSubject(DEMO.member);
+      expect(await runFlags(threadId, { pinLevel: 2 }, moderator)).toMatchObject({
+        ok: false,
+        code: "bad_pin",
+      });
+      expect(await runFlags(threadId, { pinLevel: 1 }, moderator)).toEqual({
+        ok: true,
+        data: { threadId, changed: true, pinLevel: 1 },
+      });
+      const [row] = await db()
+        .select({ pin: threads.pinLevel })
+        .from(threads)
+        .where(eq(threads.id, threadId));
+      expect(row.pin).toBe(1);
+    } finally {
+      await db()
+        .delete(userRoles)
+        .where(and(eq(userRoles.userId, DEMO.member), eq(userRoles.roleKey, roleKey)));
+      invalidateAuthzSnapshot();
+    }
   });
 });

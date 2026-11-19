@@ -1,14 +1,20 @@
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
-import { forums, getWebDb, posts, threads, users } from "@funwind/db";
+import { eq } from "drizzle-orm";
+import { forums, getWebDb, posts, threads, userStats } from "@funwind/db";
 import { writeAudit, type ConfigActor, type DbTx } from "@/lib/audit";
-import { publicUsername } from "@/lib/identity-expr";
-import { pageBounds } from "@/lib/paging";
 import { checkPermission, getModeratedForumIds } from "@/lib/authz/service";
 import { loadFreshAuthzSnapshot } from "@/lib/authz/snapshot";
 import { loadSubject, loadSubjectFrom } from "@/lib/authz/subject";
 import type { AuthzSnapshot, Subject } from "@/lib/authz/types";
+import {
+  dispatchOutboxRows,
+  enqueueEventInTx,
+  sweepPending,
+  type EnqueuedEvent,
+} from "@/lib/events/outbox";
 import { forumSelectCols } from "@/lib/forums/select";
-import { lockThread } from "@/lib/posting/locks";
+import { lockUserStats } from "@/lib/locks";
+import { lockForum, lockThread } from "@/lib/posting/locks";
+import { executeRestoreInTx } from "@/lib/posting/mutate";
 
 /**
  * 内容管理查询（M9.5 §9.2-A；M19 吸收审核队列）：后台跨主题/回帖的**定位**能力——
@@ -35,163 +41,6 @@ export async function resolveContentScope(subject: Subject): Promise<ContentScop
     accessible,
     scopeForumIds: isSiteAdmin.allowed || hasRecycle.allowed ? null : moderated,
   };
-}
-
-export type ContentKind = "thread" | "reply";
-export type ContentStateFilter =
-  "all" | "visible" | "pending" | "rejected" | "hidden" | "deleted" | "disabled";
-
-export type ContentListFilters = {
-  kind: ContentKind;
-  q?: string;
-  forumId?: number;
-  state: ContentStateFilter;
-  page: number;
-  perPage?: number;
-  /** 版主所辖版块（空数组 = 无权限）；null = 全站视角（admin.recycle / site.admin） */
-  scopeForumIds: number[] | null;
-  /**
-   * 排序语义：默认 recent（最新在前，倒序）；待审核队列传 "queue"——按提交时间正序（先到先审，
-   * M19 自 review 队列合并而来）。
-   */
-  order?: "recent" | "queue";
-};
-
-export interface ContentListItem {
-  postId: number;
-  threadId: number;
-  forumId: number;
-  forumName: string;
-  title: string;
-  /** 回帖才有：正文前 80 字 */
-  excerpt: string | null;
-  authorId: number;
-  authorName: string | null;
-  /** 作者是否被封禁（M9.5 §9.2-E：后台队列加徽标，公开页维持无标记） */
-  authorBanned: boolean;
-  state: string;
-  isThread: boolean;
-  createdAt: string;
-  replyCount: number | null;
-  isLocked: boolean | null;
-  isFeatured: boolean | null;
-  pinLevel: number | null;
-}
-
-/** 内容管理列表（分页 + 定位筛选） */
-export async function listContentsPage(
-  filters: ContentListFilters,
-): Promise<{ items: ContentListItem[]; total: number; page: number; totalPages: number }> {
-  const perPage = filters.perPage ?? 20;
-  const conds = [];
-
-  // 主题：threads.state；回帖：posts.state
-  const stateCol = filters.kind === "thread" ? threads.state : posts.state;
-  if (filters.state !== "all") conds.push(eq(stateCol, filters.state as never));
-  if (filters.forumId) conds.push(eq(threads.forumId, filters.forumId));
-  if (filters.kind === "reply") conds.push(sql`${posts.id} <> ${threads.firstPostId}`);
-  if (filters.scopeForumIds) {
-    if (filters.scopeForumIds.length === 0) return { items: [], total: 0, page: 1, totalPages: 1 };
-    conds.push(inArray(threads.forumId, filters.scopeForumIds));
-  }
-  const q = filters.q?.trim();
-  if (q) {
-    // 主题按标题搜；回帖按正文搜（作者名也搜，便于按人定位）
-    conds.push(
-      filters.kind === "thread"
-        ? sql`${threads.title} LIKE ${`%${q}%`}`
-        : sql`(${posts.bodyMd} LIKE ${`%${q}%`} OR ${threads.title} LIKE ${`%${q}%`})`,
-    );
-  }
-  const where = conds.length > 0 ? and(...conds) : undefined;
-
-  // 主查询：主题走 threads join posts(首帖)；回帖走 posts join threads
-  const base = getWebDb();
-  const listSelect =
-    filters.kind === "thread"
-      ? {
-          postId: sql<number>`threads.first_post_id`,
-          threadId: threads.id,
-          forumId: threads.forumId,
-          forumName: forums.name,
-          title: threads.title,
-          excerpt: sql<string | null>`NULL`,
-          authorId: threads.authorId,
-          authorName: publicUsername(users.username, users.state, users.id),
-          authorBanned:
-            sql<boolean>`EXISTS (SELECT 1 FROM user_restrictions ur WHERE ur.user_id = ${threads.authorId}
-              AND ur.kind = 'ban' AND ur.scope_id = 0 AND ur.starts_at <= NOW()
-              AND (ur.ends_at IS NULL OR ur.ends_at > NOW()))`.mapWith(Boolean),
-          state: threads.state,
-          isThread: sql<boolean>`TRUE`.mapWith(Boolean),
-          createdAt: threads.createdAt,
-          replyCount: threads.replyCount,
-          isLocked: threads.isLocked,
-          isFeatured: threads.isFeatured,
-          pinLevel: threads.pinLevel,
-        }
-      : {
-          postId: posts.id,
-          threadId: threads.id,
-          forumId: threads.forumId,
-          forumName: forums.name,
-          title: threads.title,
-          excerpt: sql<string | null>`SUBSTRING(${posts.bodyMd}, 1, 80)`,
-          authorId: posts.authorId,
-          authorName: publicUsername(users.username, users.state, users.id),
-          authorBanned:
-            sql<boolean>`EXISTS (SELECT 1 FROM user_restrictions ur WHERE ur.user_id = ${posts.authorId}
-              AND ur.kind = 'ban' AND ur.scope_id = 0 AND ur.starts_at <= NOW()
-              AND (ur.ends_at IS NULL OR ur.ends_at > NOW()))`.mapWith(Boolean),
-          state: posts.state,
-          isThread: sql<boolean>`FALSE`.mapWith(Boolean),
-          createdAt: posts.createdAt,
-          replyCount: sql<number | null>`NULL`,
-          isLocked: sql<boolean | null>`NULL`,
-          isFeatured: sql<boolean | null>`NULL`,
-          pinLevel: sql<number | null>`NULL`,
-        };
-
-  // 主题分支：以 threads 为主表（不 join threads——自连接会触发「Not unique table/alias」）；
-  // 回帖分支：以 posts 为主表 join threads 取所属主题。
-  const countRow =
-    filters.kind === "thread"
-      ? await base
-          .select({ total: sql<number>`COUNT(*)` })
-          .from(threads)
-          .where(where)
-      : await base
-          .select({ total: sql<number>`COUNT(*)` })
-          .from(posts)
-          .innerJoin(threads, eq(threads.id, posts.threadId))
-          .where(where);
-  const total = Number(countRow[0]?.total ?? 0);
-  const { page, totalPages, offset } = pageBounds(total, filters.page, perPage);
-  // 队列语义（state=pending）按提交时间正序（先到先审）；其余保持最新在前。
-  const primary = filters.order === "queue" ? asc : desc;
-  const rows =
-    filters.kind === "thread"
-      ? await base
-          .select(listSelect)
-          .from(threads)
-          .innerJoin(forums, eq(forums.id, threads.forumId))
-          .leftJoin(users, eq(users.id, threads.authorId))
-          .where(where)
-          .orderBy(primary(threads.createdAt), primary(threads.id))
-          .limit(perPage)
-          .offset(offset)
-      : await base
-          .select(listSelect)
-          .from(posts)
-          .innerJoin(threads, eq(threads.id, posts.threadId))
-          .innerJoin(forums, eq(forums.id, threads.forumId))
-          .leftJoin(users, eq(users.id, posts.authorId))
-          .where(where)
-          .orderBy(primary(posts.createdAt), primary(posts.id))
-          .limit(perPage)
-          .offset(offset);
-
-  return { items: rows, total, page, totalPages };
 }
 
 /**
@@ -244,6 +93,71 @@ export async function lockModerationAccess(
   return (await checkPermission(current, "forum.moderate", { forumId }, snapshot)).allowed;
 }
 
+// ---------- 帖子治理目标（M20：prepareApiReview / prepareApiRestore 共用的探测与锁序） ----------
+
+/** 事务外的帖子定位探测：只读状态、作者、主题与版块，供权限预判与锁序使用 */
+export async function loadPostContext(postId: number) {
+  const [row] = await getWebDb()
+    .select({
+      postState: posts.state,
+      authorId: posts.authorId,
+      threadId: threads.id,
+      forumId: threads.forumId,
+    })
+    .from(posts)
+    .innerJoin(threads, eq(threads.id, posts.threadId))
+    .where(eq(posts.id, postId))
+    .limit(1);
+  return row ?? null;
+}
+
+export type PostContext = NonNullable<Awaited<ReturnType<typeof loadPostContext>>>;
+
+/**
+ * 按原锁序稳定作者、主题、帖子、版块（user_stats → thread → post → forum）；
+ * apiSubject 缺省为后台路径（补统计行、排他锁版块），传入时为 API 路径（不补统计行、
+ * 经 lockModerationAccess 复验最新主体权限）。回放可以在此后结束，不判断状态或版本。
+ */
+export async function lockModerationTarget(
+  tx: DbTx,
+  postId: number,
+  ctx: PostContext,
+  apiSubject?: Subject,
+) {
+  let hasStats = true;
+  if (apiSubject) {
+    // API 锁阶段不写数据；不能在持主题锁后再尝试补统计行。
+    const [stats] = await tx
+      .select({ userId: userStats.userId })
+      .from(userStats)
+      .where(eq(userStats.userId, ctx.authorId))
+      .for("update");
+    hasStats = !!stats;
+  } else {
+    await lockUserStats(tx, ctx.authorId);
+  }
+  const thread = await lockThread(tx, ctx.threadId);
+  if (!thread || thread.forumId !== ctx.forumId) return null;
+  const [post] = await tx
+    .select({
+      threadId: posts.threadId,
+      authorId: posts.authorId,
+      state: posts.state,
+      editedAt: posts.editedAt,
+      replyToPostId: posts.replyToPostId,
+    })
+    .from(posts)
+    .where(eq(posts.id, postId))
+    .for("update");
+  if (!post || post.threadId !== ctx.threadId || post.authorId !== ctx.authorId) return null;
+  if (apiSubject) {
+    if (!(await lockModerationAccess(tx, apiSubject, thread.forumId, "review"))) return null;
+  } else {
+    await lockForum(tx, thread.forumId);
+  }
+  return { post, hasStats };
+}
+
 export type ThreadFlagsResult =
   { ok: true } | { ok: false; code: "not_found" | "forbidden" | "bad_pin"; message: string };
 
@@ -281,7 +195,7 @@ async function lockThreadFlagsTarget(tx: DbTx, threadId: number, forumId: number
   return thread?.forumId === forumId ? thread : null;
 }
 
-/** 两个入口共用锁内更新；仅 API 同值不写入，原后台保留修改与审计语义。 */
+/** 两个入口共用锁内更新；仅 API 同值不写入（覆盖本次请求携带的全部旗标），原后台保留修改与审计语义。 */
 async function applyThreadFlags(
   tx: DbTx,
   thread: NonNullable<Awaited<ReturnType<typeof lockThreadFlagsTarget>>>,
@@ -289,14 +203,28 @@ async function applyThreadFlags(
   actor: ConfigActor,
   trace?: ModerationApiTrace,
 ): Promise<boolean> {
-  if (trace && patch.isLocked === thread.isLocked) return false;
+  // API 幂等口径：请求携带的每一项都与现值相同 → 零写入零审计（后台无 trace，维持原样照写）
+  const unchanged =
+    (patch.isLocked === undefined || patch.isLocked === thread.isLocked) &&
+    (patch.isFeatured === undefined || patch.isFeatured === thread.isFeatured) &&
+    (patch.pinLevel === undefined || patch.pinLevel === thread.pinLevel);
+  if (trace && unchanged) return false;
   await tx.update(threads).set(patch).where(eq(threads.id, thread.id));
   await writeAudit(tx, {
     actorId: actor.userId,
     action: "admin.thread.flags",
     targetType: "thread",
     targetId: thread.id,
-    ...(trace ? { before: { isLocked: thread.isLocked } } : {}),
+    // before 只记本次请求携带的旗标旧值（与 after 的 patch 键一一对应）
+    ...(trace
+      ? {
+          before: {
+            ...(patch.isLocked !== undefined ? { isLocked: thread.isLocked } : {}),
+            ...(patch.isFeatured !== undefined ? { isFeatured: thread.isFeatured } : {}),
+            ...(patch.pinLevel !== undefined ? { pinLevel: thread.pinLevel } : {}),
+          },
+        }
+      : {}),
     after: trace
       ? { ...patch, via: "api", requestId: trace.requestId, tokenSuffix: trace.tokenSuffix }
       : { ...patch, via: actor.via },
@@ -368,173 +296,179 @@ export async function prepareApiThreadLock(
   };
 }
 
-// ---------- 内容详情（M20：/api/manage/contents/[id] 的 Service；此前无导出的行级读取） ----------
-
-export type ThreadDetail = {
-  kind: "thread";
-  threadId: number;
-  forumId: number;
-  forumName: string;
-  title: string;
-  state: string;
-  authorId: number;
-  authorName: string | null;
-  createdAt: string;
-  replyCount: number;
-  isLocked: boolean;
-  isFeatured: boolean;
-  pinLevel: number;
-  /** 首帖（正文载体） */
-  firstPost: {
-    postId: number;
-    floor: number;
-    state: string;
-    bodyMd: string;
-    createdAt: string;
-    editedAt: string | null;
-  };
-};
-
-export type ReplyDetail = {
-  kind: "reply";
-  postId: number;
-  floor: number;
-  state: string;
-  bodyMd: string;
-  createdAt: string;
-  editedAt: string | null;
-  authorId: number;
-  authorName: string | null;
-  threadId: number;
-  threadTitle: string;
-  threadState: string;
-  forumId: number;
-  forumName: string;
-};
-
-export type ContentDetail = ThreadDetail | ReplyDetail;
-
-export type ContentDetailResult =
-  | { ok: true; detail: ContentDetail }
-  // 越权（scope 外）与不存在同型 not_found，调用方一律转 404（存在性不泄露）
-  | { ok: false; code: "not_found" | "forbidden" };
+type ApiThreadFlagsInput = { featured?: boolean; pinLevel?: number };
+/** data 按请求携带的键回显：featured/pinLevel 只有在请求里出现时才出现在响应中 */
+type ApiThreadFlagsData =
+  | { threadId: number; changed: boolean }
+  | { threadId: number; changed: boolean; featured: boolean }
+  | { threadId: number; changed: boolean; pinLevel: number }
+  | { threadId: number; changed: boolean; featured: boolean; pinLevel: number };
+type PreparedApiThreadFlags = PreparedModerationWrite<ApiThreadFlagsData, "not_found">;
 
 /**
- * 内容行级详情（管理 API 用；页面无需——行内链接直达公开页）。
- * scopeForumIds 语义与 listContentsPage 一致：null = 全站，空数组 = 一律拒绝。
+ * 主题精华 / 置顶级别（M20：PATCH /api/manage/threads/{id}/flags）。
+ * 输入校验在事务外（至少一项 → bad_flags；pinLevel 须整数 1–3 且不超过角色上限：版主 1、
+ * site.admin 3 → bad_pin）；锁内 lockThreadFlagsTarget + lockModerationAccess 复验归属与最新权限。
+ * 同值请求 changed:false 且不写审计（镜像 applyThreadFlags 的 API 幂等分支）。
  */
-export async function loadContentDetail(
-  kind: ContentKind,
-  id: number,
-  scopeForumIds: number[] | null,
-): Promise<ContentDetailResult> {
-  if (scopeForumIds !== null && scopeForumIds.length === 0) return { ok: false, code: "forbidden" };
-
-  if (kind === "thread") {
-    const [row] = await getWebDb()
-      .select({
-        threadId: threads.id,
-        forumId: threads.forumId,
-        forumName: forums.name,
-        title: threads.title,
-        state: threads.state,
-        authorId: threads.authorId,
-        authorName: publicUsername(users.username, users.state, users.id),
-        createdAt: threads.createdAt,
-        replyCount: threads.replyCount,
-        isLocked: threads.isLocked,
-        isFeatured: threads.isFeatured,
-        pinLevel: threads.pinLevel,
-        firstPostId: threads.firstPostId,
-        firstFloor: posts.floor,
-        firstPostState: posts.state,
-        bodyMd: posts.bodyMd,
-        firstPostCreatedAt: posts.createdAt,
-        firstPostEditedAt: posts.editedAt,
-      })
-      .from(threads)
-      .innerJoin(forums, eq(forums.id, threads.forumId))
-      .innerJoin(posts, eq(posts.id, threads.firstPostId))
-      .leftJoin(users, eq(users.id, threads.authorId))
-      .where(eq(threads.id, id))
-      .limit(1);
-    if (!row) return { ok: false, code: "not_found" };
-    if (scopeForumIds !== null && !scopeForumIds.includes(row.forumId)) {
-      return { ok: false, code: "forbidden" };
-    }
+export async function prepareApiThreadFlags(
+  subject: Subject,
+  threadId: number,
+  input: ApiThreadFlagsInput,
+  actor: ConfigActor,
+  trace: ModerationApiTrace,
+): Promise<PreparedApiThreadFlags | ModerationWriteDenial<"not_found" | "bad_flags" | "bad_pin">> {
+  const { featured, pinLevel } = input;
+  if (featured === undefined && pinLevel === undefined) {
+    return { ok: false as const, code: "bad_flags" as const, message: "至少提供一项要变更的旗标" };
+  }
+  if (pinLevel !== undefined && (!Number.isInteger(pinLevel) || pinLevel < 1 || pinLevel > 3)) {
+    return { ok: false as const, code: "bad_pin" as const, message: "置顶级别只能是 1–3 的整数" };
+  }
+  if (subject.userId === null) return threadNotFound;
+  // 事务外预授权（拿版块归属与 isSiteAdmin）；越权与不存在同型 not_found，不泄露存在性
+  const access = await authorizeThreadFlags(subject, threadId);
+  if (!access.ok) return threadNotFound;
+  const maxPin = access.isSiteAdmin ? 3 : 1;
+  if (pinLevel !== undefined && pinLevel > maxPin) {
     return {
-      ok: true,
-      detail: {
-        kind: "thread",
-        threadId: row.threadId,
-        forumId: row.forumId,
-        forumName: row.forumName,
-        title: row.title,
-        state: row.state,
-        authorId: row.authorId,
-        authorName: row.authorName,
-        createdAt: row.createdAt,
-        replyCount: row.replyCount,
-        isLocked: row.isLocked ?? false,
-        isFeatured: row.isFeatured ?? false,
-        pinLevel: row.pinLevel ?? 0,
-        firstPost: {
-          // firstPostId/bodyMd 列类型可空：innerJoin 逻辑上保证有行（db:verify 首帖指针完整性），
-          // 正文列历史数据可能为 NULL，详情 API 统一空串化
-          postId: row.firstPostId ?? 0,
-          floor: row.firstFloor,
-          state: row.firstPostState,
-          bodyMd: row.bodyMd ?? "",
-          createdAt: row.firstPostCreatedAt,
-          editedAt: row.firstPostEditedAt,
-        },
-      },
+      ok: false as const,
+      code: "bad_pin" as const,
+      message: `置顶级别超出权限（最高 ${maxPin}）`,
     };
   }
-
-  const [row] = await getWebDb()
-    .select({
-      postId: posts.id,
-      floor: posts.floor,
-      state: posts.state,
-      bodyMd: posts.bodyMd,
-      createdAt: posts.createdAt,
-      editedAt: posts.editedAt,
-      authorId: posts.authorId,
-      authorName: publicUsername(users.username, users.state, users.id),
-      threadId: threads.id,
-      threadTitle: threads.title,
-      threadState: threads.state,
-      forumId: threads.forumId,
-      forumName: forums.name,
-    })
-    .from(posts)
-    .innerJoin(threads, eq(threads.id, posts.threadId))
-    .innerJoin(forums, eq(forums.id, threads.forumId))
-    .leftJoin(users, eq(users.id, posts.authorId))
-    .where(eq(posts.id, id))
-    .limit(1);
-  if (!row) return { ok: false, code: "not_found" };
-  if (scopeForumIds !== null && !scopeForumIds.includes(row.forumId)) {
-    return { ok: false, code: "forbidden" };
-  }
+  const apiActor = { ...actor, userId: subject.userId };
+  const patch: ThreadFlagsPatch = {};
+  if (featured !== undefined) patch.isFeatured = featured;
+  if (pinLevel !== undefined) patch.pinLevel = pinLevel;
   return {
     ok: true,
-    detail: {
-      kind: "reply",
-      postId: row.postId,
-      floor: row.floor,
-      state: row.state,
-      bodyMd: row.bodyMd ?? "",
-      createdAt: row.createdAt,
-      editedAt: row.editedAt,
-      authorId: row.authorId,
-      authorName: row.authorName,
-      threadId: row.threadId,
-      threadTitle: row.threadTitle,
-      threadState: row.threadState,
-      forumId: row.forumId,
-      forumName: row.forumName,
+    async lock(tx) {
+      const thread = await lockThreadFlagsTarget(tx, threadId, access.forumId);
+      if (!thread || !(await lockModerationAccess(tx, subject, thread.forumId, "thread_flags"))) {
+        return threadNotFound;
+      }
+      return {
+        ok: true,
+        async execute() {
+          const changed = await applyThreadFlags(tx, thread, patch, apiActor, trace);
+          return {
+            ok: true,
+            data: {
+              threadId,
+              changed,
+              ...(featured !== undefined ? { featured } : {}),
+              ...(pinLevel !== undefined ? { pinLevel } : {}),
+            },
+          };
+        },
+      };
     },
   };
 }
+
+type ApiRestoreInput = { expectedEditedAt: string | null };
+type ApiRestoreData = { postId: number; threadId: number; state: "visible" };
+type ApiRestoreCode = "not_found" | "bad_state" | "conflict";
+type PreparedApiRestore = PreparedModerationWrite<ApiRestoreData, ApiRestoreCode>;
+
+/**
+ * 版主恢复已删内容（M20：POST /api/manage/posts/{id}/restore，deleted → visible）。
+ * 与 prepareApiReview 同一探测、锁序与锁内复验；状态机与版本口径在无回放的执行阶段判定：
+ * 仅 deleted 可恢复（hidden/disabled/pending → bad_state），expectedEditedAt 与锁内
+ * posts.editedAt 比对（null = 免版本），不一致 → conflict。计数与审计经 executeRestoreInTx
+ * 与后台 restorePost 完全同源；作者通知复用 content.moderated(restore) 事件，走事务性 outbox。
+ */
+export async function prepareApiRestore(
+  subject: Subject,
+  postId: number,
+  input: ApiRestoreInput,
+  actor: ConfigActor,
+  trace: ModerationApiTrace,
+): Promise<PreparedApiRestore | ModerationWriteDenial<"not_found">> {
+  const notFound = { ok: false as const, code: "not_found" as const, message: "帖子不存在" };
+  if (subject.userId === null) return notFound;
+  const operatorId = subject.userId;
+  const ctx = await loadPostContext(postId);
+  if (
+    !ctx ||
+    !(await checkPermission(subject, "forum.moderate", { forumId: ctx.forumId })).allowed
+  ) {
+    return notFound;
+  }
+  return {
+    ok: true,
+    async lock(tx) {
+      const target = await lockModerationTarget(tx, postId, ctx, subject);
+      if (!target) return notFound;
+      return {
+        ok: true,
+        async execute() {
+          const { post } = target;
+          // API 恢复比后台更严：只接受 deleted（hidden 的可见化是版主审核动作，不经此端点）
+          if (post.state !== "deleted") {
+            return {
+              ok: false as const,
+              code: "bad_state" as const,
+              message: `当前状态是 ${post.state}，只能恢复已删除的内容`,
+            };
+          }
+          if (post.editedAt !== input.expectedEditedAt) {
+            return {
+              ok: false as const,
+              code: "conflict" as const,
+              message: "内容已编辑，请刷新后再恢复",
+            };
+          }
+          if (!target.hasStats) {
+            throw new Error(`用户 ${post.authorId} 缺少统计行，拒绝迁移；请先 db:recount`);
+          }
+          const transition = await executeRestoreInTx(tx, postId, {
+            actorId: operatorId,
+            ip: actor.ip,
+            apiTrace: trace,
+          });
+          if (!transition.ok) {
+            return {
+              ok: false as const,
+              code:
+                transition.code === "not_found" ? ("not_found" as const) : ("bad_state" as const),
+              message: "状态迁移失败",
+            };
+          }
+          // 与后台恢复同一事件（消费者据此通知作者 content.restored）；API 走事务性 outbox，提交后快派
+          const enqueued: EnqueuedEvent[] = [
+            await enqueueEventInTx(
+              tx,
+              "content.moderated",
+              { postId, operatorId, action: "restore" },
+              { actorId: operatorId, source: "moderation" },
+            ),
+          ];
+          return {
+            ok: true as const,
+            data: { postId, threadId: transition.threadId, state: "visible" },
+            async afterCommit() {
+              await dispatchOutboxRows(enqueued);
+              await sweepPending();
+            },
+          };
+        },
+      };
+    },
+  };
+}
+
+// 只读查询已拆至 content-queries.ts（M20.3 棘轮拆分）；此处 re-export 维持既有 import 路径稳定。
+export {
+  type ContentKind,
+  type ContentStateFilter,
+  type ContentListFilters,
+  type ContentListItem,
+  listContentsPage,
+  type ThreadDetail,
+  type ReplyDetail,
+  type ContentDetail,
+  type ContentDetailResult,
+  loadContentDetail,
+} from "./content-queries";

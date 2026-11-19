@@ -18,6 +18,7 @@ import {
   posts,
   siteSettings,
   threads,
+  userStats,
 } from "@funwind/db";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import * as outbox from "@/lib/events/outbox";
@@ -40,9 +41,14 @@ import {
   prepareApiReview,
   rejectReview,
 } from "./review";
-import { listContentsPage, loadContentDetail, prepareApiThreadLock } from "./contents";
+import {
+  listContentsPage,
+  loadContentDetail,
+  prepareApiRestore,
+  prepareApiThreadLock,
+} from "./contents";
 import { createReply, createThread } from "@/lib/posting/service";
-import { editPost } from "@/lib/posting/mutate";
+import { deletePost, editPost } from "@/lib/posting/mutate";
 import { lockUserStats } from "@/lib/locks";
 import { POINTS_TX_OPTIONS } from "@/lib/points/retry";
 
@@ -908,5 +914,430 @@ describe.skipIf(skipDb)("审核动作（M9）", () => {
       ok: false,
       code: "forbidden",
     });
+  });
+});
+
+/**
+ * M20.3 新写端点的事务核心集成测试：hide / disable / restore 经 prepare → lock → execute
+ * 手动串联（不经 REST 与幂等层），与既有 approve/reject 同一套断言口径。
+ */
+describe.skipIf(skipDb)("管理 API 屏蔽、封禁与恢复", () => {
+  const apiActor = { ...ACTOR, via: "api" as const };
+  const trace = { requestId: "review-actions", tokenSuffix: "tail0003" };
+
+  /** 手动串联 prepare → lock → execute；prepare/lock 阶段的拒绝原样返回供断言 */
+  async function runPrepared(
+    prepared:
+      Awaited<ReturnType<typeof prepareApiReview>> | Awaited<ReturnType<typeof prepareApiRestore>>,
+  ) {
+    if (!prepared.ok) return prepared;
+    return db().transaction(async (tx) => {
+      const locked = await prepared.lock(tx);
+      if (!locked.ok) return locked;
+      return locked.execute();
+    }, POINTS_TX_OPTIONS);
+  }
+
+  async function runRestore(postId: number, expectedEditedAt: string | null, who: Subject = admin) {
+    return runPrepared(await prepareApiRestore(who, postId, { expectedEditedAt }, apiActor, trace));
+  }
+
+  const stateAuditsOf = (postId: number) =>
+    db()
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.targetType, "post"), eq(auditLog.targetId, String(postId))));
+
+  it("hide visible→hidden：审计带 via/requestId、理由 trim 落审计、不写 content_reviews；理由在事务外先拒", async () => {
+    const { threadId, postId } = await seedPendingThread();
+    await approveReview(admin, postId, ACTOR);
+
+    // 事务外理由校验（先于锁与状态机，零副作用）
+    expect(
+      await runPrepared(
+        await prepareApiReview(
+          admin,
+          postId,
+          { decision: "hide", expectedEditedAt: null },
+          apiActor,
+          trace,
+        ),
+      ),
+    ).toMatchObject({ ok: false, code: "reason_required" });
+    expect(
+      await prepareApiReview(
+        admin,
+        postId,
+        { decision: "hide", expectedEditedAt: null, reason: "字".repeat(256) },
+        apiActor,
+        trace,
+      ),
+    ).toMatchObject({ ok: false, code: "reason_too_long" });
+    expect(await stateAuditsOf(postId)).toHaveLength(1); // 只有此前 approve 的审计
+
+    const result = await runPrepared(
+      await prepareApiReview(
+        admin,
+        postId,
+        { decision: "hide", expectedEditedAt: null, reason: "  违规屏蔽  " },
+        apiActor,
+        trace,
+      ),
+    );
+    expect(result).toMatchObject({ ok: true, data: { postId, threadId, state: "hidden" } });
+    expect(await postState(postId)).toBe("hidden");
+    const [t] = await db()
+      .select({ state: threads.state })
+      .from(threads)
+      .where(eq(threads.id, threadId));
+    expect(t.state).toBe("hidden");
+
+    const [audit] = await db()
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.action, "post.state.hidden"), eq(auditLog.targetId, String(postId))));
+    expect(audit).toMatchObject({
+      actorId: DEMO.admin,
+      beforeJson: { state: "visible" },
+      afterJson: {
+        state: "hidden",
+        kind: "thread",
+        threadId,
+        reason: "违规屏蔽",
+        via: "api",
+        requestId: trace.requestId,
+        tokenSuffix: trace.tokenSuffix,
+      },
+    });
+    // hide 不写审核历史（决策行只属于 approve/reject/disable），approve 的那行保持唯一
+    const history = await listContentReviews(postId);
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({ decision: "approved" });
+  });
+
+  it("disable：pending→disabled 与 visible→disabled 均可，留痕进 content_reviews 与审计；重复封禁 bad_state", async () => {
+    const pending = await seedPendingThread();
+    const first = await runPrepared(
+      await prepareApiReview(
+        admin,
+        pending.postId,
+        { decision: "disable", expectedEditedAt: null, reason: "待审直接封禁" },
+        apiActor,
+        trace,
+      ),
+    );
+    expect(first).toMatchObject({
+      ok: true,
+      data: { postId: pending.postId, threadId: pending.threadId, state: "disabled" },
+    });
+    expect(await postState(pending.postId)).toBe("disabled");
+    const history = await listContentReviews(pending.postId);
+    expect(history[0]).toMatchObject({ decision: "disabled", note: "待审直接封禁" });
+    const [audit] = await db()
+      .select()
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.action, "post.state.disabled"),
+          eq(auditLog.targetId, String(pending.postId)),
+        ),
+      );
+    expect(audit).toMatchObject({
+      beforeJson: { state: "pending" },
+      afterJson: { state: "disabled", via: "api", requestId: trace.requestId },
+    });
+    // 已 disabled 再封禁 → 执行阶段 bad_state
+    expect(
+      await runPrepared(
+        await prepareApiReview(
+          admin,
+          pending.postId,
+          { decision: "disable", expectedEditedAt: null, reason: "再封" },
+          apiActor,
+          trace,
+        ),
+      ),
+    ).toMatchObject({ ok: false, code: "bad_state" });
+
+    const visible = await seedPendingThread();
+    await approveReview(admin, visible.postId, ACTOR);
+    const second = await runPrepared(
+      await prepareApiReview(
+        admin,
+        visible.postId,
+        { decision: "disable", expectedEditedAt: null, reason: "可见后封禁" },
+        apiActor,
+        trace,
+      ),
+    );
+    expect(second).toMatchObject({ ok: true, data: { state: "disabled" } });
+    expect(await postState(visible.postId)).toBe("disabled");
+  });
+
+  it.each(["approve", "reject", "hide", "disable"] as const)(
+    "$decision：错 expectedEditedAt 在执行阶段 conflict 且状态不变",
+    async (decision) => {
+      const { postId } = await seedPendingThread();
+      if (decision === "hide" || decision === "disable") await approveReview(admin, postId, ACTOR);
+      const visible = decision === "hide" || decision === "disable";
+      const result = await runPrepared(
+        await prepareApiReview(
+          admin,
+          postId,
+          {
+            decision,
+            expectedEditedAt: "2026-01-01 00:00:00",
+            ...(decision !== "approve" ? { reason: "理由" } : {}),
+          },
+          apiActor,
+          trace,
+        ),
+      );
+      expect(result).toMatchObject({ ok: false, code: "conflict" });
+      expect(await postState(postId)).toBe(visible ? "visible" : "pending");
+    },
+  );
+
+  it.each(["approve", "reject", "hide", "disable"] as const)(
+    "$decision：同 idempotencyKey 重放返回缓存数据，不重复写审计、审核历史与事件",
+    async (decision) => {
+      const { postId } = await seedPendingThread();
+      if (decision === "hide" || decision === "disable") await approveReview(admin, postId, ACTOR);
+      const input = {
+        decision,
+        expectedEditedAt: null,
+        ...(decision !== "approve" ? { reason: "幂等理由" } : {}),
+      };
+      const endpoints = {
+        approve: "posts.review",
+        reject: "posts.review",
+        hide: "posts.hide",
+        disable: "posts.disable",
+      } as const;
+      const identity = {
+        tokenId: "a".repeat(64),
+        endpoint: endpoints[decision],
+        idempotencyKey: `${decision}-same-key`,
+        requestId: trace.requestId,
+      };
+      const run = () =>
+        runIdempotentManageWrite(identity, postId, input, async (tx) => {
+          const prepared = await prepareApiReview(admin, postId, input, apiActor, trace);
+          if (!prepared.ok)
+            throw new ManageApiError(prepared.code === "not_found" ? "not_found" : "bad_request");
+          const locked = await prepared.lock(tx);
+          if (!locked.ok)
+            throw new ManageApiError(locked.code === "not_found" ? "not_found" : "bad_request");
+          return async () => {
+            const result = await locked.execute();
+            if (!result.ok) {
+              throw new ManageApiError(
+                result.code === "not_found"
+                  ? "not_found"
+                  : result.code === "conflict"
+                    ? "state_conflict"
+                    : "state_conflict",
+              );
+            }
+            return result;
+          };
+        });
+      const expectedState =
+        decision === "approve"
+          ? "visible"
+          : decision === "reject"
+            ? "rejected"
+            : decision === "hide"
+              ? "hidden"
+              : "disabled";
+      expect(await run()).toMatchObject({ postId, state: expectedState });
+
+      const auditsBefore = (await stateAuditsOf(postId)).filter((row) =>
+        row.action.startsWith("post.state."),
+      ).length;
+      const reviewsBefore = await listContentReviews(postId);
+      const eventsBefore = await outboxOf("content.moderated", { k: "postId", v: postId });
+
+      expect(await run()).toMatchObject({ postId, state: expectedState });
+      expect(
+        (await stateAuditsOf(postId)).filter((row) => row.action.startsWith("post.state.")).length,
+      ).toBe(auditsBefore);
+      expect(await listContentReviews(postId)).toEqual(reviewsBefore);
+      expect(await outboxOf("content.moderated", { k: "postId", v: postId })).toEqual(eventsBefore);
+    },
+  );
+
+  it("restore deleted→visible：计数恢复、审计带前后状态与 api 痕迹、事件提交后派发、不写 content_reviews", async () => {
+    const author = await loadSubject(DEMO.xiaoyi);
+    const host = await createThread(admin, {
+      forumId: REVIEW_FORUM,
+      title: "恢复宿主主题",
+      source: "宿主正文",
+    });
+    if (!host.ok) throw new Error(host.code);
+    const reply = await createReply(author, { threadId: host.threadId, source: "被误删的回复" });
+    if (!reply.ok) throw new Error(reply.code);
+    await approveReview(admin, host.postId, ACTOR); // 宿主可见，回帖计数才参与版块 post_count
+    await approveReview(admin, reply.postId, ACTOR);
+    const hostThreadId = host.threadId; // 提升的函数声明内不保留窄化，先落常量
+
+    async function counts() {
+      const [t] = await db()
+        .select({ rc: threads.replyCount })
+        .from(threads)
+        .where(eq(threads.id, hostThreadId));
+      const [f] = await db()
+        .select({ pc: forums.postCount })
+        .from(forums)
+        .where(eq(forums.id, REVIEW_FORUM));
+      const [u] = await db()
+        .select({ pc: userStats.postCount })
+        .from(userStats)
+        .where(eq(userStats.userId, DEMO.xiaoyi));
+      return { rc: Number(t.rc), fpc: Number(f.pc), upc: Number(u.pc) };
+    }
+    const beforeDelete = await counts();
+    expect(await deletePost(admin, { postId: reply.postId, reason: "先删" })).toMatchObject({
+      ok: true,
+    });
+    expect(await postState(reply.postId)).toBe("deleted");
+    const whileDeleted = await counts();
+    expect(whileDeleted).not.toEqual(beforeDelete); // 删除确实动过计数
+    const reviewsBefore = await listContentReviews(reply.postId);
+
+    const prepared = await prepareApiRestore(
+      admin,
+      reply.postId,
+      { expectedEditedAt: null },
+      apiActor,
+      trace,
+    );
+    if (!prepared.ok) throw new Error(prepared.code);
+    const result = await db().transaction(async (tx) => {
+      const locked = await prepared.lock(tx);
+      if (!locked.ok) throw new Error(locked.code);
+      return locked.execute();
+    }, POINTS_TX_OPTIONS);
+    if (!result.ok) throw new Error(result.code);
+    expect(result.data).toEqual({
+      postId: reply.postId,
+      threadId: host.threadId,
+      state: "visible",
+    });
+    expect(await postState(reply.postId)).toBe("visible");
+    expect(await counts()).toEqual(beforeDelete);
+    expect(await listContentReviews(reply.postId)).toEqual(reviewsBefore);
+
+    const [audit] = await db()
+      .select()
+      .from(auditLog)
+      .where(
+        and(eq(auditLog.action, "post.state.visible"), eq(auditLog.targetId, String(reply.postId))),
+      )
+      .orderBy(desc(auditLog.id))
+      .limit(1);
+    expect(audit).toMatchObject({
+      actorId: DEMO.admin,
+      beforeJson: { state: "deleted" },
+      afterJson: {
+        state: "visible",
+        kind: "reply",
+        threadId: host.threadId,
+        reason: null,
+        via: "api",
+        requestId: trace.requestId,
+        tokenSuffix: trace.tokenSuffix,
+      },
+    });
+    // 事件已随事务入 outbox、尚未派发；调用方触发 afterCommit 后才置 dispatchedAt
+    //（同帖此前 approve 的 content.moderated 行也在，按 action 过滤）
+    const events = (await outboxOf("content.moderated", { k: "postId", v: reply.postId })).filter(
+      (row) => (row.payload as { action: string }).action === "restore",
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0]!.payload).toMatchObject({ postId: reply.postId, action: "restore" });
+    expect(events[0]!.dispatchedAt).toBeNull();
+    await result.afterCommit?.();
+    const dispatched = (
+      await outboxOf("content.moderated", { k: "postId", v: reply.postId })
+    ).filter((row) => (row.payload as { action: string }).action === "restore");
+    expect(dispatched[0]!.dispatchedAt).not.toBeNull();
+  });
+
+  it("restore 拒绝 hidden/disabled/pending → bad_state；错版本 → conflict，正确版本可恢复", async () => {
+    // pending
+    const pending = await seedPendingThread();
+    expect(await runRestore(pending.postId, null)).toMatchObject({ ok: false, code: "bad_state" });
+    // hidden
+    const hidden = await seedPendingThread();
+    await approveReview(admin, hidden.postId, ACTOR);
+    await hidePost(admin, hidden.postId, "屏蔽", ACTOR);
+    expect(await runRestore(hidden.postId, null)).toMatchObject({ ok: false, code: "bad_state" });
+    // disabled
+    const disabled = await seedPendingThread();
+    await approveReview(admin, disabled.postId, ACTOR);
+    await disableContent(admin, disabled.postId, "封禁", ACTOR);
+    expect(await runRestore(disabled.postId, null)).toMatchObject({ ok: false, code: "bad_state" });
+    // 拒绝不留痕：pending 从未迁移（0 次审计）；hidden/disabled 各是 approve + 动作共两次
+    expect(await stateAuditsOf(pending.postId)).toHaveLength(0);
+    expect(await stateAuditsOf(hidden.postId)).toHaveLength(2);
+    expect(await stateAuditsOf(disabled.postId)).toHaveLength(2);
+
+    // 版本口径与 prepareApiReview 相同：编辑后删除，stale null → conflict，真实版本可恢复
+    const edited = await seedPendingThread();
+    await approveReview(admin, edited.postId, ACTOR);
+    const author = await loadSubject(DEMO.xiaoyi);
+    expect(
+      await editPost(author, {
+        postId: edited.postId,
+        title: "编辑后再删",
+        source: "编辑后的正文",
+        expectedEditedAt: null,
+      }),
+    ).toMatchObject({ ok: true });
+    expect(await deletePost(admin, { postId: edited.postId, reason: "误删" })).toMatchObject({
+      ok: true,
+    });
+    expect(await runRestore(edited.postId, null)).toMatchObject({ ok: false, code: "conflict" });
+    const detail = await loadContentDetail("thread", edited.threadId, null);
+    if (!detail.ok || detail.detail.kind !== "thread") throw new Error("未找到主题详情");
+    const restored = await runRestore(edited.postId, detail.detail.firstPost.editedAt);
+    expect(restored).toMatchObject({
+      ok: true,
+      data: { postId: edited.postId, threadId: edited.threadId, state: "visible" },
+    });
+  });
+
+  it("restore：不存在与越权同型 not_found；锁内版块迁出复验拒绝且零变更", async () => {
+    expect(await runRestore(99_999_999, null)).toMatchObject({ ok: false, code: "not_found" });
+    const member = await loadSubject(DEMO.member);
+    const { threadId, postId } = await seedPendingThread();
+    await approveReview(admin, postId, ACTOR);
+    expect(await deletePost(admin, { postId, reason: "误删" })).toMatchObject({ ok: true });
+    expect(await runRestore(postId, null, member)).toMatchObject({ ok: false, code: "not_found" });
+
+    // 复用既有「事务外授权后目标迁出」代表模式：prepare 后主题被移走，lock 阶段拒绝
+    const prepared = await prepareApiRestore(
+      admin,
+      postId,
+      { expectedEditedAt: null },
+      apiActor,
+      trace,
+    );
+    if (!prepared.ok) throw new Error(prepared.code);
+    await db().update(threads).set({ forumId: 901 }).where(eq(threads.id, threadId));
+    expect(
+      await db().transaction(async (tx) => prepared.lock(tx), POINTS_TX_OPTIONS),
+    ).toMatchObject({ ok: false, code: "not_found" });
+    expect(await postState(postId)).toBe("deleted");
+    expect(
+      (await stateAuditsOf(postId)).filter((row) => row.action.startsWith("post.state.")),
+    ).toHaveLength(2); // approve 进入 visible + 删除进入 deleted；恢复未发生
+    expect(
+      (await stateAuditsOf(postId))
+        .filter((row) => row.action.startsWith("post.state."))
+        .map((row) => row.action)
+        .sort(),
+    ).toEqual(["post.state.deleted", "post.state.visible"]);
   });
 });

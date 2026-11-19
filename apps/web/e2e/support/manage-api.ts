@@ -16,6 +16,7 @@ export const DOMAIN_LABELS = {
   identity: "令牌身份",
   contents: "内容治理",
   users: "用户管理",
+  reports: "举报处理",
   stats: "站点统计",
   "audit-logs": "审计日志",
   emails: "邮件日志",
@@ -25,15 +26,63 @@ export const DOMAIN_LABELS = {
 export type ManageDomain = keyof typeof DOMAIN_LABELS;
 export type ManageLevel = "none" | "read" | "write";
 
-/** 十一个端点的对外契约：域、方法、路径。 */
+/** 管理端点的对外契约：域、方法、路径；写端点附矩阵探测用的合法示例请求体。 */
 export const REST_ENDPOINTS = [
   { domain: "identity", method: "GET", path: "/api/manage/whoami" },
   { domain: "contents", method: "GET", path: "/api/manage/contents" },
   { domain: "contents", method: "GET", path: "/api/manage/contents/{id}" },
-  { domain: "contents", method: "POST", path: "/api/manage/posts/{postId}/review" },
-  { domain: "contents", method: "PUT", path: "/api/manage/threads/{threadId}/lock" },
+  {
+    domain: "contents",
+    method: "POST",
+    path: "/api/manage/posts/{postId}/review",
+    sampleBody: { decision: "approve", expectedEditedAt: null },
+  },
+  {
+    domain: "contents",
+    method: "PUT",
+    path: "/api/manage/threads/{threadId}/lock",
+    sampleBody: { locked: true },
+  },
+  {
+    domain: "contents",
+    method: "POST",
+    path: "/api/manage/posts/{postId}/hide",
+    sampleBody: { expectedEditedAt: null, reason: "probe" },
+  },
+  {
+    domain: "contents",
+    method: "POST",
+    path: "/api/manage/posts/{postId}/disable",
+    sampleBody: { expectedEditedAt: null, reason: "probe" },
+  },
+  {
+    domain: "contents",
+    method: "POST",
+    path: "/api/manage/posts/{postId}/restore",
+    sampleBody: { expectedEditedAt: null },
+  },
+  {
+    domain: "contents",
+    method: "PATCH",
+    path: "/api/manage/threads/{threadId}/flags",
+    sampleBody: { featured: true },
+  },
   { domain: "users", method: "GET", path: "/api/manage/users" },
   { domain: "users", method: "GET", path: "/api/manage/users/{uid}" },
+  { domain: "reports", method: "GET", path: "/api/manage/reports" },
+  { domain: "reports", method: "GET", path: "/api/manage/reports/{reportId}" },
+  {
+    domain: "reports",
+    method: "POST",
+    path: "/api/manage/reports/{reportId}/resolve",
+    sampleBody: { note: "probe" },
+  },
+  {
+    domain: "reports",
+    method: "POST",
+    path: "/api/manage/reports/{reportId}/dismiss",
+    sampleBody: { note: "probe" },
+  },
   { domain: "stats", method: "GET", path: "/api/manage/stats" },
   { domain: "audit-logs", method: "GET", path: "/api/manage/audit-logs" },
   { domain: "emails", method: "GET", path: "/api/manage/emails" },
@@ -110,25 +159,26 @@ export async function expectManageError(
 
 export type PendingThread = { threadId: number; postId: number };
 
-/** 在演示审核版块创建待审首帖；逐步记录主键，创建中途失败也能清理。 */
+/** 在演示审核版块创建首帖（默认待审，可指定可见/已删供迁移类用例）；逐步记录主键。 */
 export async function seedPendingThread(
   q: Q,
   target: PendingThread,
   authorId: number,
   text: string,
+  state: "pending" | "visible" | "deleted" = "pending",
 ): Promise<PendingThread> {
   target.threadId = (
     await q.exec(
       `INSERT INTO threads (forum_id, author_id, title, state, created_at, last_posted_at)
-       VALUES (906, ?, ?, 'pending', NOW(), NOW())`,
-      [authorId, text],
+       VALUES (906, ?, ?, ?, NOW(), NOW())`,
+      [authorId, text, state],
     )
   ).insertId;
   target.postId = (
     await q.exec(
       `INSERT INTO posts (thread_id, floor, author_id, body_md, state, created_at, edited_at)
-       VALUES (?, 1, ?, ?, 'pending', NOW(), NOW())`,
-      [target.threadId, authorId, text],
+       VALUES (?, 1, ?, ?, ?, NOW(), NOW())`,
+      [target.threadId, authorId, text, state],
     )
   ).insertId;
   await q.exec("UPDATE threads SET first_post_id = ? WHERE id = ?", [

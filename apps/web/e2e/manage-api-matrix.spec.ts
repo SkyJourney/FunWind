@@ -3,9 +3,11 @@ import { loginAs } from "./support/session";
 import { withE2eDb } from "./support/db";
 import {
   MISSING_ID,
+  WRITE_ENDPOINTS,
   bearer,
   cleanupManageArtifacts,
   createAdminUser,
+  fillEndpointPath,
   insertLegacyToken,
   issueManageToken,
   runTag,
@@ -14,15 +16,15 @@ import {
 } from "./support/manage-api";
 
 /**
- * 管理 REST 权限矩阵 × 全端点验收（M20.2）。
+ * 管理 REST 权限矩阵 × 全端点验收（M20.2 立式，M20.3 扩容）。
  *
- * 系统化覆盖「权限档位 × 数据域 × 端点」：十种令牌档位（七个单域只读、内容读写、全域只读、
- * 历史九读）逐一调用十一个端点，共 110 项状态断言；每个查询端点另附对隔离夹具数据的
- * 形状与内容断言，以及参数错误路径（400）与未登记方法（404）。
+ * 系统化覆盖「权限档位 × 数据域 × 端点」：十二种令牌档位（各单域只读、内容写档、举报写档、
+ * 全域只读、历史九读）逐一调用全部端点并断言状态；每个查询端点另附对隔离夹具数据的
+ * 形状与内容断言，以及参数错误路径（400）与未登记方法（405/404）。
  *
  * 期望规则（与 docs/MANAGE-API.md 对外契约独立成文，不从实现生成）：
  *  - 读端点：令牌授予该域（读或写）→ 200；未授予 → 403。
- *  - 写端点（本轮写入口开启）：授予 contents:write → 通过写权门，目标不存在故 404；否则 403。
+ *  - 写端点（本轮写入口开启）：授予对应写档 → 通过写权门，目标不存在故 404；否则 403。
  *  - 历史令牌：九个 GET 全 200，写端点 403。
  *  - 凭证吊销/过期后一切端点 401（见 manage-api-acceptance.spec.ts 凭证用例）。
  */
@@ -40,26 +42,25 @@ const FIX = {
   username: "demo_alice",
   /** 演示 6 人 + E2E 夹具 2 人。 */
   minUsers: 8,
+  /** 矩阵夹具注入的 pending 举报 id（准备用例内落库）。 */
+  reportId: 0,
   /** 13 个特殊主题 + 60 个水区主题。 */
   minThreads: 70,
 } as const;
 
-/** 端点契约（与文档对齐的独立声明）。 */
+/** 端点契约（与文档对齐的独立声明）；写端点复用共享夹具的清单与示例请求体。 */
 const READ_ENDPOINTS = [
   { domain: "identity", path: "/api/manage/whoami" },
   { domain: "contents", path: "/api/manage/contents" },
   { domain: "contents", path: `/api/manage/contents/${FIX.threadId}?kind=thread` },
   { domain: "users", path: "/api/manage/users?size=10" },
   { domain: "users", path: `/api/manage/users/${FIX.userId}` },
+  { domain: "reports", path: "/api/manage/reports" },
+  { domain: "reports", path: `/api/manage/reports/${FIX.reportId}` },
   { domain: "stats", path: "/api/manage/stats" },
   { domain: "audit-logs", path: "/api/manage/audit-logs?size=10" },
   { domain: "emails", path: "/api/manage/emails?size=10" },
   { domain: "push-logs", path: "/api/manage/push-logs?size=10" },
-] as const;
-
-const WRITE_ENDPOINTS = [
-  { domain: "contents", method: "POST", path: "/api/manage/posts/{id}/review" },
-  { domain: "contents", method: "PUT", path: "/api/manage/threads/{id}/lock" },
 ] as const;
 
 /** 单域令牌的持有人与签发参数；全读与历史档另有安排。 */
@@ -68,6 +69,8 @@ type ProfileKey =
   | "contents-read"
   | "contents-write"
   | "users"
+  | "reports-read"
+  | "reports-write"
   | "stats"
   | "audit-logs"
   | "emails"
@@ -83,6 +86,8 @@ const PROFILE_LEVELS: Record<
   "contents-read": { contents: "read" },
   "contents-write": { contents: "write" },
   users: { users: "read" },
+  "reports-read": { reports: "read" },
+  "reports-write": { reports: "write" },
   stats: { stats: "read" },
   "audit-logs": { "audit-logs": "read" },
   emails: { emails: "read" },
@@ -100,15 +105,17 @@ const PROFILE_LEVELS: Record<
 
 const grantedDomains = (key: ProfileKey): readonly ManageDomain[] =>
   key === "legacy"
-    ? ["identity", "contents", "users", "stats", "audit-logs", "emails", "push-logs"]
+    ? // 历史九读不含 reports 域（M20.3 新增）
+      ["identity", "contents", "users", "stats", "audit-logs", "emails", "push-logs"]
     : (Object.keys(PROFILE_LEVELS[key]) as ManageDomain[]).filter(
         (d) => PROFILE_LEVELS[key][d] !== "none",
       );
 
-const hasWrite = (key: ProfileKey) => key === "contents-write";
+const hasWrite = (key: ProfileKey) =>
+  key !== "legacy" && Object.values(PROFILE_LEVELS[key]).some((level) => level === "write");
 
 /**
- * 签发分摊：每位管理员令牌上限 5 枚、签发频控 10 次/分钟。矩阵自建两位专用管理员，
+ * 签发分摊：每位管理员令牌上限 5 枚、签发频控 10 次/分钟。矩阵自建三位专用管理员，
  * 不占用演示管理员在同轮其他规格文件里的频控额度。
  */
 const SECONDARY_OF: ReadonlySet<ProfileKey> = new Set([
@@ -117,18 +124,24 @@ const SECONDARY_OF: ReadonlySet<ProfileKey> = new Set([
   "push-logs",
   "all-read",
 ]);
+const TERTIARY_OF: ReadonlySet<ProfileKey> = new Set(["reports-read", "reports-write"]);
 
 const tokens = new Map<ProfileKey, string>();
 const tokenNames: string[] = [];
 const adminUserIds: number[] = [];
 let primaryAdmin = 0;
 let secondaryAdmin = 0;
+let tertiaryAdmin = 0;
 
 /** 当前测试进程内的令牌签发（真实后台表单 + 服务端二次校验）。 */
 async function ensureToken(page: Page, key: Exclude<ProfileKey, "legacy">) {
   const cached = tokens.get(key);
   if (cached) return cached;
-  const holder = SECONDARY_OF.has(key) ? secondaryAdmin : primaryAdmin;
+  const holder = SECONDARY_OF.has(key)
+    ? secondaryAdmin
+    : TERTIARY_OF.has(key)
+      ? tertiaryAdmin
+      : primaryAdmin;
   await loginAs(page.context(), holder);
   const name = `${NAME_PREFIX}${key}`;
   const plain = await issueManageToken(page, name, PROFILE_LEVELS[key]);
@@ -143,7 +156,8 @@ test.describe("管理 REST 权限矩阵 × 全端点", () => {
   test.beforeAll(async () => {
     primaryAdmin = await withE2eDb((q) => createAdminUser(q, `${TAG}-a`));
     secondaryAdmin = await withE2eDb((q) => createAdminUser(q, `${TAG}-b`));
-    adminUserIds.push(primaryAdmin, secondaryAdmin);
+    tertiaryAdmin = await withE2eDb((q) => createAdminUser(q, `${TAG}-c`));
+    adminUserIds.push(primaryAdmin, secondaryAdmin, tertiaryAdmin);
   });
 
   test.afterAll(async () => {
@@ -153,9 +167,21 @@ test.describe("管理 REST 权限矩阵 × 全端点", () => {
       authorUserIds: [],
       targets: [],
     });
+    if (FIX.reportId) {
+      await withE2eDb((q) => q.exec("DELETE FROM reports WHERE id = ?", [FIX.reportId]));
+    }
   });
 
-  test("准备：签发九种新版令牌并注入历史令牌", async ({ page }) => {
+  test("准备：签发新版令牌、注入历史令牌与 pending 举报夹具", async ({ page }) => {
+    FIX.reportId = (
+      await withE2eDb((q) =>
+        q.exec(
+          `INSERT INTO reports (post_id, reporter_id, reason, status, created_at)
+           VALUES (?, ?, '矩阵夹具举报', 'pending', NOW())`,
+          [FIX.firstPostId, FIX.userId],
+        ),
+      )
+    ).insertId;
     for (const key of Object.keys(PROFILE_LEVELS) as Exclude<ProfileKey, "legacy">[]) {
       await ensureToken(page, key);
     }
@@ -164,7 +190,7 @@ test.describe("管理 REST 权限矩阵 × 全端点", () => {
     );
     tokens.set("legacy", legacy);
     tokenNames.push(`${NAME_PREFIX}legacy`);
-    expect(tokens.size).toBe(10);
+    expect(tokens.size).toBe(12);
   });
 
   /** 矩阵主体：十档位 × 十一端点的状态断言。 */
@@ -198,19 +224,16 @@ test.describe("管理 REST 权限矩阵 × 全端点", () => {
       }
 
       for (const endpoint of WRITE_ENDPOINTS) {
-        const response = await request.fetch(endpoint.path.replace("{id}", String(MISSING_ID)), {
+        const response = await request.fetch(fillEndpointPath(endpoint.path, MISSING_ID), {
           method: endpoint.method,
           headers: {
             ...bearer(token!),
             "Idempotency-Key": `${TAG}-${key}`,
             "content-type": "application/json",
           },
-          data:
-            endpoint.method === "POST"
-              ? { decision: "approve", expectedEditedAt: null }
-              : { locked: true },
+          data: endpoint.sampleBody,
         });
-        const expected = hasWrite(key) ? 404 : 403;
+        const expected = granted.has(endpoint.domain) && hasWrite(key) ? 404 : 403;
         expect(response.status(), `${key} → ${endpoint.method} ${endpoint.path}`).toBe(expected);
         expect(await response.json()).toMatchObject({
           error: { code: expected === 404 ? "not_found" : "forbidden" },
@@ -362,6 +385,35 @@ test.describe("管理 REST 权限矩阵 × 全端点", () => {
     }
   });
 
+  test("查询语义 · 举报列表与详情断言夹具数据", async ({ request }) => {
+    const token = tokens.get("reports-read")!;
+
+    const list = await request.get("/api/manage/reports?status=pending&size=10", {
+      headers: bearer(token),
+    });
+    expect(list.status()).toBe(200);
+    const listed = (await list.json()) as {
+      data: { items: { id: number; status: string }[]; total: number };
+    };
+    expect(listed.data.total).toBeGreaterThanOrEqual(1);
+    expect(listed.data.items.some((i) => i.id === FIX.reportId)).toBe(true);
+
+    const detail = await request.get(`/api/manage/reports/${FIX.reportId}`, {
+      headers: bearer(token),
+    });
+    expect(detail.status()).toBe(200);
+    expect(await detail.json()).toMatchObject({
+      data: { id: FIX.reportId, status: "pending", reason: "矩阵夹具举报" },
+    });
+
+    // 处置状态筛选：矩阵夹具保持 pending，resolved/dismissed 筛选不含它。
+    const resolved = await request.get("/api/manage/reports?status=resolved&size=10", {
+      headers: bearer(token),
+    });
+    const resolvedList = (await resolved.json()) as { data: { items: { id: number }[] } };
+    expect(resolvedList.data.items.some((i) => i.id === FIX.reportId)).toBe(false);
+  });
+
   test("错误路径 · 非法参数与畸形路径的统一 400/404", async ({ request }) => {
     const token = tokens.get("all-read")!;
     const cases: [string, number, string][] = [
@@ -379,6 +431,18 @@ test.describe("管理 REST 权限矩阵 × 全端点", () => {
     ];
     for (const [path, status, code] of cases) {
       const response = await request.get(path, { headers: bearer(token) });
+      expect(response.status(), path).toBe(status);
+      expect(await response.json(), path).toMatchObject({ error: { code } });
+    }
+
+    // 举报域的错误路径须用举报只读令牌（all-read 未授该域，会先 403）。
+    const reportCases: [string, number, string][] = [
+      ["/api/manage/reports?status=bogus", 400, "bad_request"],
+      ["/api/manage/reports/abc", 404, "not_found"],
+    ];
+    const reportToken = tokens.get("reports-read")!;
+    for (const [path, status, code] of reportCases) {
+      const response = await request.get(path, { headers: bearer(reportToken) });
       expect(response.status(), path).toBe(status);
       expect(await response.json(), path).toMatchObject({ error: { code } });
     }

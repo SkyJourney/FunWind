@@ -20,7 +20,7 @@ import {
   type OutboxEmitter,
 } from "@/lib/events/outbox";
 import type { EventName } from "@/modules/kernel/types";
-import { transitionContent } from "./transition";
+import { transitionContent, type TransitionResult } from "./transition";
 import { lockUserStats } from "@/lib/locks";
 import { lockForum, lockThread } from "./locks";
 import {
@@ -670,6 +670,34 @@ export async function deletePost(
   }
 }
 
+/**
+ * 恢复的锁内核心（tx 参数化）：调用方须已按锁序持有作者统计行、主题、帖子与版块锁；
+ * 状态迁移、计数、指针与审计全部由 transitionContent 统一负责。后台 restorePost 与
+ * 管理 API 的 prepareApiRestore 共用本函数，保证恢复的计数与审计口径只有一份。
+ */
+export async function executeRestoreInTx(
+  tx: DbTx,
+  postId: number,
+  opts: {
+    /** 操作者用户 ID（写审计 actorId） */
+    actorId: number | null;
+    /** 操作者 IP（写审计；后台入口省略，保持既有审计形状） */
+    ip?: string | null;
+    /** 版主理由（写审计 after.reason）；管理 API 恢复没有理由输入时省略 */
+    reason?: string;
+    /** 管理 API 的审计关联信息（via/requestId/tokenSuffix）；仅写审计，不进业务事件 */
+    apiTrace?: { requestId: string; tokenSuffix: string };
+  },
+): Promise<TransitionResult> {
+  return transitionContent(tx, postId, "visible", {
+    actorId: opts.actorId,
+    ...(opts.ip !== undefined ? { ip: opts.ip } : {}),
+    ...(opts.reason ? { reason: opts.reason } : {}),
+    audit: true,
+    ...(opts.apiTrace ? { apiTrace: opts.apiTrace } : {}),
+  });
+}
+
 export async function restorePost(
   viewer: Subject,
   input: RestoreInput,
@@ -696,11 +724,7 @@ export async function restorePost(
         const r = checkReason(input.reason);
         if (!r.ok) throw new Rollback(err(r.code, r.message));
 
-        await transitionContent(tx, hit.postId, "visible", {
-          actorId: viewer.userId,
-          reason: r.value,
-          audit: true,
-        });
+        await executeRestoreInTx(tx, hit.postId, { actorId: viewer.userId, reason: r.value });
         return { ok: true, postId: hit.postId, threadId: hit.threadId, kind };
       }, POINTS_TX_OPTIONS),
     );
