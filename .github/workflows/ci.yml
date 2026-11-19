@@ -118,6 +118,9 @@ jobs:
           exit 1
       - name: E2E（重置库 → bootstrap → 种子 → 生产全量 → 重置库 → dev-only 冒烟）
         run: pnpm test:e2e:run
+      # 管理 REST 停写门禁：独立一轮，写入口关闭时写端点应 503、读端点照常
+      - name: 管理 REST 停写门禁 E2E（写开关关闭的独立轮次）
+        run: pnpm test:e2e:write-gate
       # M12 安装向导：独立空库（不 bootstrap/seed）+ 独立存储与产物目录，CLI 双路径含 SIGKILL 中断恢复
       - name: 安装向导 E2E（空库 → 四步向导 → CLI 双路径）
         run: pnpm test:e2e:install
