@@ -3,8 +3,9 @@ import "server-only";
 import { z } from "zod";
 import type { ConfigActor, DbTx } from "@/lib/audit";
 import { isValidBeijingDateTime } from "@/lib/datetime";
-import { ManageApiError } from "@/lib/manage/errors";
+import { ManageApiError, type ManageErrorCode } from "@/lib/manage/errors";
 import { runIdempotentManageWrite } from "@/lib/manage/idempotency";
+import { type ManageEndpointId } from "@/lib/manage/permissions";
 import type { ManageHandlerContext } from "@/lib/manage/route";
 import { prepareApiThreadLock } from "@/lib/moderation/contents";
 import { prepareApiReview } from "@/lib/moderation/review";
@@ -32,23 +33,35 @@ type PreparedWrite = {
   ): Promise<{ ok: true; execute(): Promise<ExecutedWrite | WriteDenial> } | WriteDenial>;
 };
 
-/** 资源权限与不存在同型。未知业务错误由入口兜底，不透出服务文本。 */
-function requireSuccess<T extends { ok: true }>(result: T | WriteDenial): T {
+/**
+ * 业务拒绝码 → 对外信封错误的映射表（M20.3 起每个服务域自带一张）。
+ * 键是 Service 层 `prepare/lock/execute` 拒绝时的 `code` 字符串；未登记的码一律 internal，
+ * 不透出服务文本。新写端点接入时由其服务模块提供自己的表，经 `commitWrite` 传入。
+ */
+export type DenialHttpMap = Readonly<Record<string, ManageErrorCode>>;
+
+/**
+ * 内容治理域的共享码表（M20.2 语义原样外移）：
+ * 资源权限与不存在同型（越权不泄露 → not_found）；状态与版本冲突 → 409；理由类 → 400。
+ */
+export const MODERATION_DENIAL_HTTP: DenialHttpMap = {
+  not_found: "not_found",
+  forbidden: "not_found",
+  bad_state: "state_conflict",
+  conflict: "state_conflict",
+  bad_reason: "bad_request",
+  reason_required: "bad_request",
+  reason_too_long: "bad_request",
+};
+
+/** 按域码表把业务拒绝转统一信封；未登记的码由入口兜底为 internal。 */
+function requireSuccess<T extends { ok: true }>(
+  result: T | WriteDenial,
+  denialHttp: DenialHttpMap,
+): T {
   if (result.ok) return result;
-  switch (result.code) {
-    case "not_found":
-    case "forbidden":
-      throw new ManageApiError("not_found");
-    case "bad_state":
-    case "conflict":
-      throw new ManageApiError("state_conflict");
-    case "bad_reason":
-    case "reason_required":
-    case "reason_too_long":
-      throw new ManageApiError("bad_request");
-    default:
-      throw new ManageApiError("internal");
-  }
+  const envelope = denialHttp[result.code];
+  throw new ManageApiError(envelope ?? "internal");
 }
 
 function auditContext(ctx: ManageHandlerContext) {
@@ -58,11 +71,13 @@ function auditContext(ctx: ManageHandlerContext) {
 
 async function commitWrite(
   ctx: ManageHandlerContext,
-  endpoint: "posts.review" | "threads.lock",
+  endpoint: ManageEndpointId,
   params: WriteInput<Record<string, unknown>>,
   preparation: Promise<PreparedWrite | WriteDenial>,
+  /** 写域的拒绝码表；缺省为内容治理域（现有两端点的语义不变）。 */
+  denialHttp: DenialHttpMap = MODERATION_DENIAL_HTTP,
 ): Promise<unknown> {
-  const operation = requireSuccess(await preparation);
+  const operation = requireSuccess(await preparation, denialHttp);
   return runIdempotentManageWrite(
     {
       tokenId: ctx.token.id,
@@ -73,8 +88,8 @@ async function commitWrite(
     params.targetId,
     params.input,
     async (tx) => {
-      const locked = requireSuccess(await operation.lock(tx));
-      return async () => requireSuccess(await locked.execute());
+      const locked = requireSuccess(await operation.lock(tx), denialHttp);
+      return async () => requireSuccess(await locked.execute(), denialHttp);
     },
   );
 }

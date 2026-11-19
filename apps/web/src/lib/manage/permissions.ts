@@ -11,12 +11,31 @@ export const MANAGE_PERMISSION_DOMAINS = {
 
 export type ManagePermissionDomain = keyof typeof MANAGE_PERMISSION_DOMAINS;
 export type ManagePermissionLevel = "none" | "read" | "write";
+
+/**
+ * 端点可挂接的持有人权限点（authz 词汇表的管理类子集）。
+ * `site.admin` 是全部端点的基线资格门（guard 内置），不在此重复；
+ * 新增权限点先入 authz 词汇表与 require-admin 的 AdminPermission，再扩此清单。
+ */
+export const MANAGE_ENDPOINT_PERMISSIONS = [
+  "admin.users",
+  "admin.logs",
+  "admin.roles",
+  "admin.points",
+  "admin.badges",
+  "admin.reports",
+  "admin.recycle",
+  "emoji.manage",
+] as const;
+
+export type ManageEndpointPermission = (typeof MANAGE_ENDPOINT_PERMISSIONS)[number];
+
 export type ManageEndpointDefinition = {
   domain: ManagePermissionDomain;
   access: "read" | "write";
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   path: `/api/manage/${string}`;
-  permission?: "admin.users" | "admin.logs";
+  permission?: ManageEndpointPermission;
   audit?: false;
 };
 
