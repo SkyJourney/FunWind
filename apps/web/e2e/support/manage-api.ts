@@ -47,6 +47,14 @@ export const WRITE_ENDPOINTS = REST_ENDPOINTS.filter((e) => e.method !== "GET");
 /** 不存在的目标 id：授权通过后应得 404，被拒绝时应得 403。 */
 export const MISSING_ID = 999999999;
 
+/**
+ * 把契约路径的 `{...}` 占位符统一替换为目标 id。
+ * 停写门禁在参数解析之前就返回 503（门禁先于 handler），因此探测目标值不影响断言。
+ */
+export function fillEndpointPath(path: string, id: number | string = 1): string {
+  return path.replace(/\{[^}]+\}/g, String(id));
+}
+
 export function bearer(token: string) {
   return { authorization: `Bearer ${token}` };
 }
