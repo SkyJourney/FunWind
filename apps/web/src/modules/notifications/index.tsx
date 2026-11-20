@@ -1,7 +1,9 @@
 import {
   defineModule,
   MODERATION_NOTIFICATION_DELIVERY_POLICY,
+  ROLE_NOTIFICATION_DELIVERY_POLICY,
   type EventDeliveryContext,
+  type EventDeliveryPolicy,
 } from "../kernel/types";
 import { NOTIFICATION_TYPE_SPECS } from "@/lib/notifications/render";
 import { notify } from "@/lib/notifications/notify";
@@ -35,9 +37,12 @@ async function threadTitle(threadId: number): Promise<string | null> {
   return row?.title ?? null;
 }
 
-/** 仅审核生产方显式标记的持久事件启用新站内去重；来源文字本身不能开启。 */
-function moderationOutboxId(delivery?: EventDeliveryContext): number | undefined {
-  if (delivery?.deliveryPolicy !== MODERATION_NOTIFICATION_DELIVERY_POLICY) return undefined;
+/** 只有显式标记了对应策略的持久事件才启用凭证去重。 */
+function notificationOutboxId(
+  delivery?: EventDeliveryContext,
+  policy: EventDeliveryPolicy = MODERATION_NOTIFICATION_DELIVERY_POLICY,
+): number | undefined {
+  if (delivery?.deliveryPolicy !== policy) return undefined;
   const { outboxId } = delivery;
   return Number.isSafeInteger(outboxId) && outboxId > 0 ? outboxId : undefined;
 }
@@ -54,7 +59,7 @@ export const notificationsModule = defineModule({
   })),
   events: {
     "thread.replied": async (p, delivery) => {
-      const outboxId = moderationOutboxId(delivery);
+      const outboxId = notificationOutboxId(delivery);
       const title = await threadTitle(p.threadId);
       const recipients: { userId: number; type: string; groupKey: string; floor?: number }[] = [];
       if (p.threadAuthorId !== p.authorId) {
@@ -259,7 +264,9 @@ export const notificationsModule = defineModule({
         .limit(1);
       if (!post || post.authorId === p.operatorId) return;
       const outboxId =
-        p.action === "approve" || p.action === "reject" ? moderationOutboxId(delivery) : undefined;
+        p.action === "approve" || p.action === "reject"
+          ? notificationOutboxId(delivery)
+          : undefined;
       await notify({
         type,
         recipients: [post.authorId],
@@ -309,8 +316,9 @@ export const notificationsModule = defineModule({
       }
     },
 
-    "role.changed": async (p) => {
+    "role.changed": async (p, delivery) => {
       if (p.userId === p.operatorId) return;
+      const outboxId = notificationOutboxId(delivery, ROLE_NOTIFICATION_DELIVERY_POLICY);
       const [[user], [role], forumRows] = await Promise.all([
         getWebDb()
           .select({ username: users.username })
@@ -338,8 +346,12 @@ export const notificationsModule = defineModule({
         actorId: p.operatorId,
         targetType: "user",
         targetId: p.userId,
-        dedupKey: () =>
-          `role:${p.userId}:${p.roleKey}:${p.scopeId}:${p.action}:${p.expiresAt ?? "none"}`,
+        ...(outboxId === undefined
+          ? {
+              dedupKey: () =>
+                `role:${p.userId}:${p.roleKey}:${p.scopeId}:${p.action}:${p.expiresAt ?? "none"}`,
+            }
+          : { outboxId }),
         data: {
           roleKey: p.roleKey,
           roleName: role?.name ?? p.roleKey,

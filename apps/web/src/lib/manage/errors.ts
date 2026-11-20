@@ -23,6 +23,7 @@ export const MANAGE_ERROR_CODES = {
   unsupported_media_type: { status: 415, message: "仅支持 application/json 请求体。" },
   rate_limited: { status: 429, message: "请求过于频繁，请稍后再试。" },
   internal: { status: 500, message: "服务内部错误。" },
+  ops_unavailable: { status: 503, message: "运维任务管线暂不可用。" },
   writes_disabled: { status: 503, message: "管理 API 写入当前已关闭。" },
 } as const;
 

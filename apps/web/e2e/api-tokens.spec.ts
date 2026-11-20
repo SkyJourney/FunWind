@@ -1,9 +1,11 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { USERS, loginAs } from "./support/session";
 import { withE2eDb } from "./support/db";
 import {
   ADMIN_TOKENS,
+  DOMAIN_LABELS,
+  REST_ENDPOINTS,
   cleanupManageArtifacts,
   expectManageError,
   insertLegacyToken,
@@ -16,73 +18,6 @@ import {
 
 const NAME_PREFIX = "E2E API 令牌 · ";
 const REST_DOCS = "/docs/rest-api";
-
-// 独立写出外部契约，不从被测权限目录或文档数据源生成期望。
-const DOCUMENTED_ENDPOINTS = [
-  ["GET", "/api/manage/whoami", "identity:read"],
-  ["GET", "/api/manage/contents", "contents:read"],
-  ["GET", "/api/manage/contents/{id}", "contents:read"],
-  ["POST", "/api/manage/posts/{postId}/review", "contents:write"],
-  ["POST", "/api/manage/posts/{postId}/hide", "contents:write"],
-  ["POST", "/api/manage/posts/{postId}/disable", "contents:write"],
-  ["POST", "/api/manage/posts/{postId}/restore", "contents:write"],
-  ["PUT", "/api/manage/threads/{threadId}/lock", "contents:write"],
-  ["PATCH", "/api/manage/threads/{threadId}/flags", "contents:write"],
-  ["GET", "/api/manage/users", "users:read"],
-  ["GET", "/api/manage/users/{uid}", "users:read"],
-  ["POST", "/api/manage/users/{uid}/restrictions", "users:write"],
-  ["DELETE", "/api/manage/users/{uid}/restrictions/{restrictionId}", "users:write"],
-  ["DELETE", "/api/manage/users/{uid}/sessions/{sessionId}", "users:write"],
-  ["POST", "/api/manage/users/{uid}/appeals/{appealId}/resolve", "users:write"],
-  ["GET", "/api/manage/announcements", "announcements:read"],
-  ["GET", "/api/manage/announcements/{announcementId}", "announcements:read"],
-  ["POST", "/api/manage/announcements", "announcements:write"],
-  ["PATCH", "/api/manage/announcements/{announcementId}", "announcements:write"],
-  ["POST", "/api/manage/announcements/{announcementId}/end", "announcements:write"],
-  ["GET", "/api/manage/campaigns", "campaigns:read"],
-  ["GET", "/api/manage/campaigns/{campaignId}", "campaigns:read"],
-  ["POST", "/api/manage/campaigns", "campaigns:write"],
-  ["PATCH", "/api/manage/campaigns/{campaignId}", "campaigns:write"],
-  ["POST", "/api/manage/campaigns/{campaignId}/enabled", "campaigns:write"],
-  ["GET", "/api/manage/invites", "invites:read"],
-  ["POST", "/api/manage/invites", "invites:write"],
-  ["DELETE", "/api/manage/invites/{code}", "invites:write"],
-  ["POST", "/api/manage/invites/batches/{batch}/revoke", "invites:write"],
-  ["GET", "/api/manage/reports", "reports:read"],
-  ["GET", "/api/manage/reports/{reportId}", "reports:read"],
-  ["POST", "/api/manage/reports/{reportId}/resolve", "reports:write"],
-  ["POST", "/api/manage/reports/{reportId}/dismiss", "reports:write"],
-  ["GET", "/api/manage/forums", "forums:read"],
-  ["GET", "/api/manage/forums/{fid}", "forums:read"],
-  ["POST", "/api/manage/forums", "forums:write"],
-  ["PATCH", "/api/manage/forums/{fid}", "forums:write"],
-  ["DELETE", "/api/manage/forums/{fid}", "forums:write"],
-  ["POST", "/api/manage/forums/{fid}/prefixes", "forums:write"],
-  ["DELETE", "/api/manage/forums/{fid}/prefixes/{prefixId}", "forums:write"],
-  ["GET", "/api/manage/polls", "polls:read"],
-  ["POST", "/api/manage/polls/{threadId}/close", "polls:write"],
-  ["POST", "/api/manage/polls/{threadId}/reopen", "polls:write"],
-  ["DELETE", "/api/manage/polls/{threadId}", "polls:write"],
-  ["DELETE", "/api/manage/pm/messages/{messageId}", "pm:write"],
-  ["GET", "/api/manage/badges", "badges:read"],
-  ["POST", "/api/manage/users/{uid}/badges/{badgeId}", "badges:write"],
-  ["DELETE", "/api/manage/users/{uid}/badges/{badgeId}", "badges:write"],
-  ["GET", "/api/manage/points/ledger", "points:read"],
-  ["GET", "/api/manage/points/rules", "points:read"],
-  ["POST", "/api/manage/points/adjustments", "points:write"],
-  ["GET", "/api/manage/emojis", "emojis:read"],
-  ["POST", "/api/manage/emoji-groups", "emojis:write"],
-  ["PATCH", "/api/manage/emoji-groups/{groupId}", "emojis:write"],
-  ["POST", "/api/manage/emoji-groups/{groupId}/enabled", "emojis:write"],
-  ["DELETE", "/api/manage/emoji-groups/{groupId}", "emojis:write"],
-  ["POST", "/api/manage/emoji-groups/{groupId}/sort", "emojis:write"],
-  ["PATCH", "/api/manage/emojis/{emojiId}", "emojis:write"],
-  ["POST", "/api/manage/emojis/{emojiId}/enabled", "emojis:write"],
-  ["GET", "/api/manage/stats", "stats:read"],
-  ["GET", "/api/manage/audit-logs", "audit-logs:read"],
-  ["GET", "/api/manage/emails", "emails:read"],
-  ["GET", "/api/manage/push-logs", "push-logs:read"],
-] as const;
 
 /** 按可访问表格行定位端点，避开概览和请求示例中的重复路径。 */
 function endpointRows(page: Page) {
@@ -365,14 +300,18 @@ test.describe("在线管理 REST 文档", () => {
     );
   });
 
-  test("管理员看到 63 个独立端点的请求方法、导航徽标和作用域", async ({ context, page }) => {
+  test(`管理员看到 ${REST_ENDPOINTS.length} 个独立端点的请求方法、导航徽标和作用域`, async ({
+    context,
+    page,
+  }) => {
     await loginAs(context, USERS.admin);
     expect((await page.goto(REST_DOCS))?.status()).toBe(200);
     await expect(page.getByRole("heading", { name: "FunWind REST API", level: 1 })).toBeVisible();
     const nav = page.getByRole("navigation", { name: "文档导航", exact: true });
     await expect(nav).toBeVisible();
-    await expect(endpointRows(page)).toHaveCount(DOCUMENTED_ENDPOINTS.length);
-    for (const [method, path, scope] of DOCUMENTED_ENDPOINTS) {
+    await expect(endpointRows(page)).toHaveCount(REST_ENDPOINTS.length);
+    for (const { method, path, domain } of REST_ENDPOINTS) {
+      const scope = `${domain}:${method === "GET" ? "read" : "write"}`;
       const section = endpointSection(page, `${method} ${path}`);
       const anchor = await endpointAnchor(section);
       const link = nav.getByRole("link").and(page.locator(`a[href="${anchor}"]`));
@@ -534,7 +473,7 @@ test.describe("管理员签发与授权", () => {
       await page.goto(ADMIN_TOKENS);
       const matrix = page.getByRole("group", { name: "权限矩阵" });
       const levels = matrix.getByRole("combobox");
-      await expect(levels).toHaveCount(17);
+      await expect(levels).toHaveCount(Object.keys(DOMAIN_LABELS).length);
       for (const level of await levels.all()) await expect(level).toHaveValue("none");
       const identity = matrix.getByLabel("令牌身份", { exact: true });
       await expect(identity.locator('option[value="write"]')).toBeDisabled();

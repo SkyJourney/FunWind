@@ -48,6 +48,11 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: 90_000,
     env: {
+      // 新旧运维变量均须显式覆盖，避免从宿主或 .env 接入真实管线。
+      OPS_SERVICE_URL: "",
+      OPS_API_TOKEN: "",
+      BACKUP_SERVICE_URL: "",
+      BACKUP_OPS_TOKEN: "",
       NEW_DB_NAME: "qysub_next_e2e",
       FUNWIND_DEBUG_DB: "1",
       // 独立产物目录：不与 dev（.next）抢 Next 16 的目录锁，E2E 与用户 dev 服务可同时运行

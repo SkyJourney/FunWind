@@ -18,6 +18,7 @@ describe("管理 API 信封与错误码注册表（M20 G-15）", () => {
       unsupported_media_type: 415,
       rate_limited: 429,
       internal: 500,
+      ops_unavailable: 503,
       writes_disabled: 503,
     });
     expect(MANAGE_ERROR_CODES.unauthorized.status).toBe(401);

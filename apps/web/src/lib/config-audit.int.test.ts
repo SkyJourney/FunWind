@@ -126,27 +126,34 @@ describe.skipIf(skipDb)("配置类管理动作的审计", () => {
       }
     });
 
-    it("多键设置排序后同事务写入且只记一条合并审计；不同输入顺序与空写入幂等", async () => {
-      const entries = [
-        { key: "points.reward_probe", value: { post: 3, reply: 1 } },
-        { key: "points.name_probe", value: { name: "青翼币" } },
-      ];
-      await setSettings(entries, { userId: 12, via: "admin", ip: "203.0.113.12" });
-      await setSettings([...entries].reverse(), { userId: 12, via: "admin", ip: "203.0.113.12" });
-      await setSettings([], { userId: 12, via: "admin", ip: "203.0.113.12" });
+    it("多键设置同事务写入且只记一条合并审计；设置键与嵌套 JSON 键重排均不新增审计", async () => {
+      const reward = { post: 3, reply: 1, caps: { min: 0, maximum: 10 } };
+      const name = { key: "points.name_probe", value: { name: "青翼币" } };
+      const actor = { userId: 12, via: "admin", ip: "203.0.113.12" } as const;
+      await setSettings([{ key: "points.reward_probe", value: reward }, name], actor);
+      await setSettings(
+        [name, { key: "points.reward_probe", value: { ...reward, caps: { maximum: 10, min: 0 } } }],
+        actor,
+      );
+      await setSettings([], actor);
 
-      const rows = (await audits("setting.update")).filter(
-        (r) => r.targetId === "points.name_probe,points.reward_probe",
+      const rows = (await audits("setting.update")).filter((r) =>
+        r.targetId?.includes("points.reward_probe"),
       );
       expect(rows).toHaveLength(1);
-      expect(rows[0]).toMatchObject({ actorId: 12, targetType: "setting", ip: "203.0.113.12" });
+      expect(rows[0]).toMatchObject({
+        actorId: 12,
+        targetType: "setting",
+        targetId: "points.name_probe,points.reward_probe",
+        ip: "203.0.113.12",
+      });
       expect(rows[0]?.beforeJson).toEqual({
         "points.name_probe": null,
         "points.reward_probe": null,
       });
       expect(rows[0]?.afterJson).toEqual({
         "points.name_probe": { value: { name: "青翼币" }, via: "admin" },
-        "points.reward_probe": { value: { post: 3, reply: 1 }, via: "admin" },
+        "points.reward_probe": { value: reward, via: "admin" },
       });
     });
   });

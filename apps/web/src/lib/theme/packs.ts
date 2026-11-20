@@ -5,6 +5,24 @@ import { getWebDb, siteSettings, themePackages } from "@funwind/db";
 import { writeAudit, type ConfigActor, type DbTx } from "@/lib/audit";
 import { invalidateThemeCatalog } from "@/lib/theme/catalog";
 import { parseThemePackDefinition, type ThemePackDefinition } from "@/lib/theme/surface-schema";
+import {
+  auditRevisionChange,
+  auditThemePackChange,
+  lockThemeCapacity,
+  lockThemePack,
+  themeCapacityReached,
+  type ThemePackRow,
+} from "./pack-write-core";
+
+// 保留后台与管理接口的既有导入路径。
+export { lockThemePack, MAX_ENABLED_THEME_PACKS, type ThemePackRow } from "./pack-write-core";
+export {
+  prepareApiThemePackEnabled,
+  prepareApiThemePackUpdate,
+  THEMES_DENIAL_HTTP,
+  type PreparedApiThemePackWrite,
+  type ThemeApiErrorCode,
+} from "./api-writes";
 
 /**
  * 主题包写服务（M11.1 Step 5，docs/milestones/M11.1-theme-engine.md Step 5）：
@@ -18,12 +36,8 @@ import { parseThemePackDefinition, type ThemePackDefinition } from "@/lib/theme/
  */
 
 export const THEME_PACK_ID_RE = /^[a-z0-9][a-z0-9_-]{1,31}$/;
-/** 全站启用包总数上限，包含内置包；停用包仍可保留和编辑。 */
-export const MAX_ENABLED_THEME_PACKS = 5;
 /** 保留字：default 是系统回退包；dark/system 与明暗模式轴冲突，不做包 id */
 export const RESERVED_PACK_IDS = new Set(["default", "dark", "system"]);
-
-export type ThemePackRow = typeof themePackages.$inferSelect;
 
 export interface ThemePackSummary {
   id: string;
@@ -82,29 +96,6 @@ export function toSummary(row: ThemePackRow): ThemePackSummary {
   };
 }
 
-export async function lockThemePack(tx: DbTx, id: string): Promise<ThemePackRow | null> {
-  const [row] = await tx
-    .select()
-    .from(themePackages)
-    .where(eq(themePackages.id, id))
-    .limit(1)
-    .for("update");
-  return row ?? null;
-}
-
-/** 启用容量变更统一先锁不可删除的 default，再锁目标包，避免并发计数突破上限。 */
-async function lockThemeCapacity(tx: DbTx): Promise<boolean> {
-  return (await lockThemePack(tx, "default")) !== null;
-}
-
-async function themeCapacityReached(tx: DbTx): Promise<boolean> {
-  const [row] = await tx
-    .select({ enabled: count() })
-    .from(themePackages)
-    .where(eq(themePackages.enabled, true));
-  return Number(row.enabled) >= MAX_ENABLED_THEME_PACKS;
-}
-
 /** 管理页显示当前启用包数量；容量写入检查仍必须在事务锁内完成。 */
 export async function getEnabledThemePackCount(): Promise<number> {
   const [row] = await getWebDb()
@@ -128,49 +119,6 @@ async function withThemeCapacity<T = ThemePackSummary>(
   }, THEME_CAPACITY_TX_OPTIONS);
   if (result.ok) invalidateThemeCatalog();
   return result;
-}
-
-async function auditThemePackChange(
-  tx: DbTx,
-  actor: ConfigActor,
-  action: string,
-  id: string,
-  before?: unknown,
-  after?: unknown,
-): Promise<void> {
-  await writeAudit(tx, {
-    actorId: actor.userId,
-    action,
-    targetType: "theme_pack",
-    targetId: id,
-    before,
-    after,
-    ip: actor.ip,
-  });
-}
-
-function withRevision(revision: number, values: Record<string, unknown>) {
-  return { ...values, revision };
-}
-
-async function auditRevisionChange(
-  tx: DbTx,
-  actor: ConfigActor,
-  action: string,
-  id: string,
-  beforeRevision: number,
-  before: Record<string, unknown>,
-  afterRevision: number,
-  after: Record<string, unknown>,
-): Promise<void> {
-  await auditThemePackChange(
-    tx,
-    actor,
-    action,
-    id,
-    withRevision(beforeRevision, before),
-    withRevision(afterRevision, after),
-  );
 }
 
 function auditThemePackToggle(

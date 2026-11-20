@@ -1,6 +1,5 @@
 import "@/modules";
 import { z } from "zod";
-import { ManageApiError } from "@/lib/manage/errors";
 import { manageEndpoint, manageOk, parseManageQuery } from "@/lib/manage/route";
 import { managePageField, manageSizeField } from "@/lib/manage/params";
 import { getLedgerPage } from "@/lib/points/ledger";
@@ -17,8 +16,7 @@ const querySchema = z.object({
 export const GET = manageEndpoint(
   async ({ request }) => {
     const q = parseManageQuery(request, querySchema);
-    if (!q.userId) throw new ManageApiError("bad_request");
-    return manageOk(await getLedgerPage(q.userId, q.page ?? 1));
+    return manageOk(await getLedgerPage(q.userId, q.page ?? 1, q.size));
   },
   { endpoint: "points.ledger" },
 );

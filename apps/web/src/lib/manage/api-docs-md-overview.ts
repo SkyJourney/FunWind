@@ -8,7 +8,11 @@ const errorRows = Object.entries(MANAGE_ERROR_CODES).map(
 );
 
 const endpoints = Object.values(MANAGE_ENDPOINTS);
-const reads = endpoints.filter(({ access }) => access === "read").length;
+const readEndpoints = endpoints.filter(({ access }) => access === "read");
+const writeEndpoints = endpoints.filter(({ access }) => access === "write");
+const domains = new Set(endpoints.map(({ domain }) => domain));
+const readDomains = new Set(readEndpoints.map(({ domain }) => domain));
+const writeDomains = new Set(writeEndpoints.map(({ domain }) => domain));
 
 export const DOCS_OVERVIEW: readonly DocsOverviewSection[] = [
   {
@@ -17,7 +21,7 @@ export const DOCS_OVERVIEW: readonly DocsOverviewSection[] = [
     md: [
       "## 总述",
       "",
-      `管理 REST API 供脚本和自动化使用。本页说明 ${reads} 个读端点和 ${endpoints.length - reads} 个写端点；仅供阅读，不提供在线调用。写入默认关闭。`,
+      `管理 REST API 供脚本和自动化使用。当前目录覆盖 ${domains.size} 个域，共 ${endpoints.length} 个端点（${readEndpoints.length} 读、${writeEndpoints.length} 写）。M20.3 Step 5 新增 19 个端点（7 读、12 写）。本页仅供阅读，写入默认关闭。`,
       "",
       "**谁可以读这份文档？** 使用站点会话登录，并满足站点管理员资格（同时具备 `site.admin` 和 `admin.roles`，账号可用且未被全站封禁）。未登录会跳转到登录页；登录后不满足资格返回 404。API 令牌不能替代浏览器会话来阅读文档。",
       "",
@@ -48,9 +52,11 @@ export const DOCS_OVERVIEW: readonly DocsOverviewSection[] = [
       "",
       "### 域档位与生效权限",
       "",
-      "- 新令牌各域默认禁止，签发时至少勾选一项可用权限。只读授予该域可签发的读端点；读写同时授予可签发的读、写端点。目前内容治理、举报、用户治理、公告、活动、邀请码、版块、投票、私信、徽章、积分与表情十二个域有写端点。统计、审计、邮件、推送四域独立选择，不因共用 `admin.logs` 而合并授权。",
+      `- 签发时各域默认禁止，至少选择一项可用权限。${readDomains.size} 个域有读端点，${writeDomains.size} 个域有写端点，其中 ${readDomains.size + writeDomains.size - domains.size} 个域同时提供读写端点。令牌身份、站点统计、审计日志、邮件日志、推送日志仅读，私信域仅写。统计、审计、邮件、推送四域各自授权。`,
+      "- 只读档授予该域的全部读端点，读写档授予该域的全部读、写端点（仅写的私信域只授予写端点）。签发按整档校验，缺少任一端点的全局权限会拒绝该次签发，不会跳过端点部分签发。",
+      "- 角色域读写档 `roles:write` 同时包含角色管理和[用户角色绑定／解绑](#ep-users-role-assign)，所以签发还须具备 `admin.users`，仅具备管理员基础资格不能签发此档；可选择 `roles:read`。`users:write` 不包含这两个角色端点。",
       "- 域档位只用于签发。令牌实际保存签发时可授予的精确端点 ID 快照，不随同域增加端点或持有人提权而自动扩大。快照不可原地编辑；需要调整时换发并吊销旧令牌。",
-      "- 生效权限是**令牌端点快照 ∩ 持有人实时资格与业务权限 ∩ 服务层资源及字段权限**。持有人必须同时具备 `site.admin` 和 `admin.roles`；被撤下管理员、全站封禁或申请注销时会联动吊销。通过入口门禁不代表可以操作任何目标，也不保证随后撤权会中止已经通过门禁的在途请求。",
+      "- 生效权限是**令牌端点快照 ∩ 持有人实时资格与业务权限 ∩ 服务层资源及字段权限**。持有人必须同时具备 `site.admin` 和 `admin.roles`；被撤下管理员、全站封禁或申请注销时会联动吊销。通过入口门禁不代表可以操作任何目标。六个角色写端点在事务内再复核凭证及当前授权，先提交的撤权或吊销也会阻止回放；其他端点不保证中止已经通过门禁的在途请求。",
       "- 持有人或令牌缺少入口权限时返回 `forbidden`；目标不存在或目标级越权时统一返回 `not_found`。凭证缺失、无效、过期或已吊销时返回 `unauthorized`。",
       "",
       "### 频控和调用记录",
@@ -66,11 +72,11 @@ export const DOCS_OVERVIEW: readonly DocsOverviewSection[] = [
       "## 写入与重试",
       "",
       "- 写入口默认关闭；只有部署方显式设置 `MANAGE_API_WRITES=on` 才启用。具备调用资格时，停写返回 `writes_disabled`（503），不影响读取或已经提交的变更。",
-      "- 全部写端点均只接收 `Content-Type: application/json`（允许媒体类型参数），正文为 UTF-8 严格 JSON 对象，不接受未知字段、数组或批量请求；实际正文最多 16 KiB，即使没有 `Content-Length` 也会检查。路径 ID 必须是十进制正安全整数。",
-      "- 全部写端点都必须传 `Idempotency-Key`。键长为 16–128 个 ASCII 字符，只使用英文字母、数字和 `.`、`_`、`:`、`-`。为每个新的业务意图生成新键；重试同一次操作时使用同一令牌、同一端点、同一键和同一请求参数。",
-      "- 幂等键按令牌和端点隔离，并绑定规范化后的目标 ID 与参数。成功提交后的 24 小时内，重新通过入口与资源权限检查且请求相同，会返回原成功响应，不再次变更、写变更审计或派发事件；同键用于不同目标或参数时返回 `idempotency_conflict`（409）。成功回放也可能留下新的调用审计。",
-      "- 回放窗口从成功写入计算；超过 24 小时不保证回放，先通过读取或后台确认结果，再决定是否发起新操作，不要盲目重试。失败回滚，不保存成功结果。",
-      "- 成功结果、实际业务变更、变更审计和事务事件（适用时）一并提交。敏感凭证、幂等键、帖子正文和原始请求体不写入审计。",
+      "- 写请求使用 `Content-Type: application/json`（允许媒体类型参数）和 UTF-8 JSON。实际正文最多 16 KiB，即使没有 `Content-Length` 也会检查。正文按端点严格校验，通常是对象。[设置分组更新](#ep-settings-update)的 `nav`、`links` 直接接收数组，此数组表示单个配置值，不是批量请求。数字路径 ID 必须是十进制正安全整数，字符串键按端点规则校验。",
+      "- 除[触发运维任务](#ep-ops-trigger)外，写端点都要求 `Idempotency-Key`。键长为 16–128 个 ASCII 字符，只使用英文字母、数字和 `.`、`_`、`:`、`-`。为每个新的业务意图生成新键，重试同一次操作时使用同一令牌、端点、目标、请求参数和键。",
+      "- 幂等键按令牌和端点隔离，指纹包含目标（含路径中的字符串键）、请求参数和适用的版本条件。新指纹不区分 JSON 对象键顺序，但保留数组顺序；使用旧回执时请保留原字段顺序。成功提交后的 24 小时内，请求通过当前入口门禁和适用的事务外校验后，同键同指纹会返回原成功响应，跳过目标加锁和业务执行。同键不同指纹返回 `idempotency_conflict`（409）。回放仍可能产生新的调用审计。",
+      "- 对使用幂等键的端点，回放窗口从成功写入计算。超过 24 小时应先确认结果，再决定是否发起新操作。实际变更、变更审计、事务事件（适用时）和成功结果一并提交，失败回滚。敏感凭证、幂等键、帖子正文和原始请求体不写入审计。",
+      "- 运维触发仍受通用写门禁和频控约束，但不使用幂等键。HTTP 202 仅代表管线已受理，不代表已执行或成功；遇到断连、超时或 `ops_unavailable`（503）不能据此断定未受理。先核对运行台账，再决定是否重试。",
     ].join("\n"),
   },
   {
@@ -79,7 +85,7 @@ export const DOCS_OVERVIEW: readonly DocsOverviewSection[] = [
     md: [
       "## 统一信封与错误码",
       "",
-      '端点成功时返回 HTTP 200 和 `{ "ok": true, "data": … }`；失败时返回对应 HTTP 状态及 `{ "error": { "code": "…", "message": "…" } }`。API 信封响应使用 `Cache-Control: private, no-store`。',
+      '成功响应使用 `{ "ok": true, "data": … }`，通常返回 HTTP 200。[运维触发](#ep-ops-trigger)在管线受理后返回 202。失败响应使用对应 HTTP 状态和 `{ "error": { "code": "…", "message": "…" } }`。API 信封响应使用 `Cache-Control: private, no-store`。',
       "",
       "| 错误码 | HTTP | 响应文案 |",
       "|---|---|---|",
@@ -87,7 +93,7 @@ export const DOCS_OVERVIEW: readonly DocsOverviewSection[] = [
       "",
       "### 分页约定",
       "",
-      "分页查询参数 `page` 默认 1，`size` 默认 20，仅接受 10 / 20 / 50 / 100。内容列表和用户列表返回 `{ items, total, page, totalPages }`；审计日志返回 `{ items, total }`，邮件和推送日志还包含 `summary`。",
+      "只有分页端点接受 `page`（整数 ≥1，默认 1）与 `size`（10 / 20 / 50 / 100）；非法值返回 `bad_request`（400）。默认每页 20 条的端点：用户、内容、举报、公告、邀请码、投票、积分台账、运维运行历史。默认每页 50 条的端点：审计日志、邮件日志、推送日志、表情列表（只分页表情条目，不分页表情组）。分页响应结构见各端点。",
     ].join("\n"),
   },
 ];

@@ -71,15 +71,17 @@ export const ASSETS_ENDPOINT_DOCS = {
   "points.ledger": {
     slug: "ep-points-ledger",
     nav: "积分台账",
-    restrictions: "按用户查余额快照与台账分页（只增不改不删）；`userId` 必填。",
-    errors: ["bad_request", "not_found"],
+    restrictions:
+      "按用户查余额快照与台账分页（只增不改不删）；`userId` 必填。合法 ID 没有积分账户或流水时，相应数值为 0、流水为空，不因用户不存在返回 404。",
+    errors: ["bad_request"],
     lines: [
-      "查询用户的积分余额与流水分页。",
+      "返回 `{ items, total, page, totalPages, balance, lifetimeEarned, lifetimeSpent }`，流水按 `id` 降序；越界页码收敛到最后一页。",
       "",
       "| 参数 | 类型 | 必填 | 说明 |",
       "|---|---|---|---|",
       "| `userId` | int ≥1 | 是 | 用户 ID |",
-      "| `page` / `size` | int | 否 | 1 / 20 |",
+      "| `page` | int ≥1 | 否 | 页码，默认 1 |",
+      "| `size` | int 档位 | 否 | 每页条数，默认 20，仅接受 10/20/50/100 |",
       "",
       "**调用示例**",
       "",

@@ -13,11 +13,7 @@ import type {
   ModerationWriteDenial,
   PreparedModerationWrite,
 } from "@/lib/moderation/contents";
-import {
-  hasOtherEffectiveSiteAdmin,
-  isEffectiveSiteAdmin,
-  lockSiteAdminInvariant,
-} from "@/lib/authz/site-admin-invariant";
+import { isLastPermanentSiteAdmin, lockSiteAdminInvariant } from "@/lib/authz/site-admin-invariant";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
 import {
   dispatchOutboxRows,
@@ -150,11 +146,8 @@ async function applyRestrictionCreate(
     return { ok: false, code: "already" };
   }
 
-  if (
-    globalBan &&
-    (await isEffectiveSiteAdmin(tx, userId)) &&
-    !(await hasOtherEffectiveSiteAdmin(tx, userId))
-  ) {
+  // 全站封禁的首次一致性读在不变量锁和目标用户锁之后；限时封禁也会使永久管理员暂时不可登录。
+  if (globalBan && (await isLastPermanentSiteAdmin(tx, userId))) {
     return { ok: false, code: "last_admin" };
   }
 

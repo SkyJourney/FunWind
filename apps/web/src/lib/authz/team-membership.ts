@@ -1,7 +1,7 @@
 import "server-only";
 
-import { and, eq, inArray } from "drizzle-orm";
-import { badges, getWebDb, roles, roleGrants, userBadges, userRoles, users } from "@funwind/db";
+import { and, eq } from "drizzle-orm";
+import { badges, getWebDb, roles, userBadges, userRoles, users } from "@funwind/db";
 import { writeAudit, type ConfigActor } from "@/lib/audit";
 import { isFutureBeijingDateTime, nowBeijingWallTime } from "@/lib/datetime";
 import { lockActiveUserInTx } from "@/lib/identity";
@@ -13,8 +13,14 @@ import {
 } from "@/lib/events/outbox";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
 import { revokeAdminApiTokensIfNotSiteAdmin } from "@/lib/manage/tokens";
+import { ROLE_NOTIFICATION_DELIVERY_POLICY } from "@/modules/kernel/types";
 import { AdminError } from "./admin";
-import { hasEffectiveSiteAdmin, lockSiteAdminInvariant } from "./site-admin-invariant";
+import { adjudicatePermanentSiteAdminRemains } from "./admin-shared";
+import {
+  hasPermanentSiteAdmin,
+  lockSiteAdminInvariant,
+  roleHasGlobalSiteAdminGrant,
+} from "./site-admin-invariant";
 import {
   isTeamMembershipRole,
   teamBadgeKeyForRole,
@@ -60,7 +66,9 @@ export async function assignTeamMembership(
         .where(eq(roles.key, input.roleKey))
         .limit(1)
         .for("share");
-      if (!role || role.kind !== "custom") throw new AdminError("团队角色不存在或不是自定义角色");
+      if (role?.key !== input.roleKey || role.kind !== "custom") {
+        throw new AdminError("团队角色不存在或不是自定义角色");
+      }
       const [badge] = await tx
         .select({ id: badges.id, name: badges.name, isActive: badges.isActive, kind: badges.kind })
         .from(badges)
@@ -72,7 +80,7 @@ export async function assignTeamMembership(
       }
 
       const [roleHolder] = await tx
-        .select({ id: userRoles.id, expiresAt: userRoles.expiresAt })
+        .select({ id: userRoles.id, roleKey: userRoles.roleKey, expiresAt: userRoles.expiresAt })
         .from(userRoles)
         .where(
           and(
@@ -99,6 +107,13 @@ export async function assignTeamMembership(
         badgeHolder.expiresAt !== input.expiresAt;
       if (!changed) return;
 
+      const affectsPermanentAdmin =
+        roleHolder?.expiresAt === null &&
+        input.expiresAt !== null &&
+        (await hasPermanentSiteAdmin(tx, {
+          userId: input.userId,
+          throughRoleKey: roleHolder.roleKey,
+        }));
       await tx
         .insert(userRoles)
         .values({
@@ -112,6 +127,10 @@ export async function assignTeamMembership(
         .onDuplicateKeyUpdate({
           set: { expiresAt: input.expiresAt, grantedBy: actor.userId, grantedAt: now },
         });
+      if (affectsPermanentAdmin) {
+        const denial = await adjudicatePermanentSiteAdminRemains(tx);
+        if (denial) throw new AdminError(denial.message ?? denial.code);
+      }
       await tx
         .insert(userBadges)
         .values({
@@ -154,7 +173,11 @@ export async function assignTeamMembership(
             operatorId: actor.userId,
             expiresAt: input.expiresAt,
           },
-          { actorId: actor.userId, source: "team-membership" },
+          {
+            actorId: actor.userId,
+            source: "team-membership",
+            deliveryPolicy: ROLE_NOTIFICATION_DELIVERY_POLICY,
+          },
         ),
       );
       if (badgeWasNotActive) {
@@ -199,7 +222,7 @@ export async function revokeTeamMembership(
         .for("update");
       if (!target) throw new AdminError("用户不存在");
       const [roleHolder] = await tx
-        .select({ id: userRoles.id, expiresAt: userRoles.expiresAt })
+        .select({ id: userRoles.id, roleKey: userRoles.roleKey, expiresAt: userRoles.expiresAt })
         .from(userRoles)
         .where(
           and(
@@ -217,31 +240,26 @@ export async function revokeTeamMembership(
         .where(and(eq(userBadges.userId, userId), eq(badges.key, badgeKey)))
         .limit(1)
         .for("update");
-      const adminGrants = roleHolder
-        ? await tx
-            .select({ id: roleGrants.id })
-            .from(roleGrants)
-            .where(
-              and(
-                eq(roleGrants.roleKey, roleKey),
-                eq(roleGrants.scopeId, 0),
-                inArray(roleGrants.permissionKey, ["site.admin", "admin.roles"]),
-              ),
-            )
-        : [];
       if (!roleHolder && !badgeHolder) return;
 
+      const removesAdminGrant =
+        !!roleHolder && (await roleHasGlobalSiteAdminGrant(tx, roleHolder.roleKey));
+      const affectsPermanentAdmin =
+        removesAdminGrant &&
+        roleHolder?.expiresAt === null &&
+        (await hasPermanentSiteAdmin(tx, { userId, throughRoleKey: roleHolder.roleKey }));
       if (roleHolder) await tx.delete(userRoles).where(eq(userRoles.id, roleHolder.id));
       if (badgeHolder) {
         await tx
           .delete(userBadges)
           .where(and(eq(userBadges.userId, userId), eq(userBadges.badgeId, badgeHolder.id)));
       }
-      if (adminGrants.length > 0 && !(await hasEffectiveSiteAdmin(tx))) {
-        throw new AdminError("至少保留一位可以登录并管理角色的有效站点管理员");
+      if (affectsPermanentAdmin) {
+        const denial = await adjudicatePermanentSiteAdminRemains(tx);
+        if (denial) throw new AdminError(denial.message ?? denial.code);
       }
-      // M20 撤权联动：收回持有 admin 授权的团队角色同样使持有人失去管理员资格
-      if (roleHolder && adminGrants.length > 0) {
+      // M20 撤权联动：收回管理团队角色后复核当前令牌资格。
+      if (removesAdminGrant) {
         await revokeAdminApiTokensIfNotSiteAdmin(tx, userId, {
           actorId: actor.userId,
           via: "admin",
@@ -272,7 +290,11 @@ export async function revokeTeamMembership(
               operatorId: actor.userId,
               expiresAt: roleHolder.expiresAt,
             },
-            { actorId: actor.userId, source: "team-membership" },
+            {
+              actorId: actor.userId,
+              source: "team-membership",
+              deliveryPolicy: ROLE_NOTIFICATION_DELIVERY_POLICY,
+            },
           ),
         );
       }

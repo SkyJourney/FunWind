@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { MANAGE_ENDPOINTS } from "@/lib/manage/permissions";
+import { DOCS_SECTIONS } from "@/lib/manage/api-docs-md";
 
 const contract = resolve(import.meta.dirname, "../../../../../../docs/MANAGE-API.md");
 
@@ -21,5 +22,17 @@ describe("管理 REST 仓库契约", () => {
       ({ method, path, domain, access }) => `${method} ${path} ${domain}:${access}`,
     );
     expect(actual.sort()).toEqual(expected.sort());
+  });
+
+  it("在线错误表不把运维触发列为幂等写，也不把空积分台账列为 404", () => {
+    const errors = (slug: string) =>
+      DOCS_SECTIONS.find((section) => section.slug === slug)
+        ?.md.split("**错误**")
+        .at(-1);
+    expect(errors("ep-ops-trigger")).toContain("`ops_unavailable`（503）");
+    expect(errors("ep-ops-trigger")).not.toContain("idempotency_conflict");
+    expect(errors("ep-points-ledger")).toContain("`bad_request`（400）");
+    expect(errors("ep-points-ledger")).not.toContain("not_found");
+    expect(errors("ep-themes-edit")).toContain("`idempotency_conflict`（409）");
   });
 });

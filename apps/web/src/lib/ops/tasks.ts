@@ -11,6 +11,7 @@ import {
   siteSettings,
 } from "@funwind/db";
 import { writeAudit, type ConfigActor, type DbTx } from "@/lib/audit";
+import type { ModerationApiTrace } from "@/lib/moderation/contents";
 import { nowBeijingWallTime } from "@/lib/datetime";
 import { withDeadlockRetry } from "@/lib/points/retry";
 import { isMissingTable } from "@/lib/ops/runs";
@@ -50,7 +51,7 @@ export interface OpsTaskView {
   }[];
 }
 
-function taskSnapshot(row: TaskRow) {
+export function taskSnapshot(row: TaskRow) {
   return {
     name: row.name,
     executor: row.executor,
@@ -70,7 +71,7 @@ function triggerSnapshot(row: TriggerRow) {
   };
 }
 
-async function audit(
+export async function audit(
   tx: DbTx,
   actor: ConfigActor,
   action: string,
@@ -89,7 +90,7 @@ async function audit(
   });
 }
 
-async function lockTaskBy(tx: DbTx, where: ReturnType<typeof eq>): Promise<TaskRow | null> {
+export async function lockTaskBy(tx: DbTx, where: ReturnType<typeof eq>): Promise<TaskRow | null> {
   const [row] = await tx.select().from(opsTasks).where(where).limit(1).for("update");
   return row ?? null;
 }
@@ -113,7 +114,11 @@ async function lockTriggerWithTask(tx: DbTx, id: number) {
 }
 
 /** 任务 revision+1（自身编辑与一切旁路写共用） */
-async function bumpTask(tx: DbTx, task: TaskRow, set: Partial<typeof opsTasks.$inferInsert> = {}) {
+export async function bumpTask(
+  tx: DbTx,
+  task: TaskRow,
+  set: Partial<typeof opsTasks.$inferInsert> = {},
+) {
   const revision = task.revision + 1;
   await tx
     .update(opsTasks)
@@ -129,7 +134,7 @@ async function committed<T>(pending: OpsResult<T> | Promise<OpsResult<T>>): Prom
   return result;
 }
 
-function checkName(raw: string): string | null {
+export function checkName(raw: string): string | null {
   const name = raw.trim();
   return name && name.length <= 60 ? name : null;
 }
@@ -245,7 +250,7 @@ export async function createOpsTask(input: TaskInput, actor: ConfigActor): Promi
 }
 
 /** 锁定任务行 + 冲突检查（revision=null 跳过比较）：not-found / conflict 的公共前置 */
-async function lockTaskForWrite(
+export async function lockTaskForWrite(
   tx: DbTx,
   where: ReturnType<typeof eq>,
   expectedRevision: number | null,
@@ -556,13 +561,22 @@ export async function setBackupRetention(
 }
 
 /** 手动触发的审计（管线已受理、拿到 run id 才记——没有发生任何事的失败尝试不记） */
-export async function recordManualTrigger(taskKey: string, runId: number, actor: ConfigActor) {
+export async function recordManualTrigger(
+  taskKey: string,
+  runId: number,
+  actor: ConfigActor,
+  trace?: ModerationApiTrace,
+) {
   await writeAudit(getWebDb(), {
     actorId: actor.userId,
     action: "ops.task.run",
     targetType: "ops_task",
     targetId: taskKey,
-    after: { runId, via: actor.via },
+    after: {
+      runId,
+      via: actor.via,
+      ...(trace ? { requestId: trace.requestId, tokenSuffix: trace.tokenSuffix } : {}),
+    },
     ip: actor.ip,
   });
 }

@@ -202,24 +202,38 @@ describe.skipIf(skipDb)("账号注销生命周期 · 真实 MySQL", () => {
     }
   });
 
-  it("不能让最后一位有效站点管理员申请注销", async () => {
-    await expect(
-      requestAccountDeletionWithPassword({ userId: DEMO.admin }, PASSWORD),
-    ).rejects.toMatchObject({ code: "last_admin" });
-    await expect(
-      startOrOpenAccountDeletionWithPassword("demo_admin", PASSWORD, null),
-    ).rejects.toMatchObject({ code: "last_admin" });
-    expect(
-      await db()
-        .select()
-        .from(accountDeletionRequests)
-        .where(
-          and(
-            eq(accountDeletionRequests.userId, DEMO.admin),
-            eq(accountDeletionRequests.status, "pending"),
+  it("有临时管理员也不能让末位永久管理员申请注销", async () => {
+    const fallback = and(eq(userRoles.userId, DEMO.team), eq(userRoles.roleKey, "admin"));
+    await db()
+      .insert(userRoles)
+      .values({
+        userId: DEMO.team,
+        roleKey: "admin",
+        scopeId: 0,
+        expiresAt: "2099-01-01 00:00:00",
+        grantedAt: sql`NOW()`,
+      });
+    try {
+      await expect(
+        requestAccountDeletionWithPassword({ userId: DEMO.admin }, PASSWORD),
+      ).rejects.toMatchObject({ code: "last_admin" });
+      await expect(
+        startOrOpenAccountDeletionWithPassword("demo_admin", PASSWORD, null),
+      ).rejects.toMatchObject({ code: "last_admin" });
+      expect(
+        await db()
+          .select()
+          .from(accountDeletionRequests)
+          .where(
+            and(
+              eq(accountDeletionRequests.userId, DEMO.admin),
+              eq(accountDeletionRequests.status, "pending"),
+            ),
           ),
-        ),
-    ).toHaveLength(0);
+      ).toHaveLength(0);
+    } finally {
+      await db().delete(userRoles).where(fallback);
+    }
   });
 
   it("密码再确认申请会吊销所有设备；撤销后只新建一个会话，旧 cookie 不复活", async () => {

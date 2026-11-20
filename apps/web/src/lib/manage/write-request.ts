@@ -24,7 +24,7 @@ export function enforceManageWriteGate(token: UsableAdminApiToken): void {
 }
 
 /** 逐块限制实际字节数，不能用客户端声明的长度替代读取上限。 */
-async function readManageJson(request: Request): Promise<unknown> {
+export async function readManageJson(request: Request): Promise<unknown> {
   const media = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
   if (media !== "application/json") throw new ManageApiError("unsupported_media_type");
   const declared = request.headers.get("content-length");

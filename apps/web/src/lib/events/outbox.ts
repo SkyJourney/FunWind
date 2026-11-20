@@ -6,6 +6,7 @@ import { emit } from "@/modules/kernel/bus";
 import { isEventName, validateEventPayload } from "@/modules/kernel/event-names";
 import {
   MODERATION_NOTIFICATION_DELIVERY_POLICY,
+  ROLE_NOTIFICATION_DELIVERY_POLICY,
   type EventDeliveryContext,
   type EventDeliveryPolicy,
   type EventName,
@@ -48,10 +49,14 @@ type DispatchFailure = {
 };
 
 /** 持久身份与来源来自记录；无法识别的新策略不降级成历史派发。 */
-function deliveryOf(row: DispatchableRow): EventDeliveryContext | DeliveryFailure {
+function deliveryOf(row: DispatchableRow, name: EventName): EventDeliveryContext | DeliveryFailure {
   if (!Number.isSafeInteger(row.id) || row.id <= 0) return "invalid_outbox_id";
   const policy = row.deliveryPolicy ?? undefined;
-  if (policy !== undefined && policy !== MODERATION_NOTIFICATION_DELIVERY_POLICY) {
+  if (
+    policy !== undefined &&
+    policy !== MODERATION_NOTIFICATION_DELIVERY_POLICY &&
+    !(policy === ROLE_NOTIFICATION_DELIVERY_POLICY && name === "role.changed")
+  ) {
     return "unsupported_delivery_policy";
   }
   return Object.freeze({ outboxId: row.id, originalSource: row.source, deliveryPolicy: policy });
@@ -152,7 +157,7 @@ async function dispatchFailureOf(
           : null;
       return Array.isArray(errors) && errors.length > 0 ? { category: "consumer_failed" } : null;
     }
-    const delivery = deliveryOf(row);
+    const delivery = deliveryOf(row, name);
     if (typeof delivery === "string") return { category: delivery };
     const { errors } = await emit(name, row.payload as never, {
       source,

@@ -52,8 +52,8 @@ export type ManageEndpointOptions = {
 };
 
 /** 构造统一成功响应（no-store 红线：管理面数据绝不进任何缓存） */
-export function manageOk(data: unknown): NextResponse {
-  const res = NextResponse.json(manageOkBody(data));
+export function manageOk(data: unknown, status = 200): NextResponse {
+  const res = NextResponse.json(manageOkBody(data), { status });
   res.headers.set("cache-control", "private, no-store");
   return res;
 }

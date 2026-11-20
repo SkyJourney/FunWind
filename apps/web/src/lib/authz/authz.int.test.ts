@@ -9,6 +9,7 @@ import {
   accountDeletionRequests,
   DEMO,
   auditLog,
+  eventOutbox,
   forums,
   getWebDb,
   roleGrants,
@@ -37,6 +38,11 @@ import {
   getModeratedForumIds,
   getReadableForumIds,
 } from "./service";
+import {
+  hasPermanentSiteAdmin,
+  isEffectiveSiteAdmin,
+  roleHasGlobalSiteAdminGrant,
+} from "./site-admin-invariant";
 import { getAuthzSnapshot, getForumTree, invalidateAuthzSnapshot } from "./snapshot";
 import { loadSubject } from "./subject";
 
@@ -327,6 +333,15 @@ describe.skipIf(skipDb)("权限内核 · 真实 MySQL", () => {
       );
       await revokeUserRole(admin, DEMO.member, "team-events", 0, "事件测试撤销", deps as never);
       await revokeUserRole(admin, DEMO.member, "team-events", 0, "事件测试撤销", deps as never); // 已不存在
+      const outbox = await getWebDb()
+        .select({ payload: eventOutbox.payload, policy: eventOutbox.deliveryPolicy })
+        .from(eventOutbox)
+        .where(eq(eventOutbox.eventName, "role.changed"));
+      expect(
+        outbox
+          .filter(({ payload }) => (payload as { roleKey?: string }).roleKey === "team-events")
+          .map(({ policy }) => policy),
+      ).toEqual(["role_notification_v1", "role_notification_v1"]);
       expect(seen).toEqual([
         {
           userId: DEMO.member,
@@ -364,9 +379,10 @@ describe.skipIf(skipDb)("权限内核 · 真实 MySQL", () => {
       expect(log?.beforeJson).toEqual({ grants: 1, holders: 1 });
     });
 
-    it("并发撤销绑定、撤权与删角色都不能移除最后一位有效管理员", async () => {
+    it("仅剩限时替补时，解绑、撤权、删角色或改限时均不能移除末位永久管理员", async () => {
       const roleA = "m96-site-admin-a";
       const roleB = "m96-site-admin-b";
+      const expiry = "2099-01-01 00:00:00";
       for (const roleKey of [roleA, roleB]) {
         await createCustomRole(admin, roleKey, roleKey, "last-admin guard");
         await grantRolePermission(admin, roleKey, "site.admin", 0);
@@ -374,26 +390,195 @@ describe.skipIf(skipDb)("权限内核 · 真实 MySQL", () => {
       }
       await assignUserRole(admin, DEMO.member, roleA, 0, null, "管理员测试授予");
       await assignUserRole(admin, DEMO.team, roleB, 0, null, "管理员测试授予");
-      await revokeUserRole(admin, DEMO.admin, "admin", 0, "并发末位管理员测试");
+      await assignUserRole(admin, DEMO.admin, "admin", 0, expiry, "设置限时替补");
 
-      const results = await Promise.allSettled([
-        revokeUserRole(admin, DEMO.member, roleA, 0, "并发撤销测试"),
-        revokeUserRole(admin, DEMO.team, roleB, 0, "并发撤销测试"),
-      ]);
-      expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-      expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
-      const remainingRole = results[0]?.status === "fulfilled" ? roleB : roleA;
+      try {
+        const results = await Promise.allSettled([
+          revokeUserRole(admin, DEMO.member, roleA, 0, "并发撤销测试"),
+          revokeUserRole(admin, DEMO.team, roleB, 0, "并发撤销测试"),
+        ]);
+        expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+        expect(results.find((result) => result.status === "rejected")?.reason).toMatchObject({
+          message: expect.stringContaining("永久站点管理员"),
+        });
+        const [remainingUser, remainingRole] =
+          results[0].status === "fulfilled" ? [DEMO.team, roleB] : [DEMO.member, roleA];
+        const db = getWebDb();
+        const beforeAudit = await audits();
+        const beforeEvents = await db.select({ id: eventOutbox.id }).from(eventOutbox);
 
-      await expect(revokeRolePermission(admin, remainingRole, "site.admin", 0)).rejects.toThrow(
-        /至少保留一位/,
-      );
-      await expect(deleteCustomRole(admin, remainingRole)).rejects.toThrow(/至少保留一位/);
+        await expect(revokeRolePermission(admin, remainingRole, "site.admin", 0)).rejects.toThrow(
+          /永久站点管理员/,
+        );
+        await expect(deleteCustomRole(admin, remainingRole)).rejects.toThrow(/永久站点管理员/);
+        await expect(
+          assignUserRole(admin, remainingUser, remainingRole, 0, expiry, "由永久改成限时"),
+        ).rejects.toThrow(/永久站点管理员/);
 
-      await assignUserRole(admin, DEMO.admin, "admin", 0, null, "并发测试恢复管理角色");
-      await revokeUserRole(admin, DEMO.member, roleA, 0, "并发测试清理");
-      await revokeUserRole(admin, DEMO.team, roleB, 0, "并发测试清理");
-      await deleteCustomRole(admin, roleA);
-      await deleteCustomRole(admin, roleB);
+        expect(await audits()).toHaveLength(beforeAudit.length);
+        expect(await db.select({ id: eventOutbox.id }).from(eventOutbox)).toHaveLength(
+          beforeEvents.length,
+        );
+        const [binding] = await db
+          .select({ expiresAt: userRoles.expiresAt })
+          .from(userRoles)
+          .where(and(eq(userRoles.userId, remainingUser), eq(userRoles.roleKey, remainingRole)));
+        expect(binding?.expiresAt).toBeNull();
+        await db.transaction(async (tx) => {
+          expect(await hasPermanentSiteAdmin(tx, { userId: remainingUser })).toBe(true);
+          expect(await hasPermanentSiteAdmin(tx, { userId: DEMO.admin })).toBe(false);
+          expect(await isEffectiveSiteAdmin(tx, DEMO.admin)).toBe(true);
+        });
+      } finally {
+        await assignUserRole(admin, DEMO.admin, "admin", 0, null, "并发测试恢复管理角色");
+        await deleteCustomRole(admin, roleA);
+        await deleteCustomRole(admin, roleB);
+      }
+    });
+
+    it("仅剩临时管理员时仍可修复：两项全站权限可由同一可登录用户的不同永久角色提供", async () => {
+      const db = getWebDb();
+      const siteRole = "recovery-site-admin";
+      const rolesRole = "recovery-admin-roles";
+      const temporary = "2099-01-01 00:00:00";
+      const builtIn = and(eq(userRoles.userId, DEMO.admin), eq(userRoles.roleKey, "admin"));
+      const target = eq(users.id, DEMO.member);
+      await createCustomRole(admin, siteRole, siteRole, "");
+      await createCustomRole(admin, rolesRole, rolesRole, "");
+
+      try {
+        // 模拟升级前仅有限时管理员的历史库，不能通过正式入口削弱最后一条永久绑定。
+        await db.update(userRoles).set({ expiresAt: temporary }).where(builtIn);
+        await grantRolePermission(admin, siteRole, "site.admin", 0);
+        await grantRolePermission(admin, rolesRole, "admin.roles", 0);
+        await assignUserRole(admin, DEMO.member, siteRole, 0, null, "补授站点权限");
+        await assignUserRole(admin, DEMO.member, rolesRole, DEMO.restrictedForum, null, "版块绑定");
+        await assignUserRole(admin, DEMO.team, rolesRole, 0, null, "另一账号持有角色权限");
+        await assignUserRole(admin, DEMO.member, rolesRole, 0, temporary, "限时获得角色权限");
+        await db.transaction(async (tx) => {
+          expect(await hasPermanentSiteAdmin(tx)).toBe(false);
+          expect(await isEffectiveSiteAdmin(tx, DEMO.member)).toBe(true);
+        });
+
+        await db.update(users).set({ loginVerificationRequired: true }).where(target);
+        await assignUserRole(admin, DEMO.member, rolesRole, 0, null, "修复为永久绑定");
+        expect(await db.transaction((tx) => hasPermanentSiteAdmin(tx))).toBe(false);
+        await db.update(users).set({ loginVerificationRequired: false }).where(target);
+        expect(
+          await db.transaction((tx) => hasPermanentSiteAdmin(tx, { userId: DEMO.member })),
+        ).toBe(true);
+      } finally {
+        await db.update(userRoles).set({ expiresAt: null }).where(builtIn);
+        await db.update(users).set({ loginVerificationRequired: false }).where(target);
+        await deleteCustomRole(admin, siteRole);
+        await deleteCustomRole(admin, rolesRole);
+      }
+    });
+
+    it.each([
+      { binding: "M96-FALLBACK", grant: "m96-fallback", permission: "admin.roles" },
+      { binding: "m96-fallback", grant: "m96-fállback", permission: "admin.roles" },
+      { binding: "m96-fallback", grant: "m96-fallback", permission: "Admin.Roles" },
+      { binding: "m96-fallback", grant: "m96-fallback", permission: "admin.róles" },
+      { binding: "m96-fallback", grant: "m96-fallback", permission: "admin.roles " },
+    ])(
+      "历史键 $binding / $grant / '$permission' 不能充当保底",
+      async ({ binding, grant, permission }) => {
+        const db = getWebDb();
+        const roleKey = "m96-fallback";
+        const target = DEMO.member;
+        try {
+          await db.insert(roles).values({ key: roleKey, name: "历史角色", kind: "custom" });
+          await db
+            .insert(userRoles)
+            .values({ userId: target, roleKey: binding, grantedAt: sql`NOW()` });
+          await db.insert(roleGrants).values([
+            { roleKey: grant, permissionKey: permission },
+            { roleKey: grant, permissionKey: "site.admin" },
+          ]);
+          invalidateAuthzSnapshot();
+          expect((await checkPermission(await loadSubject(target), "admin.roles")).allowed).toBe(
+            false,
+          );
+          await db.transaction(async (tx) => {
+            expect(await isEffectiveSiteAdmin(tx, target)).toBe(false);
+            expect(await hasPermanentSiteAdmin(tx, { excludingUserId: DEMO.admin })).toBe(false);
+          });
+          await expect(
+            revokeUserRole(admin, DEMO.admin, "admin", 0, "末位保护测试"),
+          ).rejects.toThrow(/永久站点管理员/);
+        } finally {
+          await db
+            .insert(userRoles)
+            .ignore()
+            .values({ userId: DEMO.admin, roleKey: "admin", grantedAt: sql`NOW()` });
+          await db.delete(userRoles).where(eq(userRoles.roleKey, roleKey));
+          await db.delete(roleGrants).where(eq(roleGrants.roleKey, roleKey));
+          await db.delete(roles).where(eq(roles.key, roleKey));
+          invalidateAuthzSnapshot();
+        }
+      },
+    );
+
+    it("保底前置检测只接受实际的角色键与管理权限点", async () => {
+      const db = getWebDb();
+      const roleKey = "m96-precheck";
+      await db.insert(roleGrants).values({ roleKey, permissionKey: "síte.admin" });
+      try {
+        await db.transaction(async (tx) => {
+          expect(await roleHasGlobalSiteAdminGrant(tx, roleKey)).toBe(false);
+          expect(await roleHasGlobalSiteAdminGrant(tx, "ADMIN")).toBe(false);
+          expect(await roleHasGlobalSiteAdminGrant(tx, "admin")).toBe(true);
+          expect(await hasPermanentSiteAdmin(tx, { throughRoleKey: "ADMIN" })).toBe(false);
+          expect(await hasPermanentSiteAdmin(tx, { throughRoleKey: "admin" })).toBe(true);
+        });
+      } finally {
+        await db.delete(roleGrants).where(eq(roleGrants.roleKey, roleKey));
+      }
+    });
+
+    it("精确匹配且已生效的历史绑定受末位保护，已有保底时可清理", async () => {
+      const db = getWebDb();
+      const roleKey = "m96-effective";
+      const historicalKey = "M96-EFFECTIVE";
+      const target = DEMO.member;
+      const temporary = "2099-01-01 00:00:00";
+      const builtIn = and(eq(userRoles.userId, DEMO.admin), eq(userRoles.roleKey, "admin"));
+      try {
+        await db.insert(roles).values({ key: roleKey, name: "历史生效角色", kind: "custom" });
+        await db.insert(userRoles).values({
+          userId: target,
+          roleKey: historicalKey,
+          grantedAt: sql`NOW()`,
+        });
+        await db.insert(roleGrants).values([
+          { roleKey: historicalKey, permissionKey: "site.admin" },
+          { roleKey: historicalKey, permissionKey: "admin.roles" },
+        ]);
+        await db.update(userRoles).set({ expiresAt: temporary }).where(builtIn);
+        invalidateAuthzSnapshot();
+        expect((await checkPermission(await loadSubject(target), "admin.roles")).allowed).toBe(
+          true,
+        );
+        expect(await db.transaction((tx) => isEffectiveSiteAdmin(tx, target))).toBe(true);
+        const revoke = () => revokeUserRole(admin, target, roleKey, 0, "清理历史绑定");
+        for (const change of [
+          revoke,
+          () => revokeRolePermission(admin, roleKey, "admin.roles", 0),
+          () => deleteCustomRole(admin, roleKey),
+          () => assignUserRole(admin, target, roleKey, 0, temporary, "由永久改为限时"),
+        ]) {
+          await expect(change()).rejects.toThrow(/永久站点管理员/);
+        }
+        await db.update(userRoles).set({ expiresAt: null }).where(builtIn);
+        await expect(revoke()).resolves.toBeUndefined();
+      } finally {
+        await db.update(userRoles).set({ expiresAt: null }).where(builtIn);
+        await db.delete(userRoles).where(eq(userRoles.roleKey, roleKey));
+        await db.delete(roleGrants).where(eq(roleGrants.roleKey, roleKey));
+        await db.delete(roles).where(eq(roles.key, roleKey));
+        invalidateAuthzSnapshot();
+      }
     });
 
     it("每个管理动作的审计行都带 actor / 时间；失败的动作不留审计", async () => {

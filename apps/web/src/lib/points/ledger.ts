@@ -42,8 +42,12 @@ const SELECTION = {
   createdAt: pointLedger.createdAt,
 } as const;
 
-/** 某用户的积分账户与台账分页；账户不存在（从未有任何积分）时余额为 0 */
-export async function getLedgerPage(userId: number, rawPage: number): Promise<LedgerPage> {
+/** 查询积分账户与台账；省略每页条数时沿用 20，无账户时余额为 0。 */
+export async function getLedgerPage(
+  userId: number,
+  rawPage: number,
+  perPage = LEDGER_PER_PAGE,
+): Promise<LedgerPage> {
   const db = getWebDb();
   const [account] = await db
     .select({
@@ -60,7 +64,7 @@ export async function getLedgerPage(userId: number, rawPage: number): Promise<Le
     .from(pointLedger)
     .where(eq(pointLedger.userId, userId));
   const total = Number(n);
-  const { page, totalPages, offset } = pageBounds(total, rawPage, LEDGER_PER_PAGE);
+  const { page, totalPages, offset } = pageBounds(total, rawPage, perPage);
 
   const items =
     total === 0
@@ -70,7 +74,7 @@ export async function getLedgerPage(userId: number, rawPage: number): Promise<Le
           .from(pointLedger)
           .where(eq(pointLedger.userId, userId))
           .orderBy(desc(pointLedger.id))
-          .limit(LEDGER_PER_PAGE)
+          .limit(perPage)
           .offset(offset);
 
   return {

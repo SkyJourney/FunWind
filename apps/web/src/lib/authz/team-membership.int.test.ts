@@ -16,7 +16,7 @@ import {
 } from "@funwind/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { setupTempDb, skipDb, type TempDb } from "@/test/temp-db";
-import { AdminError, assignUserRole, revokeUserRole } from "./admin";
+import { assignUserRole, revokeUserRole } from "./admin";
 import { assignTeamMembership, revokeTeamMembership } from "./team-membership";
 import { grantBadgeByAdmin, userBadgesOf } from "@/lib/badges/service";
 
@@ -95,7 +95,11 @@ describe.skipIf(skipDb)("团队成员服务 · 真实 MySQL", () => {
     expect(badge?.expiresAt).toBe(RENEWED_EXPIRY);
 
     const roleEvents = await db()
-      .select({ payload: eventOutbox.payload, dispatchedAt: eventOutbox.dispatchedAt })
+      .select({
+        payload: eventOutbox.payload,
+        dispatchedAt: eventOutbox.dispatchedAt,
+        policy: eventOutbox.deliveryPolicy,
+      })
       .from(eventOutbox)
       .where(and(eq(eventOutbox.eventName, "role.changed"), eq(eventOutbox.actorId, DEMO.admin)));
     expect(
@@ -105,10 +109,12 @@ describe.skipIf(skipDb)("团队成员服务 · 真实 MySQL", () => {
         expect.objectContaining({
           payload: expect.objectContaining({ roleKey: ROLE_KEY, expiresAt: EXPIRY }),
           dispatchedAt: expect.any(String),
+          policy: "role_notification_v1",
         }),
         expect.objectContaining({
           payload: expect.objectContaining({ roleKey: ROLE_KEY, expiresAt: RENEWED_EXPIRY }),
           dispatchedAt: expect.any(String),
+          policy: "role_notification_v1",
         }),
       ]),
     );
@@ -193,9 +199,28 @@ describe.skipIf(skipDb)("团队成员服务 · 真实 MySQL", () => {
       .from(notifications)
       .where(and(eq(notifications.userId, DEMO.member), eq(notifications.type, "badge.revoked")));
     expect(badgeNotice?.data).toMatchObject({ badgeId });
+    const events = await db()
+      .select({
+        name: eventOutbox.eventName,
+        payload: eventOutbox.payload,
+        policy: eventOutbox.deliveryPolicy,
+      })
+      .from(eventOutbox)
+      .where(eq(eventOutbox.source, "team-membership"));
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "role.changed",
+          payload: expect.objectContaining({ userId: DEMO.member, action: "revoked" }),
+          policy: "role_notification_v1",
+        }),
+        expect.objectContaining({ name: "badge.awarded", policy: null }),
+        expect.objectContaining({ name: "badge.revoked", policy: null }),
+      ]),
+    );
   });
 
-  it("通过团队服务撤销全站管理能力也受末位管理员保护", async () => {
+  it("限时替补不能允许末位永久团队管理员改限时或解绑，角色和徽章均不变", async () => {
     const userId = 99999001;
     await db().insert(users).values({
       id: userId,
@@ -221,22 +246,28 @@ describe.skipIf(skipDb)("团队成员服务 · 真实 MySQL", () => {
     });
 
     try {
-      await revokeUserRole(ACTOR, DEMO.admin, "admin", 0, "末位管理员保护测试");
+      await assignUserRole(ACTOR, DEMO.admin, "admin", 0, EXPIRY, "设置限时替补");
+      await expect(
+        assignTeamMembership(ACTOR, {
+          userId,
+          roleKey: ROLE_KEY,
+          expiresAt: EXPIRY,
+          reason: "改为限时",
+        }),
+      ).rejects.toThrow(/永久站点管理员/);
       await expect(
         revokeTeamMembership(ACTOR, userId, ROLE_KEY, "末位管理员保护测试"),
-      ).rejects.toBeInstanceOf(AdminError);
-      expect(
-        await db()
-          .select()
-          .from(userRoles)
-          .where(and(eq(userRoles.userId, userId), eq(userRoles.roleKey, ROLE_KEY))),
-      ).toHaveLength(1);
-      expect(
-        await db()
-          .select()
-          .from(userBadges)
-          .where(and(eq(userBadges.userId, userId), eq(userBadges.badgeId, badgeId))),
-      ).toHaveLength(1);
+      ).rejects.toThrow(/永久站点管理员/);
+      const [role] = await db()
+        .select({ expiresAt: userRoles.expiresAt })
+        .from(userRoles)
+        .where(and(eq(userRoles.userId, userId), eq(userRoles.roleKey, ROLE_KEY)));
+      const [badge] = await db()
+        .select({ expiresAt: userBadges.expiresAt })
+        .from(userBadges)
+        .where(and(eq(userBadges.userId, userId), eq(userBadges.badgeId, badgeId)));
+      expect(role?.expiresAt).toBeNull();
+      expect(badge?.expiresAt).toBeNull();
     } finally {
       await assignUserRole(ACTOR, DEMO.admin, "admin", 0, null, "末位管理员保护测试");
       await revokeTeamMembership(ACTOR, userId, ROLE_KEY, "末位管理员保护测试");

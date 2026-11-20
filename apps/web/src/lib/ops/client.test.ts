@@ -8,11 +8,11 @@ const ENV_KEYS = [
   "BACKUP_SERVICE_URL",
   "BACKUP_OPS_TOKEN",
 ] as const;
-const saved: Partial<Record<(typeof ENV_KEYS)[number], string | undefined>> = {};
+const OPS_URL = "https://ops-client.invalid";
+const OPS_TOKEN = "synthetic-ops-client-token";
 
 function configure(env: Partial<Record<(typeof ENV_KEYS)[number], string>>) {
-  for (const key of ENV_KEYS) delete process.env[key];
-  Object.assign(process.env, env);
+  for (const key of ENV_KEYS) vi.stubEnv(key, env[key] ?? "");
 }
 
 function respond(status: number, body: unknown) {
@@ -20,35 +20,32 @@ function respond(status: number, body: unknown) {
 }
 
 beforeEach(() => {
-  for (const key of ENV_KEYS) saved[key] = process.env[key];
-  configure({ OPS_SERVICE_URL: "http://funwind-ops:8000/", OPS_API_TOKEN: "t0ken" });
+  // 先封住出站请求；需要请求的测试再设置对应响应。
+  vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockRejectedValue(new Error("未配置模拟响应")));
+  configure({ OPS_SERVICE_URL: `${OPS_URL}/`, OPS_API_TOKEN: OPS_TOKEN });
 });
 afterEach(() => {
-  for (const key of ENV_KEYS) {
-    if (saved[key] === undefined) delete process.env[key];
-    else process.env[key] = saved[key];
-  }
+  vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
 
 describe("opsServiceConfig：新名优先、旧名兜底一轮（M14 D10）", () => {
+  const oldUrl = "https://ops-legacy.invalid";
+  const oldToken = "synthetic-ops-legacy-token";
+
   it("新名齐全：去掉末尾斜杠", () => {
-    expect(opsServiceConfig()).toEqual({ baseUrl: "http://funwind-ops:8000", token: "t0ken" });
+    expect(opsServiceConfig()).toEqual({ baseUrl: OPS_URL, token: OPS_TOKEN });
   });
   it("只有旧名：照样可用（回滚到旧镜像 / 尚未改 .env）", () => {
-    configure({ BACKUP_SERVICE_URL: "http://funwind-backup:8000", BACKUP_OPS_TOKEN: "old" });
-    expect(opsServiceConfig()).toEqual({ baseUrl: "http://funwind-backup:8000", token: "old" });
+    configure({ BACKUP_SERVICE_URL: oldUrl, BACKUP_OPS_TOKEN: oldToken });
+    expect(opsServiceConfig()).toEqual({ baseUrl: oldUrl, token: oldToken });
   });
   it("新旧混配：逐项新名优先", () => {
-    configure({
-      OPS_SERVICE_URL: "http://new:8000",
-      BACKUP_SERVICE_URL: "http://old:8000",
-      BACKUP_OPS_TOKEN: "old",
-    });
-    expect(opsServiceConfig()).toEqual({ baseUrl: "http://new:8000", token: "old" });
+    configure({ OPS_SERVICE_URL: OPS_URL, BACKUP_SERVICE_URL: oldUrl, BACKUP_OPS_TOKEN: oldToken });
+    expect(opsServiceConfig()).toEqual({ baseUrl: OPS_URL, token: oldToken });
   });
   it("缺任一项：未部署（null）", () => {
-    configure({ OPS_SERVICE_URL: "http://new:8000" });
+    configure({ OPS_SERVICE_URL: OPS_URL });
     expect(opsServiceConfig()).toBeNull();
   });
 });
@@ -59,12 +56,12 @@ describe("triggerOpsTask：异步手动触发", () => {
     vi.stubGlobal("fetch", fetchMock);
     expect(await triggerOpsTask("backup.db")).toEqual({ ok: true, runId: 42 });
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("http://funwind-ops:8000/tasks/backup.db/runs");
+    expect(url).toBe(`${OPS_URL}/tasks/backup.db/runs`);
     expect(init.method).toBe("POST");
-    expect(init.headers).toEqual({ "x-ops-token": "t0ken" });
+    expect(init.headers).toEqual({ "x-ops-token": OPS_TOKEN });
     await triggerOpsTask("a/b c");
     expect((fetchMock.mock.calls[1] as unknown as [string])[0]).toBe(
-      "http://funwind-ops:8000/tasks/a%2Fb%20c/runs",
+      `${OPS_URL}/tasks/a%2Fb%20c/runs`,
     );
   });
 
@@ -119,8 +116,8 @@ describe("notifyOpsReload：best-effort，永不抛错", () => {
     vi.stubGlobal("fetch", fetchMock);
     expect(await notifyOpsReload()).toBe(true);
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("http://funwind-ops:8000/config/reload");
-    expect(init.headers).toEqual({ "x-ops-token": "t0ken" });
+    expect(url).toBe(`${OPS_URL}/config/reload`);
+    expect(init.headers).toEqual({ "x-ops-token": OPS_TOKEN });
   });
   it("降级（503）/ 网络失败 / 未配置 → false", async () => {
     vi.stubGlobal("fetch", respond(503, { detail: "x" }));

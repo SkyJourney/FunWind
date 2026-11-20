@@ -114,8 +114,8 @@ describe.skipIf(skipDb)("运维任务配置写服务（临时库）", () => {
   });
   beforeEach(resetOps);
   afterEach(() => {
-    vi.unstubAllGlobals();
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
   });
 
   it("bootstrap 种子已就位（临时库由 bootstrap 建出）；listOpsTasks 按任务带出触发器", async () => {
@@ -459,32 +459,35 @@ describe.skipIf(skipDb)("运维任务配置写服务（临时库）", () => {
   });
 
   describe("提交后的热加载通知", () => {
-    beforeEach(() => {
-      vi.stubEnv("OPS_SERVICE_URL", "http://funwind-ops:8000");
-      vi.stubEnv("OPS_API_TOKEN", "t0ken");
-    });
+    const baseUrl = "https://ops-reload.invalid";
+    const token = "synthetic-ops-reload-token";
+
+    function mockReload(fetchImpl: () => Promise<Response>) {
+      const fetchMock = vi.fn(fetchImpl);
+      vi.stubGlobal("fetch", fetchMock);
+      vi.stubEnv("OPS_SERVICE_URL", baseUrl);
+      vi.stubEnv("OPS_API_TOKEN", token);
+      return fetchMock;
+    }
 
     it("写成功才通知；被拒（冲突）不通知", async () => {
-      const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
-      vi.stubGlobal("fetch", fetchMock);
+      const fetchMock = mockReload(async () => Response.json({}));
       const task = await taskByKey("backup.db");
       await updateOpsTask(task!.id, 99, { params: { keep: 3 } }, ACTOR);
       expect(fetchMock).not.toHaveBeenCalled();
       await updateOpsTask(task!.id, 1, { params: { keep: 3 } }, ACTOR);
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      expect((fetchMock.mock.calls[0] as unknown as [string])[0]).toBe(
-        "http://funwind-ops:8000/config/reload",
+      expect(fetchMock).toHaveBeenCalledExactlyOnceWith(
+        `${baseUrl}/config/reload`,
+        expect.objectContaining({ method: "POST", headers: { "x-ops-token": token } }),
       );
     });
 
     it("管线不可达不影响写入结果（周期对账兜底）", async () => {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(async () => Promise.reject(new Error("ECONNREFUSED"))),
-      );
+      const fetchMock = mockReload(async () => Promise.reject(new Error("ECONNREFUSED")));
       const task = await taskByKey("backup.db");
       expect((await setOpsTaskEnabled(task!.id, false, ACTOR)).ok).toBe(true);
       expect((await taskByKey("backup.db"))!.enabled).toBe(false);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
   });
 });
