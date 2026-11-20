@@ -7,6 +7,13 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: ["./vitest.setup.ts"],
+    // 覆盖宿主与 .env；新旧运维变量均清空，只有安装了 fetch 模拟的用例才显式配置出站连接。
+    env: {
+      OPS_SERVICE_URL: "",
+      OPS_API_TOKEN: "",
+      BACKUP_SERVICE_URL: "",
+      BACKUP_OPS_TOKEN: "",
+    },
     include: ["src/**/*.test.{ts,tsx}"],
     hookTimeout: 30_000, // 临时库 bootstrap+seed 在并发负载下允许更宽裕的准备时间
     // 用例超时对齐 hookTimeout：全库 IO 扫描型守卫（server-only/architecture/gate-wording 等

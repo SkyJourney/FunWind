@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { ConfigActor, DbTx } from "@/lib/audit";
 import { isValidBeijingDateTime } from "@/lib/datetime";
 import { ManageApiError, type ManageErrorCode } from "@/lib/manage/errors";
-import { runIdempotentManageWrite } from "@/lib/manage/idempotency";
+import { runIdempotentManageWrite, type ManageIdempotencyOptions } from "@/lib/manage/idempotency";
 import { type ManageEndpointId } from "@/lib/manage/permissions";
 import type { ManageHandlerContext } from "@/lib/manage/route";
 import {
@@ -110,6 +110,7 @@ export async function commitWrite(
   preparation: Promise<PreparedWrite | WriteDenial>,
   /** 写域的拒绝码表；缺省为内容治理域（现有两端点的语义不变）。 */
   denialHttp: DenialHttpMap = MODERATION_DENIAL_HTTP,
+  options?: ManageIdempotencyOptions,
 ): Promise<unknown> {
   const operation = requireSuccess(await preparation, denialHttp);
   return runIdempotentManageWrite(
@@ -125,6 +126,7 @@ export async function commitWrite(
       const locked = requireSuccess(await operation.lock(tx), denialHttp);
       return async () => requireSuccess(await locked.execute(), denialHttp);
     },
+    options,
   );
 }
 

@@ -49,7 +49,7 @@ type WriteInput<T> = { targetId: number; idempotencyKey: string; input: T };
 
 // ---------- 公告 ----------
 
-/** 公告请求体公共字段：startsAt/endsAt 为北京 DATETIME 或 null（创建 null=立即开始，编辑 null=保留原值）。 */
+/** 公告日期字段必传：显式 null 保留创建即时、编辑保留开始时间及长期结束的既有语义。 */
 export const manageAnnouncementInput = z.strictObject({
   title: z.string().trim().min(1).max(200),
   bodyMd: z.string().max(20_000).default(""),
@@ -170,7 +170,7 @@ export function editManageCampaign(
   return commitWrite(
     ctx,
     "campaigns.edit",
-    { targetId: params.targetId, idempotencyKey: params.idempotencyKey, input: rest },
+    params,
     prepareApiCampaignUpdate(
       params.targetId,
       expectedRevision,
@@ -179,6 +179,20 @@ export function editManageCampaign(
       trace,
     ),
     OPERATIONS_DENIAL_HTTP,
+    {
+      legacyReplay: {
+        input: rest,
+        // 旧指纹缺版本；只在已提交回执能证明首次编辑的版本时回放。
+        accepts: (response) =>
+          typeof response === "object" &&
+          response !== null &&
+          "id" in response &&
+          response.id === params.targetId &&
+          "revision" in response &&
+          Number.isSafeInteger(response.revision) &&
+          response.revision === expectedRevision + 1,
+      },
+    },
   );
 }
 

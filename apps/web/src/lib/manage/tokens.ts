@@ -330,6 +330,39 @@ export async function resolveUsableApiToken(plain: string): Promise<UsableAdminA
     : null;
 }
 
+/** 不变量上锁后重读角色写凭证；历史九读凭证不可能通过该写入口。 */
+export async function lockScopedTokenEndpointGrants(
+  tx: AuthzTransaction,
+  token: Pick<UsableAdminApiToken, "id" | "userId">,
+): Promise<readonly ManageEndpointId[] | null> {
+  const byId = eq(adminApiTokens.id, token.id);
+  const [row] = await tx
+    .select({
+      userId: adminApiTokens.userId,
+      revokedAt: adminApiTokens.revokedAt,
+      ...permissionColumns,
+    })
+    .from(adminApiTokens)
+    .where(byId)
+    .limit(1)
+    .for("update");
+  if (
+    !row ||
+    row.userId !== token.userId ||
+    row.revokedAt !== null ||
+    row.permissionProfile !== "scoped_v2"
+  ) {
+    return null;
+  }
+  // NOW() 取语句开始时间；等到令牌行锁后再取时间，避免在等待期间过期仍被放行。
+  const [active] = await tx
+    .select({ id: adminApiTokens.id })
+    .from(adminApiTokens)
+    .where(and(byId, gt(adminApiTokens.expiresAt, sql`NOW()`)))
+    .limit(1);
+  return active ? endpointGrantsOf(row) : null;
+}
+
 /**
  * 手动吊销（后台页调用）。事务 + 审计；重复吊销幂等返回 false（调用方给「已吊销」提示）。
  * 仅允许持有人本人操作（userId 归属校验在查询条件内）。
@@ -381,7 +414,7 @@ export async function revokeAdminApiTokensIfNotSiteAdmin(
   tx: AuthzTransaction,
   userId: number,
   /** 触发降权的管理操作者（审计记触发者；缺省视为系统判定） */
-  trigger?: { actorId: number | null; via: string },
+  trigger?: { actorId: number | null; via: string; requestId?: string; tokenSuffix?: string },
 ): Promise<number> {
   if (await isEffectiveSiteAdmin(tx, userId)) return 0;
 
@@ -402,7 +435,12 @@ export async function revokeAdminApiTokensIfNotSiteAdmin(
     targetType: "user",
     targetId: userId,
     before: victims.map((v) => ({ name: v.name, suffix: v.suffix })),
-    after: { count: victims.length, triggerVia: trigger?.via ?? "system" },
+    after: {
+      count: victims.length,
+      triggerVia: trigger?.via ?? "system",
+      ...(trigger?.requestId !== undefined ? { requestId: trigger.requestId } : {}),
+      ...(trigger?.tokenSuffix !== undefined ? { tokenSuffix: trigger.tokenSuffix } : {}),
+    },
   });
   return victims.length;
 }

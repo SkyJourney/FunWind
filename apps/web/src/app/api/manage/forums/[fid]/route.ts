@@ -9,7 +9,7 @@ import {
   manageForumUpdateInput,
   updateManageForum,
 } from "@/lib/manage/community-writes";
-import { listForumRows } from "@/lib/forums/admin";
+import { listForumRows, listPrefixes } from "@/lib/forums/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +29,7 @@ export const GET = manageEndpoint(
     const fid = await requireFid(ctx, "fid");
     const row = (await listForumRows()).find((r) => r.id === fid);
     if (!row) throw new ManageApiError("not_found");
-    return manageOk(row);
+    return manageOk({ ...row, prefixes: await listPrefixes(fid) });
   },
   { endpoint: "forums.detail" },
 );

@@ -12,11 +12,7 @@ import {
   users,
 } from "@funwind/db";
 import { writeAudit, type DbTx } from "@/lib/audit";
-import {
-  hasOtherEffectiveSiteAdmin,
-  isEffectiveSiteAdmin,
-  lockSiteAdminInvariant,
-} from "@/lib/authz/site-admin-invariant";
+import { isLastPermanentSiteAdmin, lockSiteAdminInvariant } from "@/lib/authz/site-admin-invariant";
 import { POINTS_TX_OPTIONS, withDeadlockRetry } from "@/lib/points/retry";
 import { restrictionActive } from "@/lib/authz/restrictions";
 import { revokeAdminApiTokensIfNotSiteAdmin } from "@/lib/manage/tokens";
@@ -56,13 +52,6 @@ export class AccountDeletionError extends Error {
   ) {
     super(code);
     this.name = "AccountDeletionError";
-  }
-}
-
-async function lockDeletionAdminInvariant(tx: DbTx, userId: number): Promise<void> {
-  await lockSiteAdminInvariant(tx);
-  if ((await isEffectiveSiteAdmin(tx, userId)) && !(await hasOtherEffectiveSiteAdmin(tx, userId))) {
-    throw new AccountDeletionError("last_admin");
   }
 }
 
@@ -111,6 +100,8 @@ async function createRequestInTx(
     .for("update");
   if (previous[0]?.status === "pending") throw new AccountDeletionError("already_pending");
   if (previous[0]?.status === "completed") throw new AccountDeletionError("already_completed");
+  // 只裁决新申请；各入口已按顺序持有不变量锁和目标行锁，且尚未建立一致性读快照。
+  if (await isLastPermanentSiteAdmin(tx, userId)) throw new AccountDeletionError("last_admin");
 
   const requestId = insertIdOf(
     await tx.insert(accountDeletionRequests).values({
@@ -175,7 +166,7 @@ export async function requestAccountDeletionWithPassword(
 
   const enqueued: EnqueuedEvent[] = [];
   const result = await getWebDb().transaction(async (tx) => {
-    await lockDeletionAdminInvariant(tx, actor.userId);
+    await lockSiteAdminInvariant(tx);
     const [locked] = await tx
       .select({ passwordHash: users.passwordHash, state: users.state })
       .from(users)
@@ -336,7 +327,7 @@ export async function consumeAccountDeletionEmailToken(
   const enqueued: EnqueuedEvent[] = [];
   const result = await getWebDb().transaction(async (tx) => {
     if (candidate.purpose === "request") {
-      await lockDeletionAdminInvariant(tx, candidate.userId);
+      await lockSiteAdminInvariant(tx);
     }
     const [user] = await tx
       .select({
@@ -543,7 +534,7 @@ export async function startOrOpenAccountDeletionWithPassword(
 
   const enqueued: EnqueuedEvent[] = [];
   const result = await getWebDb().transaction(async (tx) => {
-    await lockDeletionAdminInvariant(tx, user.id);
+    await lockSiteAdminInvariant(tx);
     const [locked] = await tx
       .select({ passwordHash: users.passwordHash, state: users.state })
       .from(users)

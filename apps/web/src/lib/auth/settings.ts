@@ -1,10 +1,12 @@
 import "server-only";
 
+import { isDeepStrictEqual } from "node:util";
 import { cache } from "react";
 import { eq, inArray, sql } from "drizzle-orm";
 import { getWebDb, siteSettings } from "@funwind/db";
-import { CLI_ACTOR, writeAudit, type ConfigActor } from "@/lib/audit";
+import { CLI_ACTOR, writeAudit, type ConfigActor, type DbTx } from "@/lib/audit";
 import { getActiveRegisterWindow } from "@/lib/campaigns/service";
+import type { ModerationApiTrace } from "@/lib/moderation/contents";
 import {
   applyRegisterWindow,
   DEFAULT_REGISTER_POLICY,
@@ -65,34 +67,73 @@ export const getRegisterMode = cache(async (): Promise<RegisterMode> => {
   return policy.open && !policy.invite ? "open" : "invite";
 });
 
-/** 站点设置写入：管理动作，值真正变化时同事务写 audit_log（前后值）；写入相同值是幂等空操作 */
+/** 按落库的 JSON 语义比较原值：对象键序无关，数组顺序与额外字段保留。 */
+function settingValuesEqual(before: unknown, after: unknown): boolean {
+  // 与 JSON 列使用相同的序列化语义，不经 REST 读侧或审计投影。
+  const beforeJson = JSON.stringify(before);
+  const afterJson = JSON.stringify(after);
+  return (
+    beforeJson === afterJson ||
+    (beforeJson !== undefined &&
+      afterJson !== undefined &&
+      isDeepStrictEqual(JSON.parse(beforeJson), JSON.parse(afterJson)))
+  );
+}
+
+/**
+ * 站点设置写入：维持既有落库与更新时间口径，只在 JSON 值变化时同事务写前后值审计。
+ * trace 仅 REST 写变体传入（M20.3 Step 5）：附加 requestId/tokenSuffix 到审计 after——
+ * 后台调用不传 trace，审计形态零变化。
+ */
 export async function setSetting(
   key: string,
   value: unknown,
   actor: ConfigActor = CLI_ACTOR,
+  trace?: ModerationApiTrace,
 ): Promise<void> {
   await getWebDb().transaction(async (tx) => {
-    const [prev] = await tx
-      .select({ value: siteSettings.value })
-      .from(siteSettings)
-      .where(eq(siteSettings.key, key))
-      .for("update");
-    await tx
-      .insert(siteSettings)
-      .values({ key, value: value as object, updatedAt: sql`NOW()` })
-      .onDuplicateKeyUpdate({ set: { value: value as object, updatedAt: sql`NOW()` } });
-    if (!prev || JSON.stringify(prev.value) !== JSON.stringify(value)) {
-      await writeAudit(tx, {
-        actorId: actor.userId,
-        action: "setting.update",
-        targetType: "setting",
-        targetId: key,
-        before: prev ? { value: prev.value } : null,
-        after: { value, via: actor.via },
-        ip: actor.ip,
-      });
-    }
+    await applySettingInTx(tx, key, value, actor, { trace });
   });
+}
+
+/** 审计选项：REST 传入白名单投影；不传投影的后台等调用保持原值审计。 */
+interface SettingAuditOptions {
+  trace?: ModerationApiTrace;
+  projectAuditValue?: (raw: unknown) => unknown;
+}
+
+/** 写入内核（后台与 REST 三段式变体共享，事务内调用）：行锁 upsert + 值变化才审计。 */
+export async function applySettingInTx(
+  tx: DbTx,
+  key: string,
+  value: unknown,
+  actor: ConfigActor,
+  { trace, projectAuditValue = (raw) => raw }: SettingAuditOptions = {},
+): Promise<void> {
+  const [prev] = await tx
+    .select({ value: siteSettings.value })
+    .from(siteSettings)
+    .where(eq(siteSettings.key, key))
+    .for("update");
+  await tx
+    .insert(siteSettings)
+    .values({ key, value: value as object, updatedAt: sql`NOW()` })
+    .onDuplicateKeyUpdate({ set: { value: value as object, updatedAt: sql`NOW()` } });
+  if (!prev || !settingValuesEqual(prev.value, value)) {
+    await writeAudit(tx, {
+      actorId: actor.userId,
+      action: "setting.update",
+      targetType: "setting",
+      targetId: key,
+      before: prev ? { value: projectAuditValue(prev.value) } : null,
+      after: {
+        value: projectAuditValue(value),
+        via: actor.via,
+        ...(trace ? { requestId: trace.requestId, tokenSuffix: trace.tokenSuffix } : {}),
+      },
+      ip: actor.ip,
+    });
+  }
 }
 
 /**
@@ -126,7 +167,7 @@ export async function setSettings(
         .onDuplicateKeyUpdate({ set: { value: value as object, updatedAt: sql`NOW()` } });
     }
     const changed = ordered.filter(
-      ({ key, value }) => JSON.stringify(prevByKey.get(key)) !== JSON.stringify(value),
+      ({ key, value }) => !settingValuesEqual(prevByKey.get(key), value),
     );
     if (changed.length > 0) {
       await writeAudit(tx, {

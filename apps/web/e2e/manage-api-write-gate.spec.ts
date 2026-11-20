@@ -5,9 +5,11 @@ import {
   bearer,
   cleanupManageArtifacts,
   expectManageError,
+  expectOpsPipelineDisconnected,
   fillEndpointPath,
   issueManageToken,
   runTag,
+  WRITE_DOMAINS,
   WRITE_ENDPOINTS,
 } from "./support/manage-api";
 
@@ -18,7 +20,7 @@ import {
  * `writes_disabled`，读端点仍可用。CI 的常规 E2E 开启写入，因此本文件在那里跳过，
  * 由 `pnpm test:e2e:write-gate` 单独跑一轮停写验收。
  *
- * 写端点清单取自对外契约（REST_ENDPOINTS 派生），新增写端点自动纳入门禁断言。
+ * 写端点清单取自独立的对外契约，新增写端点自动纳入门禁断言。
  */
 
 /** 仅停写轮显式传 E2E_MANAGE_API_WRITES=off（webServer 据此设 MANAGE_API_WRITES=off）；其余轮次一律跳过。 */
@@ -45,23 +47,15 @@ test.describe("管理 REST 停写门禁", () => {
     page,
     request,
   }) => {
+    expectOpsPipelineDisconnected(test.info().config);
     await loginAs(context, USERS.admin);
+    expect(WRITE_ENDPOINTS).toHaveLength(52);
+    expect(WRITE_ENDPOINTS.length + 2).toBeLessThanOrEqual(60);
     const name = `${NAME_PREFIX}写令牌`;
     tokenNames.push(name);
-    // 各写域的 write 权限让令牌通过写端点的授权层，确保 503 确实来自停写门禁而非权限拒绝。
+    // 授予各写域，确保停写结果来自写门禁。门禁先于写频控，52 写加 2 读共用一枚令牌。
     const token = await issueManageToken(page, name, {
-      contents: "write",
-      reports: "write",
-      users: "write",
-      announcements: "write",
-      campaigns: "write",
-      invites: "write",
-      forums: "write",
-      polls: "write",
-      pm: "write",
-      badges: "write",
-      points: "write",
-      emojis: "write",
+      ...Object.fromEntries(WRITE_DOMAINS.map((domain) => [domain, "write" as const])),
       identity: "read",
     });
 
@@ -87,7 +81,11 @@ test.describe("管理 REST 停写门禁", () => {
       200,
     );
 
-    // 未鉴权仍是 401，不因停写改成 503。
-    await expectManageError(await request.get("/api/manage/whoami"), 401, "unauthorized");
+    // 未鉴权的写请求仍是 401。
+    const unauthorized = await request.post("/api/manage/posts/1/review", {
+      headers: { "Idempotency-Key": randomUUID() },
+      data: {},
+    });
+    await expectManageError(unauthorized, 401, "unauthorized");
   });
 });

@@ -1,119 +1,197 @@
-import { randomUUID } from "node:crypto";
-import { expect, test, type APIResponse } from "@playwright/test";
+import { createHash, randomUUID } from "node:crypto";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { USERS, loginAs } from "./support/session";
-import { withE2eDb } from "./support/db";
+import { withE2eDb, type Q } from "./support/db";
+import { FIX } from "./support/fixtures";
 import {
-  MISSING_ID,
   WRITE_ENDPOINTS,
   bearer,
   cleanupManageArtifacts,
   createAdminUser,
   createAuthorUser,
   expectManageError,
+  expectOpsPipelineDisconnected,
+  fillEndpointPath,
   insertLegacyToken,
   issueManageToken,
   revokeManageToken,
   runTag,
   seedPendingThread,
+  type ManageDomain,
+  type ManageLevel,
   type PendingThread,
 } from "./support/manage-api";
 
 /**
- * 管理 REST 写入语义与凭证生命周期验收（M20.2）。
+ * 管理 REST 写链路、真实查询数据与凭证生命周期验收。
  *
- * 权限矩阵 × 全端点、查询数据断言与参数错误路径由 manage-api-matrix.spec.ts 系统化覆盖；
- * 本文件聚焦写链路深度：审核通过与驳回的留痕与通知、幂等回放与异参冲突、状态与版本冲突、
- * 锁定与解锁的同值零审计，以及吊销、过期、历史令牌与新建管理员的凭证行为。
+ * 权限档位与端点矩阵由 manage-api-matrix.spec.ts 系统化覆盖；本文件核对独立夹具的实际查询值、
+ * 写入后的状态与副作用、幂等与冲突行为，以及凭证吊销、过期和实时权限裁剪。
  */
 
 const TAG = runTag();
 const NAME_PREFIX = `E2E REST 验收 · ${TAG} · `;
 
-type TokenKind = "writer";
-
-/** 逐域只读令牌与写域令牌；矩阵核对要求同时存在。 */
-const tokens = new Map<TokenKind, string>();
+const SHARED_REVIEW_FORUM_ID = 906;
+const CONTENT_FORUM_NAME = `REST 审核夹具 ${TAG}`;
 const tokenNames: string[] = [];
 const adminUserIds: number[] = [];
 const authorUserIds: number[] = [];
 const targets: PendingThread[] = [];
+let contentForumId = 0;
+let sharedForumBefore: Awaited<ReturnType<typeof forumDerived>> | undefined;
+
+/** 读取版块完整派生值，不写入共享夹具。 */
+function forumDerived(q: Q, forumId: number) {
+  return q.query<{
+    threadCount: number;
+    postCount: number;
+    lastPostId: number | null;
+    lastPostedAt: string | null;
+  }>(
+    `SELECT thread_count AS threadCount, post_count AS postCount,
+            last_post_id AS lastPostId, last_posted_at AS lastPostedAt FROM forums WHERE id = ?`,
+    [forumId],
+  );
+}
+
+/** 用隔离版块及专属作者造首帖，逐步登记主键，以便中途失败也能回收。 */
+async function seedContentThread(
+  tag: string,
+  state: "pending" | "deleted" | "visible" = "pending",
+) {
+  const target: PendingThread = { threadId: 0, postId: 0 };
+  targets.push(target);
+  return withE2eDb(async (q) => {
+    const authorId = await createAuthorUser(q, tag);
+    authorUserIds.push(authorId);
+    await seedPendingThread(q, target, authorId, tag, state, contentForumId);
+    return { target, authorId };
+  });
+}
+
+/** 验证迁移确实写入专属版块的可见计数和最后一帖，而不是绕开派生写入。 */
+async function expectVisibleForumThread(
+  target: PendingThread,
+  before: Awaited<ReturnType<typeof forumDerived>>,
+) {
+  await withE2eDb(async (q) => {
+    const [post] = await q.query<{ createdAt: string }>(
+      "SELECT created_at AS createdAt FROM posts WHERE id = ?",
+      [target.postId],
+    );
+    expect(await forumDerived(q, contentForumId)).toEqual([
+      {
+        threadCount: before[0].threadCount + 1,
+        postCount: before[0].postCount + 1,
+        lastPostId: target.postId,
+        lastPostedAt: post.createdAt,
+      },
+    ]);
+  });
+}
 
 /**
  * 为单个写语义用例签发独立管理员与写令牌：写频控按令牌 10 次/分钟计，
  * 共享令牌会在多用例累计后触发 429，因此每个重度写用例独占一枚。
  */
 async function issueWriterToken(
-  page: import("@playwright/test").Page,
+  page: Page,
   tag: string,
-  levels: { contents?: "write"; reports?: "read" | "write"; identity?: "read" } = {
+  levels: Partial<Record<ManageDomain, ManageLevel>> = {
     contents: "write",
     identity: "read",
   },
 ) {
   const adminId = await withE2eDb((q) => createAdminUser(q, `${TAG}-${tag}`));
   adminUserIds.push(adminId);
-  await loginAs(page.context(), adminId);
   const name = `${NAME_PREFIX}writer · ${tag}`;
   tokenNames.push(name);
-  return issueManageToken(page, name, levels);
+  return issueManageToken(page, name, levels, adminId);
 }
 
-async function issueFor(page: import("@playwright/test").Page, kind: TokenKind) {
-  const cached = tokens.get(kind);
-  if (cached) return cached;
-  const name = `${NAME_PREFIX}${kind}`;
-  const plain = await issueManageToken(page, name, { contents: "write", identity: "read" });
-  tokens.set(kind, plain);
-  tokenNames.push(name);
-  return plain;
-}
-
-/** 用写域令牌调用写端点；授权不足应为 403，授权通过但目标不存在应为 404。 */
-async function writeProbe(
-  request: APIResponse["request"],
+/** 用有效格式的写请求核对凭证或授权门禁的拒绝。 */
+async function expectWriteDenied(
+  request: APIRequestContext,
   token: string,
-  endpoint: {
-    method: string;
-    path: string;
-  },
+  code: "forbidden" | "unauthorized" = "forbidden",
 ) {
-  const path = endpoint.path
-    .replace("{id}", String(MISSING_ID))
-    .replace("{uid}", String(MISSING_ID))
-    .replace("{postId}", String(MISSING_ID))
-    .replace("{threadId}", String(MISSING_ID));
-  const data =
-    endpoint.method === "POST" ? { decision: "approve", expectedEditedAt: null } : { locked: true };
-  return request.fetch(path, {
+  const endpoint = WRITE_ENDPOINTS[0];
+  const response = await request.fetch(fillEndpointPath(endpoint.path), {
     method: endpoint.method,
-    headers: {
-      ...bearer(token),
-      "Idempotency-Key": randomUUID(),
-      "content-type": "application/json",
-    },
-    data,
+    headers: { ...bearer(token), "Idempotency-Key": randomUUID() },
+    data: endpoint.sampleBody,
   });
+  await expectManageError(response, code === "forbidden" ? 403 : 401, code);
 }
 
 test.describe.serial("管理 REST 全面验收", () => {
-  test.afterAll(async () => {
-    await cleanupManageArtifacts({
-      tokenNames,
-      adminUserIds,
-      authorUserIds,
-      targets,
-    });
+  test.beforeAll(async ({ browser, baseURL, request }) => {
+    sharedForumBefore = await withE2eDb((q) => forumDerived(q, SHARED_REVIEW_FORUM_ID));
+    expect(sharedForumBefore).toHaveLength(1);
+    // 走管理 API 建版块，让服务端权限快照即时生效，不依赖其他规格刷新缓存。
+    const page = await browser.newPage({ baseURL });
+    try {
+      const token = await issueWriterToken(page, "审核版块夹具", { forums: "write" });
+      const fields = {
+        parentId: 900,
+        name: CONTENT_FORUM_NAME,
+        description: null,
+        sortOrder: 0,
+        isListed: false,
+      };
+      const headers = () => ({ ...bearer(token), "Idempotency-Key": randomUUID() });
+      const created = await request.post("/api/manage/forums", {
+        headers: headers(),
+        data: { ...fields, kind: "forum" },
+      });
+      expect(created.status(), await created.text()).toBe(200);
+      contentForumId = ((await created.json()) as { data: { id: number } }).data.id;
+      expect(contentForumId).not.toBe(SHARED_REVIEW_FORUM_ID);
+      const configured = await request.patch(`/api/manage/forums/${contentForumId}`, {
+        headers: headers(),
+        data: {
+          ...fields,
+          readPolicy: "members",
+          writePolicy: "restricted",
+          reviewPolicy: "all",
+          isArchived: false,
+        },
+      });
+      expect(configured.status(), await configured.text()).toBe(200);
+    } finally {
+      await page.close();
+    }
   });
 
-  test("审核通过：版本冲突不改数据，通过后留痕与通知各一条", async ({ context, page, request }) => {
-    await loginAs(context, USERS.admin);
-    const writer = await issueFor(page, "writer");
+  test.afterAll(async () => {
+    try {
+      await cleanupManageArtifacts({
+        tokenNames,
+        adminUserIds: [],
+        temporaryAdminUserIds: adminUserIds,
+        authorUserIds,
+        targets,
+        forumNames: [CONTENT_FORUM_NAME],
+      });
+    } finally {
+      if (sharedForumBefore) {
+        expect(
+          await withE2eDb((q) => forumDerived(q, SHARED_REVIEW_FORUM_ID)),
+          "验收退出后，共用审核版块的主题数、帖数、最后一帖及时间必须原样保留",
+        ).toEqual(sharedForumBefore);
+      }
+    }
+  });
+
+  test("审核通过：版本冲突不改数据，通过后留痕、通知和发帖奖励各一条", async ({
+    page,
+    request,
+  }) => {
+    const writer = await issueWriterToken(page, "审核通过");
     const tag = `${TAG}-approve`;
-    const target: PendingThread = { threadId: 0, postId: 0 };
-    targets.push(target);
-    const authorId = await withE2eDb((q) => createAuthorUser(q, tag));
-    authorUserIds.push(authorId);
-    await withE2eDb((q) => seedPendingThread(q, target, authorId, tag));
+    const { target, authorId } = await seedContentThread(tag);
+    const before = await withE2eDb((q) => forumDerived(q, contentForumId));
 
     const detail = await request.get(`/api/manage/contents/${target.threadId}?kind=thread`, {
       headers: bearer(writer),
@@ -160,20 +238,67 @@ test.describe.serial("管理 REST 全面验收", () => {
       ),
     );
     expect(audits).toEqual([{ action: "post.state.visible", via: "api" }]);
-    const notices = await withE2eDb((q) =>
-      q.query<{ type: string }>("SELECT type FROM notifications WHERE user_id = ?", [authorId]),
-    );
-    expect(notices).toEqual([{ type: "content.approved" }]);
+    await expectVisibleForumThread(target, before);
+    await withE2eDb(async (q) => {
+      const events = await q.query<{ id: number; eventName: string }>(
+        `SELECT id, event_name AS eventName, dispatched_at AS dispatchedAt, dispatch_error AS error
+         FROM event_outbox WHERE JSON_UNQUOTE(JSON_EXTRACT(payload, '$.postId')) = ? ORDER BY id`,
+        [String(target.postId)],
+      );
+      const dispatched = { id: expect.any(Number), dispatchedAt: expect.any(String), error: null };
+      expect(events).toEqual([
+        { ...dispatched, eventName: "thread.created" },
+        { ...dispatched, eventName: "content.moderated" },
+      ]);
+      expect(
+        await q.query(
+          `SELECT event_name AS eventName, error_json AS error FROM event_log
+         WHERE JSON_UNQUOTE(JSON_EXTRACT(payload, '$.postId')) = ? ORDER BY id`,
+          [String(target.postId)],
+        ),
+      ).toEqual([
+        { eventName: "thread.created", error: null },
+        { eventName: "content.moderated", error: null },
+      ]);
+      expect(
+        await q.query(
+          "SELECT type, user_id AS userId FROM notification_receipts WHERE outbox_id = ?",
+          [events[1].id],
+        ),
+      ).toEqual([{ type: "content.approved", userId: authorId }]);
+      expect(await q.query("SELECT type FROM notifications WHERE user_id = ?", [authorId])).toEqual(
+        [{ type: "content.approved" }],
+      );
+      const earned = await q.query<{ delta: number }>(
+        `SELECT channel, delta, ref_type AS refType, ref_id AS refId, idempotency_key AS idempotencyKey
+         FROM point_ledger WHERE user_id = ?`,
+        [authorId],
+      );
+      expect(earned).toEqual([
+        {
+          channel: "earn.post",
+          delta: expect.any(Number),
+          refType: "thread",
+          refId: target.threadId,
+          idempotencyKey: `thread:${target.threadId}`,
+        },
+      ]);
+      expect(earned[0].delta).toBeGreaterThan(0);
+      expect(
+        await q.query("SELECT balance FROM point_accounts WHERE user_id = ?", [authorId]),
+      ).toEqual([{ balance: earned[0].delta }]);
+      expect(
+        await q.query(
+          "SELECT error_json AS error FROM event_log WHERE event_name = 'points.changed' AND actor_id = ?",
+          [authorId],
+        ),
+      ).toEqual([{ error: null }]);
+    });
   });
 
   test("驳回：理由送达，同键回放与异参冲突都不重复副作用", async ({ page, request }) => {
     const writer = await issueWriterToken(page, "驳回：理由送");
-    const tag = `${TAG}-reject`;
-    const target: PendingThread = { threadId: 0, postId: 0 };
-    targets.push(target);
-    const authorId = await withE2eDb((q) => createAuthorUser(q, tag));
-    authorUserIds.push(authorId);
-    await withE2eDb((q) => seedPendingThread(q, target, authorId, tag));
+    const { target, authorId } = await seedContentThread(`${TAG}-reject`);
 
     const detail = await request.get(`/api/manage/contents/${target.threadId}?kind=thread`, {
       headers: bearer(writer),
@@ -239,12 +364,7 @@ test.describe.serial("管理 REST 全面验收", () => {
 
   test("锁定与解锁：同值零审计，反向变更留痕", async ({ page, request }) => {
     const writer = await issueWriterToken(page, "锁定与解锁：");
-    const tag = `${TAG}-lock`;
-    const target: PendingThread = { threadId: 0, postId: 0 };
-    targets.push(target);
-    const authorId = await withE2eDb((q) => createAuthorUser(q, tag));
-    authorUserIds.push(authorId);
-    await withE2eDb((q) => seedPendingThread(q, target, authorId, tag));
+    const { target } = await seedContentThread(`${TAG}-lock`);
 
     const lock = (locked: boolean, key = randomUUID()) =>
       request.put(`/api/manage/threads/${target.threadId}/lock`, {
@@ -284,13 +404,18 @@ test.describe.serial("管理 REST 全面验收", () => {
     expect(await audits()).toHaveLength(2);
   });
 
-  test("凭证失效：吊销与过期后读写一律 401", async ({ context, page, request }) => {
-    await loginAs(context, USERS.admin);
+  test("凭证失效：吊销与过期后读写一律 401", async ({ page, request }) => {
+    const adminId = await withE2eDb((q) => createAdminUser(q, `${TAG}-credential`));
+    adminUserIds.push(adminId);
     const name = `${NAME_PREFIX}待吊销`;
-    tokenNames.push(name);
-    const token = await issueManageToken(page, name, { contents: "read", identity: "read" });
-    const legacy = await withE2eDb((q) => insertLegacyToken(q, USERS.admin, `${name}-历史`));
-    tokenNames.push(`${name}-历史`);
+    tokenNames.push(name, `${name}-历史`);
+    const token = await issueManageToken(
+      page,
+      name,
+      { contents: "write", identity: "read" },
+      adminId,
+    );
+    const legacy = await withE2eDb((q) => insertLegacyToken(q, adminId, `${name}-历史`));
 
     expect((await request.get("/api/manage/whoami", { headers: bearer(token) })).status()).toBe(
       200,
@@ -299,8 +424,7 @@ test.describe.serial("管理 REST 全面验收", () => {
     expect((await request.get("/api/manage/whoami", { headers: bearer(legacy) })).status()).toBe(
       200,
     );
-    const legacyWrite = await writeProbe(request, legacy, WRITE_ENDPOINTS[0]);
-    expect(legacyWrite.status()).toBe(403);
+    await expectWriteDenied(request, legacy);
 
     await revokeManageToken(page, name);
     await expectManageError(
@@ -308,35 +432,32 @@ test.describe.serial("管理 REST 全面验收", () => {
       401,
       "unauthorized",
     );
+    await expectWriteDenied(request, token, "unauthorized");
 
     const expiredName = `${name}-过期`;
     tokenNames.push(expiredName);
     const expired = await issueManageToken(page, expiredName, {
-      contents: "read",
+      contents: "write",
       identity: "read",
     });
-    await withE2eDb((q) =>
-      q.exec(
-        "UPDATE admin_api_tokens SET expires_at = NOW() - INTERVAL 1 SECOND WHERE suffix = ?",
-        [expired.slice(-8)],
-      ),
+    const expiration = await withE2eDb((q) =>
+      q.exec("UPDATE admin_api_tokens SET expires_at = NOW() - INTERVAL 1 SECOND WHERE id = ?", [
+        createHash("sha256").update(expired).digest("hex"),
+      ]),
     );
+    expect(expiration.affectedRows).toBe(1);
     await expectManageError(
       await request.get("/api/manage/whoami", { headers: bearer(expired) }),
       401,
       "unauthorized",
     );
+    await expectWriteDenied(request, expired, "unauthorized");
   });
 
   test("屏蔽与封禁：状态机迁移与恢复冲突", async ({ page, request }) => {
     const writer = await issueWriterToken(page, "屏蔽与封禁：");
-    const tag = `${TAG}-hide`;
-    const target: PendingThread = { threadId: 0, postId: 0 };
-    targets.push(target);
-    const authorId = await withE2eDb((q) => createAuthorUser(q, tag));
-    authorUserIds.push(authorId);
     // 屏蔽要求 visible 起点；版本号从内容详情取得（与审核同口径）。
-    await withE2eDb((q) => seedPendingThread(q, target, authorId, tag, "visible"));
+    const { target } = await seedContentThread(`${TAG}-hide`, "visible");
     const detail = await request.get(`/api/manage/contents/${target.threadId}?kind=thread`, {
       headers: bearer(writer),
     });
@@ -385,12 +506,8 @@ test.describe.serial("管理 REST 全面验收", () => {
 
   test("恢复：已删内容经 API 恢复为可见，同键回放不重复", async ({ page, request }) => {
     const writer = await issueWriterToken(page, "恢复：已删内");
-    const tag = `${TAG}-restore`;
-    const target: PendingThread = { threadId: 0, postId: 0 };
-    targets.push(target);
-    const authorId = await withE2eDb((q) => createAuthorUser(q, tag));
-    authorUserIds.push(authorId);
-    await withE2eDb((q) => seedPendingThread(q, target, authorId, tag, "deleted"));
+    const { target, authorId } = await seedContentThread(`${TAG}-restore`, "deleted");
+    const before = await withE2eDb((q) => forumDerived(q, contentForumId));
     const detail = await request.get(`/api/manage/contents/${target.threadId}?kind=thread`, {
       headers: bearer(writer),
     });
@@ -419,16 +536,29 @@ test.describe.serial("管理 REST 全面验收", () => {
       ),
     );
     expect(audits).toEqual([{ action: "post.state.visible" }]);
+    await expectVisibleForumThread(target, before);
+    await withE2eDb(async (q) => {
+      expect(
+        await q.query(
+          `SELECT event_name AS eventName, dispatched_at AS dispatchedAt, dispatch_error AS error
+         FROM event_outbox WHERE JSON_UNQUOTE(JSON_EXTRACT(payload, '$.postId')) = ?`,
+          [String(target.postId)],
+        ),
+      ).toEqual([
+        { eventName: "content.moderated", dispatchedAt: expect.any(String), error: null },
+      ]);
+      expect(
+        await q.query(
+          "SELECT type, target_id AS targetId FROM notifications WHERE user_id = ? AND target_type = 'post'",
+          [authorId],
+        ),
+      ).toEqual([{ type: "content.restored", targetId: target.postId }]);
+    });
   });
 
   test("主题标记：精华与置顶留痕，同值零审计", async ({ page, request }) => {
     const writer = await issueWriterToken(page, "主题标记：精");
-    const tag = `${TAG}-flags`;
-    const target: PendingThread = { threadId: 0, postId: 0 };
-    targets.push(target);
-    const authorId = await withE2eDb((q) => createAuthorUser(q, tag));
-    authorUserIds.push(authorId);
-    await withE2eDb((q) => seedPendingThread(q, target, authorId, tag, "visible"));
+    const { target } = await seedContentThread(`${TAG}-flags`, "visible");
 
     const flags = (body: Record<string, unknown>, key = randomUUID()) =>
       request.patch(`/api/manage/threads/${target.threadId}/flags`, {
@@ -469,15 +599,10 @@ test.describe.serial("管理 REST 全面验收", () => {
     const who = await request.get("/api/manage/whoami", { headers: bearer(writer) });
     expect(who.status()).toBe(200);
     const writerAdminId = ((await who.json()) as { data: { user: { id: number } } }).data.user.id;
-    const tag = `${TAG}-report`;
-    const target: PendingThread = { threadId: 0, postId: 0 };
-    targets.push(target);
-    const authorId = await withE2eDb((q) => createAuthorUser(q, tag));
-    authorUserIds.push(authorId);
-    const reporterId = await withE2eDb((q) => createAuthorUser(q, `${tag}-reporter`));
-    authorUserIds.push(reporterId);
     // 举报列表查询只展示可见内容上的举报：目标帖用可见态。
-    await withE2eDb((q) => seedPendingThread(q, target, authorId, tag, "visible"));
+    const { target } = await seedContentThread(`${TAG}-report`, "visible");
+    const reporterId = await withE2eDb((q) => createAuthorUser(q, `${TAG}-report-reporter`));
+    authorUserIds.push(reporterId);
     const reportId = (
       await withE2eDb((q) =>
         q.exec(
@@ -915,8 +1040,15 @@ test.describe.serial("管理 REST 全面验收", () => {
       409,
       "state_conflict",
     );
-    const fresh = await patch({ ...fields, expectedRevision: 1 });
-    expect(await fresh.json()).toEqual({ ok: true, data: { id: campaignId, revision: 2 } });
+    const editKey = randomUUID();
+    const edited = { ok: true, data: { id: campaignId, revision: 2 } };
+    expect(await (await patch({ ...fields, expectedRevision: 1 }, editKey)).json()).toEqual(edited);
+    expect(await (await patch({ ...fields, expectedRevision: 1 }, editKey)).json()).toEqual(edited);
+    await expectManageError(
+      await patch({ ...fields, expectedRevision: 2 }, editKey),
+      409,
+      "idempotency_conflict",
+    );
 
     // 同值启停 changed:false revision 不变；异值启停 revision+1
     const enable = (enabled: boolean, key = randomUUID()) =>
@@ -949,100 +1081,117 @@ test.describe.serial("管理 REST 全面验收", () => {
       invites: "write",
       identity: "read",
     });
-    const batch = `${TAG}-inv`;
-    // 生成 2 条：同键回放返回同一批码（码面明文只在生成时返回一次）
-    const genKey = randomUUID();
-    const gen = (key = genKey) =>
-      request.post("/api/manage/invites", {
-        headers: { ...bearer(writer), "Idempotency-Key": key, "content-type": "application/json" },
-        data: { count: 2, days: 30, batch },
+    const batch = `${TAG}-inv-first`;
+    const secondBatch = `${TAG}-inv-second`;
+    const expiredBatch = `${TAG}-inv-expired`;
+    const consumerTag = `${TAG}-inv-consumer`;
+    const consumerId = await withE2eDb((q) => createAuthorUser(q, consumerTag));
+    authorUserIds.push(consumerId);
+    const write = (method: string, path: string, data: object, key = randomUUID()) =>
+      request.fetch(`/api/manage/invites${path}`, {
+        method,
+        headers: { ...bearer(writer), "Idempotency-Key": key },
+        data,
       });
-    const first = await gen();
-    expect(first.status()).toBe(200);
-    const codes = ((await first.json()) as { data: { codes: string[] } }).data.codes;
-    expect(codes).toHaveLength(2);
-    const genReplay = await gen();
-    expect(await genReplay.json()).toEqual({ ok: true, data: { codes, count: 2, batch } });
-
-    // 上限：count 21 → 400
-    await expectManageError(
-      await request.post("/api/manage/invites", {
-        headers: {
-          ...bearer(writer),
-          "Idempotency-Key": randomUUID(),
-          "content-type": "application/json",
-        },
-        data: { count: 21, days: 30, batch },
-      }),
-      400,
-      "bad_request",
-    );
-
-    // 吊销第一条：同键回放同响应；新键再吊销 404
-    const revoke = (code: string, key = randomUUID()) =>
-      request.delete(`/api/manage/invites/${code}`, {
-        headers: { ...bearer(writer), "Idempotency-Key": key, "content-type": "application/json" },
-        data: {},
+    const revoke = (code: string, key = randomUUID()) => write("DELETE", `/${code}`, {}, key);
+    const revokeBatch = (name: string) =>
+      write("POST", `/batches/${encodeURIComponent(name)}/revoke`, {});
+    const list = async (name: string, status: string) => {
+      const response = await request.get("/api/manage/invites", {
+        headers: bearer(writer),
+        params: { batch: name, status, size: 10 },
       });
-    // 首次吊销与同键回放用同一显式键（默认参数会生成新键，回放变成行已删的新意图 404）
-    const revokeKey = randomUUID();
-    const revoked1 = await revoke(codes[0], revokeKey);
-    expect(revoked1.status()).toBe(200);
-    const revokeReplay = await revoke(codes[0], revokeKey);
-    expect(revokeReplay.status()).toBe(200);
-    expect(await revokeReplay.json()).toEqual({
-      ok: true,
-      data: { code: codes[0], revoked: true },
-    });
-    await expectManageError(await revoke(codes[0]), 404, "not_found");
+      expect(response.status()).toBe(200);
+      return response.json();
+    };
 
-    // 模拟第二条被使用 → 直接吊销 409（已用）
-    await withE2eDb((q) =>
-      q.exec("UPDATE invite_codes SET used_by = 90002, used_at = NOW() WHERE code = ?", [codes[1]]),
-    );
-    await expectManageError(await revoke(codes[1]), 409, "state_conflict");
+    try {
+      // 第一批各保留一条可用、已用码；另两批分别作可用码干扰项和过期状态夹具。
+      const genKey = randomUUID();
+      const fields = { count: 3, days: 30, batch };
+      const first = await write("POST", "", fields, genKey);
+      expect(first.status()).toBe(200);
+      const { codes } = ((await first.json()) as { data: { codes: string[] } }).data;
+      expect(codes).toHaveLength(3);
+      const [available, used, expired] = codes;
+      const replay = await write("POST", "", fields, genKey);
+      expect(replay.status()).toBe(200);
+      expect(await replay.json()).toEqual({ ok: true, data: { codes, count: 3, batch } });
+      await expectManageError(
+        await write("POST", "", { ...fields, count: 21 }),
+        400,
+        "bad_request",
+      );
+      expect((await write("POST", "", { count: 2, days: 0, batch: secondBatch })).status()).toBe(
+        200,
+      );
+      await withE2eDb(async (q) => {
+        await q.exec("UPDATE invite_codes SET used_by = ?, used_at = NOW() WHERE code = ?", [
+          consumerId,
+          used,
+        ]);
+        await q.exec(
+          "UPDATE invite_codes SET batch = ?, expires_at = '2000-01-01 00:00:00' WHERE code = ?",
+          [expiredBatch, expired],
+        );
+      });
 
-    // 批次吊销：无可用码 → 404
-    await expectManageError(
-      await request.post(`/api/manage/invites/batches/${encodeURIComponent(batch)}/revoke`, {
-        headers: {
-          ...bearer(writer),
-          "Idempotency-Key": randomUUID(),
-          "content-type": "application/json",
+      expect(await list(batch, "available")).toMatchObject({
+        ok: true,
+        data: { total: 1, items: [{ code: available, batch, status: "available", usedBy: null }] },
+      });
+      expect(await list(batch, "used")).toMatchObject({
+        ok: true,
+        data: {
+          total: 1,
+          items: [
+            {
+              code: used,
+              batch,
+              status: "used",
+              usedBy: consumerId,
+              usedByName: `e2e-manage-author-${consumerTag}`,
+              usedAt: expect.any(String),
+            },
+          ],
         },
-        data: {},
-      }),
-      404,
-      "not_found",
-    );
-    // 新批次可用码 → 批次吊销返回计数
-    const seed = (
-      await request.post("/api/manage/invites", {
-        headers: {
-          ...bearer(writer),
-          "Idempotency-Key": randomUUID(),
-          "content-type": "application/json",
+      });
+      expect(await list(expiredBatch, "expired")).toMatchObject({
+        ok: true,
+        data: {
+          total: 1,
+          items: [{ code: expired, batch: expiredBatch, status: "expired", usedBy: null }],
         },
-        data: { count: 2, days: 0, batch: `${batch}-b2` },
-      })
-    ).status();
-    expect(seed).toBe(200);
-    const batchRevoke = await request.post(
-      `/api/manage/invites/batches/${encodeURIComponent(`${batch}-b2`)}/revoke`,
-      {
-        headers: {
-          ...bearer(writer),
-          "Idempotency-Key": randomUUID(),
-          "content-type": "application/json",
-        },
-        data: {},
-      },
-    );
-    expect(await batchRevoke.json()).toEqual({
-      ok: true,
-      data: { batch: `${batch}-b2`, revoked: 2 },
-    });
-    await withE2eDb((q) => q.exec("DELETE FROM invite_codes WHERE batch LIKE ?", [`${batch}%`]));
+      });
+
+      // 单码吊销：同键回放同值，新键找不到；已用码不可吊销。
+      const revokeKey = randomUUID();
+      expect((await revoke(available, revokeKey)).status()).toBe(200);
+      const revokeReplay = await revoke(available, revokeKey);
+      expect(revokeReplay.status()).toBe(200);
+      expect(await revokeReplay.json()).toEqual({
+        ok: true,
+        data: { code: available, revoked: true },
+      });
+      await expectManageError(await revoke(available), 404, "not_found");
+      await expectManageError(await revoke(used), 409, "state_conflict");
+      await expectManageError(await revokeBatch(batch), 404, "not_found");
+      const batchRevoked = await revokeBatch(secondBatch);
+      expect(batchRevoked.status()).toBe(200);
+      expect(await batchRevoked.json()).toEqual({
+        ok: true,
+        data: { batch: secondBatch, revoked: 2 },
+      });
+      expect(await list(secondBatch, "all")).toMatchObject({ data: { total: 0, items: [] } });
+    } finally {
+      await withE2eDb((q) =>
+        q.exec("DELETE FROM invite_codes WHERE batch IN (?, ?, ?)", [
+          batch,
+          secondBatch,
+          expiredBatch,
+        ]),
+      );
+    }
   });
 
   test("版块：创建/编辑/前缀/删除守卫与回放", async ({ page, request }) => {
@@ -1050,9 +1199,10 @@ test.describe.serial("管理 REST 全面验收", () => {
       forums: "write",
       identity: "read",
     });
-    const post = (data: Record<string, unknown>, key = randomUUID()) =>
-      request.post("/api/manage/forums", {
-        headers: { ...bearer(writer), "Idempotency-Key": key, "content-type": "application/json" },
+    const write = (method: string, path: string, data: object, key = randomUUID()) =>
+      request.fetch(`/api/manage/forums${path}`, {
+        method,
+        headers: { ...bearer(writer), "Idempotency-Key": key },
         data,
       });
     const fields = {
@@ -1063,87 +1213,77 @@ test.describe.serial("管理 REST 全面验收", () => {
       sortOrder: 0,
       isListed: true,
     };
-    // 父版块不存在 → 404（锁定段守卫）
-    await expectManageError(await post({ ...fields, parentId: 999999999 }), 404, "not_found");
-    const key = randomUUID();
-    const created = await post(fields, key);
-    expect(created.status()).toBe(200);
-    const fid = ((await created.json()) as { data: { id: number } }).data.id;
-    const replay = await post(fields, key);
-    expect(replay.status()).toBe(200);
-    expect(await replay.json()).toEqual({ ok: true, data: { id: fid } });
+    const editedName = `${fields.name}（改）`;
+    try {
+      await expectManageError(
+        await write("POST", "", { ...fields, parentId: 999999999 }),
+        404,
+        "not_found",
+      );
+      const createKey = randomUUID();
+      const created = await write("POST", "", fields, createKey);
+      expect(created.status()).toBe(200);
+      const { id: fid } = ((await created.json()) as { data: { id: number } }).data;
+      const replay = await write("POST", "", fields, createKey);
+      expect(replay.status()).toBe(200);
+      expect(await replay.json()).toEqual({ ok: true, data: { id: fid } });
 
-    // 编辑（改名）→ 详情可查
-    const patch = await request.patch(`/api/manage/forums/${fid}`, {
-      headers: {
-        ...bearer(writer),
-        "Idempotency-Key": randomUUID(),
-        "content-type": "application/json",
-      },
-      data: {
+      const forumPath = `/${fid}`;
+      const read = async (path: string) => {
+        const response = await request.get(`/api/manage/forums${path}`, {
+          headers: bearer(writer),
+        });
+        expect(response.status()).toBe(200);
+        return response.json();
+      };
+      const edited = {
         parentId: fields.parentId,
-        name: `${TAG} REST 版块（改）`,
+        name: editedName,
         description: null,
         sortOrder: 3,
-        isListed: true,
+        isListed: false,
         readPolicy: "inherit",
         writePolicy: "inherit",
         reviewPolicy: "inherit",
-        isArchived: false,
-      },
-    });
-    expect(patch.status()).toBe(200);
-    const detail = await request.get(`/api/manage/forums/${fid}`, { headers: bearer(writer) });
-    expect(await detail.json()).toMatchObject({
-      data: { id: fid, name: `${TAG} REST 版块（改）` },
-    });
+        isArchived: true,
+      };
+      expect((await write("PATCH", forumPath, edited)).status()).toBe(200);
+      const forum = { id: fid, path: `/900/906/${fid}/`, depth: 3, kind: "forum", ...edited };
+      expect(await read("")).toMatchObject({
+        ok: true,
+        data: { items: expect.arrayContaining([expect.objectContaining(forum)]) },
+      });
+      expect(await read(forumPath)).toMatchObject({ ok: true, data: { ...forum, prefixes: [] } });
 
-    // 前缀增删
-    const prefix = await request.post(`/api/manage/forums/${fid}/prefixes`, {
-      headers: {
-        ...bearer(writer),
-        "Idempotency-Key": randomUUID(),
-        "content-type": "application/json",
-      },
-      data: { name: "完结", sortOrder: 1 },
-    });
-    expect(prefix.status()).toBe(200);
-    const prefixId = ((await prefix.json()) as { data: { prefixId: number } }).data.prefixId;
-    const removed = await request.delete(`/api/manage/forums/${fid}/prefixes/${prefixId}`, {
-      headers: {
-        ...bearer(writer),
-        "Idempotency-Key": randomUUID(),
-        "content-type": "application/json",
-      },
-      data: {},
-    });
-    expect(removed.status()).toBe(200);
+      const prefixFields = { name: "完结", sortOrder: 1 };
+      const prefix = await write("POST", `${forumPath}/prefixes`, prefixFields);
+      expect(prefix.status()).toBe(200);
+      const prefixBody = (await prefix.json()) as { data: { prefixId: number } };
+      const { prefixId } = prefixBody.data;
+      expect(prefixBody).toEqual({ ok: true, data: { forumId: fid, prefixId } });
+      expect(await read(forumPath)).toMatchObject({
+        data: { prefixes: [{ id: prefixId, forumId: fid, ...prefixFields }] },
+      });
+      const removed = await write("DELETE", `${forumPath}/prefixes/${prefixId}`, {});
+      expect(removed.status()).toBe(200);
+      expect(await removed.json()).toEqual({ ok: true, data: { id: fid } });
+      expect(await read(forumPath)).toMatchObject({ data: { prefixes: [] } });
 
-    // 删除（空版块成功；回放同结果）
-    const delKey = randomUUID();
-    const del = await request.delete(`/api/manage/forums/${fid}`, {
-      headers: { ...bearer(writer), "Idempotency-Key": delKey, "content-type": "application/json" },
-      data: {},
-    });
-    expect(del.status()).toBe(200);
-    const delReplay = await request.delete(`/api/manage/forums/${fid}`, {
-      headers: { ...bearer(writer), "Idempotency-Key": delKey, "content-type": "application/json" },
-      data: {},
-    });
-    expect(delReplay.status()).toBe(200);
-    // 新键再删 → 404
-    await expectManageError(
-      await request.delete(`/api/manage/forums/${fid}`, {
-        headers: {
-          ...bearer(writer),
-          "Idempotency-Key": randomUUID(),
-          "content-type": "application/json",
-        },
-        data: {},
-      }),
-      404,
-      "not_found",
-    );
+      // 空版块可删除，同键回放仍成功，新键找不到。
+      const delKey = randomUUID();
+      expect((await write("DELETE", forumPath, {}, delKey)).status()).toBe(200);
+      expect((await write("DELETE", forumPath, {}, delKey)).status()).toBe(200);
+      await expectManageError(await write("DELETE", forumPath, {}), 404, "not_found");
+    } finally {
+      await withE2eDb(async (q) => {
+        const names = [fields.name, editedName];
+        await q.exec(
+          "DELETE fp FROM forum_prefixes fp JOIN forums f ON f.id = fp.forum_id WHERE f.name IN (?, ?)",
+          names,
+        );
+        await q.exec("DELETE FROM forums WHERE name IN (?, ?)", names);
+      });
+    }
   });
 
   test("投票：threadId 口径、截止/重开/删除与回放", async ({ page, request }) => {
@@ -1151,57 +1291,86 @@ test.describe.serial("管理 REST 全面验收", () => {
       polls: "write",
       identity: "read",
     });
-    const authorId = await withE2eDb((q) => createAuthorUser(q, `${TAG}-poll`));
-    authorUserIds.push(authorId);
-    const target: PendingThread = { threadId: 0, postId: 0 };
-    targets.push(target);
-    await withE2eDb((q) => seedPendingThread(q, target, authorId, `${TAG}-poll`, "visible"));
-    await withE2eDb((q) =>
-      q.exec(
-        "INSERT INTO polls (thread_id, created_by, ends_at, created_at) VALUES (?, ?, '2027-01-01 08:00:00', NOW())",
-        [target.threadId, authorId],
-      ),
-    );
-
-    // 列表可查 + close（同键回放）+ 已截止再截 409
-    const list = await request.get("/api/manage/polls?status=open", { headers: bearer(writer) });
-    expect(list.status()).toBe(200);
-    const closeKey = randomUUID();
-    const close = (key = closeKey) =>
-      request.post(`/api/manage/polls/${target.threadId}/close`, {
-        headers: { ...bearer(writer), "Idempotency-Key": key, "content-type": "application/json" },
+    const title = `${TAG}-poll`;
+    const { target, authorId } = await seedContentThread(title, "visible");
+    const forumId = contentForumId;
+    const pollInList = async (status: string) => {
+      const response = await request.get("/api/manage/polls", {
+        headers: bearer(writer),
+        params: { forumId, status, size: 100 },
+      });
+      expect(response.status()).toBe(200);
+      const body = (await response.json()) as {
+        ok: boolean;
+        data: { items: { threadId: number }[] };
+      };
+      expect(body.ok).toBe(true);
+      return body.data.items.find((item) => item.threadId === target.threadId);
+    };
+    const write = (method: string, suffix: string, key = randomUUID()) =>
+      request.fetch(`/api/manage/polls/${target.threadId}${suffix}`, {
+        method,
+        headers: { ...bearer(writer), "Idempotency-Key": key },
         data: {},
       });
-    expect((await close()).status()).toBe(200);
-    expect((await close()).status()).toBe(200);
-    await expectManageError(await close(randomUUID()), 409, "state_conflict");
 
-    // reopen：endsAt 清空 → open 列表恢复
-    const reopen = await request.post(`/api/manage/polls/${target.threadId}/reopen`, {
-      headers: {
-        ...bearer(writer),
-        "Idempotency-Key": randomUUID(),
-        "content-type": "application/json",
-      },
-      data: {},
-    });
-    expect(reopen.status()).toBe(200);
+    try {
+      const pollId = await withE2eDb(async (q) => {
+        await q.exec("UPDATE threads SET kind = 'poll' WHERE id = ?", [target.threadId]);
+        const { insertId } = await q.exec(
+          "INSERT INTO polls (thread_id, created_by, ends_at, created_at) VALUES (?, ?, NOW() + INTERVAL 30 DAY, NOW())",
+          [target.threadId, authorId],
+        );
+        await q.exec(
+          "INSERT INTO poll_options (poll_id, content, sort_order) VALUES (?, '选项甲', 1), (?, '选项乙', 2)",
+          [insertId, insertId],
+        );
+        return insertId;
+      });
+      const row = {
+        pollId,
+        threadId: target.threadId,
+        title,
+        forumId,
+        optionCount: 2,
+        totalVotes: 0,
+        voterCount: 0,
+      };
+      expect(await pollInList("open")).toMatchObject({
+        ...row,
+        closed: false,
+        endsAt: expect.any(String),
+      });
 
-    // 删除：硬删 + 主题回普通帖
-    const del = await request.delete(`/api/manage/polls/${target.threadId}`, {
-      headers: {
-        ...bearer(writer),
-        "Idempotency-Key": randomUUID(),
-        "content-type": "application/json",
-      },
-      data: {},
-    });
-    expect(del.status()).toBe(200);
-    const [kind] = await withE2eDb((q) =>
-      q.query<{ kind: string }>("SELECT kind FROM threads WHERE id = ?", [target.threadId]),
-    );
-    expect(kind.kind).toBe("normal");
-    await withE2eDb((q) => q.exec("DELETE FROM polls WHERE thread_id = ?", [target.threadId]));
+      const closeKey = randomUUID();
+      expect((await write("POST", "/close", closeKey)).status()).toBe(200);
+      expect((await write("POST", "/close", closeKey)).status()).toBe(200);
+      await expectManageError(await write("POST", "/close"), 409, "state_conflict");
+      expect(await pollInList("closed")).toMatchObject({
+        ...row,
+        closed: true,
+        endsAt: expect.any(String),
+      });
+      expect(await pollInList("open")).toBeUndefined();
+
+      // 重开清除截止时间，列表恢复为开放态；删除时主题恢复普通帖。
+      expect((await write("POST", "/reopen")).status()).toBe(200);
+      expect(await pollInList("open")).toMatchObject({ ...row, closed: false, endsAt: null });
+      expect((await write("DELETE", "")).status()).toBe(200);
+      expect(await pollInList("all")).toBeUndefined();
+      const [kind] = await withE2eDb((q) =>
+        q.query<{ kind: string }>("SELECT kind FROM threads WHERE id = ?", [target.threadId]),
+      );
+      expect(kind.kind).toBe("normal");
+    } finally {
+      await withE2eDb(async (q) => {
+        await q.exec(
+          "DELETE po FROM poll_options po JOIN polls p ON p.id = po.poll_id WHERE p.thread_id = ?",
+          [target.threadId],
+        );
+        await q.exec("DELETE FROM polls WHERE thread_id = ?", [target.threadId]);
+      });
+    }
   });
 
   test("私信：软删覆写与回放", async ({ page, request }) => {
@@ -1248,45 +1417,55 @@ test.describe.serial("管理 REST 全面验收", () => {
     });
     const targetId = await withE2eDb((q) => createAuthorUser(q, `${TAG}-badge`));
     authorUserIds.push(targetId);
-    const badgeId = (
-      await withE2eDb((q) =>
-        q.exec(
-          "INSERT INTO badges (`key`, name, kind, sort_order, is_active) VALUES (?, ?, 'honor', 0, 1)",
-          [`rest-badge-${TAG}`, `REST 徽章 ${TAG}`],
-        ),
-      )
-    ).insertId;
-    // 字典可查（honor+active 口径）
-    const dict = await request.get("/api/manage/badges", { headers: bearer(writer) });
-    expect(dict.status()).toBe(200);
+    const badgeKey = `rest-badge-${TAG}`;
+    const excludedKeys = [`${badgeKey}-inactive`, `${badgeKey}-team`];
+    const name = `REST 徽章 ${TAG}`;
+    const description = "管理接口字典验收";
+    try {
+      const badgeId = await withE2eDb(async (q) => {
+        const { insertId } = await q.exec(
+          "INSERT INTO badges (`key`, name, description, kind, is_active) VALUES (?, ?, ?, 'honor', 1)",
+          [badgeKey, name, description],
+        );
+        await q.exec(
+          "INSERT INTO badges (`key`, name, kind, is_active) VALUES (?, '已停用', 'honor', 0), (?, '团队', 'team', 1)",
+          excludedKeys,
+        );
+        return insertId;
+      });
+      // 字典只收录启用的荣誉徽章，分别验证停用与团队两种排除条件。
+      const dict = await request.get("/api/manage/badges", { headers: bearer(writer) });
+      expect(dict.status()).toBe(200);
+      const body = (await dict.json()) as { ok: boolean; data: { items: { key: string }[] } };
+      expect(body.ok).toBe(true);
+      const candidates = new Set([badgeKey, ...excludedKeys]);
+      expect(body.data.items.filter((item) => candidates.has(item.key))).toEqual([
+        { id: badgeId, key: badgeKey, name, description, kind: "honor", isActive: true },
+      ]);
 
-    const grantPath = `/api/manage/users/${targetId}/badges/${badgeId}`;
-    const grant = (key = randomUUID()) =>
-      request.post(grantPath, {
-        headers: { ...bearer(writer), "Idempotency-Key": key, "content-type": "application/json" },
-        data: {},
+      const write = (method: string) =>
+        request.fetch(`/api/manage/users/${targetId}/badges/${badgeId}`, {
+          method,
+          headers: { ...bearer(writer), "Idempotency-Key": randomUUID() },
+          data: {},
+        });
+      expect((await write("POST")).status()).toBe(200);
+      await expectManageError(await write("POST"), 409, "state_conflict");
+      const notices = await withE2eDb((q) =>
+        q.query<{ type: string }>(
+          "SELECT type FROM notifications WHERE user_id = ? AND type = 'badge.awarded'",
+          [targetId],
+        ),
+      );
+      expect(notices).toHaveLength(1);
+      expect((await write("DELETE")).status()).toBe(200);
+      await expectManageError(await write("DELETE"), 404, "not_found");
+    } finally {
+      await withE2eDb(async (q) => {
+        await q.exec("DELETE FROM user_badges WHERE user_id = ?", [targetId]);
+        await q.exec("DELETE FROM badges WHERE `key` IN (?, ?, ?)", [badgeKey, ...excludedKeys]);
       });
-    expect((await grant()).status()).toBe(200);
-    // 已持有 → 409（新意图）
-    await expectManageError(await grant(), 409, "state_conflict");
-    // 当事人收到 badge.awarded 通知
-    const notices = await withE2eDb((q) =>
-      q.query<{ type: string }>(
-        "SELECT type FROM notifications WHERE user_id = ? AND type = 'badge.awarded'",
-        [targetId],
-      ),
-    );
-    expect(notices).toHaveLength(1);
-    // 撤销 → 已撤销新意图 404
-    const revoke = (key = randomUUID()) =>
-      request.delete(grantPath, {
-        headers: { ...bearer(writer), "Idempotency-Key": key, "content-type": "application/json" },
-        data: {},
-      });
-    expect((await revoke()).status()).toBe(200);
-    await expectManageError(await revoke(), 404, "not_found");
-    await withE2eDb((q) => q.exec("DELETE FROM user_badges WHERE user_id = ?", [targetId]));
-    await withE2eDb((q) => q.exec("DELETE FROM badges WHERE id = ?", [badgeId]));
+    }
   });
 
   test("积分：调账落台账、回放同结果、规则聚合", async ({ page, request }) => {
@@ -1296,60 +1475,650 @@ test.describe.serial("管理 REST 全面验收", () => {
     });
     const targetId = await withE2eDb((q) => createAuthorUser(q, `${TAG}-points`));
     authorUserIds.push(targetId);
-    const adjust = (delta: number, key = randomUUID()) =>
+    const adjust = (token: string, delta: number, note: string, key = randomUUID()) =>
       request.post("/api/manage/points/adjustments", {
-        headers: { ...bearer(writer), "Idempotency-Key": key, "content-type": "application/json" },
-        data: { userId: targetId, delta, note: "REST 调账" },
+        headers: { ...bearer(token), "Idempotency-Key": key },
+        data: { userId: targetId, delta, note },
       });
-    // delta 0 → 400
-    await expectManageError(
-      await request.post("/api/manage/points/adjustments", {
-        headers: {
-          ...bearer(writer),
-          "Idempotency-Key": randomUUID(),
-          "content-type": "application/json",
-        },
-        data: { userId: targetId, delta: 0, note: "x" },
-      }),
-      400,
-      "bad_request",
-    );
-    const key = randomUUID();
-    const first = await adjust(50, key);
-    expect(first.status()).toBe(200);
-    const balance = ((await first.json()) as { data: { balanceAfter: number } }).data.balanceAfter;
-    // 同键回放：不重复调账（余额不变）
-    const replay = await adjust(50, key);
-    expect(await replay.json()).toEqual({
-      ok: true,
-      data: { userId: targetId, delta: 50, balanceAfter: balance },
-    });
-    const [ledger] = await withE2eDb((q) =>
-      q.query<{ n: number }>(
-        "SELECT COUNT(*) AS n FROM point_ledger WHERE user_id = ? AND note = 'REST 调账'",
-        [targetId],
+    const assertAdjustment = async (
+      response: Awaited<ReturnType<typeof adjust>>,
+      delta: number,
+      balanceAfter: number,
+    ) => {
+      expect(response.status()).toBe(200);
+      expect(await response.json()).toEqual({
+        ok: true,
+        data: { userId: targetId, delta, balanceAfter },
+      });
+    };
+    const ledgerPage = async (page: number) => {
+      const response = await request.get("/api/manage/points/ledger", {
+        headers: bearer(writer),
+        params: { userId: targetId, size: 10, page },
+      });
+      expect(response.status()).toBe(200);
+      return response.json();
+    };
+
+    try {
+      const who = await request.get("/api/manage/whoami", { headers: bearer(writer) });
+      expect(who.status()).toBe(200);
+      const { id: refId } = ((await who.json()) as { data: { user: { id: number } } }).data.user;
+      const entry = (delta: number, balanceAfter: number, note: string) => ({
+        id: expect.any(Number),
+        delta,
+        balanceAfter,
+        channel: "adjust.admin",
+        note,
+        refType: "admin",
+        refId,
+      });
+      await expectManageError(await adjust(writer, 0, "零额调整"), 400, "bad_request");
+      const key = randomUUID();
+      const firstNote = "REST 首笔调账";
+      await assertAdjustment(await adjust(writer, 50, firstNote, key), 50, 50);
+      await assertAdjustment(await adjust(writer, 50, firstNote, key), 50, 50);
+
+      // 最小合法档位是 10；使用同一管理员的第二枚令牌写入九笔，避免撞每令牌十次写配额。
+      const seedName = `${NAME_PREFIX}积分台账夹具`;
+      tokenNames.push(seedName);
+      const seeder = await issueManageToken(page, seedName, { points: "write" });
+      const firstPage = [];
+      for (let i = 1; i <= 9; i++) {
+        const note = `REST 分页夹具 ${i}`;
+        await assertAdjustment(await adjust(seeder, 1, note), 1, 50 + i);
+        firstPage.unshift(entry(1, 50 + i, note));
+      }
+      const lastNote = "REST 冲减调账";
+      await assertAdjustment(await adjust(writer, -11, lastNote), -11, 48);
+      firstPage.unshift(entry(-11, 48, lastNote));
+      const account = {
+        total: 11,
+        totalPages: 2,
+        balance: 48,
+        lifetimeEarned: 59,
+        lifetimeSpent: 11,
+      };
+      expect(await ledgerPage(1)).toMatchObject({
+        ok: true,
+        data: { ...account, page: 1, items: firstPage },
+      });
+      expect(await ledgerPage(2)).toMatchObject({
+        ok: true,
+        data: { ...account, page: 2, items: [entry(50, 50, firstNote)] },
+      });
+
+      // 写入非默认规则，防止聚合端点即使只返回默认值也能通过。
+      const threadReward = { post: 13, reply: 4, postDailyCap: 39, replyDailyCap: 20 };
+      const punchReward = { min: 7, max: 12 };
+      const gateFeeRate = 0.25;
+      const settings = [
+        ["points.reward", threadReward],
+        ["punch.reward", punchReward],
+        ["points.gate_fee_rate", { rate: gateFeeRate }],
+      ] as const;
+      const previous = await withE2eDb((q) =>
+        q.query<{ key: string; valueJson: string | null; updatedAt: string }>(
+          "SELECT `key`, CAST(value AS CHAR) AS valueJson, updated_at AS updatedAt FROM site_settings WHERE `key` IN (?, ?, ?)",
+          settings.map(([name]) => name),
+        ),
+      );
+      try {
+        await withE2eDb(async (q) => {
+          for (const [name, value] of settings) {
+            const json = JSON.stringify(value);
+            await q.exec(
+              "INSERT INTO site_settings (`key`, value, updated_at) VALUES (?, CAST(? AS JSON), NOW()) ON DUPLICATE KEY UPDATE value = CAST(? AS JSON), updated_at = NOW()",
+              [name, json, json],
+            );
+          }
+        });
+        const rules = await request.get("/api/manage/points/rules", { headers: bearer(writer) });
+        expect(rules.status()).toBe(200);
+        expect(await rules.json()).toEqual({
+          ok: true,
+          data: { threadReward, punchReward, gateFeeRate },
+        });
+      } finally {
+        await withE2eDb(async (q) => {
+          for (const [name] of settings) {
+            const saved = previous.find(({ key }) => key === name);
+            if (saved) {
+              await q.exec(
+                "UPDATE site_settings SET value = CAST(? AS JSON), updated_at = ? WHERE `key` = ?",
+                [saved.valueJson, saved.updatedAt, name],
+              );
+            } else {
+              await q.exec("DELETE FROM site_settings WHERE `key` = ?", [name]);
+            }
+          }
+        });
+      }
+    } finally {
+      await withE2eDb(async (q) => {
+        await q.exec("DELETE FROM point_ledger WHERE user_id = ?", [targetId]);
+        await q.exec("DELETE FROM point_accounts WHERE user_id = ?", [targetId]);
+      });
+    }
+  });
+
+  test("角色：创建回放、授权护栏、防自锁及用户绑定与解绑", async ({ page, request }) => {
+    const writer = await issueWriterToken(page, "角色", { roles: "write" });
+    const roleKey = `rest-${TAG}`;
+    const rolePath = `/api/manage/roles/${roleKey}`;
+    const write = (method: string, path: string, data: object, key = randomUUID()) =>
+      request.fetch(path, {
+        method,
+        headers: { ...bearer(writer), "Idempotency-Key": key },
+        data,
+      });
+
+    const listedRole = async () => {
+      const response = await request.get("/api/manage/roles", { headers: bearer(writer) });
+      expect(response.status()).toBe(200);
+      const body = (await response.json()) as { ok: boolean; data: { items: { key: string }[] } };
+      expect(body.ok).toBe(true);
+      return body.data.items.find((item) => item.key === roleKey);
+    };
+
+    // 全用例共十次写请求，正好覆盖单令牌写配额。
+    try {
+      const createKey = randomUUID();
+      const fields = { key: roleKey, name: "REST 角色", description: "" };
+      const created = await write("POST", "/api/manage/roles", fields, createKey);
+      expect(created.status()).toBe(200);
+      const receipt = { ok: true, data: { key: roleKey, name: fields.name } };
+      expect(await created.json()).toEqual(receipt);
+      const replay = await write("POST", "/api/manage/roles", fields, createKey);
+      expect(replay.status()).toBe(200);
+      expect(await replay.json()).toEqual(receipt);
+      await expectManageError(
+        await write("POST", "/api/manage/roles", fields),
+        409,
+        "state_conflict",
+      );
+
+      await expectManageError(
+        await write("PUT", "/api/manage/roles/member/grants/forum.moderate", { scopeId: 0 }),
+        409,
+        "state_conflict",
+      );
+      const grant = await write("PUT", `${rolePath}/grants/forum.moderate`, { scopeId: 0 });
+      expect(grant.status()).toBe(200);
+      expect(await grant.json()).toMatchObject({ data: { changed: true } });
+      await expectManageError(
+        await write("DELETE", "/api/manage/roles/admin/grants/site.admin", { scopeId: 0 }),
+        409,
+        "state_conflict",
+      );
+
+      const detail = await request.get(rolePath, { headers: bearer(writer) });
+      expect(detail.status()).toBe(200);
+      expect(await detail.json()).toMatchObject({
+        data: { key: roleKey, grants: [{ permissionKey: "forum.moderate", scopeId: 0 }] },
+      });
+
+      // 用户绑定归令牌角色域，持有人另须具备用户管理权限。
+      const targetId = await withE2eDb((q) => createAuthorUser(q, `${TAG}-role-user`));
+      authorUserIds.push(targetId);
+      const assignPath = `/api/manage/users/${targetId}/roles/${roleKey}`;
+      await expectManageError(
+        await write("PUT", assignPath, { scopeId: 0, expiresAt: null, reason: "" }),
+        400,
+        "bad_request",
+      );
+      const assign = await write("PUT", assignPath, {
+        scopeId: 0,
+        expiresAt: null,
+        reason: "接任审校",
+      });
+      expect(assign.status()).toBe(200);
+      expect(await assign.json()).toMatchObject({
+        data: { userId: targetId, roleKey, scopeId: 0 },
+      });
+      const listFields = { ...fields, kind: "custom", isPublic: false, grantCount: 1 };
+      expect(await listedRole()).toEqual({ ...listFields, holderCount: 1 });
+      const revoke = await write("DELETE", assignPath, { scopeId: 0, reason: "卸任" });
+      expect(revoke.status()).toBe(200);
+      expect(await revoke.json()).toMatchObject({ data: { changed: true } });
+      expect(await listedRole()).toEqual({ ...listFields, holderCount: 0 });
+      expect((await write("DELETE", rolePath, {})).status()).toBe(200);
+      expect(await listedRole()).toBeUndefined();
+    } finally {
+      await withE2eDb(async (q) => {
+        await q.exec("DELETE FROM user_roles WHERE role_key = ?", [roleKey]);
+        await q.exec("DELETE FROM role_grants WHERE role_key = ?", [roleKey]);
+        await q.exec("DELETE FROM roles WHERE `key` = ?", [roleKey]);
+      });
+    }
+  });
+
+  test("设置：白名单分组读写与回放", async ({ page, request }) => {
+    const writer = await issueWriterToken(page, "设置", { settings: "write" });
+    const index = await request.get("/api/manage/settings", { headers: bearer(writer) });
+    expect(index.status()).toBe(200);
+    const {
+      data: { groups },
+    } = (await index.json()) as { data: { groups: string[] } };
+    expect(groups).toContain("register");
+    expect(groups).not.toContain("smtp");
+
+    type RegisterPolicy = { open: boolean; invite: boolean; verifyEmail: boolean };
+    const [previous] = await withE2eDb((q) =>
+      q.query<{ value: RegisterPolicy; updatedAt: string }>(
+        "SELECT value, updated_at AS updatedAt FROM site_settings WHERE `key` = 'register.policy'",
       ),
     );
-    expect(ledger.n).toBe(1);
-
-    // 台账查询端点
-    const ledgerPage = await request.get(`/api/manage/points/ledger?userId=${targetId}&size=10`, {
-      headers: bearer(writer),
+    const readRegister = () =>
+      request.get("/api/manage/settings?group=register", { headers: bearer(writer) });
+    const register = await readRegister();
+    expect(register.status()).toBe(200);
+    const group = { group: "register", key: "register.policy" };
+    expect(await register.json()).toMatchObject({
+      data: { ...group, value: previous?.value ?? null },
     });
-    expect(ledgerPage.status()).toBe(200);
+    await expectManageError(
+      await request.get("/api/manage/settings?group=smtp", { headers: bearer(writer) }),
+      404,
+      "not_found",
+    );
 
-    // 规则聚合
-    const rules = await request.get("/api/manage/points/rules", { headers: bearer(writer) });
-    expect(rules.status()).toBe(200);
-    expect(await rules.json()).toMatchObject({
-      data: {
-        threadReward: expect.anything(),
-        punchReward: expect.anything(),
-        gateFeeRate: expect.anything(),
-      },
+    const patchKey = randomUUID();
+    const current = previous?.value ?? { open: false, invite: true, verifyEmail: false };
+    const updated = { ...current, verifyEmail: !current.verifyEmail };
+    const patch = () =>
+      request.patch("/api/manage/settings/register", {
+        headers: { ...bearer(writer), "Idempotency-Key": patchKey },
+        data: updated,
+      });
+    try {
+      const first = await patch();
+      expect(first.status()).toBe(200);
+      const receipt = { ok: true, data: group };
+      expect(await first.json()).toMatchObject(receipt);
+      const replay = await patch();
+      expect(replay.status()).toBe(200);
+      expect(await replay.json()).toEqual(await first.json());
+      expect(await (await readRegister()).json()).toMatchObject({
+        data: { ...group, value: updated },
+      });
+      await expectManageError(
+        await request.patch("/api/manage/settings/smtp", {
+          headers: { ...bearer(writer), "Idempotency-Key": randomUUID() },
+          data: { url: "test.invalid" },
+        }),
+        404,
+        "not_found",
+      );
+    } finally {
+      await withE2eDb((q) =>
+        previous
+          ? q.exec(
+              "UPDATE site_settings SET value = CAST(? AS JSON), updated_at = ? WHERE `key` = 'register.policy'",
+              [JSON.stringify(previous.value), previous.updatedAt],
+            )
+          : q.exec("DELETE FROM site_settings WHERE `key` = 'register.policy'"),
+      );
+    }
+  });
+
+  test("运维：任务列表、配置回放、断连触发返回 503", async ({ page, request }) => {
+    expectOpsPipelineDisconnected(test.info().config);
+    const writer = await issueWriterToken(page, "运维", { ops: "write" });
+    const taskKey = `rest.${TAG}`;
+    const taskPath = `/api/manage/ops/tasks/${taskKey}`;
+    const trigger = (path = taskPath) =>
+      request.post(`${path}/trigger`, {
+        headers: bearer(writer),
+        data: {},
+      });
+    const patch = (suffix: "params" | "enabled", data: object, key = randomUUID()) =>
+      request.patch(`${taskPath}/${suffix}`, {
+        headers: { ...bearer(writer), "Idempotency-Key": key },
+        data,
+      });
+    const listTasks = () => request.get("/api/manage/ops/tasks", { headers: bearer(writer) });
+
+    try {
+      // 专用任务仅添加手动触发器，验收不改动默认运维任务。
+      const { insertId: id } = await withE2eDb((q) =>
+        q.exec(
+          `INSERT INTO ops_tasks (task_key, name, executor, params, enabled, revision, created_at, updated_at)
+         VALUES (?, '运维验收任务', 'backup.db', JSON_OBJECT('keep', 14), 1, 1, NOW(), NOW())`,
+          [taskKey],
+        ),
+      );
+      await expectManageError(await trigger(`${taskPath}-missing`), 404, "not_found");
+      await expectManageError(await trigger(), 400, "bad_request");
+      await withE2eDb((q) =>
+        q.exec(
+          `INSERT INTO ops_triggers (task_key, kind, enabled, created_at, updated_at)
+         VALUES (?, 'manual', 1, NOW(), NOW())`,
+          [taskKey],
+        ),
+      );
+      const tasks = await listTasks();
+      expect(tasks.status()).toBe(200);
+      expect(await tasks.json()).toMatchObject({
+        data: {
+          items: expect.arrayContaining([
+            expect.objectContaining({
+              id,
+              taskKey,
+              enabled: true,
+              revision: 1,
+              triggers: [expect.objectContaining({ kind: "manual", enabled: true })],
+            }),
+          ]),
+        },
+      });
+      await expectManageError(await trigger(), 503, "ops_unavailable");
+
+      await expectManageError(
+        await patch("params", { expectedRevision: 2, params: { keep: 15 } }),
+        409,
+        "state_conflict",
+      );
+      const paramsKey = randomUUID();
+      const params = { expectedRevision: 1, params: { keep: 15 } };
+      const saved = await patch("params", params, paramsKey);
+      expect(saved.status()).toBe(200);
+      expect(await saved.json()).toMatchObject({ data: { id, revision: 2 } });
+      const savedReplay = await patch("params", params, paramsKey);
+      expect(savedReplay.status()).toBe(200);
+      expect(await savedReplay.json()).toEqual(await saved.json());
+
+      const toggleKey = randomUUID();
+      const disabled = await patch("enabled", { enabled: false }, toggleKey);
+      expect(disabled.status()).toBe(200);
+      expect(await disabled.json()).toMatchObject({
+        data: { id, enabled: false, revision: 3, changed: true },
+      });
+      const disabledReplay = await patch("enabled", { enabled: false }, toggleKey);
+      expect(disabledReplay.status()).toBe(200);
+      expect(await disabledReplay.json()).toEqual(await disabled.json());
+      await expectManageError(await trigger(), 409, "state_conflict");
+
+      const finalTasks = await listTasks();
+      expect(finalTasks.status()).toBe(200);
+      expect(await finalTasks.json()).toMatchObject({
+        data: {
+          items: expect.arrayContaining([
+            expect.objectContaining({
+              id,
+              taskKey,
+              enabled: false,
+              params: { keep: 15 },
+              revision: 3,
+            }),
+          ]),
+        },
+      });
+    } finally {
+      await withE2eDb(async (q) => {
+        await q.exec("DELETE FROM ops_triggers WHERE task_key = ?", [taskKey]);
+        await q.exec("DELETE FROM ops_tasks WHERE task_key = ?", [taskKey]);
+      });
+    }
+  });
+
+  test("运维台账：缺表正常降级，合成记录按真实字段返回", async ({ page, request }) => {
+    expectOpsPipelineDisconnected(test.info().config);
+    const reader = await issueWriterToken(page, "运维台账", { ops: "read" });
+    const read = async () => {
+      const response = await request.get("/api/manage/ops/runs?size=10", {
+        headers: bearer(reader),
+      });
+      expect(response.status()).toBe(200);
+      return response.json();
+    };
+    expect(await read()).toEqual({
+      ok: true,
+      data: { rows: [], total: 0, totalPages: 1, anyRunning: false, ledgerMissing: true },
     });
-    await withE2eDb((q) => q.exec("DELETE FROM point_ledger WHERE user_id = ?", [targetId]));
-    await withE2eDb((q) => q.exec("DELETE FROM point_accounts WHERE user_id = ?", [targetId]));
+
+    // 台账表由管线自治；仅在隔离库创建同构的最小表，不接通管线或触发任务。
+    await withE2eDb((q) =>
+      q.exec(`CREATE TABLE ops_runs (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      kind ENUM('db','storage','restore','drill','holiday') NOT NULL,
+      task_key VARCHAR(64) NULL,
+      trigger_source ENUM('cron','manual','once') NOT NULL,
+      status ENUM('running','success','failed') NOT NULL,
+      path VARCHAR(255) NULL, size_bytes BIGINT UNSIGNED NULL, detail TEXT NULL, error TEXT NULL,
+      started_at DATETIME NOT NULL, finished_at DATETIME NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`),
+    );
+    try {
+      const taskKey = `rest.${TAG}.ledger`;
+      const path = `${taskKey}.sql.gz`;
+      const sizeBytes = 4700000;
+      const detail = "合成台账验收记录";
+      const startedAt = "2026-11-19 12:30:00";
+      const finishedAt = "2026-11-19 12:30:05";
+      const { insertId: id } = await withE2eDb((q) =>
+        q.exec(
+          `INSERT INTO ops_runs
+             (kind, task_key, trigger_source, status, path, size_bytes, detail, started_at, finished_at)
+           VALUES ('db', ?, 'manual', 'success', ?, ?, ?, ?, ?)`,
+          [taskKey, path, sizeBytes, detail, startedAt, finishedAt],
+        ),
+      );
+      expect(await read()).toEqual({
+        ok: true,
+        data: {
+          rows: [
+            {
+              id,
+              kind: "db",
+              taskKey,
+              trigger: "manual",
+              status: "success",
+              path,
+              sizeBytes,
+              detail,
+              error: null,
+              startedAt,
+              finishedAt,
+            },
+          ],
+          total: 1,
+          totalPages: 1,
+          anyRunning: false,
+          ledgerMissing: false,
+        },
+      });
+    } finally {
+      // 只清理由本用例 CREATE 成功的表；若表已存在，上面的建表会拒绝，不会误删。
+      await withE2eDb((q) => q.exec("DROP TABLE ops_runs"));
+    }
+  });
+
+  test("主题：修订号乐观锁与启停回放", async ({ page, request }) => {
+    const writer = await issueWriterToken(page, "主题", { themes: "write" });
+    const packId = `rest-${TAG}`;
+    const packPath = `/api/manage/themes/${packId}`;
+    const patch = (expectedRevision: number) =>
+      request.patch(packPath, {
+        headers: { ...bearer(writer), "Idempotency-Key": randomUUID() },
+        data: { expectedRevision, name: `主题包 ${TAG}` },
+      });
+    const enable = (enabled: boolean, key = randomUUID()) =>
+      request.post(`${packPath}/enabled`, {
+        headers: { ...bearer(writer), "Idempotency-Key": key },
+        data: { enabled },
+      });
+    try {
+      // 复制稳定夹具的定义，独立测试启停，不改变共享主题包的状态。
+      const seeded = await withE2eDb((q) =>
+        q.exec(
+          `INSERT INTO theme_packages (id, name, schema_version, definition, assets, enabled, created_at, updated_at)
+         SELECT ?, '主题验收夹具', schema_version, definition, JSON_ARRAY(), 0, NOW(), NOW()
+         FROM theme_packages WHERE id = ?`,
+          [packId, FIX.customThemePack.id],
+        ),
+      );
+      expect(seeded.affectedRows).toBe(1);
+      const list = await request.get("/api/manage/themes", { headers: bearer(writer) });
+      expect(list.status()).toBe(200);
+      expect(await list.json()).toMatchObject({
+        data: {
+          items: expect.arrayContaining([
+            expect.objectContaining({ id: packId, revision: 1, enabled: false }),
+          ]),
+        },
+      });
+      await expectManageError(await patch(2), 409, "state_conflict");
+      const fresh = await patch(1);
+      expect(fresh.status()).toBe(200);
+      expect(await fresh.json()).toMatchObject({ data: { id: packId, revision: 2 } });
+
+      const same = await enable(false);
+      expect(same.status()).toBe(200);
+      expect(await same.json()).toMatchObject({ data: { changed: false } });
+      const toggleKey = randomUUID();
+      const flip = await enable(true, toggleKey);
+      expect(flip.status()).toBe(200);
+      expect(await flip.json()).toMatchObject({ data: { changed: true } });
+      const replay = await enable(true, toggleKey);
+      expect(replay.status()).toBe(200);
+      expect(await replay.json()).toEqual(await flip.json());
+      const detail = await request.get(packPath, { headers: bearer(writer) });
+      expect(detail.status()).toBe(200);
+      expect(await detail.json()).toMatchObject({
+        data: {
+          id: packId,
+          name: `主题包 ${TAG}`,
+          revision: 3,
+          enabled: true,
+          definition: expect.any(Object),
+        },
+      });
+    } finally {
+      await withE2eDb((q) => q.exec("DELETE FROM theme_packages WHERE id = ?", [packId]));
+    }
+  });
+
+  test("实时撤权：自定义双资格管理员同令牌变为 403，授权快照不改", async ({ page, request }) => {
+    const controller = await issueWriterToken(page, "实时撤权操作者", { roles: "write" });
+    const holderId = await withE2eDb(async (q) => {
+      const id = await createAuthorUser(q, `${TAG}-live-holder`);
+      adminUserIds.push(id);
+      // 令牌持有人须为可登录账号；只复制种子密码哈希，不复制角色。
+      const account = await q.exec(
+        "UPDATE users u JOIN users seed ON seed.id = ? SET u.password_hash = seed.password_hash, u.email_verified_at = NOW() WHERE u.id = ?",
+        [USERS.admin, id],
+      );
+      expect(account.affectedRows).toBe(1);
+      return id;
+    });
+    const roleKey = `rest-live-${TAG}`;
+    const rolePath = `/api/manage/roles/${roleKey}`;
+    const write = (method: string, path: string, data: object) =>
+      request.fetch(path, {
+        method,
+        headers: { ...bearer(controller), "Idempotency-Key": randomUUID() },
+        data,
+      });
+
+    try {
+      // 持有人不绑内置 admin，只有自定义角色赋予 site.admin、admin.roles 和可撤的日志权限。
+      const created = await write("POST", "/api/manage/roles", {
+        key: roleKey,
+        name: "实时授权持有人",
+      });
+      expect(created.status()).toBe(200);
+      for (const permission of ["site.admin", "admin.roles", "admin.logs"]) {
+        const grant = await write("PUT", `${rolePath}/grants/${permission}`, { scopeId: 0 });
+        expect(grant.status()).toBe(200);
+        expect(await grant.json()).toMatchObject({
+          data: { permissionKey: permission, changed: true },
+        });
+      }
+      const assigned = await write("PUT", `/api/manage/users/${holderId}/roles/${roleKey}`, {
+        scopeId: 0,
+        expiresAt: null,
+        reason: "验收实时权限裁剪",
+      });
+      expect(assigned.status()).toBe(200);
+
+      const tokenName = `${NAME_PREFIX}实时裁剪持有人`;
+      tokenNames.push(tokenName);
+      const token = await issueManageToken(
+        page,
+        tokenName,
+        { identity: "read", stats: "read" },
+        holderId,
+      );
+      const headers = bearer(token);
+      const identity = {
+        id: "whoami",
+        method: "GET",
+        path: "/api/manage/whoami",
+        scope: "identity:read",
+      };
+      const stats = { id: "stats", method: "GET", path: "/api/manage/stats", scope: "stats:read" };
+      type Grant = typeof identity;
+      const whoami = async () => {
+        const response = await request.get("/api/manage/whoami?include=token_permissions", {
+          headers,
+        });
+        expect(response.status()).toBe(200);
+        const body = (await response.json()) as {
+          ok: boolean;
+          data: {
+            user: { id: number };
+            token: { name: string; suffix: string };
+            permissions: string[];
+            tokenPermissions: { granted: Grant[]; effective: Grant[] };
+          };
+        };
+        expect(body).toMatchObject({
+          ok: true,
+          data: { user: { id: holderId }, token: { name: tokenName, suffix: token.slice(-8) } },
+        });
+        return body.data;
+      };
+      expect((await request.get(stats.path, { headers })).status()).toBe(200);
+      const before = await whoami();
+      expect(before.permissions).toEqual(
+        expect.arrayContaining(["site.admin", "admin.roles", "admin.logs"]),
+      );
+      expect(before.tokenPermissions.granted).toHaveLength(2);
+      expect(before.tokenPermissions.granted).toEqual(expect.arrayContaining([identity, stats]));
+      expect(before.tokenPermissions.effective).toEqual(before.tokenPermissions.granted);
+
+      const revoked = await write("DELETE", `${rolePath}/grants/admin.logs`, { scopeId: 0 });
+      expect(revoked.status()).toBe(200);
+      expect(await revoked.json()).toEqual({
+        ok: true,
+        data: { roleKey, permissionKey: "admin.logs", scopeId: 0, changed: true },
+      });
+      await expectManageError(await request.get(stats.path, { headers }), 403, "forbidden");
+      const after = await whoami();
+      expect(after.permissions).toEqual(expect.arrayContaining(["site.admin", "admin.roles"]));
+      expect(after.permissions).not.toContain("admin.logs");
+      expect(after.tokenPermissions).toEqual({
+        granted: before.tokenPermissions.granted,
+        effective: [identity],
+      });
+      const tokenRow = await withE2eDb((q) =>
+        q.query<{ revokedAt: string | null }>(
+          "SELECT revoked_at AS revokedAt FROM admin_api_tokens WHERE id = ? AND user_id = ?",
+          [createHash("sha256").update(token).digest("hex"), holderId],
+        ),
+      );
+      expect(tokenRow).toEqual([{ revokedAt: null }]);
+    } finally {
+      await withE2eDb(async (q) => {
+        await q.exec("DELETE FROM user_roles WHERE user_id = ? AND role_key = ?", [
+          holderId,
+          roleKey,
+        ]);
+        await q.exec("DELETE FROM role_grants WHERE role_key = ?", [roleKey]);
+        await q.exec("DELETE FROM roles WHERE `key` = ?", [roleKey]);
+      });
+    }
   });
 
   test("新建专用管理员签发的令牌同样受矩阵约束", async ({ context, page, request }) => {
@@ -1366,7 +2135,6 @@ test.describe.serial("管理 REST 全面验收", () => {
       403,
       "forbidden",
     );
-    const response = await writeProbe(request, token, WRITE_ENDPOINTS[0]);
-    expect(response.status()).toBe(403);
+    await expectWriteDenied(request, token);
   });
 });

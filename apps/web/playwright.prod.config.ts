@@ -50,6 +50,11 @@ export default defineConfig({
       NEXT_DIST_DIR: process.env.NEXT_DIST_DIR ?? ".next-e2e-prod",
       // 生产环境必须显式声明可信代理层数（0 = 直连无代理），漏配会在取 IP 时报错
       TRUSTED_PROXY_HOPS: "0",
+      // 隔离验收禁用真实运维管线，兼容旧环境变量也显式清空。
+      OPS_SERVICE_URL: "",
+      OPS_API_TOKEN: "",
+      BACKUP_SERVICE_URL: "",
+      BACKUP_OPS_TOKEN: "",
       // 只在生产构建 E2E 的测试服务打开管理写入口；其他环境沿用默认关闭。
       // E2E_MANAGE_API_WRITES=off 单独跑一轮停写验收（写端点应 503）。
       MANAGE_API_WRITES: process.env.E2E_MANAGE_API_WRITES ?? "on",

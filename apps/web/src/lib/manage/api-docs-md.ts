@@ -28,7 +28,6 @@ const COMMON_ERRORS = ["unauthorized", "forbidden", "rate_limited", "internal"] 
 const WRITE_ERRORS = [
   "bad_request",
   "not_found",
-  "idempotency_conflict",
   "payload_too_large",
   "unsupported_media_type",
   "writes_disabled",
@@ -43,6 +42,7 @@ function endpointSection(id: ManageEndpointId): DocsEndpointSection {
     ...new Set<ManageErrorCode>([
       ...COMMON_ERRORS,
       ...(access === "write" ? WRITE_ERRORS : []),
+      ...(access === "write" && id !== "ops.trigger" ? ["idempotency_conflict" as const] : []),
       ...errors,
     ]),
   ];

@@ -247,16 +247,24 @@ describe.skipIf(skipDb)("限制管理（M9）", () => {
     expect(await db().select().from(sessions).where(eq(sessions.id, sessionId))).toHaveLength(0);
   });
 
-  it("不能封禁最后一位有效站点管理员", async () => {
-    expect(
-      await createRestriction(ACTOR, {
-        userId: DEMO.admin,
-        kind: "ban",
-        reason: "last admin guard",
-        endsAt: null,
-      }),
-    ).toEqual({ ok: false, code: "last_admin" });
-    expect(await activeRestrictions(DEMO.admin, "ban")).toHaveLength(0);
+  it("限时管理员不能充当末位永久管理员被封禁时的替补", async () => {
+    const temporary = "2099-01-01 00:00:00";
+    await assignUserRole(ACTOR, DEMO.member, "admin", 0, temporary, "设置限时替补");
+    try {
+      for (const endsAt of [null, temporary]) {
+        expect(
+          await createRestriction(ACTOR, {
+            userId: DEMO.admin,
+            kind: "ban",
+            reason: "末位永久管理员保护",
+            endsAt,
+          }),
+        ).toEqual({ ok: false, code: "last_admin" });
+      }
+      expect(await activeRestrictions(DEMO.admin, "ban")).toHaveLength(0);
+    } finally {
+      await revokeUserRole(ACTOR, DEMO.member, "admin", 0, "清理限时替补");
+    }
   });
 
   it("全站 ban 与撤销另一管理员绑定并发时仍共享末位管理员互斥锁", async () => {

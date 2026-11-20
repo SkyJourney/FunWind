@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { expect, type APIResponse, type Page } from "@playwright/test";
+import { expect, type APIResponse, type FullConfig, type Page } from "@playwright/test";
+import { loginAs } from "./session";
 import { withE2eDb, type Q } from "./db";
 
 /**
@@ -23,6 +24,10 @@ export const DOMAIN_LABELS = {
   badges: "徽章",
   points: "积分",
   emojis: "表情",
+  roles: "角色权限",
+  settings: "站点设置",
+  ops: "运维任务",
+  themes: "主题包",
   announcements: "公告",
   campaigns: "活动",
   invites: "邀请码",
@@ -130,16 +135,16 @@ export const REST_ENDPOINTS = [
     domain: "announcements",
     method: "POST",
     path: "/api/manage/announcements",
-    collects: true,
-    sampleBody: {
-      title: "probe",
+    expectedStatus: 200,
+    sampleBody: (tag: string) => ({
+      title: tag,
       bodyMd: "",
       level: "info",
-      audience: "all",
+      audience: "members",
       showBanner: false,
-      startsAt: null,
-      endsAt: null,
-    },
+      startsAt: "2000-01-01 00:00:00",
+      endsAt: "2000-01-02 00:00:00",
+    }),
   },
   {
     domain: "announcements",
@@ -167,15 +172,15 @@ export const REST_ENDPOINTS = [
     domain: "campaigns",
     method: "POST",
     path: "/api/manage/campaigns",
-    collects: true,
-    sampleBody: {
-      name: "probe",
+    expectedStatus: 200,
+    sampleBody: (tag: string) => ({
+      name: tag,
       effect: "theme.pack",
       target: "default",
-      startsAt: "2026-01-01 00:00:00",
-      endsAt: null,
+      startsAt: "2000-01-01 00:00:00",
+      endsAt: "2000-01-02 00:00:00",
       priority: 0,
-    },
+    }),
   },
   {
     domain: "campaigns",
@@ -202,8 +207,8 @@ export const REST_ENDPOINTS = [
     domain: "invites",
     method: "POST",
     path: "/api/manage/invites",
-    collects: true,
-    sampleBody: { count: 1, days: 30, batch: "probe" },
+    expectedStatus: 200,
+    sampleBody: (tag: string) => ({ count: 1, days: 30, batch: tag }),
   },
   {
     domain: "invites",
@@ -317,8 +322,8 @@ export const REST_ENDPOINTS = [
     domain: "emojis",
     method: "POST",
     path: "/api/manage/emoji-groups",
-    collects: true,
-    sampleBody: { name: "probe" },
+    expectedStatus: 200,
+    sampleBody: (tag: string) => ({ name: tag }),
   },
   {
     domain: "emojis",
@@ -356,25 +361,124 @@ export const REST_ENDPOINTS = [
     path: "/api/manage/emojis/{emojiId}/enabled",
     sampleBody: { enabled: true },
   },
+  { domain: "roles", method: "GET", path: "/api/manage/roles" },
+  { domain: "roles", method: "GET", path: "/api/manage/roles/{roleKey}" },
+  {
+    domain: "roles",
+    method: "POST",
+    path: "/api/manage/roles",
+    expectedStatus: 200,
+    sampleBody: (tag: string) => ({ key: tag, name: tag }),
+  },
+  {
+    domain: "roles",
+    method: "DELETE",
+    path: "/api/manage/roles/{roleKey}",
+    sampleBody: {},
+  },
+  {
+    domain: "roles",
+    method: "PUT",
+    path: "/api/manage/roles/{roleKey}/grants/{permission}",
+    sampleBody: { scopeId: 0 },
+  },
+  {
+    domain: "roles",
+    method: "DELETE",
+    path: "/api/manage/roles/{roleKey}/grants/{permission}",
+    sampleBody: { scopeId: 0 },
+  },
+  {
+    domain: "roles",
+    method: "PUT",
+    path: "/api/manage/users/{uid}/roles/{roleKey}",
+    sampleBody: { scopeId: 0, reason: "probe", expiresAt: null },
+  },
+  {
+    domain: "roles",
+    method: "DELETE",
+    path: "/api/manage/users/{uid}/roles/{roleKey}",
+    expectedStatus: 200,
+    sampleBody: { scopeId: 0, reason: "probe" },
+  },
+  { domain: "settings", method: "GET", path: "/api/manage/settings" },
+  {
+    domain: "settings",
+    method: "PATCH",
+    path: "/api/manage/settings/{group}",
+    sampleBody: {},
+  },
+  { domain: "ops", method: "GET", path: "/api/manage/ops/tasks" },
+  { domain: "ops", method: "GET", path: "/api/manage/ops/runs" },
+  {
+    domain: "ops",
+    method: "POST",
+    path: "/api/manage/ops/tasks/{taskKey}/trigger",
+    sampleBody: {},
+  },
+  {
+    domain: "ops",
+    method: "PATCH",
+    path: "/api/manage/ops/tasks/{taskKey}/enabled",
+    sampleBody: { enabled: true },
+  },
+  {
+    domain: "ops",
+    method: "PATCH",
+    path: "/api/manage/ops/tasks/{taskKey}/params",
+    sampleBody: { expectedRevision: 1, params: { keep: 14 } },
+  },
+  { domain: "themes", method: "GET", path: "/api/manage/themes" },
+  { domain: "themes", method: "GET", path: "/api/manage/themes/{packId}" },
+  {
+    domain: "themes",
+    method: "PATCH",
+    path: "/api/manage/themes/{packId}",
+    sampleBody: { expectedRevision: 1, name: "probe" },
+  },
+  {
+    domain: "themes",
+    method: "POST",
+    path: "/api/manage/themes/{packId}/enabled",
+    sampleBody: { enabled: true },
+  },
   { domain: "stats", method: "GET", path: "/api/manage/stats" },
   { domain: "audit-logs", method: "GET", path: "/api/manage/audit-logs" },
   { domain: "emails", method: "GET", path: "/api/manage/emails" },
   { domain: "push-logs", method: "GET", path: "/api/manage/push-logs" },
 ] as const;
 
-/** 读端点用于逐域授权核对；写端点用不存在的目标，避免矩阵核对产生真实副作用。 */
+/** 授权通过的写探测默认使用不存在的目标，少数集合创建和无变更操作另行声明预期状态。 */
 export const READ_ENDPOINTS = REST_ENDPOINTS.filter((e) => e.method === "GET");
 export const WRITE_ENDPOINTS = REST_ENDPOINTS.filter((e) => e.method !== "GET");
+export const READ_DOMAINS = [...new Set(READ_ENDPOINTS.map((endpoint) => endpoint.domain))];
+export const WRITE_DOMAINS = [...new Set(WRITE_ENDPOINTS.map((endpoint) => endpoint.domain))];
 
-/** 不存在的目标 id：授权通过后应得 404，被拒绝时应得 403。 */
+/** 不存在的数字主键，用于区分授权放行与权限拒绝。 */
 export const MISSING_ID = 999999999;
 
-/**
- * 把契约路径的 `{...}` 占位符统一替换为目标 id。
- * 停写门禁在参数解析之前就返回 503（门禁先于 handler），因此探测目标值不影响断言。
- */
-export function fillEndpointPath(path: string, id: number | string = 1): string {
-  return path.replace(/\{[^}]+\}/g, String(id));
+/** 填入符合路径格式的目标。停写门禁在解析这些参数之前返回。 */
+export function fillEndpointPath(
+  path: string,
+  values: Readonly<Record<string, number | string>> = {},
+): string {
+  return path.replace(/\{([^}]+)\}/g, (_, key: string) =>
+    encodeURIComponent(String(values[key] ?? MISSING_ID)),
+  );
+}
+
+/** 确认隔离服务由验收启动，且生产构建与运行进程都显式清空运维连接。 */
+export function expectOpsPipelineDisconnected(config: FullConfig): void {
+  const server = config.webServer;
+  expect(server?.reuseExistingServer === false, "运维验收必须由当前配置启动隔离服务").toBe(true);
+  for (const key of [
+    "OPS_SERVICE_URL",
+    "OPS_API_TOKEN",
+    "BACKUP_SERVICE_URL",
+    "BACKUP_OPS_TOKEN",
+  ]) {
+    expect(server?.env?.[key] === "", `隔离服务须在启动配置中显式清空 ${key}`).toBe(true);
+  }
 }
 
 export function bearer(token: string) {
@@ -395,7 +499,9 @@ export async function issueManageToken(
   page: Page,
   name: string,
   levels: Partial<Record<ManageDomain, ManageLevel>>,
+  holder?: number,
 ): Promise<string> {
+  if (holder !== undefined) await loginAs(page.context(), holder);
   await page.goto(ADMIN_TOKENS);
   const matrix = page.getByRole("group", { name: "权限矩阵" });
   await page.getByLabel("名称（便于辨识用途）").fill(name);
@@ -432,19 +538,23 @@ export async function expectManageError(
 
 export type PendingThread = { threadId: number; postId: number };
 
-/** 在演示审核版块创建首帖（默认待审，可指定可见/已删供迁移类用例）；逐步记录主键。 */
+/** 默认沿用演示版块的待审夹具；会改变可见性计数的用例须传入专属版块。 */
 export async function seedPendingThread(
   q: Q,
   target: PendingThread,
   authorId: number,
   text: string,
   state: "pending" | "visible" | "deleted" = "pending",
+  forumId = 906,
 ): Promise<PendingThread> {
+  if (state !== "pending" && forumId === 906) {
+    throw new Error("可见或恢复类内容夹具必须使用专属版块");
+  }
   target.threadId = (
     await q.exec(
       `INSERT INTO threads (forum_id, author_id, title, state, created_at, last_posted_at)
-       VALUES (906, ?, ?, ?, NOW(), NOW())`,
-      [authorId, text, state],
+       VALUES (?, ?, ?, ?, NOW(), NOW())`,
+      [forumId, authorId, text, state],
     )
   ).insertId;
   target.postId = (
@@ -458,6 +568,28 @@ export async function seedPendingThread(
     target.postId,
     target.threadId,
   ]);
+  if (state === "visible") {
+    // 直插可见首帖时同步派生值，后续屏蔽才能在正确基线上减计数。
+    await q.exec(
+      `UPDATE threads t JOIN posts p ON p.id = t.first_post_id
+       SET t.last_post_id = p.id, t.last_poster_id = p.author_id, t.last_posted_at = p.created_at
+       WHERE t.id = ?`,
+      [target.threadId],
+    );
+    await q.exec(
+      `UPDATE forums f JOIN threads t ON t.forum_id = f.id
+       SET f.thread_count = f.thread_count + 1, f.post_count = f.post_count + 1,
+           f.last_post_id = t.last_post_id, f.last_posted_at = t.last_posted_at
+       WHERE t.id = ?`,
+      [target.threadId],
+    );
+    await q.exec(
+      `UPDATE user_stats s JOIN posts p ON p.author_id = s.user_id
+       SET s.thread_count = s.thread_count + 1, s.post_count = s.post_count + 1,
+           s.last_post_at = p.created_at WHERE p.id = ?`,
+      [target.postId],
+    );
+  }
   return target;
 }
 
@@ -507,73 +639,170 @@ export async function insertLegacyToken(q: Q, userId: number, name: string): Pro
   return plain;
 }
 
-/** 删除本次验收产生的令牌、幂等记录、审计、内容、通知与账号。 */
+type RowScope = { where: string; params: (number | string)[] };
+
+/** 空夹具不产生扫描或删除条件；列名和表达式只由下方固定的 SQL 片段提供。 */
+function inScope(column: string, values: readonly (number | string)[]): RowScope {
+  return values.length
+    ? { where: `${column} IN (${values.map(() => "?").join(",")})`, params: [...values] }
+    : { where: "0", params: [] };
+}
+
+function orScope(...scopes: RowScope[]): RowScope {
+  return {
+    where: scopes.map(({ where }) => `(${where})`).join(" OR "),
+    params: scopes.flatMap(({ params }) => params),
+  };
+}
+
+/** 按本次验收的主键或唯一标记回收数据；共用管理员只能用于定位对应的令牌审计。 */
 export async function cleanupManageArtifacts(input: {
   tokenNames: readonly string[];
   adminUserIds: readonly number[];
   authorUserIds: readonly number[];
   targets: readonly PendingThread[];
+  temporaryAdminUserIds?: readonly number[];
+  forumNames?: readonly string[];
 }): Promise<void> {
   await withE2eDb(async (q) => {
-    if (input.tokenNames.length > 0) {
-      const tokens = await q.query<{ id: string; suffix: string }>(
-        `SELECT id, suffix FROM admin_api_tokens WHERE name IN (${input.tokenNames.map(() => "?").join(",")})`,
-        input.tokenNames as unknown[],
-      );
-      for (const { id, suffix } of tokens) {
-        await q.exec("DELETE FROM manage_api_idempotency WHERE token_id = ?", [id]);
-        const actorFilter =
-          input.adminUserIds.length > 0
-            ? `actor_id IN (${input.adminUserIds.map(() => "?").join(",")}) AND `
-            : "";
-        await q.exec(
-          `DELETE FROM audit_log WHERE ${actorFilter}
-             ((target_type = 'admin_api_token' AND target_id = ?)
-               OR (target_type = 'manage_api' AND BINARY JSON_UNQUOTE(JSON_EXTRACT(after_json, '$.tokenSuffix')) = ?))`,
-          [...input.adminUserIds, id, suffix],
-        );
-        await q.exec("DELETE FROM admin_api_tokens WHERE id = ?", [id]);
+    const ownedUsers = [
+      ...new Set([...input.authorUserIds, ...(input.temporaryAdminUserIds ?? [])]),
+    ].filter((id) => id > 0);
+    const actors = [...input.adminUserIds, ...(input.temporaryAdminUserIds ?? [])];
+    const postIds = input.targets.map(({ postId }) => postId).filter(Boolean);
+    const threadIds = input.targets.map(({ threadId }) => threadId).filter(Boolean);
+    const target = (kind: string, ids: readonly (string | number)[]): RowScope => {
+      const scope = inScope("target_id", ids);
+      return { ...scope, where: `target_type = '${kind}' AND ${scope.where}` };
+    };
+    const find = <T>(table: string, columns: string, scope: RowScope) =>
+      scope.params.length
+        ? q.query<T>(`SELECT ${columns} FROM ${table} WHERE ${scope.where}`, scope.params)
+        : Promise.resolve([] as T[]);
+
+    const tokenScope = inScope("name", input.tokenNames);
+    const forumScope = inScope("name", input.forumNames ?? []);
+    const reports = inScope("post_id", postIds);
+    const announcements = inScope("created_by", ownedUsers);
+    const tokens = await find<{ id: string; suffix: string }>(
+      "admin_api_tokens",
+      "id, suffix",
+      tokenScope,
+    );
+    const forumIds = (await find<{ id: number }>("forums", "id", forumScope)).map(({ id }) => id);
+    const reportIds = (await find<{ id: number }>("reports", "id", reports)).map(({ id }) => id);
+    const announcementIds = (await find<{ id: number }>("announcements", "id", announcements)).map(
+      ({ id }) => id,
+    );
+    const userScope = inScope("user_id", ownedUsers);
+    const actorScope = inScope("actor_id", ownedUsers);
+    // 覆盖补发的主题创建事件，以及只按用户归属的积分变更等二级事件。
+    const eventScope = orScope(
+      actorScope,
+      inScope("JSON_UNQUOTE(JSON_EXTRACT(payload, '$.postId'))", postIds.map(String)),
+      inScope("JSON_UNQUOTE(JSON_EXTRACT(payload, '$.threadId'))", threadIds.map(String)),
+      inScope("JSON_UNQUOTE(JSON_EXTRACT(payload, '$.userId'))", ownedUsers.map(String)),
+      inScope("JSON_UNQUOTE(JSON_EXTRACT(payload, '$.forumId'))", forumIds.map(String)),
+    );
+    const outboxIds = (await find<{ id: number }>("event_outbox", "id", eventScope)).map(
+      ({ id }) => id,
+    );
+    // 在出箱删除前保留凭证键；退出检查不能依赖已删出箱的 JOIN，否则孤儿会被漏掉。
+    const outboxScope = inScope("outbox_id", outboxIds);
+    const tokenIds = tokens.map(({ id }) => id);
+    const tokenSuffix = inScope(
+      "BINARY JSON_UNQUOTE(JSON_EXTRACT(after_json, '$.tokenSuffix'))",
+      tokens.map(({ suffix }) => suffix),
+    );
+    const tokenAudit = orScope(target("admin_api_token", tokenIds), {
+      ...tokenSuffix,
+      where: `target_type = 'manage_api' AND ${tokenSuffix.where}`,
+    });
+    const tokenActor = inScope("actor_id", actors);
+    const scopedTokenAudit =
+      tokens.length && actors.length
+        ? {
+            where: `${tokenActor.where} AND (${tokenAudit.where})`,
+            params: [...tokenActor.params, ...tokenAudit.params],
+          }
+        : tokenAudit;
+    const audits = orScope(
+      scopedTokenAudit,
+      actorScope,
+      target("post", postIds.map(String)),
+      target("thread", threadIds.map(String)),
+      target("report", reportIds.map(String)),
+      target("forum", forumIds.map(String)),
+    );
+
+    const rows: [string, RowScope][] = [
+      ["notification_receipts", orScope(outboxScope, userScope)],
+      ["notification_deliveries", outboxScope],
+      [
+        "notifications",
+        orScope(
+          userScope,
+          actorScope,
+          target("post", postIds),
+          target("thread", threadIds),
+          target("report", reportIds),
+          target("forum", forumIds),
+        ),
+      ],
+      ["email_log", userScope],
+      ["push_log", userScope],
+      ["event_outbox", eventScope],
+      ["event_log", eventScope],
+      ["manage_api_idempotency", inScope("token_id", tokenIds)],
+      ["audit_log", audits],
+      ["admin_api_tokens", tokenScope],
+      ["reports", reports],
+      ["content_reviews", inScope("post_id", postIds)],
+      ["user_appeals", userScope],
+      ["user_restrictions", userScope],
+      ["point_ledger", userScope],
+      ["point_accounts", userScope],
+      ["announcement_reads", orScope(userScope, inScope("announcement_id", announcementIds))],
+      ["announcements", announcements],
+      ["invite_codes", inScope("created_by", ownedUsers)],
+      ["sessions", userScope],
+      ["notification_preferences", userScope],
+      ["user_badges", userScope],
+      ["user_stats", userScope],
+      ["user_roles", userScope],
+      ["posts", orScope(inScope("id", postIds), inScope("thread_id", threadIds))],
+      ["threads", inScope("id", threadIds)],
+      ["forums", forumScope],
+      ["users", inScope("id", ownedUsers)],
+    ];
+    await q.exec("START TRANSACTION");
+    try {
+      for (const [table, scope] of rows) {
+        if (scope.params.length)
+          await q.exec(`DELETE FROM ${table} WHERE ${scope.where}`, scope.params);
       }
+      await q.exec("COMMIT");
+    } catch (error) {
+      await q.exec("ROLLBACK");
+      throw error;
     }
-    for (const { postId, threadId } of input.targets) {
-      if (postId) {
-        for (const table of ["notification_receipts", "notification_deliveries"]) {
-          await q.exec(
-            `DELETE n FROM ${table} n JOIN event_outbox o ON o.id = n.outbox_id
-             WHERE o.event_name IN ('content.moderated', 'thread.replied')
-               AND JSON_EXTRACT(o.payload, '$.postId') = ?`,
-            [postId],
-          );
-        }
-        await q.exec("DELETE FROM notifications WHERE target_type = 'post' AND target_id = ?", [
-          postId,
-        ]);
-        for (const table of ["event_log", "event_outbox"]) {
-          await q.exec(
-            `DELETE FROM ${table} WHERE event_name IN ('content.moderated', 'thread.replied')
-               AND JSON_EXTRACT(payload, '$.postId') = ?`,
-            [postId],
-          );
-        }
-        await q.exec("DELETE FROM content_reviews WHERE post_id = ?", [postId]);
-        await q.exec("DELETE FROM audit_log WHERE target_type = 'post' AND target_id = ?", [
-          String(postId),
-        ]);
-        await q.exec("DELETE FROM posts WHERE id = ?", [postId]);
-      }
-      if (threadId) {
-        await q.exec("DELETE FROM audit_log WHERE target_type = 'thread' AND target_id = ?", [
-          String(threadId),
-        ]);
-        await q.exec("DELETE FROM threads WHERE id = ?", [threadId]);
-      }
-    }
-    for (const userId of input.authorUserIds) {
-      if (!userId) continue;
-      await q.exec("DELETE FROM notifications WHERE user_id = ?", [userId]);
-      await q.exec("DELETE FROM user_stats WHERE user_id = ?", [userId]);
-      await q.exec("DELETE FROM user_roles WHERE user_id = ?", [userId]);
-      await q.exec("DELETE FROM users WHERE id = ?", [userId]);
+
+    const checks: [string, RowScope][] = [
+      ...rows,
+      ["threads", inScope("forum_id", forumIds)],
+      ["forums", inScope("last_post_id", postIds)],
+      // 再按业务键核对奖励没有指向已删除的内容；不改动共用账号的账户。
+      [
+        "point_ledger",
+        inScope("idempotency_key", [
+          ...threadIds.map((id) => `thread:${id}`),
+          ...postIds.map((id) => `reply:${id}`),
+        ]),
+      ],
+    ];
+    for (const [table, scope] of checks) {
+      const found = await find<{ n: number }>(table, "COUNT(*) AS n", scope);
+      if (found.length) expect(Number(found[0].n), `${table} 不得残留本次管理验收的数据`).toBe(0);
     }
   });
 }

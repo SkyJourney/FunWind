@@ -46,6 +46,11 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: 240_000,
     env: {
+      // 新旧运维变量均须显式覆盖，避免从宿主或 .env 接入真实管线。
+      OPS_SERVICE_URL: "",
+      OPS_API_TOKEN: "",
+      BACKUP_SERVICE_URL: "",
+      BACKUP_OPS_TOKEN: "",
       NEW_DB_NAME: "qysub_next_e2e",
       NEXT_DIST_DIR: process.env.NEXT_DIST_DIR ?? ".next-e2e-visual",
       TRUSTED_PROXY_HOPS: "0",

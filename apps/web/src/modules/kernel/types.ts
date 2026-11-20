@@ -135,7 +135,9 @@ export interface EventPayloads {
 
 export type EventName = keyof EventPayloads;
 export const MODERATION_NOTIFICATION_DELIVERY_POLICY = "moderation_notification_v1";
-export type EventDeliveryPolicy = typeof MODERATION_NOTIFICATION_DELIVERY_POLICY;
+export const ROLE_NOTIFICATION_DELIVERY_POLICY = "role_notification_v1";
+export type EventDeliveryPolicy =
+  typeof MODERATION_NOTIFICATION_DELIVERY_POLICY | typeof ROLE_NOTIFICATION_DELIVERY_POLICY;
 
 /** 持久事件的身份与原始来源；直接派发不伪造这一上下文。 */
 export type EventDeliveryContext = Readonly<{
