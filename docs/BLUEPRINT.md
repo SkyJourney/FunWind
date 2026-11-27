@@ -193,6 +193,8 @@ schema 演进：P0 期的 `migration/schema/schema.sql` 为基线底稿；**M1 �
 
 旧站未启用伪静态（nginx conf 实证），301 源即原生 query string。**新格式自 M3 起冻结**：改动必须先迁移 301 表。
 
+M22 的公开订阅使用 `/feeds/latest` 与 `/feeds/forum/{fid}`，默认 RSS 2.0，附加 `?format=atom` 返回 Atom 1.0。条目链接使用上表的 `/t/{tid}`。完整契约见 [M22](milestones/M22-rss-feeds.md#4-交付物与接口契约)。
+
 ## 4.6 认证与账号（M4 行为冻结）
 
 - **注册**：`register.mode` = invite（默认，站点语义）/ open（邮箱验证令牌）；模式存 `site_settings`。

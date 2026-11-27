@@ -46,6 +46,8 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET") return;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+  // 订阅由源站重验证，离线时也不能用离线壳或缓存副本替代。
+  if (url.pathname.startsWith("/feeds/")) return;
 
   if (request.mode === "navigate") {
     event.respondWith(

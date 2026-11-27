@@ -4,7 +4,7 @@ import { NextResponse, type NextRequest } from "next/server";
  * 全站代理（Next 16 `proxy.ts` 约定）。两件事：
  * ① 双轨强制换密快速门（docs/PASSWORD-DUAL-TRACK.md）：只读 cookie、不查库（edge 兼容；
  *    真源 = users.legacy_password_pending，登录动作发牌、换密动作销毁）。
- *    命中 → 除换密页外一律重定向强制换密页；页面自身仍做服务端 pending 复核
+ *    命中 → 除换密流程和公开订阅外重定向强制换密页；页面自身仍做服务端 pending 复核
  *    （cookie 残留/过期会话不构成绕过或误困）。
  * ② 畸形 URL 门（CI 全量 E2E 迁移时暴露）：超长 UTF-8（%c0%ae 等）是非法编码序列，
  *    生产下 Next 解码异常冒泡成 500（dev 下 Next 层拒成 400）——攻击/畸形形态按约定一律 404。
@@ -32,6 +32,10 @@ export function proxy(req: NextRequest) {
   }
 
   if (req.cookies.get(MUST_CHANGE_COOKIE)?.value !== "1") return NextResponse.next();
+  // 公开订阅始终按游客权限生成，路径检查仍在此之前执行。
+  if (rawPath === "/feeds/latest" || /^\/feeds\/forum\/[^/]+$/.test(rawPath)) {
+    return NextResponse.next();
+  }
   if (req.nextUrl.pathname.startsWith(CHANGE_PATH) || req.nextUrl.pathname.startsWith("/login")) {
     return NextResponse.next();
   }
