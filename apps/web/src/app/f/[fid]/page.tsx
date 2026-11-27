@@ -8,6 +8,7 @@ import { ThreadRow } from "@/components/content/thread-row";
 import { ThreadStream } from "@/components/content/thread-stream";
 import { MotionList } from "@/lib/motion";
 import { Pagination } from "@/components/content/pagination";
+import { FeedDiscovery } from "@/components/site/feed-discovery";
 import { getCurrentSubject } from "@/lib/authz/subject";
 import { getForumTree } from "@/lib/authz/snapshot";
 import { loadComposeAccess } from "@/lib/posting/compose-access";
@@ -65,6 +66,7 @@ export default async function ForumPage({ params, searchParams }: Params) {
 
   return (
     <main className="mx-auto max-w-5xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
+      <FeedDiscovery scope={{ kind: "forum", fid }} />
       <nav className="flex items-center gap-1.5 text-sm text-muted-foreground">
         <Link href="/" className="inline-flex items-center gap-1 hover:text-primary">
           <ArrowLeft className="size-3.5" /> 首页

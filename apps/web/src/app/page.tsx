@@ -8,6 +8,7 @@ import { FeedCard } from "@/components/content/feed-card";
 import { HomeFeedStream } from "@/components/content/home-feed-stream";
 import { MotionList } from "@/lib/motion";
 import { BrandCard } from "@/components/site/site-header";
+import { FeedDiscovery } from "@/components/site/feed-discovery";
 import { EmptyState } from "@/components/empty-state";
 import { isDevEnv } from "@/lib/dev-only";
 import { getForumTree } from "@/lib/authz/snapshot";
@@ -88,6 +89,7 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+      <FeedDiscovery scope={{ kind: "latest" }} />
       <h1 className="sr-only">{chrome.identity.name}</h1>
 
       {/* Hero 横幅位（M11 插槽 ⑤）：站长在后台上传的当前项；无当前项不占位。

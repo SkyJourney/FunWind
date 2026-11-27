@@ -24,9 +24,7 @@ function rehypeHarden() {
   };
 }
 
-let processor: ReturnType<typeof createProcessor> | undefined;
-
-function createProcessor() {
+function createSanitizer() {
   return (
     unified()
       .use(remarkParse)
@@ -37,15 +35,26 @@ function createProcessor() {
       .use(rehypeRaw)
       .use(rehypeSanitize, sanitizeSchema())
       .use(rehypeHarden)
-      .use(rehypeHighlight)
-      .use(rehypeStringify)
   );
 }
 
-function getProcessor() {
-  processor ??= createProcessor();
-  return processor;
+let sanitizer: ReturnType<typeof createSanitizer> | undefined;
+
+function getSanitizer() {
+  return (sanitizer ??= createSanitizer().freeze());
 }
+
+/** 获取站内 Markdown 的净化树，供只需要正文文本的调用方使用。 */
+export function sanitizeMarkdown(md: string): Root {
+  const processor = getSanitizer();
+  return processor.runSync(processor.parse(md.trim()));
+}
+
+function createRenderer() {
+  return getSanitizer()().use(rehypeHighlight).use(rehypeStringify);
+}
+
+let renderer: ReturnType<typeof createRenderer> | undefined;
 
 /** LRU 缓存：历史帖不可变，渲染结果按内容缓存（容量 500） */
 const cache = new Map<string, string>();
@@ -74,7 +83,7 @@ function cached(key: string, render: () => string): string {
 export function renderMarkdown(md: string, options: { cache?: boolean } = {}): string {
   const trimmed = md.trim();
   if (trimmed === "") return "";
-  const render = () => String(getProcessor().processSync(trimmed));
+  const render = () => String((renderer ??= createRenderer()).processSync(trimmed));
   return options.cache === false ? render() : cached(trimmed, render);
 }
 

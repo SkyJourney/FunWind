@@ -192,6 +192,8 @@ check(subject, "resource.action", { forumId?, threadLocked? })
 查询层（`lib/queries/visibility.ts`）始终先取 `readable` 再在其中叠加「可见 pending / rejected / hidden / deleted 内容」的 `moderated` 条件（`and(readable, or(…))`），所以不会因此泄露；
 但写新查询时**不要**只用 `moderated` 当作可读范围。
 
+**M22 公开订阅**固定使用游客主体和新鲜授权快照，仅收录有效读策略为 `public` 的普通版块。主题与首帖都须为 `visible`，全站订阅还要求版块已列入目录。缺失或不公开的版块订阅统一返回 404。条件请求在当前权限下生成表示，再比较 ETag。见 [M22 订阅契约](milestones/M22-rss-feeds.md#4-交付物与接口契约)。
+
 ### 8.4 旧数据翻译（v2；v2.1 起该映射表只存在于 `migration/src/mapping/`，运行时不认识）
 
 | 旧 | 新 |
