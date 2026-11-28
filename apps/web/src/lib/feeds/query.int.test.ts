@@ -29,6 +29,7 @@ const F = {
   restricted: 1009,
   publicOverride: 1010,
   ranked: 1011,
+  orphan: 1012,
 };
 const AUTHOR_ID = 1100;
 const DELETED_AUTHOR_ID = 1101;
@@ -124,6 +125,7 @@ describe.skipIf(skipDb)("订阅源查询（真实 MySQL）", () => {
         forum("受限版块", [F.restricted], { readPolicy: "restricted" }),
         forum("明确公开", [F.restrictedSection, F.publicOverride], { readPolicy: "public" }),
         forum("排序版块", [F.ranked]),
+        forum("缺少祖先的版块", [1900, F.orphan]),
       ]);
     await db.insert(roleGrants).values({
       roleKey: "guest",
@@ -151,6 +153,7 @@ describe.skipIf(skipDb)("订阅源查询（真实 MySQL）", () => {
       { id: 106, forumId: F.members, createdAt: invalidDate },
       { id: 107, forumId: F.restricted, createdAt: invalidDate },
       { id: 108, forumId: F.publicSection, createdAt: invalidDate },
+      { id: 109, forumId: F.orphan, createdAt: invalidDate },
       ...TIED_IDS.map((id) => ({ id, forumId: F.ranked, createdAt: "2026-11-24 12:00:00" })),
       { id: 1999, forumId: F.ranked, createdAt: "2026-11-24 13:00:00" },
       { id: 2099, forumId: F.ranked, createdAt: "2026-11-24 11:00:00" },
@@ -215,6 +218,13 @@ describe.skipIf(skipDb)("订阅源查询（真实 MySQL）", () => {
       expect(await loadFeed(board(fid)), `版块 ${fid}`).toBeNull();
       expect(await isPublicFeedForum(fid), `版块 ${fid}`).toBe(false);
     }
+  });
+
+  it("继承链无法确认的版块从两类订阅和发现入口中排除", async () => {
+    expect(await isPublicFeedForum(F.orphan)).toBe(false);
+    expect(await loadFeed(board(F.orphan))).toBeNull();
+    const feed = await loadFeed(latest);
+    expect(feed?.entries).not.toContainEqual(expect.objectContaining({ id: 109 }));
   });
 
   it("先在 SQL 中筛出可订阅主题与有效可见首帖，再按发布时间和 ID 截取 50 条", async () => {

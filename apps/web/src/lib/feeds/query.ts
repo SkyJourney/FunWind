@@ -37,7 +37,14 @@ async function loadPublicFeedForums(tx: DbTx): Promise<Map<number, ForumNode>> {
   const eligible = new Map<number, ForumNode>();
   for (const fid of readableForumIds(GUEST_SUBJECT, snapshot)) {
     const forum = tree.get(fid);
-    if (forum?.kind === "forum" && tree.readPolicy(fid).value === "public") {
+    if (forum?.kind !== "forum") continue;
+    // 祖先缺失或成环时无法证实公开资格，不能采用继承的默认公开值。
+    const root = tree.chain(fid).at(-1);
+    if (
+      root !== undefined &&
+      tree.get(root)?.parentId === 0 &&
+      tree.readPolicy(fid).value === "public"
+    ) {
       eligible.set(fid, forum);
     }
   }

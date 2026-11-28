@@ -196,6 +196,43 @@ test("首页和公开版块原始 head 能发现两种订阅，受限版块不�
   expect(restrictedHtml).toContain(FIX.staff.name);
   expect(await readDiscovery(page, privileged)).toEqual([]);
   expect(restrictedHtml).not.toMatch(/<link\b[^>]*type="application\/(?:rss|atom)\+xml"/i);
+  expect(restrictedHtml).not.toContain('aria-label="版块订阅"');
+});
+
+test("桌面和窄屏可以直接使用页内订阅链接", async ({ page }) => {
+  for (const width of [375, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const [path, label, feedPath] of [
+      ["/", "全站订阅", LATEST],
+      [`/f/${FIX.anime.id}`, "版块订阅", forumFeed(FIX.anime.id)],
+    ]) {
+      await page.goto(path);
+      const entry = page.getByRole("group", { name: label, exact: true });
+      const rss = entry.getByRole("link", { name: "RSS 订阅", exact: true });
+      const atom = entry.getByRole("link", { name: "Atom 订阅", exact: true });
+      await expect(rss).toBeVisible();
+      await expect(atom).toBeVisible();
+      for (const [link, suffix] of [
+        [rss, ""],
+        [atom, "?format=atom"],
+      ] as const) {
+        const href = new URL((await link.getAttribute("href"))!);
+        expect(href.pathname + href.search).toBe(`${feedPath}${suffix}`);
+        await expect(link).not.toHaveCSS("position", /fixed|absolute|sticky/);
+        const visibleInFlow = await link.evaluate((element) => {
+          const rect = element.getBoundingClientRect();
+          return (
+            rect.left >= 0 &&
+            rect.right <= window.innerWidth &&
+            element.contains(
+              document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2),
+            )
+          );
+        });
+        expect(visibleInFlow).toBe(true);
+      }
+    }
+  }
 });
 
 test("RSS 与 Atom 均是游客表示，登录和强制换密 Cookie 不改变结果", async ({
