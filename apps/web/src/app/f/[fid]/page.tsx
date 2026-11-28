@@ -66,7 +66,6 @@ export default async function ForumPage({ params, searchParams }: Params) {
 
   return (
     <main className="mx-auto max-w-5xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
-      <FeedDiscovery scope={{ kind: "forum", fid }} />
       <nav className="flex items-center gap-1.5 text-sm text-muted-foreground">
         <Link href="/" className="inline-flex items-center gap-1 hover:text-primary">
           <ArrowLeft className="size-3.5" /> 首页
@@ -96,6 +95,7 @@ export default async function ForumPage({ params, searchParams }: Params) {
             )}
             <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
               <span>主题 {forum.threadCount}</span>
+              <FeedDiscovery scope={{ kind: "forum", fid }} />
             </div>
           </div>
           {/* 发帖主行动（M10.6d 站长反馈：文字链太不显眼——升级为醒目主按钮） */}

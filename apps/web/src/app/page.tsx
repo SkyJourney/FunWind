@@ -89,7 +89,6 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
-      <FeedDiscovery scope={{ kind: "latest" }} />
       <h1 className="sr-only">{chrome.identity.name}</h1>
 
       {/* Hero 横幅位（M11 插槽 ⑤）：站长在后台上传的当前项；无当前项不占位。
@@ -123,8 +122,11 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
       <div className="mt-4 grid gap-8 xl:grid-cols-[minmax(0,1fr)_18rem]">
         <div className="min-w-0 space-y-4">
           {/* 分区筛选 + 排序 */}
-          <div className="flex items-center gap-2">
-            <nav aria-label="分区筛选" className="flex flex-1 flex-wrap gap-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <nav
+              aria-label="分区筛选"
+              className="flex min-w-0 flex-1 basis-full flex-wrap gap-1.5 sm:basis-0"
+            >
               <Link
                 href={feedHref({ sec: undefined, page: 1 })}
                 aria-current={!sectionId ? "true" : undefined}
@@ -175,6 +177,7 @@ export default async function HomePage({ searchParams }: { searchParams: SearchP
                 最新发布
               </Link>
             </div>
+            <FeedDiscovery scope={{ kind: "latest" }} />
           </div>
 
           <h2 className="sr-only">最新主题</h2>

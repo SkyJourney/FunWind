@@ -44,6 +44,7 @@ Badge / Table / Pagination / Toast / Skeleton / Editor（MD，含表情面板）
 - **同一令牌体系，两套布局 shell**：前台（内容优先）；`/admin`（侧边导航、高密度、表格化）。
 - 管理后台不做独立仓库/独立设计语言——权限隔离靠 authz（M03），视觉隔离靠密度 token。
 - 首页与公开版块页的 HTML `<head>` 提供 RSS 2.0 和 Atom 1.0 发现链接，链接分别指向全站或对应版块的订阅源。[M22 订阅契约](milestones/M22-rss-feeds.md#4-交付物与接口契约)
+- M22.1 的「RSS 订阅」与「Atom」位于首页主题筛选栏和公开版块标题下的主题数旁。两处沿用页面正常排版，窄屏可换行。[M22.1 补充](milestones/M22-rss-feeds.md#10-m221-页内入口与继承链校验)
 
 ## 5. 响应式与移动端
 
